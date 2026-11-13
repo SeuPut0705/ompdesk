@@ -460,6 +460,46 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 		expect(line?.details).toMatchObject({ version: "2.0.0" });
 	});
 
+	it.skipIf(!CAN_DOWNLOAD)(
+		"a downloaded version whose start failed is held: a check keeps it, a failed look keeps it, a newer one replaces it",
+		TIMEOUT,
+		async () => {
+			const rig = await boot();
+			// Node's record of 2.0.0 failing to start after an install (`rememberStartFailure`).
+			writeFileSync(path.join(rig.userData, "update-start-failed.json"), '{"version":"2.0.0","count":1,"at":1}');
+			rig.stand.latest = () => releaseOf(rig.stand.origin, "2.0.0");
+			await rig.updater.call("start", { version: "1.0.0" });
+			await rig.updater.call("check", {});
+			await downloadFound(rig);
+			await rig.statuses.until(isState("downloaded"));
+			const cdn = () => rig.stand.hitsOf(`/cdn/${OWN_ASSET.name}`).length;
+			const fetched = cdn();
+			const seen = rig.statuses.items.length;
+
+			// Found again: still downloaded, fetched nothing, no "checking" over the held download.
+			const again = await rig.updater.call("check", {});
+			expect(again.status).toMatchObject({ state: "downloaded", version: "2.0.0" });
+			expect(cdn()).toBe(fetched);
+			// A failed look keeps it as well, and says so in the log.
+			rig.stand.latest = () => ({ status: 500, json: { message: "down" } });
+			const failed = await rig.updater.call("check", {});
+			expect(failed.status).toMatchObject({ state: "downloaded", version: "2.0.0" });
+			const [held] = await rig.logs.until(line => line.message === "check" && line.details?.kind === "held");
+			expect(held?.details).toMatchObject({ event: "error", manual: true });
+			expect(rig.statuses.items.slice(seen)).toEqual([]);
+
+			// A newer release is what the rolled-back app waits for: it is fetched and replaces the held one.
+			rig.stand.latest = () => releaseOf(rig.stand.origin, "2.1.0");
+			await rig.updater.call("check", {});
+			await downloadFound(rig);
+			const [newer] = await rig.statuses.until(
+				item => isState("downloaded")(item) && item.status.version === "2.1.0",
+			);
+			expect(newer?.status).toMatchObject({ state: "downloaded", version: "2.1.0" });
+			expect(cdn()).toBe(fetched + 1);
+		},
+	);
+
 	it.skipIf(!CAN_DOWNLOAD)("a partial file resumes with a range request and still verifies", TIMEOUT, async () => {
 		const rig = await boot();
 		rig.stand.latest = () => releaseOf(rig.stand.origin, "2.0.0");
@@ -614,6 +654,23 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 			await rig.close();
 			// The recorder lives in the installer cache, outside the profile: its record outlives the shell.
 			expect(await startedWith(rig)).toEqual(["--updated", "/S"]);
+		});
+
+		it("an approved quit installs nothing of a version whose start failed", TIMEOUT, async () => {
+			const rig = await boot();
+			writeFileSync(path.join(rig.userData, "update-start-failed.json"), '{"version":"2.0.0","count":1,"at":1}');
+			rig.stand.payload = recorder;
+			rig.stand.latest = () => releaseOf(rig.stand.origin, "2.0.0", { payload: recorder });
+			await rig.updater.call("start", { version: "1.0.0" });
+			await rig.updater.call("check", {});
+			await rig.statuses.until(item => item.status.state === "downloaded" && item.installable);
+			await rig.updater.post("quit", { trigger: "quit" });
+			const [skipped] = await rig.logs.until(isLog("swap", "skipped"));
+			expect(skipped?.details).toMatchObject({ reason: "start failed before", version: "2.0.0" });
+			expect(rig.logs.items.some(isLog("swap", "helper"))).toBe(false);
+			expect(existsSync(path.join(rig.userData, "update-install.json"))).toBe(false);
+			await rig.close();
+			expect(existsSync(path.join(rig.pending, RECORD))).toBe(false);
 		});
 	});
 });

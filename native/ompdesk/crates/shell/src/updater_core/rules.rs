@@ -235,6 +235,16 @@ pub fn js_number(n: f64) -> String {
     }
 }
 
+/// The version a start-failure record names (`update-start-failed.json`, written by Node's `rememberStartFailure`):
+/// `parseStartFailure` in `src/main/update-log-core.ts` reads the same file the same way, a `version` string and an `at`
+/// number or nothing.
+pub fn start_failed_version(raw: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(raw).ok()?;
+    let object = value.as_object()?;
+    object.get("at")?.as_f64()?;
+    Some(object.get("version")?.as_str()?.to_string())
+}
+
 /// The token cut out of a text for the log (`<token>`); Node's `scrubUpdateText` takes URLs and the rest.
 pub fn cut_secrets(text: &str, secrets: &[Option<&str>]) -> String {
     let mut out = text.to_string();

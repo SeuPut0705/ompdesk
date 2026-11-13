@@ -775,4 +775,23 @@ describe("the start mark and a start that failed", () => {
 		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
 		expect(fs.existsSync(failedFile())).toBe(false);
 	});
+
+	it("a check looks past the held version: the shell is asked, and a failed call keeps the download", async () => {
+		fs.writeFileSync(failedFile(), JSON.stringify({ version: VERSION, count: 1, at: Date.now() }));
+		await boot();
+		const checks = () => mocks.calls.filter(call => call.method === "updater.check");
+		mocks.replies.set("updater.check", () => {
+			throw new Error("offline");
+		});
+		await expect(registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, [])).resolves.toMatchObject({
+			state: "downloaded",
+			version: VERSION,
+		});
+		expect(checks()).toHaveLength(1);
+
+		// Any other downloaded version is the answer by itself, as before: the shell is not asked.
+		emitStatus({ state: "downloaded", version: "0.46.0", mode: "automatic" });
+		await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, []);
+		expect(checks()).toHaveLength(1);
+	});
 });

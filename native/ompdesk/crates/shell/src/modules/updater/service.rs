@@ -322,6 +322,25 @@ impl Service {
         self.lock().status.clone()
     }
 
+    /// The version whose start failed after an install (`update-start-failed.json`; Node writes and clears it).
+    fn start_failed(&self) -> Option<String> {
+        let raw =
+            std::fs::read_to_string(self.places.user_data.join("update-start-failed.json")).ok()?;
+        rules::start_failed_version(&raw)
+    }
+
+    /// The downloaded version is the one whose start failed, and nobody started its install: only a person's click
+    /// installs it (a quit installs nothing), and a check looks past it for a newer release without a status of its
+    /// own over it (the owner's rule, app-updater › install modes).
+    fn held_start_failed(&self) -> bool {
+        let Some(failed) = self.start_failed() else {
+            return false;
+        };
+        let s = self.lock();
+        !s.install_started
+            && matches!(&s.status, Status::Downloaded { version, .. } if *version == failed)
+    }
+
     /// One decision line of `gui-runtime.jsonl` (source `app-update`, info level), written by Node (`log.runtime`,
     /// PROTOCOL.md §15.4 rule 1); Node's relay scrubs every `reason` of URLs and secrets the redactor knows.
     fn log(&self, message: &str, details: Value) {
@@ -407,11 +426,14 @@ impl Service {
         std::thread::spawn(move || {
             std::thread::sleep(FIRST_CHECK);
             loop {
-                // A downloaded or in-flight update is never replaced by a background re-check.
-                if !matches!(
-                    service.status(),
-                    Status::Downloading { .. } | Status::Downloaded { .. }
-                ) {
+                // A downloaded or in-flight update is never replaced by a background re-check, except one held as
+                // start-failed: a newer release is what the rolled-back app is waiting for.
+                let busy = match service.status() {
+                    Status::Downloading { .. } => true,
+                    Status::Downloaded { .. } => !service.held_start_failed(),
+                    _ => false,
+                };
+                if !busy {
                     service.run_check(false);
                 }
                 std::thread::sleep(CHECK_INTERVAL);
@@ -454,12 +476,16 @@ impl Service {
 
     /// `updater.check`: a person's check. A downloaded update or a transfer under way is the answer as it is.
     pub fn check(&self) -> Value {
+        let held = self.held_start_failed();
         let busy = {
             let s = self.lock();
-            s.transfer || matches!(s.status, Status::Downloaded { .. })
+            s.transfer || (matches!(s.status, Status::Downloaded { .. }) && !held)
         };
         if !busy {
-            self.broadcast(Status::Checking);
+            // A held download is looked past for a newer release; the card keeps it meanwhile.
+            if !held {
+                self.broadcast(Status::Checking);
+            }
             self.run_check(true);
         }
         self.state()
@@ -516,6 +542,9 @@ impl Service {
             (s.check_asked, s.status.clone(), s.version.clone())
         };
         let Some(error) = failure else {
+            if self.held_start_failed() {
+                return;
+            }
             let settled = rules::settle_incomplete_check(&current, asked, "updates.noResult");
             if settled != current {
                 self.log(
@@ -526,6 +555,16 @@ impl Service {
             }
             return;
         };
+        // A held download is still the answer when the look for a newer one fails (an error would drop it, and with it
+        // the hold).
+        if self.held_start_failed() {
+            self.log(
+                "check",
+                json!({ "event": "error", "kind": "held", "manual": asked,
+                        "reason": rules::cut_secrets(&error.message, &[configured.as_deref()]) }),
+            );
+            return;
+        }
         let mut access = token::repo_access(self, token.as_deref());
         // An anonymous request GitHub answers "not found" means the repo is private again: a token is needed (or the
         // one tried was rejected).
@@ -570,7 +609,10 @@ impl Service {
         if !self.places.packaged && env("OMP_DEV_UPDATE_CHECK").as_deref() != Some("1") {
             return None;
         }
-        self.broadcast(Status::Checking);
+        let held = self.held_start_failed();
+        if !held {
+            self.broadcast(Status::Checking);
+        }
         let release = match self.fetch_release(token) {
             Ok(release) => release,
             Err(error) => return Some(error),
@@ -586,7 +628,9 @@ impl Service {
             }),
             Some(false) => {
                 self.log("check", json!({ "event": "no-update", "current": current }));
-                self.broadcast(Status::NotAvailable { version: current });
+                if !held {
+                    self.broadcast(Status::NotAvailable { version: current });
+                }
                 None
             }
             Some(true) => {
@@ -675,6 +719,11 @@ impl Service {
         };
         let version = release.version.clone();
         self.log("check", json!({ "event": "found", "version": version, "current": current, "mode": mode.as_str() }));
+        // The held version again (it is the latest): it stays downloaded and held, nothing is fetched twice. A different
+        // one is fetched below and replaces it.
+        if self.held_start_failed() && self.start_failed().as_deref() == Some(version.as_str()) {
+            return;
+        }
         {
             let mut s = self.lock();
             // The transfer in flight keeps its asset and version.
@@ -1137,6 +1186,15 @@ impl Service {
                 s.swap_launched = true;
                 let relaunch = s.relaunch_after_swap;
                 drop(s);
+                // An ordinary quit never installs a version whose start failed: with no relaunch the helper would remove
+                // the previous app at once and nothing would check the start. Only "Restart & install" (relaunch) does.
+                if !relaunch && self.start_failed().as_deref() == Some(expected.as_str()) {
+                    self.log(
+                        "swap",
+                        json!({ "event": "skipped", "reason": "start failed before", "version": expected }),
+                    );
+                    return;
+                }
                 let mut extra = Map::new();
                 extra.insert("relaunch".into(), json!(relaunch));
                 self.note_helper("relaunch", trigger, presence, extra);
@@ -1154,6 +1212,20 @@ impl Service {
             }
             Mode::Automatic => {
                 if s.install_started || !matches!(s.status, Status::Downloaded { .. }) {
+                    return;
+                }
+                drop(s);
+                // A quit never installs a version whose start failed; only "Restart & install" does.
+                if self.held_start_failed() {
+                    let version = self.start_failed();
+                    self.log(
+                        "swap",
+                        json!({ "event": "skipped", "reason": "start failed before", "version": version }),
+                    );
+                    return;
+                }
+                let mut s = self.lock();
+                if s.install_started {
                     return;
                 }
                 s.install_started = true;

@@ -287,6 +287,16 @@ function clearStartFailure(): void {
 	fs.rmSync(startFailedPath(), { force: true });
 }
 
+/** What is downloaded is the version whose start failed, and nobody started its install: only a person's click installs it. */
+function heldStartFailed(): boolean {
+	return (
+		startFailure !== undefined &&
+		current.state === "downloaded" &&
+		!current.installing &&
+		current.version === startFailure.version
+	);
+}
+
 /**
  * An install starts: remember who asked, and tell the window. Starting the installer and quitting take seconds
  * the window cannot speak in (and a second click meanwhile started the install twice), so the status says
@@ -390,13 +400,15 @@ export function updateStatus(): UpdateStatus {
  * A user-started check. A downloaded update is the answer and changes nothing: Settings › Updates checks as it opens,
  * and a "checking" status in between made the automatic install give up its round (the countdown or the waiting
  * notice went, the max wait started over). The shell's own `checking` status reaches the windows, not this function.
+ * A download held as start-failed is looked past: a newer release replaces it, and the shell keeps it meanwhile.
  */
 export async function checkForUpdate(): Promise<UpdateStatus> {
-	if (current.state === "downloaded") return current;
+	if (current.state === "downloaded" && !heldStartFailed()) return current;
 	try {
 		mirror(await updater.call("check", {}), false);
 	} catch (error) {
-		showLocal(failureStatus(error, "updates.checkFailed", true));
+		// A held download is still the answer when the look fails.
+		if (!heldStartFailed()) showLocal(failureStatus(error, "updates.checkFailed", true));
 	}
 	return current;
 }
