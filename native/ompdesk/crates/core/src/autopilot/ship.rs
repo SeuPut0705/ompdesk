@@ -571,6 +571,16 @@ impl ShipRunner {
         target: Target,
         accept: Option<Accept>,
     ) -> Vec<ShipResult> {
+        self.drain_within(target, accept, self.drain_max).await
+    }
+
+    /// `drain` with its own bound (the parity suites stop one drain at a short one and run the next at the full one).
+    pub async fn drain_within(
+        self: &Arc<Self>,
+        target: Target,
+        accept: Option<Accept>,
+        max: Duration,
+    ) -> Vec<ShipResult> {
         let results = Arc::new(Mutex::new(Vec::new()));
         let this = self.clone();
         let collected = results.clone();
@@ -582,7 +592,7 @@ impl ShipRunner {
         };
         let ended = self
             .chain
-            .run("drain", Some(self.drain_max), async move {
+            .run("drain", Some(max), async move {
                 this.drain_items(target, accept, collected).await;
             })
             .await;

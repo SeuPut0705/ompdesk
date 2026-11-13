@@ -206,8 +206,6 @@ struct ShipOpen {
     port: u64,
     state: Box<serde_json::value::RawValue>,
     #[serde(default)]
-    drain_max_ms: Option<u64>,
-    #[serde(default)]
     stop_grace_ms: Option<u64>,
     #[serde(default)]
     custom_check: bool,
@@ -253,9 +251,12 @@ struct ShipOn {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ShipDrain {
     port: u64,
     target: Target,
+    #[serde(default)]
+    max_ms: Option<u64>,
 }
 
 pub fn register(registry: &mut Registry) {
@@ -320,11 +321,7 @@ pub fn register(registry: &mut Registry) {
             let runner = ShipRunner::new(
                 port.clone(),
                 hooks,
-                Duration::from_millis(
-                    params
-                        .drain_max_ms
-                        .unwrap_or(super::ship::SHIP_DRAIN_MAX_MS),
-                ),
+                Duration::from_millis(super::ship::SHIP_DRAIN_MAX_MS),
                 Duration::from_millis(params.stop_grace_ms.unwrap_or(land_check::STOP_GRACE_MS)),
             );
             SHIPS
@@ -369,7 +366,16 @@ pub fn register(registry: &mut Registry) {
     registry.add("autopilot.ship.drain", |call| {
         launch(call, |params: ShipDrain, _| {
             let runner = ship_of(params.port)?;
-            Ok(async move { runner.drain(params.target, None).await })
+            Ok(async move {
+                match params.max_ms {
+                    Some(max) => {
+                        runner
+                            .drain_within(params.target, None, Duration::from_millis(max))
+                            .await
+                    }
+                    None => runner.drain(params.target, None).await,
+                }
+            })
         })
     });
 }

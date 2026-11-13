@@ -80,12 +80,13 @@ export interface ShipDeps {
 	now(): number;
 	id(): string;
 	checkCandidate?(input: LandCheckInput): Promise<LandCheck>;
-	drainMaxMs?: number;
+	/** The git runner the core asks for (what stays main's); a test makes one call never answer. */
+	gitRunner?(): ReturnType<typeof gitRunner>;
 }
 
 /** The handlers a port serves the core's land check and ship queue: what stays main's (the checkout's preparation and shell). */
 const checkoutHandlers = {
-	gitRunner: () => gitRunner(),
+	gitRunner: (): ReturnType<typeof gitRunner> => gitRunner(),
 	prepareWorktree: ({ primary, tree }: { primary: string; tree: string }) => prepareWorktree(primary, tree),
 	landShell: ({ command }: { command: string }) => landShell(command),
 };
@@ -113,6 +114,7 @@ export class ShipRunner {
 		this.#deps = deps;
 		this.#port = new CorePort({
 			...checkoutHandlers,
+			...(deps.gitRunner ? { gitRunner: () => deps.gitRunner?.() } : {}),
 			shipJournal: (action: AutopilotShipActionParams) => deps.journal(action),
 			shipChanged: (queue: ShipQueueItem[]) => deps.changed(queue),
 			shipReverted: ({ cycle }: { cycle: number }) => deps.reverted(cycle),
@@ -124,7 +126,6 @@ export class ShipRunner {
 		void core().call("autopilot.ship.open", {
 			port: this.#port.id,
 			...this.#port.first(),
-			...(deps.drainMaxMs === undefined ? {} : { drainMaxMs: deps.drainMaxMs }),
 			customCheck: deps.checkCandidate !== undefined,
 		});
 	}
@@ -164,9 +165,16 @@ export class ShipRunner {
 		return this.#call("cancel", { id });
 	}
 
-	/** Runs the queue; a land's check can take as long as the check's own bound. */
-	drain(target: ShipTarget): Promise<ShipResult[]> {
-		return this.#call("drain", { target }, 2 * 60 * 60_000);
+	/**
+	 * Runs the queue; a land's check can take as long as the check's own bound. `maxMs` bounds this drain alone (the
+	 * app's is 3 h, which no test waits for).
+	 */
+	drain(target: ShipTarget, options: { maxMs?: number } = {}): Promise<ShipResult[]> {
+		return this.#call(
+			"drain",
+			{ target, ...(options.maxMs === undefined ? {} : { maxMs: options.maxMs }) },
+			2 * 60 * 60_000,
+		);
 	}
 
 	/** Closes the port: what the core still asks of this client fails. */
