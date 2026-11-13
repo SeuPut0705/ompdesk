@@ -338,8 +338,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Check control's page and frame (14 Nov 2026: the `checks` destination in `stores/ui.ts` and `AppShell.tsx`, the
 // frame's store and its subscription in `App.tsx`, the `checks` palette command and API members, `Gauge` lifted out of
 // `UsageGauges`; the page, the sidebar block and the strings stay in their own chunks): measured 2,204,042 by the
-// runner's build of omp/agent/checks-ui, 2,142 bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_204_100;
+// runner's build of omp/agent/checks-ui, 2,142 bytes over. The store then started from the last frame in the snapshot
+// cache, so a reload paints the sidebar block at once (no-loading-screens): measured 2,204,493, 393 bytes over.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_204_500;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
