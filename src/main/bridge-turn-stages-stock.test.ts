@@ -31,9 +31,13 @@ import { turnStagesReport } from "./turn-stages-log";
  */
 /** Stock's first-event timer, shortened from its 300 s default (pi-ai `idle-iterator.ts`). */
 const FIRST_EVENT_TIMEOUT_MS = 3_000;
-/** The bridge's "late" threshold, shortened from 30 s. */
-const LATE_MS = 1_500;
-const SLOW_HANDLER_MS = 2_500;
+/**
+ * The bridge's "late" threshold, shortened from 30 s. It must outlast a normal turn on a loaded runner (a cold omp's
+ * first turn took over 1.5 s in ci run 43393668979 and wrote a stage line of its own); the slow handler below must
+ * outlast it.
+ */
+const LATE_MS = 6_000;
+const SLOW_HANDLER_MS = 7_500;
 
 const ANSWER = [
 	{
@@ -283,6 +287,8 @@ describe.skipIf(!existsSync(omp))("turn stages on stock omp", () => {
 		await (await run.prompt("hello"))();
 		expect(provider.arrivals).toHaveLength(1);
 		expect(phases()).toEqual(["sent", "answered"]);
+		// No line yet: one here is the threshold too short for the machine, not a stage that waited.
+		expect(lines()).toHaveLength(0);
 
 		// 2. Accepted and never answered. Stock's first-event timer aborts each attempt at its timeout and the provider
 		// sends the request again; the user's Stop ends the run (as after the 28 Oct stalls).
