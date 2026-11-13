@@ -72,14 +72,14 @@ test("device pills show another computer's settings, come back, and refuse a com
 		await expect(a.locator('[data-settings-nav="appearance"] [data-this-device-tag]')).toBeVisible();
 		await shot(a, "a-paired-device");
 
-		// Back to this device, then to B again: the tab it had is the one that takes the focus.
+		// Back to this device, then to B again (the empty chat tab it opened was closed on leaving: a new one opens).
 		await here.click();
 		await expect(a.locator("[data-settings-device-banner]")).toHaveCount(0);
 		await expect(here).toHaveAttribute("aria-selected", "true");
 		expect((await activeTab(a))?.device).toBeUndefined();
 		await there.click();
 		await expect(there).toHaveAttribute("aria-selected", "true");
-		expect((await activeTab(a))?.tabId).toBe(onB?.tabId);
+		expect((await activeTab(a))?.device).toBe(deviceId);
 		await here.click();
 		await expect(here).toHaveAttribute("aria-selected", "true");
 
