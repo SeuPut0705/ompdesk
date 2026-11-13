@@ -947,6 +947,13 @@ export function decodeBinaryRead(raw: unknown, method = "host.fs.readBinary"): I
 }
 
 /**
+ * `checks.localPool {}`: this computer's heavy pool as its own checks hub reads it (`LocalPool`, device `local`), for a
+ * device whose hub counts this computer as capacity (`checks/facts.ts`, which files it under this computer's device
+ * id). An older host answers `unsupported`, and the device's hub then has no pool of it.
+ */
+export const CHECKS_LOCAL_POOL_METHOD = "checks.localPool";
+
+/**
  * Sessions this computer's own person (or a device) deleted here (data: {@link SessionsDeletedReply}), sent to every
  * connected device as they are deleted: a device closes every tab it holds of them, asleep ones too, and records the
  * delete under this host. `sessions.deleted {paths}` answers, for the session paths a device's tabs on this host hold

@@ -618,6 +618,8 @@ export type RuntimeErrorSource =
 	 * `closed` (`reason`, `ms`) on the host; `details.deviceId` names the other computer.
 	 */
 	| "remote-link"
+	/** What main could not tell the checks hub (src/main/checks/facts.ts): `checks-fact-failed` (`what`, `error`), once per failure. */
+	| "checks"
 	/** The GPU fallback (src/main/gpu-fallback.ts): software rendering, a relaunch or why none, a hardware trial. */
 	| "gpu-fallback"
 	/** The crash-loop guard (src/main/launch-guard.ts): this launch starts in safe mode. */

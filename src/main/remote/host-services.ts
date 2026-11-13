@@ -43,6 +43,7 @@ import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
+import type { LocalPool } from "../../shared/checks-contract";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPDATE_ACTIONS,
@@ -146,6 +147,7 @@ import {
 	AUTOPILOT_NOTICE_EVENT,
 	type AutopilotNoticeEvent,
 	BenchmarkOptionsSchema,
+	CHECKS_LOCAL_POOL_METHOD,
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
@@ -318,6 +320,8 @@ export interface HostServicesDeps {
 	mobileWebUrl?: () => string | null;
 	/** Where a device's attached files land (`host.files.upload`): the phones' upload folder, same limits and lifetime. */
 	uploads?: Pick<UploadStore, "store">;
+	/** This computer's heavy pool as its checks hub reads it (`checks.localPool`); absent, the method is unsupported. */
+	checksPool?: () => Promise<LocalPool>;
 }
 
 /** A call of the omp's that a device answers; `delivered` once a connection was handed it. */
@@ -1497,6 +1501,9 @@ export class LocalHostServices implements HostServices {
 					peer.deviceId,
 					parse(MemoryConclusionPushParams, method, params),
 				);
+			case CHECKS_LOCAL_POOL_METHOD:
+				if (!this.#deps.checksPool) throw codedError("unsupported", `Unknown method ${method}`);
+				return this.#deps.checksPool();
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}

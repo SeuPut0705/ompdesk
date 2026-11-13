@@ -10,6 +10,7 @@ import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { type AgentReviewItem, type AgentReviewResult, wrapAgentMessage } from "../../shared/agent-control";
+import type { LocalPool } from "../../shared/checks-contract";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -57,6 +58,7 @@ import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { withRemovalClaim } from "../worktree-removals";
 import {
 	AUTOPILOT_NOTICE_EVENT,
+	CHECKS_LOCAL_POOL_METHOD,
 	decodeBinaryRead,
 	type KeptTab,
 	MemoryConclusionPullReply,
@@ -4009,6 +4011,27 @@ describe("LocalHostServices host.* calls", () => {
 			await expect(services.call(x.peer, "host.projects.command", bad, x)).rejects.toThrow(
 				/Invalid host.projects.command/,
 			);
+	});
+
+	it("answers a device this computer's heavy pool as its checks hub reads it, and unsupported without a hub", async () => {
+		const pool: LocalPool = {
+			device: "local",
+			os: "macos",
+			slots: 2,
+			held: 1,
+			queued: 0,
+			oldestWaitMs: 0,
+			volumes: [],
+			asOf: 5,
+			offline: false,
+			foreign: [],
+		};
+		const x = new FakeConnection(peer("device-x"));
+		const { services } = setup(60_000, { checksPool: async () => pool });
+		await expect(services.call(x.peer, CHECKS_LOCAL_POOL_METHOD, {}, x)).resolves.toEqual(pool);
+		const older = setup().services;
+		const refused = await older.call(x.peer, CHECKS_LOCAL_POOL_METHOD, {}, x).catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("unsupported");
 	});
 
 	it("serves a tab's file bytes to its own device only, as base64 that decodes to the same bytes", async () => {

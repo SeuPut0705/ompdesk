@@ -53,6 +53,7 @@ import {
 } from "../shared/agent-control";
 import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
+import type { LocalPool } from "../shared/checks-contract";
 import { sampleSnapshot } from "../shared/checks-fixture";
 import { sampleNames } from "../shared/checks-frame-fixture";
 import { COMPUTER_USE_PREF } from "../shared/computer-use";
@@ -110,6 +111,7 @@ import type { Autopilot } from "./autopilot";
 import { askBackgroundWork } from "./background-work";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { CoreChecksHub } from "./checks/client";
+import { ChecksFacts } from "./checks/facts";
 import { ChecksRelay, namesFor } from "./checks/relay";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import {
@@ -155,6 +157,7 @@ import { type IpcDeps, registerIpcHandlers } from "./ipc";
 import { markLaunchStable, startLaunchGuard } from "./launch-guard";
 import { CRASH_LOOP_LAUNCHES, STABLE_AFTER_MS } from "./launch-guard-core";
 import { migrateLegacyUserData } from "./legacy-user-data";
+import { ghRunner, git, gitRunner, resolveBin } from "./local/git/exec";
 import { stockWorktreeLocation, tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
 import { LocalEngineDetector, localEngineSettings, probeLocalEngine } from "./local-engines";
@@ -178,7 +181,12 @@ import { openLocalPath } from "./open-path";
 import type { LidAwake } from "./power/lid-awake";
 import { createLidAwake } from "./power/lid-awake-runtime";
 import { activateAction, lastWindowCloseAction } from "./quit-guard";
-import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, SidebarProjectsStateSchema } from "./remote/app-protocol";
+import {
+	CHECKS_LOCAL_POOL_METHOD,
+	decodeBinaryRead,
+	HOST_FS_READ_BINARY_TIMEOUT_MS,
+	SidebarProjectsStateSchema,
+} from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
 import { HOST_TAB_GRACE_MS, LocalHostServices } from "./remote/host-services";
 import { type Identity, loadIdentity } from "./remote/identity";
@@ -1050,6 +1058,8 @@ app.whenReady().then(async () => {
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
+	// What main tells the checks hub (`checks/facts.ts`); made with the hub below, told here of each change.
+	let checksFacts: ChecksFacts | null = null;
 	// The sidebar's project list: a folder the person opened outlives its last session (src/main/sidebar-projects.ts).
 	const sidebarProjects = new SidebarProjects({
 		read: () => prefsStore().get(SIDEBAR_PROJECTS_PREF),
@@ -1070,6 +1080,8 @@ app.whenReady().then(async () => {
 			devices.hostSidebarProjectsChanged(state);
 			// The same rule as on a device: a tab restored asleep on a finished worktree here closes.
 			closeFinishedTabs(undefined, state);
+			// The checks hub follows the GitHub repositories of the sidebar's projects.
+			checksFacts?.reposChanged();
 		},
 	});
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId, web) => {
@@ -1273,8 +1285,15 @@ app.whenReady().then(async () => {
 		...hostServices.summarySources(),
 	]);
 	sidecarPool.summaries = sessionSummaries;
+	// Check control: the hub's frame to every window and paired phone's page (`checks/relay.ts`). An unpackaged launch
+	// with OMP_GUI_TEST_CHECKS opens the core's scripted hub instead: `busy` shows its sample snapshot, anything else
+	// an empty one. The real hub answers nothing until its parts land, and then no frame is sent.
+	const testChecks = !app.isPackaged ? process.env.OMP_GUI_TEST_CHECKS : undefined;
+	const checksHub = new CoreChecksHub({ fake: testChecks !== undefined });
 	const hostServices = new LocalHostServices({
 		createSidecar: createLocalSidecar,
+		// A device whose hub counts this computer as capacity reads its pool as this computer's hub does.
+		checksPool: () => checksHub.localPool(),
 		// A paired computer's attached files land in the phones' upload folder (24 h); `webHost` is made later.
 		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		// `devices` is created below; a host tab only opens once it serves connections.
@@ -1420,11 +1439,6 @@ app.whenReady().then(async () => {
 		.catch(error =>
 			console.warn(`[remote] devices unavailable: ${error instanceof Error ? error.message : String(error)}`),
 		);
-	// Check control: the hub's frame to every window and paired phone's page (`checks/relay.ts`). An unpackaged launch
-	// with OMP_GUI_TEST_CHECKS opens the core's scripted hub instead: `busy` shows its sample snapshot, anything else
-	// an empty one. The real hub answers nothing until its parts land, and then no frame is sent.
-	const testChecks = !app.isPackaged ? process.env.OMP_GUI_TEST_CHECKS : undefined;
-	const checksHub = new CoreChecksHub({ fake: testChecks !== undefined });
 	// The sample is in the hub before the relay watches it: `checks.watch` answers the snapshot it read, and a change
 	// pushed while that answer is on its way can reach main first, leaving the older (empty) one shown.
 	const seeded =
@@ -1456,6 +1470,37 @@ app.whenReady().then(async () => {
 	void seeded.then(() => checksRelay.start());
 	ipc.handle(IPC_COMMANDS.CHECKS_GET, () => checksRelay.current());
 	ipc.handle(IPC_COMMANDS.CHECKS_SET_PAUSED, (_caller, paused: unknown) => checksRelay.setPaused(paused === true));
+	// Only the real hub hears what main knows; the scripted one plays its sample.
+	if (testChecks === undefined) {
+		checksFacts = new ChecksFacts({
+			hub: checksHub,
+			runners: async () => {
+				const ghBin = await resolveBin("gh");
+				return {
+					gh: ghBin ? await ghRunner(ghBin) : null,
+					git: await gitRunner().catch(() => null),
+					home: homedir(),
+				};
+			},
+			projects: () =>
+				sidebarProjects
+					.state()
+					.projects.filter(project => !project.missing)
+					.map(project => project.path),
+			originUrl: folder =>
+				git(folder, ["remote", "get-url", "origin"]).then(
+					url => url.trim() || null,
+					() => null,
+				),
+			sessions: () => sessionProcesses.owners(),
+			hosts: () => devices.state().hosts,
+			hostPool: host => devices.request<LocalPool>(host, CHECKS_LOCAL_POOL_METHOD, {}).catch(() => null),
+			log: (message, details) => writeRuntimeLog({ source: "checks", message, details }),
+		});
+		checksFacts.start();
+		core().on(CORE_EXITED, () => checksFacts?.hubLost());
+		devices.onHostOnline(() => checksFacts?.hostsChanged());
+	}
 	hostModelsChanged.current = () => devices.hostModelsChanged();
 	// Devices that use this computer as their host say "n sessions wait together" from its own count (its account).
 	let lastModelWaitLocal = "{}";
@@ -1472,6 +1517,7 @@ app.whenReady().then(async () => {
 		// a tab on a paired device that a session here opened is every other view's family row.
 		hostServices.listingChanged();
 		hostServices.workChanged();
+		checksFacts?.sessionsChanged();
 		if (win instanceof WebClientWindow) {
 			if (!quitApproved()) webTabLayouts.save(win.deviceId, layout);
 			return;
@@ -1483,6 +1529,8 @@ app.whenReady().then(async () => {
 	sidecarPool.onSessionFilesChanged = () => {
 		hostServices.listingChanged();
 		hostServices.workChanged();
+		// The checks hub names a check run's session by its process tag.
+		checksFacts?.sessionsChanged();
 	};
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
@@ -2014,6 +2062,8 @@ app.whenReady().then(async () => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.GITHUB_AUTH_STATE, state);
 			}
+			// gh signed in or out, or was installed: the checks hub runs it as it now runs.
+			checksFacts?.runnersChanged();
 		},
 		{
 			// A sign-in that finds gh missing installs it right then through setup's gh item (no back-off).
