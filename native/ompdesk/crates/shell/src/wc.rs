@@ -1207,7 +1207,7 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
                 {
                     value.set_string(Some(&cs(&policy)));
                     let mut value = value;
-                    let mut error = CefString::default();
+                    let mut error = cs("");
                     ctx.set_preference(
                         Some(&cs("webrtc.ip_handling_policy")),
                         Some(&mut value),

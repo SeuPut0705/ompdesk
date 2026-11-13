@@ -140,7 +140,8 @@ fn page_of(partition: &str) -> Option<(u64, Browser)> {
 }
 
 fn set_pref(context: &RequestContext, name: &str, mut value: Value2) -> Result<(), String> {
-    let mut error = CefString::default();
+    // `CefString::default()` is borrowed and empty, and the binding hands CEF a null pointer for it: the reason is lost.
+    let mut error = cs("");
     if context.set_preference(Some(&cs(name)), Some(&mut value), Some(&mut error)) == 0 {
         return Err(format!("{name} was refused: {error}"));
     }
@@ -342,15 +343,10 @@ fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
             with(|s| s.user_agents.insert(partition.to_string(), (ua, languages)));
         }
         "setProxy" => {
-            if let (Some(context), Some(mut value)) =
-                (context_or_global(partition), proxy_value(args))
+            if let (Some(context), Some(value)) = (context_or_global(partition), proxy_value(args))
+                && let Err(reason) = set_pref(&context, "proxy", value)
             {
-                let mut error = CefString::default();
-                if context.set_preference(Some(&cs("proxy")), Some(&mut value), Some(&mut error))
-                    == 0
-                {
-                    return call.err("failed", format!("the proxy setting was refused: {error}"));
-                }
+                return call.err("failed", reason);
             }
         }
         "clearCache" | "clearStorageData" if is_app(partition) => {
