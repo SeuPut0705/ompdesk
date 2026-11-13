@@ -36,16 +36,14 @@ pub use run::{GitHands, Hands, Landing, Queues, github_url};
 
 /// The merge queues the hub holds (`Hub.queue`): a lane per base branch of a repository, each built and landed with
 /// the git the hub hands over in a folder it gives (`GitHands` over GitHub), its runs started and its entries' results
-/// told through `host`. Call inside the runtime: saved lanes start again at once.
-#[expect(
-    dead_code,
-    reason = "Hub::new takes it once admission implements QueueHost (the contract owner's line)"
-)]
+/// told through `host`. It asks `host` nothing here, since the hub builds it while the hub itself is being built
+/// (`Arc::new_cyclic`): the folder is read and the saved lanes started at first use, or by a task of its own when a
+/// runtime runs.
 pub(crate) fn open(host: Arc<dyn QueueHost>) -> Arc<dyn hub::LandQueue> {
-    let git_host = Arc::clone(&host);
+    let (git_host, dir_host) = (Arc::clone(&host), Arc::clone(&host));
     let hands = GitHands {
         git: Box::new(move |scope| git_host.git(scope)),
-        dir: host.queue_dir(),
+        dir: Box::new(move || dir_host.queue_dir()),
         url: Box::new(github_url),
     };
     run::open_with(host, Arc::new(hands), Tuning::default())

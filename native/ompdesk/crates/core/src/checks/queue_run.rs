@@ -129,6 +129,8 @@ struct Shared {
     lanes: Mutex<HashMap<Key, mpsc::UnboundedSender<Msg>>>,
     shown: Mutex<HashMap<Key, Vec<QueueEntry>>>,
     entries: watch::Sender<Arc<Vec<QueueEntry>>>,
+    /// The saved lanes are started, once, before the first lane is looked up.
+    loaded: tokio::sync::OnceCell<()>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -142,7 +144,8 @@ pub struct Queues {
     shared: Arc<Shared>,
 }
 
-/// The queues, their saved lanes started again. Call inside the runtime.
+/// The queues. Their saved lanes start at the first `enqueue`, or at once by a task of their own when a runtime runs,
+/// so a caller may open them before what `hands` reads is ready.
 pub(crate) fn open_with(
     host: Arc<dyn QueueHost>,
     hands: Arc<dyn Hands>,
@@ -150,21 +153,37 @@ pub(crate) fn open_with(
 ) -> Arc<Queues> {
     let shared = Arc::new(Shared {
         host,
-        hands: Arc::clone(&hands),
+        hands,
         tuning,
         lanes: Mutex::default(),
         shown: Mutex::default(),
         entries: watch::Sender::new(Arc::default()),
+        loaded: tokio::sync::OnceCell::new(),
     });
-    for queue in hands.saved() {
-        let key = (queue.repo.clone(), queue.base.clone());
-        let lane = Lane::start(&shared, queue);
-        locked(&shared.lanes).insert(key, lane);
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        let shared = Arc::downgrade(&shared);
+        runtime.spawn(async move {
+            if let Some(shared) = shared.upgrade() {
+                shared.load().await;
+            }
+        });
     }
     Arc::new(Queues { shared })
 }
 
 impl Shared {
+    async fn load(self: &Arc<Shared>) {
+        self.loaded
+            .get_or_init(|| async {
+                for queue in self.hands.saved() {
+                    let key = (queue.repo.clone(), queue.base.clone());
+                    let lane = Lane::start(self, queue);
+                    locked(&self.lanes).insert(key, lane);
+                }
+            })
+            .await;
+    }
+
     fn lane(self: &Arc<Shared>, repo: &str, base: &str) -> mpsc::UnboundedSender<Msg> {
         let key = (repo.to_owned(), base.to_owned());
         let mut lanes = locked(&self.lanes);
@@ -196,6 +215,7 @@ impl Shared {
 impl QueueSeam for Queues {
     fn enqueue(&self, origin: Origin, request: LandRequest) -> Fut<'_, Result<StartReply, Fault>> {
         Box::pin(async move {
+            self.shared.load().await;
             let lane = self.shared.lane(&request.repo, &request.base);
             let (reply, answer) = oneshot::channel();
             let gone = || Fault::new("queue_gone", "the merge queue of that branch stopped");
@@ -273,6 +293,9 @@ struct Lane {
     work: HashMap<String, Scope>,
     /// The answer of each run the queue was given, by commit, for the result of the entries it decided.
     answers: HashMap<Sha, Answer>,
+    /// An `enqueue`'s answer, sent once the step that queued the entry is saved: a caller told "queued" never loses
+    /// its entry to a crash.
+    reply: Option<(oneshot::Sender<StartReply>, StartReply)>,
 }
 
 impl Lane {
@@ -284,6 +307,7 @@ impl Lane {
             tx: tx.clone(),
             work: HashMap::new(),
             answers: HashMap::new(),
+            reply: None,
         };
         tokio::spawn(lane.run(rx));
         tx
@@ -364,7 +388,7 @@ impl Lane {
                         (reply, Vec::new())
                     }
                 };
-                let _ = reply.send(answer);
+                self.reply = Some((reply, answer));
                 effects
             }
             Msg::Built { candidate, result } => self.queue.built(&candidate, result, now),
@@ -393,6 +417,9 @@ impl Lane {
         }
         self.shared.show(&self.queue);
         self.shared.hands.save(&self.queue);
+        if let Some((reply, answer)) = self.reply.take() {
+            let _ = reply.send(answer);
+        }
     }
 
     fn scope_for(&mut self, candidate: &str) -> Scope {
@@ -555,7 +582,8 @@ impl Lane {
 pub struct GitHands {
     /// How git runs now; none until main handed it over.
     pub git: Box<dyn Fn(Scope) -> Option<Git> + Send + Sync>,
-    pub dir: PathBuf,
+    /// The queue's folder, asked each time (the hub that gives it may not exist yet when this is made).
+    pub dir: Box<dyn Fn() -> PathBuf + Send + Sync>,
     /// The remote's URL of a repository (`owner/name`).
     pub url: Box<dyn Fn(&str) -> String + Send + Sync>,
 }
@@ -591,7 +619,7 @@ impl GitHands {
 
     /// The repository's bare clone, made the first time.
     async fn clone_of(&self, git: &Git, repo: &str) -> Result<String, Failure> {
-        let repos = self.dir.join("repos");
+        let repos = (self.dir)().join("repos");
         let path = repos.join(format!("{}.git", slug(repo)));
         let text = path.to_string_lossy().into_owned();
         if path.join("HEAD").is_file() {
@@ -645,7 +673,7 @@ impl GitHands {
     }
 
     fn lanes(&self) -> PathBuf {
-        self.dir.join("lanes")
+        (self.dir)().join("lanes")
     }
 }
 
@@ -812,7 +840,8 @@ impl Hands for GitHands {
     }
 
     fn name(&self) -> String {
-        let file = self.dir.join("name");
+        let dir = (self.dir)();
+        let file = dir.join("name");
         if let Ok(name) = std::fs::read_to_string(&file)
             && !name.trim().is_empty()
         {
@@ -826,7 +855,7 @@ impl Hands for GitHands {
             }),
             Err(_) => format!("{:x}", clock::now_ms()),
         };
-        let _ = std::fs::create_dir_all(&self.dir);
+        let _ = std::fs::create_dir_all(&dir);
         let _ = crate::disk::saves::write_kept(&file, name.as_bytes(), Some(0o600), 0o700);
         name
     }

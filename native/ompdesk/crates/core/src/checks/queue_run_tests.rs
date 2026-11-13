@@ -302,7 +302,10 @@ fn start(batch_size: usize, push_before_first_run: Option<&str>) -> Run {
                 }
                 Some(Git::new(runner, scope))
             }),
-            dir: fixture.dir.join("queue"),
+            dir: {
+                let dir = fixture.dir.join("queue");
+                Box::new(move || dir.clone())
+            },
             url: Box::new(move |_| remote.clone()),
         },
         dropped: dropped_tx,
@@ -509,15 +512,21 @@ async fn a_queue_opened_again_shows_what_it_had_and_a_build_is_the_same_commit()
     let remote = run.fixture.remote.to_string_lossy().into_owned();
     let hands = GitHands {
         git: Box::new(|scope| Some(Git::new(runner(), scope))),
-        dir: run.fixture.dir.join("queue"),
+        dir: {
+            let dir = run.fixture.dir.join("queue");
+            Box::new(move || dir.clone())
+        },
         url: Box::new(move |_| remote.clone()),
     };
     let again = open_with(host, Arc::new(hands), Tuning::default());
     let mut entries = again.entries();
-    let shown = entries
-        .wait_for(|entries| !entries.is_empty())
-        .await
-        .unwrap()
-        .clone();
+    let shown = tokio::time::timeout(
+        Duration::from_secs(60),
+        entries.wait_for(|entries| !entries.is_empty()),
+    )
+    .await
+    .expect("the saved lane shows its entry within a minute")
+    .unwrap()
+    .clone();
     assert_eq!(shown[0].id, run.queues.entries().borrow()[0].id);
 }
