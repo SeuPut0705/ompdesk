@@ -8,11 +8,14 @@
 #      `gh variable set MAC_REFS --body "branch-a branch-b"`). Any other ref fails here with the reason, and its macOS
 #      jobs (`needs: gate`, `if: needs.gate.outputs.mac_ok == 'true'`) never start. Pushes to main, schedules and
 #      release.yml are always admitted.
-#   2. A macOS dispatch carries an admission ticket (design docs/design/check-control.md §7 criterion 1): an HMAC-SHA256 of
-#      repo, ref, commit and expiry under the owner's admission key, which OMPdesk's checks hub mints for each dispatch
-#      it makes (native/ompdesk/crates/core/src/checks/ticket.rs). A run started by hand has none and fails here with
-#      "start it with ompdesk_checks". Off while the Actions secret CHECKS_ADMISSION_KEY is unset (a notice says so).
-#      Pushes, schedules and dispatches that ask for no macOS need none.
+#   2. A macOS dispatch carries an admission ticket (design docs/design/check-control.md §7 criterion 1):
+#      `v1.<DEVICE>.<expiry>.<hex>`, an HMAC-SHA256 of the computer, repo, ref, commit and expiry under that computer's
+#      own key, which its OMPdesk's checks hub mints for each dispatch (native/ompdesk/crates/core/src/checks/ticket.rs).
+#      Each computer's key is the Actions secret CHECKS_ADMISSION_KEY_<DEVICE>, and the repository variable
+#      CHECKS_ADMISSION_DEVICES lists the computers that have one (the same OMPdesk action writes both). A run started
+#      by hand, or by a computer that list does not name, fails here with "start it with ompdesk_checks". Off while
+#      CHECKS_ADMISSION_DEVICES is empty (a notice says so). Pushes, schedules and dispatches that ask for no macOS
+#      need none. Callers pass `secrets: inherit`: the key is read by name from the ticket's device, never all secrets.
 #   3. The same commit is checked once. A dispatch whose commit already has a successful run of the same workflow with
 #      the same inputs (the run name, which every caller builds from its inputs) cancels itself, unless `force` or a
 #      re-run (attempt 2 and later). A failed or cancelled run covers nothing, and a run still going is not a twin:
@@ -50,10 +53,10 @@ on:
         description: "The admission ticket OMPdesk's checks hub minted for this dispatch (not in the run name: it changes nothing that runs)"
         type: string
         default: ""
-    secrets:
-      admission-key:
-        description: "secrets.CHECKS_ADMISSION_KEY, the owner's admission key in hex (unset: tickets are not checked)"
-        required: false
+      admission-devices:
+        description: "vars.CHECKS_ADMISSION_DEVICES: the computers with a key (empty: tickets are not checked)"
+        type: string
+        default: ""
     outputs:
       mac_ok:
         description: "'true' when the run may start its macOS jobs"
@@ -72,6 +75,17 @@ jobs:
     outputs:
       mac_ok: ${{ steps.admit.outputs.mac_ok }}
     steps:
+      # Which computer's key the next step reads: the ticket's device, if it is one. Not a secret.
+      - name: The ticket's computer
+        id: device
+        env:
+          TICKET: ${{ inputs.ticket }}
+        run: |
+          set -euo pipefail
+          device=""
+          if [[ "$TICKET" =~ ^v1\.([A-Z0-9_]{1,40})\. ]]; then device=${BASH_REMATCH[1]}; fi
+          echo "device=$device" >> "$GITHUB_OUTPUT"
+
       - name: macOS is for release-bound work, started through ompdesk_checks
         id: admit
         env:
@@ -83,7 +97,9 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           TICKET: ${{ inputs.ticket }}
-          ADMISSION_KEY: ${{ secrets.admission-key }}
+          DEVICES: ${{ inputs.admission-devices }}
+          DEVICE: ${{ steps.device.outputs.device }}
+          ADMISSION_KEY: ${{ secrets[format('CHECKS_ADMISSION_KEY_{0}', steps.device.outputs.device)] }}
         run: |
           set -euo pipefail
           ok=false
@@ -102,24 +118,29 @@ jobs:
           fi
           why=""
           if [ "$EVENT" = workflow_dispatch ] && [ "$MAC" = true ]; then
-            if [ -z "${ADMISSION_KEY:-}" ]; then
-              echo "::notice title=Admission tickets are off::CHECKS_ADMISSION_KEY is not set, so this macOS dispatch needs no ticket."
+            set -f
+            known=false
+            for listed in ${DEVICES//,/ }; do
+              if [ -n "$DEVICE" ] && [ "$listed" = "$DEVICE" ]; then known=true; fi
+            done
+            rest=${TICKET#v1.*.}
+            expires=${rest%%.*}
+            mac=${rest#*.}
+            now=$(( $(date +%s) * 1000 ))
+            if [ -z "${DEVICES// /}" ]; then
+              echo "::notice title=Admission tickets are off::CHECKS_ADMISSION_DEVICES is empty, so this macOS dispatch needs no ticket."
+            elif [ -z "$TICKET" ]; then
+              why="it has no admission ticket"
+            elif [ -z "$DEVICE" ] || [ "$rest" = "$TICKET" ] || ! [[ "$expires" =~ ^[0-9]{1,16}$ ]] || ! [[ "$mac" =~ ^[0-9a-f]{64}$ ]]; then
+              why="its admission ticket is malformed"
+            elif [ "$known" != true ] || [ -z "${ADMISSION_KEY:-}" ]; then
+              why="its computer $DEVICE has no admission key here (CHECKS_ADMISSION_DEVICES: $DEVICES)"
+            elif [ "$now" -ge "$expires" ]; then
+              why="its admission ticket expired"
             else
-              rest=${TICKET#v1.}
-              expires=${rest%%.*}
-              mac=${rest#*.}
-              now=$(( $(date +%s) * 1000 ))
-              if [ -z "$TICKET" ]; then
-                why="it has no admission ticket"
-              elif [ "$rest" = "$TICKET" ] || ! [[ "$expires" =~ ^[0-9]{1,16}$ ]] || ! [[ "$mac" =~ ^[0-9a-f]{64}$ ]]; then
-                why="its admission ticket is malformed"
-              elif [ "$now" -ge "$expires" ]; then
-                why="its admission ticket expired"
-              else
-                want=$(printf 'ompdesk-checks-ticket-v1\n%s\n%s\n%s\n%s' "$REPO" "$REF_NAME" "$SHA" "$expires" |
-                  openssl dgst -sha256 -mac HMAC -macopt "hexkey:$ADMISSION_KEY" -r | cut -d' ' -f1)
-                if [ "$want" != "$mac" ]; then why="its admission ticket is not for $REF_NAME at ${SHA:0:12}"; fi
-              fi
+              want=$(printf 'ompdesk-checks-ticket-v1\n%s\n%s\n%s\n%s\n%s' "$DEVICE" "$REPO" "$REF_NAME" "$SHA" "$expires" |
+                openssl dgst -sha256 -mac HMAC -macopt "hexkey:$ADMISSION_KEY" -r | cut -d' ' -f1)
+              if [ "$want" != "$mac" ]; then why="its admission ticket is not for $REF_NAME at ${SHA:0:12}"; fi
             fi
           fi
           if [ -n "$why" ]; then

@@ -221,6 +221,9 @@ pub struct Core {
     /// The test ledgers' folder; None keeps them in memory.
     store: Option<Store>,
     dir: Option<PathBuf>,
+    /// Where the merge queue keeps its clones and lanes: `<dir>/queue`, or, for a hub with no state folder (a
+    /// test's), a folder of its own that goes with the hub, so no two such hubs share saved lanes.
+    queue_dir: PathBuf,
     key: Mutex<Option<AdmissionKey>>,
     /// How git runs (main's `gitRunner`), for the merge queue's clones.
     git: Mutex<Option<Runner>>,
@@ -320,6 +323,17 @@ impl Hub {
                 admission: Mutex::new(admission),
                 book: Mutex::default(),
                 store: dir.as_ref().map(|dir| Store::new(dir.join("results"))),
+                queue_dir: dir.as_ref().map_or_else(
+                    || {
+                        static HUBS: AtomicU64 = AtomicU64::new(0);
+                        std::env::temp_dir().join(format!(
+                            "ompdesk-checks-hub-{}-{}",
+                            std::process::id(),
+                            HUBS.fetch_add(1, Ordering::Relaxed)
+                        ))
+                    },
+                    |dir| dir.join("queue"),
+                ),
                 dir,
                 key: Mutex::new(None),
                 git: Mutex::new(None),
@@ -1279,11 +1293,19 @@ impl QueueHost for Host {
     }
 
     fn queue_dir(&self) -> PathBuf {
-        self.0
-            .upgrade()
-            .and_then(|core| core.dir.clone())
-            .unwrap_or_else(|| std::env::temp_dir().join("ompdesk-checks"))
-            .join("queue")
+        self.0.upgrade().map_or_else(
+            || std::env::temp_dir().join("ompdesk-checks-closed"),
+            |core| core.queue_dir.clone(),
+        )
+    }
+}
+
+impl Drop for Core {
+    fn drop(&mut self) {
+        // A hub without a state folder keeps nothing past its life.
+        if self.dir.is_none() {
+            let _ = std::fs::remove_dir_all(&self.queue_dir);
+        }
     }
 }
 

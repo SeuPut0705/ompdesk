@@ -151,7 +151,8 @@ import {
 	readCheckoutClaims,
 	readCheckoutPlace,
 } from "./checkout-peers";
-import { appChecksHub } from "./checks/client";
+import { publishWithGh } from "./checks/admission-key";
+import { appChecksAdmission, appChecksHub } from "./checks/client";
 import { createControlBackend } from "./control-socket/backend";
 import { startControlSocket } from "./control-socket/index";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -2775,6 +2776,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, (_caller, name: unknown) => remoteDevices.setDeviceName(name));
 	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipc.handle(IPC_COMMANDS.REMOTE_BLOCK_PEER, (_caller, deviceId: unknown) => remoteDevices.blockPeer(deviceId));
+	ipc.handle(IPC_COMMANDS.CHECKS_PUBLISH_ADMISSION_KEY, async (_caller, repo: unknown) =>
+		publishWithGh(repo, await appChecksAdmission()),
+	);
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_HOST, (_caller, payload: unknown) => remoteDevices.renameHost(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_PEER, (_caller, payload: unknown) => remoteDevices.renamePeer(payload));

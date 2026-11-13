@@ -27,6 +27,7 @@ interface Step {
 	run?: string;
 	if?: string;
 	"continue-on-error"?: boolean;
+	env?: Record<string, string>;
 }
 
 interface Job {
@@ -38,6 +39,7 @@ interface Job {
 	concurrency?: { group?: string; "cancel-in-progress"?: unknown };
 	strategy?: { matrix?: { os?: string } };
 	steps?: Step[];
+	secrets?: string | Record<string, string>;
 }
 
 interface Workflow {
@@ -275,51 +277,107 @@ describe("the queue gate's steps, run as the runner runs them", () => {
 
 	/**
 	 * The ticket the hub mints (native/ompdesk/crates/core/src/checks/ticket.rs `VECTOR`, pinned by its own test), checked
-	 * by the step's openssl under a `date` that says 2026-11-14, before the ticket's expiry.
+	 * by the two steps as the runner runs them under a `date` that says 2026-11-14, before the ticket's expiry: the first
+	 * names the ticket's computer, GitHub then hands the second that computer's secret (modelled by `secrets`).
 	 */
 	const VECTOR = {
+		device: "MACBOOK",
 		key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
 		repo: "SeuPut0705/ompdesk",
 		ref: "omp/agent/feature",
 		sha: "0123456789abcdef0123456789abcdef01234567",
-		ticket: "v1.1800000000000.e40d9783813e622fb47cb5bd960ed1151cb8c93387334bc54ea9f690731331f5",
+		ticket: "v1.MACBOOK.1800000000000.a5db0c6c659da7c94e6cb1bb0510878465d311d6485aeb71123e613ad6b71c1e",
 	};
+	const SECRETS: Record<string, string> = { CHECKS_ADMISSION_KEY_MACBOOK: VECTOR.key };
 	const openssl = bash && spawnSync("openssl", ["version"]).status === 0;
-	function ticketed(overrides: Record<string, string>, now = 1_763_100_000) {
+	function deviceOf(ticket: string): string {
+		const output = path.join(scratch, `device-${Math.random().toString(36).slice(2)}`);
+		spawnSync("bash", ["-c", step("device").run ?? ""], {
+			env: { PATH: process.env.PATH ?? "", GITHUB_OUTPUT: output, TICKET: ticket },
+		});
+		return fs
+			.readFileSync(output, "utf8")
+			.trim()
+			.replace(/^device=/, "");
+	}
+	function ticketed(overrides: Record<string, string>, now = 1_763_100_000, secrets = SECRETS) {
 		const dir = fs.mkdtempSync(path.join(scratch, "date-"));
 		fs.writeFileSync(path.join(dir, "date"), `#!/bin/sh\necho ${now}\n`, { mode: 0o755 });
+		const ticket = overrides.TICKET ?? VECTOR.ticket;
+		const device = deviceOf(ticket);
 		return admit({
 			...dispatch(VECTOR.ref, VECTOR.ref),
 			PATH: `${dir}:${process.env.PATH ?? ""}`,
 			REPO: VECTOR.repo,
 			SHA: VECTOR.sha,
-			TICKET: VECTOR.ticket,
-			ADMISSION_KEY: VECTOR.key,
+			DEVICES: "MACBOOK MINI",
+			DEVICE: device,
+			ADMISSION_KEY: secrets[`CHECKS_ADMISSION_KEY_${device}`] ?? "",
 			...overrides,
+			TICKET: ticket,
 		});
 	}
 
-	it.skipIf(!openssl)("admits a macOS dispatch with the ticket the hub minted for its repo, ref and commit", () => {
-		expect(ticketed({})).toEqual({ status: 0, macOk: "mac_ok=true" });
-		// Without the key nothing is checked yet, ticket or not.
-		expect(ticketed({ ADMISSION_KEY: "", TICKET: "" })).toEqual({ status: 0, macOk: "mac_ok=true" });
-		// A dispatch that asks for no macOS needs none.
-		expect(ticketed({ MAC: "false", TICKET: "" })).toEqual({ status: 0, macOk: "mac_ok=true" });
+	it("reads one computer's key, by the device the ticket names, and every caller hands the gate the device list", () => {
+		// A GitHub expression as the workflow file spells it.
+		const expr = (inner: string) => `$\{{ ${inner} }}`;
+		expect(step("admit").env).toMatchObject({
+			DEVICE: expr("steps.device.outputs.device"),
+			DEVICES: expr("inputs.admission-devices"),
+			ADMISSION_KEY: expr("secrets[format('CHECKS_ADMISSION_KEY_{0}', steps.device.outputs.device)]"),
+		});
+		const callers = [...workflows.values()].flatMap(workflow =>
+			Object.values(workflow.jobs).filter(job => localCall(job) === "queue-gate.yml"),
+		);
+		expect(callers.length).toBeGreaterThan(0);
+		for (const job of callers) {
+			expect(job.with?.["admission-devices"]).toBe(expr("vars.CHECKS_ADMISSION_DEVICES"));
+			expect(job.secrets).toBe("inherit");
+		}
 	});
 
-	it.skipIf(!openssl)("refuses a macOS dispatch started by hand, or with another dispatch's ticket", () => {
-		const denied = { status: 1, macOk: "mac_ok=false" };
-		expect(ticketed({ TICKET: "" })).toEqual(denied);
-		expect(ticketed({ TICKET: "v1.garbage" })).toEqual(denied);
-		expect(ticketed({ SHA: "1123456789abcdef0123456789abcdef01234567" })).toEqual(denied);
-		expect(ticketed({ REPO: "SeuPut0705/other" })).toEqual(denied);
-		// main needs no MAC_REFS entry, but a ticket for main all the same.
-		expect(ticketed({ REF: "refs/heads/main", REF_NAME: "main" })).toEqual(denied);
-		expect(ticketed({ ADMISSION_KEY: "ab".repeat(32) })).toEqual(denied);
-		// A later expiry written over a real mac does not extend it, and an expired ticket admits nothing.
-		expect(ticketed({ TICKET: VECTOR.ticket.replace("v1.1800000000000.", "v1.1900000000000.") })).toEqual(denied);
-		expect(ticketed({}, 1_800_000_000)).toEqual(denied);
+	it.skipIf(!bash)("names the ticket's computer only when it is one", () => {
+		expect(deviceOf(VECTOR.ticket)).toBe("MACBOOK");
+		for (const ticket of ["", "v1.garbage", "v1.macbook.1.ab", "v1.MAC-BOOK.1.ab", `v1.${"A".repeat(41)}.1.ab`]) {
+			expect(deviceOf(ticket), ticket).toBe("");
+		}
 	});
+
+	it.skipIf(!openssl)(
+		"admits a macOS dispatch with the ticket its computer's hub minted for its repo, ref and commit",
+		() => {
+			expect(ticketed({})).toEqual({ status: 0, macOk: "mac_ok=true" });
+			// While no computer has a key nothing is checked, ticket or not.
+			expect(ticketed({ DEVICES: "", TICKET: "" }, undefined, {})).toEqual({ status: 0, macOk: "mac_ok=true" });
+			// A dispatch that asks for no macOS needs none.
+			expect(ticketed({ MAC: "false", TICKET: "" })).toEqual({ status: 0, macOk: "mac_ok=true" });
+		},
+	);
+
+	it.skipIf(!openssl)(
+		"refuses a macOS dispatch started by hand, from an unknown computer, or with another dispatch's ticket",
+		() => {
+			const denied = { status: 1, macOk: "mac_ok=false" };
+			expect(ticketed({ TICKET: "" })).toEqual(denied);
+			expect(ticketed({ TICKET: "v1.garbage" })).toEqual(denied);
+			expect(ticketed({ SHA: "1123456789abcdef0123456789abcdef01234567" })).toEqual(denied);
+			expect(ticketed({ REPO: "SeuPut0705/other" })).toEqual(denied);
+			// main needs no MAC_REFS entry, but a ticket for main all the same.
+			expect(ticketed({ REF: "refs/heads/main", REF_NAME: "main" })).toEqual(denied);
+			// A computer the list does not name, even with a secret of its own, and a listed one without a secret.
+			expect(ticketed({ DEVICES: "MINI" })).toEqual(denied);
+			const desktop = VECTOR.ticket.replace("v1.MACBOOK.", "v1.DESKTOP.");
+			expect(ticketed({ TICKET: desktop, DEVICES: "MACBOOK DESKTOP" })).toEqual(denied);
+			// Relabelled as another listed computer: that computer's key does not make its mac.
+			const mini = VECTOR.ticket.replace("v1.MACBOOK.", "v1.MINI.");
+			expect(
+				ticketed({ TICKET: mini }, undefined, { ...SECRETS, CHECKS_ADMISSION_KEY_MINI: "ab".repeat(32) }),
+			).toEqual(denied);
+			// A later expiry written over a real mac does not extend it, and an expired ticket admits nothing.
+			expect(ticketed({ TICKET: VECTOR.ticket.replace(".1800000000000.", ".1900000000000.") })).toEqual(denied);
+			expect(ticketed({}, 1_800_000_000)).toEqual(denied);
+		},
+	);
 
 	/** A `gh` and a `sleep` on PATH that answer the two lookups the step makes and record a cancel; `jq` is the real one. `gh run cancel` fails as it did on a runner with no checkout (run 43445139041): the cancel must go through the API. */
 	function dedupe(title: string, runs: { id: number; display_title: string }[], env: Record<string, string> = {}) {

@@ -133,9 +133,16 @@ struct OpenParams {
     /// A scripted hub (`fake.rs`) instead of the real one.
     #[serde(default)]
     fake: bool,
-    /// The owner's admission key in hex, from main's keychain (`ticket.rs`); absent: dispatches carry no ticket.
+    /// This computer's admission key, from main's safeStorage (`ticket.rs`): `{device, key}` with the key in hex.
+    /// Absent: dispatches carry no ticket.
     #[serde(default)]
-    key: Option<String>,
+    admission: Option<AdmissionParams>,
+}
+
+#[derive(Deserialize)]
+struct AdmissionParams {
+    device: String,
+    key: String,
 }
 
 /// Where the real hub keeps its state: beside the check journals (`<cache>/ompdesk/checks/hub`).
@@ -152,9 +159,9 @@ async fn open(call: Call) -> Result<Reply, Fault> {
         let real = hub::Hub::real(hub_dir());
         real.set_key(
             params
-                .key
-                .as_deref()
-                .and_then(ticket::AdmissionKey::from_hex),
+                .admission
+                .as_ref()
+                .and_then(|given| ticket::AdmissionKey::from_hex(&given.device, &given.key)),
         );
         (Arc::new(real), None)
     };

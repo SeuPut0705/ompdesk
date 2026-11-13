@@ -21,6 +21,7 @@ import {
 import type { FakeChecksHub } from "../../shared/checks-fixture";
 import { CORE_EXITED, CoreError, core } from "../core/process";
 import type { CoreRunner } from "../local/git/exec";
+import type { AdmissionKey } from "./admission-key";
 
 /** A wait is the core's to end (its own timeout, at most an hour); this only outlasts it. */
 const WAIT_CALL_MS = 2 ** 31 - 1;
@@ -55,6 +56,7 @@ function listen(): void {
 
 export class CoreChecksHub implements FakeChecksHub {
 	readonly #fake: boolean;
+	readonly #admission: (() => Promise<AdmissionKey | null>) | undefined;
 	#id = 0;
 	#opened: Promise<void> | null = null;
 	#closed = false;
@@ -62,8 +64,10 @@ export class CoreChecksHub implements FakeChecksHub {
 	readonly #watchers = new Set<(snapshot: Snapshot) => void>();
 	readonly #resultListeners = new Set<(result: RunResult) => void>();
 
-	constructor(options: { fake?: boolean } = {}) {
+	/** `admission`: this computer's admission key for the hub's tickets, asked at each open (`admission-key.ts`). */
+	constructor(options: { fake?: boolean; admission?: () => Promise<AdmissionKey | null> } = {}) {
 		this.#fake = options.fake === true;
+		this.#admission = options.admission;
 	}
 
 	/**
@@ -178,8 +182,12 @@ export class CoreChecksHub implements FakeChecksHub {
 				else if (this.#resultListeners.size > 0) this.#open().catch(() => {});
 			},
 		});
-		const opened = core()
-			.call(CHECKS_WIRE.open, { hub: id, fake: this.#fake })
+		// A key that cannot be read leaves this computer's dispatches without a ticket, never the hub unopened.
+		const admission = this.#admission ? this.#admission().catch(() => null) : Promise.resolve(null);
+		const opened = admission
+			.then(given =>
+				core().call(CHECKS_WIRE.open, { hub: id, fake: this.#fake, ...(given ? { admission: given } : {}) }),
+			)
 			.then(
 				() => undefined,
 				error => {
@@ -213,12 +221,24 @@ export class CoreChecksHub implements FakeChecksHub {
 }
 
 let appHub: CoreChecksHub | null = null;
+let appAdmission: (() => Promise<AdmissionKey | null>) | undefined;
+
+/** Where the app hub reads this computer's admission key (`index.ts`, once the remote identity is known). */
+export function setAppChecksAdmission(admission: () => Promise<AdmissionKey | null>): void {
+	appAdmission = admission;
+}
+
+/** This computer's admission key, as the app hub is handed it (null before `index.ts` set the source). */
+export function appChecksAdmission(): Promise<AdmissionKey | null> {
+	return appAdmission?.() ?? Promise.resolve(null);
+}
 
 /**
  * The app's one checks hub: the agent tool, the page's relay and what main tells the hub all go through this one, so
- * every session and screen reads the same pools and runs. Opened in the core on its first use.
+ * every session and screen reads the same pools and runs. Opened in the core on its first use, with this computer's
+ * admission key.
  */
 export function appChecksHub(): CoreChecksHub {
-	appHub ??= new CoreChecksHub();
+	appHub ??= new CoreChecksHub({ admission: appChecksAdmission });
 	return appHub;
 }

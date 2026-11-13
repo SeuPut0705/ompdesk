@@ -394,4 +394,8 @@ pub static CHANNELS: &[(&str, Risk)] = &[
     ("agent-control:view", Risk::Never(PUSH)),
     ("agent-control:app", Risk::Never(PUSH)),
     ("agent-control:review", Risk::Never(PUSH)),
+    (
+        "checks:publish-admission-key",
+        Risk::Tier(Sensitive, &["checks.publish_admission_key"]),
+    ),
 ];

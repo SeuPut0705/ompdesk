@@ -131,7 +131,7 @@ async fn macos_is_for_listed_branches_one_unit_at_a_time_and_the_dispatch_carrie
             .variables
             .insert(format!("{REPO}\nMAC_REFS"), "feat feat2".into());
     });
-    hub.set_key(ticket::AdmissionKey::from_hex(ticket::VECTOR.key_hex));
+    hub.set_key(Some(ticket::VECTOR.key()));
     let started = hub
         .start(samples::session(), start(Purpose::Release, "feat"))
         .await
@@ -144,7 +144,7 @@ async fn macos_is_for_listed_branches_one_unit_at_a_time_and_the_dispatch_carrie
     );
     let sent = dispatches(&github);
     assert_eq!(sent[0].inputs["mac"], "true");
-    let key = ticket::AdmissionKey::from_hex(ticket::VECTOR.key_hex).unwrap();
+    let key = ticket::VECTOR.key();
     assert_eq!(
         ticket::verify(
             &key,
@@ -343,6 +343,13 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
     assert_eq!(dispatches(&github)[0].git_ref, "feat");
     // Until main hands over how git runs, the queue has none.
     assert!(host.git(Scope::detached()).is_none());
+    // A hub without a state folder has a queue folder of its own, which goes with it.
+    let other = Hub::new(github.clone(), Arc::new(FakeLocal::default()))
+        .queue_host()
+        .queue_dir();
+    assert_ne!(host.queue_dir(), other);
+    std::fs::create_dir_all(host.queue_dir()).unwrap();
+    let mine = host.queue_dir();
     // An entry's result ends the waits on it, told as the session that enqueued it.
     let mut results = hub.results();
     let entry = answer::unknown(
@@ -376,6 +383,7 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
     assert_eq!(waited, entry);
     drop(hub);
     assert!(host.start_batch(REPO, "feat", SHA).await.is_err());
+    assert!(!mine.exists());
 }
 
 #[tokio::test]

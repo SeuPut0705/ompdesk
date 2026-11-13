@@ -487,6 +487,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.REMOTE_SET_DEVICE_NAME]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_REVOKE_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_BLOCK_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	// A credential this computer writes to GitHub with its own gh (the key itself never leaves this computer's main).
+	[C.CHECKS_PUBLISH_ADMISSION_KEY]: { dir: "invoke", permission: "accounts-admin", mode: "pass" },
 	[C.REMOTE_SET_PEER_LIMITS]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_HOST]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },

@@ -53,6 +53,7 @@ const REMOTE_BLOCK_PEER: &str = "remote:block-peer";
 const REMOTE_GET_STATE: &str = "remote:get-state";
 const REMOTE_SET_DEVICE_NAME: &str = "remote:set-device-name";
 const REMOTE_RENAME_HOST: &str = "remote:rename-host";
+const CHECKS_PUBLISH_ADMISSION_KEY: &str = "checks:publish-admission-key";
 const REMOTE_RENAME_PEER: &str = "remote:rename-peer";
 const SIDEBAR_PROJECTS_COMMAND: &str = "sidebar-projects:command";
 
@@ -259,6 +260,9 @@ pub fn shipped<P: AppPorts>() -> Registry<P> {
         action("autopilot.status", "autopilot", r##"Read an Autopilot run you started (state, cycle, branch): ompdesk_autopilot status."##, json!({"type":"object","properties":{"session":{"type":"string","minLength":1,"maxLength":200}},"required":["session"],"additionalProperties":false}), Tier::Read, |ctx, args| Box::pin(h_autopilot_status(ctx, args))),
         action("autopilot.start", "autopilot", r##"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release) and its folder rules. ship defaults to the user's stored level; device runs it on a paired device (default the device your session runs on)."##, json!({"type":"object","properties":{"folder":{"type":"string","minLength":1,"maxLength":4096},"device":{"type":"string","minLength":1,"maxLength":200},"ship":{"type":"string","enum":["commit","push","release"]}},"additionalProperties":false}), Tier::Change, |ctx, args| Box::pin(h_autopilot_start(ctx, args))),
         action("autopilot.stop", "autopilot", r##"End an Autopilot run after the cycle in flight, or with now: true stop it at once (the turn is aborted and the run paused): ompdesk_autopilot stop."##, json!({"type":"object","properties":{"session":{"type":"string","minLength":1,"maxLength":200},"now":{"type":"boolean"}},"required":["session"],"additionalProperties":false}), Tier::Change, |ctx, args| Box::pin(h_autopilot_stop(ctx, args))),
+        action("checks.publish_admission_key", "checks", r##"Publish this computer's check-control admission key to a GitHub repository (owner/name): sets its Actions secret CHECKS_ADMISSION_KEY_<device> and adds this computer to the variable CHECKS_ADMISSION_DEVICES, so the queue gate accepts only macOS dispatches this computer's checks hub signed. The key goes to gh on its stdin and is never shown."##, json!({"type":"object","properties":{"repo":{"type":"string","minLength":3,"maxLength":200}},"required":["repo"],"additionalProperties":false}), Tier::Sensitive, |ctx, args| Box::pin(h_checks_publish_admission_key(ctx, args)))
+            .manage(Manage::Always { reason: r##"it changes which CI runs a repository accepts and writes a credential to it"##, when: None })
+            .describe(describe_checks_publish_admission_key),
     ];
     actions.extend(SETTINGS.iter().map(setting_action));
     Registry::new(actions)
@@ -319,6 +323,30 @@ fn describe_extensions_mcp_use(args: &Args) -> String {
 
 fn describe_remote_connect(args: &Args) -> String {
     format!("connect to the tailnet computer {}", arg(args, "nodeId"))
+}
+
+fn describe_checks_publish_admission_key(args: &Args) -> String {
+    format!(
+        "publish this computer's check admission key to {} (an Actions secret and the device list)",
+        arg(args, "repo")
+    )
+}
+
+async fn h_checks_publish_admission_key<P: AppPorts>(ctx: Ctx<P>, args: Args) -> Done {
+    let repo = arg(&args, "repo");
+    let answer = ctx
+        .invoke(CHECKS_PUBLISH_ADMISSION_KEY, vec![json!(repo)])
+        .await?;
+    let devices: Vec<&str> = answer
+        .get("devices")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    Ok(ActionResult::text(format!(
+        "Published this computer's admission key to {repo} ({}); its queue gate checks the tickets of: {}.",
+        text_of(answer.get("secret")),
+        devices.join(", ")
+    )))
 }
 
 fn describe_remote_block(args: &Args) -> String {

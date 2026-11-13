@@ -67,8 +67,9 @@ jobs:
       mac-refs: ${{ vars.MAC_REFS }}
       force: ${{ inputs.force }}
       ticket: ${{ inputs.ticket }}
-    secrets:
-      admission-key: ${{ secrets.CHECKS_ADMISSION_KEY }}
+      admission-devices: ${{ vars.CHECKS_ADMISSION_DEVICES }}
+    # The gate reads one computer's admission key by name (queue-gate.yml); nothing else of the secrets.
+    secrets: inherit
 
   build-out:
     needs: gate

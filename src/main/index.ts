@@ -107,6 +107,8 @@ import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes }
 import type { Autopilot } from "./autopilot";
 import { askBackgroundWork } from "./background-work";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
+import { loadAdmissionKey } from "./checks/admission-key";
+import { setAppChecksAdmission } from "./checks/client";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import {
 	answersWithin,
@@ -2027,6 +2029,15 @@ app.whenReady().then(async () => {
 					};
 		},
 	});
+	// This computer's own admission key for check control's tickets, made once and kept by the OS keystore; the hub
+	// is handed it when it opens (checks/admission-key.ts). Never in a session's environment.
+	setAppChecksAdmission(async () =>
+		loadAdmissionKey(app.getPath("userData"), (await remoteIdentity).deviceId, {
+			available: () => safeStorage.isEncryptionAvailable(),
+			encrypt: text => safeStorage.encryptString(text),
+			decrypt: data => safeStorage.decryptString(data),
+		}),
+	);
 	// The owner's mailboxes for email routines; each password is kept encrypted by the OS keystore (mail-accounts.ts).
 	mailAccounts = new MailAccounts({
 		dir: app.getPath("userData"),

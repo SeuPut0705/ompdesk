@@ -259,6 +259,7 @@ describe("ompdesk_app tiers", () => {
 		["remote.unblock", { block: "node:nHOST" }],
 		["remote.set_allowed_users", { users: ["kim@example.com"] }],
 		["settings.proxy", { value: "http://proxy.example:8080" }],
+		["checks.publish_admission_key", { repo: "SeuPut0705/ompdesk" }],
 	];
 
 	it("asks for code, credentials, network exposure, running work and erased data even while agentControlManage is on", async () => {

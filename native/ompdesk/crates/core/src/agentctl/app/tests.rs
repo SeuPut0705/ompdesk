@@ -733,6 +733,25 @@ async fn list_names_every_action_and_shows_schemas_once_narrowed() {
         narrow.contains("usage.read [read]") && narrow.contains("\"refresh\""),
         "{narrow}"
     );
+    // A new action changes these lists: `OMPDESK_WRITE_APP_LIST=1 cargo test -p ompdesk-core --lib agentctl::app`
+    // rewrites each row's text from the catalog as it is now (review the diff: only the new action may appear).
+    if std::env::var_os("OMPDESK_WRITE_APP_LIST").is_some() {
+        let mut raw: Value = serde_json::from_str(include_str!("captured/list.json")).unwrap();
+        for row in raw.as_array_mut().unwrap() {
+            fake.world().full = row["full"] == true;
+            let filter = expand(row["raw"].clone());
+            let text = control
+                .list(optional(&filter).unwrap_or(&Value::Null))
+                .await
+                .unwrap();
+            row["text"] = Value::String(text);
+        }
+        let file = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/agentctl/app/captured/list.json"
+        );
+        std::fs::write(file, serde_json::to_string(&raw).unwrap() + "\n").unwrap();
+    }
     let table = captured(include_str!("captured/list.json"));
     for row in table.as_array().unwrap() {
         fake.world().full = row["full"] == true;
