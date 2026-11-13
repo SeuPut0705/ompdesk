@@ -76,13 +76,13 @@ class FakeHost {
 	handle(method: string, handler: (params: never, context: { signal: AbortSignal }) => unknown) {
 		this.#handlers.set(method, handler);
 	}
-	/** The shell sends an event. */
+	/** The shell sends the module's event `name`. */
 	emit(name: string, data: Record<string, unknown>) {
-		for (const listener of this.#listeners.get(name) ?? []) listener(data as never);
+		for (const listener of this.#listeners.get(`preview.${name}`) ?? []) listener(data as never);
 	}
-	/** The shell asks Node. */
+	/** The module asks Node `method`. */
 	ask(method: string, params: Record<string, unknown>) {
-		const handler = this.#handlers.get(method);
+		const handler = this.#handlers.get(`preview.${method}`);
 		if (!handler) throw new Error(`nobody serves ${method}`);
 		return handler(params as never, { signal: new AbortController().signal });
 	}
