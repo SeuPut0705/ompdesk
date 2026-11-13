@@ -156,7 +156,7 @@ GateMove ==
     /\ path' = NoS /\ isNew' = TRUE /\ shown' = NoS /\ named' = FALSE /\ gated' = TRUE
     /\ UNCHANGED <<written, lastOpen, used, spawns, moved>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1434-1497 Lane::observe: switch_session inside the running omp (sidebar open in the same tab, `sessions.ts` local handler); its response names no file, the pool takes the requested one (ipc.ts:994-996)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1434-1497 Lane::observe: switch_session inside the running omp (sidebar open in the same tab, `sessions.ts` local handler); its response names no file, the pool takes the requested one (ipc.ts:996-998)
 Switch(f) ==
     /\ proc = "ready" /\ f # onOmp
     /\ onOmp' = f /\ shown' = f /\ named' = TRUE /\ moved' = FALSE

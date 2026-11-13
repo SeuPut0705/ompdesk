@@ -177,7 +177,7 @@ Launch(t) ==
 ----------------------------------------------------------------------------
 \* ===== pool events: each is followed by the `sync()` the pool triggers =====
 
-\* @code src/main/ipc.ts:879-882 the person's prompt: personsPrompt -> SidecarPool.notePrompted (host-services.ts:2263-2269 a device's, a view's through its window tab), before the command is sent
+\* @code src/main/ipc.ts:881-884 the person's prompt: personsPrompt -> SidecarPool.notePrompted (host-services.ts:2270-2276 a device's, a view's through its window tab), before the command is sent
 \* @code native/ompdesk/crates/core/src/pool/run.rs:243-247 Tracking::track[agent_start]: agent_start: a new run clears lastRun, stopped, retry
 \* @code native/ompdesk/crates/core/src/resume/machine.rs:538-540 Inst::sync_inner[judge-all]: sync() starts: judge every fact
 UserPrompt(t) ==
@@ -222,7 +222,7 @@ UserStop(t) ==
     /\ UNCHANGED <<run, last, kindOf, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH, launched, mvV, runSg, pk, rk, bad7, bad8>>
 
 \* @code src/main/turn-resume.ts:248-265 trackMove: a TOUCH_COMMANDS command goes out and is marked in flight (MovesInFlight.begin); `touched` counts it only at its answer
-\* @code src/main/ipc.ts:1066-1078 the window tab's move command; src/main/remote/host-services.ts:2276-2300 a device's
+\* @code src/main/ipc.ts:1068-1080 the window tab's move command; src/main/remote/host-services.ts:2283-2307 a device's
 MoveSend(t, k) ==
     /\ Idle /\ mv[t] = "none" /\ sg[t] < MaxSess
     /\ mv' = [mv EXCEPT ![t] = k]          \* k = "moves": the answer will count (or it times out); "stays": cancelled or failed
@@ -247,7 +247,7 @@ MoveReply(t) ==
 \* Environment: the tab's session moves and no sync() follows (a path that does not tell the resume rules: the model
 \* drops the sync() a held wait's file move now triggers, so the continuations' own re-check must hold without it).
 \* @code native/ompdesk/crates/core/src/pool/routes.rs:50-88 Ctx::register_session_file_of: #registerSessionFile: a window tab's file moves (a paired device's switch through a view)
-\* @code src/main/remote/host-services.ts:1987-1995 a device's own hosted tab reports another session file
+\* @code src/main/remote/host-services.ts:1994-2002 a device's own hosted tab reports another session file
 FileMoved(t) ==
     /\ Idle /\ sg[t] + (IF mv[t] = "moves" THEN 1 ELSE 0) < MaxSess
     /\ sg' = [sg EXCEPT ![t] = sg[t] + 1]

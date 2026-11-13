@@ -23,7 +23,7 @@
 				"src/main/turn-resume.ts:174-265",
 				"src/main/turn-resume.ts:818-832",
 				"src/main/connectivity.ts",
-				"src/main/index.ts:2248-2252",
+				"src/main/index.ts:2337-2341",
 				"src/main/sidecar-run-state.ts",
 				"src/main/remote/host-services.ts",
 				"src/main/ipc.ts"
@@ -91,7 +91,7 @@
 				"src/main/web/ws-router.ts#WsRouter.call",
 				"native/ompdesk/crates/core/src/agentctl/service/sessions/stop.rs:138-177",
 				"src/main/tab-release.ts#closeWindowTab",
-				"src/main/agent-control/host.ts:1122-1129"
+				"src/main/agent-control/host.ts:1123-1130"
 			],
 			"syncCommit": "9c40f5cd02c9a11a8213651c8d18748a7f6ee510",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
