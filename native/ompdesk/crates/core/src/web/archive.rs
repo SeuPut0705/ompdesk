@@ -228,8 +228,15 @@ fn retain_build(dir: &Path, static_root: &Path, now: i64) -> io::Result<Option<V
 pub struct AssetArchive {
     dir: PathBuf,
     roots: Mutex<Vec<PathBuf>>,
-    /// Calls run one after another: a second call's copy is never swept away by the first call's cleanup.
-    queue: tokio::sync::Mutex<()>,
+    /// Calls run one after another, in the order they were made: a second call's copy is never swept away by the
+    /// first call's cleanup. Each call takes its place here synchronously (`turn`) and waits for the one before it.
+    last: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+}
+
+/// A call's place in the archive's line: it starts once `before` ended, and its end lets the next start.
+pub struct Turn {
+    before: Option<tokio::sync::oneshot::Receiver<()>>,
+    _done: tokio::sync::oneshot::Sender<()>,
 }
 
 static ARCHIVES: LazyLock<Mutex<HashMap<PathBuf, Arc<AssetArchive>>>> =
@@ -244,7 +251,7 @@ pub fn open(user_data: &Path) -> Arc<AssetArchive> {
         Arc::new(AssetArchive {
             dir: user_data.join(FOLDER),
             roots: Mutex::default(),
-            queue: tokio::sync::Mutex::new(()),
+            last: Mutex::default(),
         })
     }))
 }
@@ -263,8 +270,38 @@ impl AssetArchive {
 
     /// Keep the build in `static_root` for later (copied once), mark the others replaced, drop what is past the window
     /// or the count, and serve the rest. Never fails for a missing renderer folder (a dev run has none).
+    /// The next place in the line, taken now: a call that takes it later runs after this one, whatever order the
+    /// tasks run in.
+    pub fn turn(&self) -> Turn {
+        let (done, next) = tokio::sync::oneshot::channel();
+        let before = self
+            .last
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .replace(next);
+        Turn {
+            before,
+            _done: done,
+        }
+    }
+
     pub async fn retain(&self, static_root: &Path, now: i64) -> io::Result<Vec<PathBuf>> {
-        let _turn = self.queue.lock().await;
+        let turn = self.turn();
+        self.retain_in(turn, static_root, now).await
+    }
+
+    /// `retain` in a place taken earlier.
+    pub async fn retain_in(
+        &self,
+        mut turn: Turn,
+        static_root: &Path,
+        now: i64,
+    ) -> io::Result<Vec<PathBuf>> {
+        if let Some(before) = turn.before.take() {
+            // The one before ended, also when its answer was dropped: its sender went either way.
+            let _ = before.await;
+        }
+        let _turn = turn;
         let (dir, root) = (self.dir.clone(), static_root.to_path_buf());
         let kept = tokio::task::spawn_blocking(move || retain_build(&dir, &root, now))
             .await
@@ -286,10 +323,25 @@ struct Params {
     now: i64,
 }
 
-async fn retain(call: Call) -> Result<Reply, Fault> {
-    let params: Params = call.params()?;
-    let roots = open(&params.user_data)
-        .retain(&params.static_root, params.now)
+/// Takes the call's place in the archive's line in the handler's synchronous part, which the server runs before it
+/// reads the next line (`server.rs` `begin`): two calls run in the order main made them.
+fn retain(call: Call) -> crate::server::Answer {
+    let params: Params = match call.params() {
+        Ok(params) => params,
+        Err(fault) => return Box::pin(std::future::ready(Err(fault))),
+    };
+    let archive = open(&params.user_data);
+    let turn = archive.turn();
+    Box::pin(async move { retain_answer(archive, turn, params).await })
+}
+
+async fn retain_answer(
+    archive: Arc<AssetArchive>,
+    turn: Turn,
+    params: Params,
+) -> Result<Reply, Fault> {
+    let roots = archive
+        .retain_in(turn, &params.static_root, params.now)
         .await
         .map_err(|error| Fault::new("io", error.to_string()))?;
     let roots: Vec<String> = roots
@@ -308,7 +360,7 @@ async fn build(call: Call) -> Result<Reply, Fault> {
 }
 
 pub fn register(registry: &mut Registry) {
-    registry.add("web.assets.retain", |call| Box::pin(retain(call)));
+    registry.add("web.assets.retain", retain);
     registry.add("web.assets.buildId", |call| Box::pin(build(call)));
 }
 
@@ -377,7 +429,7 @@ mod tests {
         AssetArchive {
             dir: scratch.archive(),
             roots: Mutex::default(),
-            queue: tokio::sync::Mutex::new(()),
+            last: Mutex::default(),
         }
     }
 
@@ -532,8 +584,8 @@ mod tests {
         let (first, second) = (scratch.renderer("first"), scratch.renderer("second"));
         build(&first, "a");
         build(&second, "b");
-        // The first call is held while the turn is taken: nothing of the second runs until it ends.
-        let turn = archive.queue.lock().await;
+        // The first call holds its place: nothing of the second runs until it ends.
+        let turn = archive.turn();
         let pending = tokio::spawn({
             let (archive, second) = (Arc::clone(&archive), second.clone());
             async move { archive.retain(&second, CLOCK).await }
@@ -563,6 +615,28 @@ mod tests {
                 .join("assets/chunk-b.js")
                 .exists()
         );
+    }
+
+    /// Two calls run in the order their places were taken, also when the second's task runs first: the second
+    /// build is the current one at the end, and the first is served as replaced.
+    #[tokio::test]
+    async fn calls_run_in_the_order_their_places_were_taken() {
+        let scratch = Scratch::new();
+        let archive = Arc::new(fresh(&scratch));
+        let (first, second) = (scratch.renderer("first"), scratch.renderer("second"));
+        build(&first, "a");
+        build(&second, "b");
+        let first_turn = archive.turn();
+        let second_turn = archive.turn();
+        let later = tokio::spawn({
+            let (archive, second) = (Arc::clone(&archive), second.clone());
+            async move { archive.retain_in(second_turn, &second, CLOCK).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!later.is_finished());
+        archive.retain_in(first_turn, &first, CLOCK).await.unwrap();
+        later.await.unwrap().unwrap();
+        assert_eq!(served(&archive, "chunk-a.js"), ["chunk a"]);
     }
 
     #[tokio::test]
