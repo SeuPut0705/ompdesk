@@ -21,9 +21,12 @@ func post(_ type: CGEventType, _ x: Double, _ y: Double) {
 post(.mouseMoved, a[0], a[1])
 usleep(150_000)
 post(.leftMouseDown, a[0], a[1])
-for step in 1...12 {
-	usleep(25_000)
-	post(.leftMouseDragged, a[0] + a[2] * Double(step) / 12, a[1] + a[3] * Double(step) / 12)
+// Small steps: the window server takes its grab point from the first drag event after the press (and holds back a few
+// points of drag threshold), so one big step is lost; with 60 steps at most a couple of points are.
+let steps = 60
+for step in 1...steps {
+	usleep(8_000)
+	post(.leftMouseDragged, a[0] + a[2] * Double(step) / Double(steps), a[1] + a[3] * Double(step) / Double(steps))
 }
 usleep(100_000)
 post(.leftMouseUp, a[0] + a[2], a[1] + a[3])
