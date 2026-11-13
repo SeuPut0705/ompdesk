@@ -296,16 +296,55 @@ pub fn spawn_runner(id: &str) -> i32 {
         command.spawn().map(|_| ())
     };
     #[cfg(windows)]
-    let started = {
-        let desktop = crate::sys::check_desktop();
-        crate::sys::spawn_detached(&exe, &args, desktop.as_deref()).map(|_| ())
-    };
+    let started = start_on_windows(&exe, &args, id);
     match started {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("ompdesk check: cannot start the runner: {e}");
             1
         }
+    }
+}
+
+/// Starts the runner on the checks desktop and watches it take over (its `alive` lock, or a journal past `starting`).
+/// Never on the person's desktop: a desktop that cannot be made, or a runner that ends before it takes over (an
+/// NTSTATUS such as 0xC0000142 when Windows cannot initialize a process there), fails the run with that evidence.
+#[cfg(windows)]
+fn start_on_windows(exe: &Path, args: &[String], id: &str) -> io::Result<()> {
+    let store = open_store()?;
+    let fail = |why: String| -> io::Result<()> {
+        if let Some(mut run) = store.read(id) {
+            run.state = State::Error;
+            run.ended = Some(now_ms());
+            run.summary = Some(format!("not started: {why}"));
+            let _ = store.write(&run);
+        }
+        let _ = store.append(id, "log", &format!("ompdesk check: {why}"));
+        Err(io::Error::other(why))
+    };
+    let Some(desktop) = crate::sys::check_desktop() else {
+        return fail(format!(
+            "the checks desktop could not be made ({}); the command does not start on the person's desktop",
+            io::Error::last_os_error()
+        ));
+    };
+    let runner = crate::sys::spawn_detached(exe, args, Some(&desktop))?;
+    let until = Instant::now() + Duration::from_secs(15);
+    loop {
+        if store.runner_alive(id) || store.read(id).is_some_and(|r| r.state != State::Starting) {
+            return Ok(());
+        }
+        if let Some(code) = runner.exit_code() {
+            return fail(format!(
+                "the runner ended on the {desktop} desktop before it started (exit 0x{code:08X}); the command does not \
+                 start on the person's desktop"
+            ));
+        }
+        if Instant::now() >= until {
+            // Still running, only slow: the foreground's attach waits for it.
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 

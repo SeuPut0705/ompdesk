@@ -277,14 +277,51 @@ fn quote_arg(arg: &str, out: &mut String) {
     out.push('"');
 }
 
+/// A process `spawn_detached` started, held by its handle so its exit code can still be read after it ended.
+#[cfg(windows)]
+pub struct Detached {
+    pub pid: u32,
+    handle: *mut std::ffi::c_void,
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetExitCodeProcess(process: *mut std::ffi::c_void, code: *mut u32) -> i32;
+    fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(windows)]
+impl Detached {
+    /// Its exit code once it ended (an NTSTATUS such as 0xC0000142 when Windows could not initialize it); `None`
+    /// while it runs.
+    pub fn exit_code(&self) -> Option<u32> {
+        const STILL_ACTIVE: u32 = 259;
+        let mut code = 0u32;
+        // SAFETY: the handle is this value's own, open until drop; `code` is written during the call.
+        let read = unsafe { GetExitCodeProcess(self.handle, &raw mut code) };
+        (read != 0 && code != STILL_ACTIVE).then_some(code)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Detached {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from CreateProcessW and is closed once, here.
+        unsafe {
+            CloseHandle(self.handle);
+        }
+    }
+}
+
 /// Starts `program` with `args` outside the caller's console, process group and job (when the job lets it break
-/// away), on `desktop` when given, with no handles inherited. Its id.
+/// away), on `desktop` when given, with no handles inherited.
 #[cfg(windows)]
 pub fn spawn_detached(
     program: &std::path::Path,
     args: &[String],
     desktop: Option<&str>,
-) -> std::io::Result<u32> {
+) -> std::io::Result<Detached> {
     use std::ffi::c_void;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
@@ -399,12 +436,15 @@ pub fn spawn_detached(
             )
         };
         if started != 0 {
-            // SAFETY: both handles were just returned by CreateProcessW and are closed once.
+            // SAFETY: the thread handle was just returned by CreateProcessW and is closed once; the process handle
+            // goes to `Detached`, which closes it.
             unsafe {
                 CloseHandle(info.thread);
-                CloseHandle(info.process);
             }
-            return Ok(info.pid);
+            return Ok(Detached {
+                pid: info.pid,
+                handle: info.process,
+            });
         }
         last = std::io::Error::last_os_error();
         // A job that does not let its processes break away refuses the first try; start inside it then.
