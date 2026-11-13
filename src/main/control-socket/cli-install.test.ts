@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installCliLaunchers, LAUNCHER_MARKER } from "./cli-install";
 
 let root: string;
@@ -103,9 +103,92 @@ describe("installCliLaunchers", () => {
 		// A Windows path whatever the test's host: omp's own bash answered `not found` for `exec 'C:\…\ompdesk.exe'`.
 		installCliLaunchers({ ...options, binary: String.raw`C:\Program Files\O'MP\ompdesk-bin\ompdesk.exe` });
 		const sh = readFileSync(join(appBin, "ompdesk"), "utf8");
-		expect(sh).toContain(`exec 'C:/Program Files/O'\\''MP/ompdesk-bin/ompdesk.exe' "$@"`);
+		expect(sh).toContain(`exe='C:/Program Files/O'\\''MP/ompdesk-bin/ompdesk.exe'`);
+		expect(sh).toContain(`exec "$exe" "$@"`);
 		const cmd = readFileSync(join(appBin, "ompdesk.cmd"), "utf8");
 		expect(cmd).toContain(String.raw`"C:\Program Files\O'MP\ompdesk-bin\ompdesk.exe" %*`);
+	});
+
+	/**
+	 * WSL on a POSIX host: `WSL_DISTRO_NAME` set, a `wslpath` that records what it maps, and a stand-in for the Windows
+	 * CLI that logs its arguments and, for `heavy hold`, answers as the real one does (with Windows' CR): `held 1 pid
+	 * 4242`, or `held reused` under a holder named by `OMPDESK_HEAVY_HELD`, then holds until its stdin closes.
+	 */
+	function underWsl() {
+		const { options, appBin } = setup(false, "win32");
+		const bin = join(root, "wsl-bin");
+		mkdirSync(bin, { recursive: true });
+		const log = join(root, "cli.log");
+		const cli = join(bin, "ompdesk.exe");
+		writeFileSync(
+			cli,
+			`#!/bin/sh
+echo "$*" >> '${log}'
+[ "$1 $2" = "heavy hold" ] || exit 0
+if [ -n "$OMPDESK_HEAVY_HELD" ]; then echo "reused under $OMPDESK_HEAVY_HELD" >> '${log}'; printf 'held reused\\r\\n'
+else printf 'held 1 pid 4242\\r\\n'; fi
+cat >/dev/null
+echo released >> '${log}'
+`,
+			{ mode: 0o755 },
+		);
+		writeFileSync(join(bin, "wslpath"), `#!/bin/sh\necho "wslpath $*" >> '${log}'\necho "$2"\n`, { mode: 0o755 });
+		installCliLaunchers({ ...options, binary: cli });
+		const env: NodeJS.ProcessEnv = { ...process.env, WSL_DISTRO_NAME: "Ubuntu", PATH: `${bin}:${process.env.PATH}` };
+		delete env.WSLENV;
+		delete env.OMPDESK_HEAVY_HELD;
+		const calls = () =>
+			existsSync(log)
+				? readFileSync(log, "utf8")
+						.trim()
+						.split("\n")
+						.filter(line => !line.startsWith("wslpath "))
+				: [];
+		return { launcher: join(appBin, "ompdesk"), env, calls, log, cli };
+	}
+
+	it.skipIf(process.platform === "win32")("under WSL runs the Windows CLI by its mapped path", () => {
+		const { launcher, env, log, cli } = underWsl();
+		execFileSync(launcher, ["heavy", "status"], { env });
+		expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([`wslpath -u ${cli}`, "heavy status"]);
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"under WSL runs a heavy command as a Linux process while it holds a slot, and returns its exit code",
+		() => {
+			const { launcher, env, calls, log } = underWsl();
+			const seen = join(root, "seen");
+			// What the command saw: the hold taken and not yet released, its holder's pid, and no handle of the hold's stdin.
+			const command = `grep -v wslpath '${log}' > '${seen}'; echo "$OMPDESK_HEAVY_HELD $WSLENV" >> '${seen}'; if (: >&3) 2>/dev/null; then echo inherited >> '${seen}'; fi; exit 3`;
+			const run = spawnSync(launcher, ["run", "--heavy", "--", "sh", "-c", command], { env });
+			expect(run.status).toBe(3);
+			expect(readFileSync(seen, "utf8").trim().split("\n")).toEqual(["heavy hold", "4242 OMPDESK_HEAVY_HELD"]);
+			expect(calls()).toEqual(["heavy hold", "released"]);
+		},
+	);
+
+	it.skipIf(process.platform === "win32")(
+		"under WSL a heavy run nested in another reuses the outer slot instead of waiting for a second",
+		() => {
+			const { launcher, env, calls } = underWsl();
+			const run = spawnSync(launcher, ["run", "--heavy", "--", launcher, "run", "--heavy", "--", "true"], { env });
+			expect(run.status).toBe(0);
+			expect(calls()).toEqual(["heavy hold", "heavy hold", "reused under 4242", "released", "released"]);
+		},
+	);
+
+	it.skipIf(process.platform === "win32")("under WSL frees the slot when the heavy run is killed", async () => {
+		const { launcher, env, calls } = underWsl();
+		const pidFile = join(root, "child.pid");
+		const run = spawn(launcher, ["run", "--heavy", "sh", "-c", `echo $$ > '${pidFile}'; exec sleep 30`], { env });
+		await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true));
+		expect(calls()).toEqual(["heavy hold"]);
+		run.kill("SIGKILL");
+		try {
+			await vi.waitFor(() => expect(calls()).toEqual(["heavy hold", "released"]));
+		} finally {
+			process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+		}
 	});
 
 	it("leaves the command out, and the app starting, when its folder cannot be written", () => {
