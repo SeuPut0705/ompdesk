@@ -117,7 +117,10 @@ function arrival(message: {
 export function install(pi: ExtensionAPI): void {
 	if (!patchTracker(pi)) return;
 	patchSession(pi);
-	pi.on("session_start", () => patchSession(pi));
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx?.agent?.kind === "main") book.clear();
+		patchSession(pi);
+	});
 	pi.on("before_agent_start", () => {
 		patchSession(pi);
 	});

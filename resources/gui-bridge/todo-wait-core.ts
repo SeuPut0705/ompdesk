@@ -143,6 +143,12 @@ export class WaitBook {
 		this.#pending = this.#pending.filter(reply => !reply.aliases.some(name => from.includes(name)));
 	}
 
+	/** A new session in this process owes nothing yet. */
+	clear(): void {
+		this.#pending = [];
+		this.#seen.clear();
+	}
+
 	/** Replies still owed to the session. */
 	get size(): number {
 		return this.#pending.length;
