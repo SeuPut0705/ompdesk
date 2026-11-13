@@ -23,12 +23,12 @@
 				"src/main/turn-resume.ts:174-265",
 				"src/main/turn-resume.ts:818-832",
 				"src/main/connectivity.ts",
-				"src/main/index.ts:2234-2238",
+				"src/main/index.ts:2237-2241",
 				"src/main/sidecar-run-state.ts",
 				"src/main/remote/host-services.ts",
 				"src/main/ipc.ts"
 			],
-			"syncCommit": "57db02a525813f94c88f49ab7c4942990ee1b7f1",
+			"syncCommit": "f094161e3444ba44a4d3b4b0f6894fd13e36f014",
 			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md"
 		},
 		{
@@ -57,13 +57,13 @@
 				"src/main/session-list-share.ts",
 				"src/shared/session-list-delta.ts",
 				"src/main/remote/host-session-list.ts",
-				"src/main/remote/client.ts:403-420",
+				"src/main/remote/client.ts:443-460",
 				"src/main/remote/wire.ts:161-166",
-				"src/main/core/process.ts:163-200",
+				"src/main/core/process.ts:172-209",
 				"native/ompdesk/crates/core/src/remote/link.rs:503-561",
-				"src/main/remote/devices.ts:636-652",
-				"src/main/remote/devices.ts:650-652",
-				"src/main/remote/devices.ts:925-953",
+				"src/main/remote/devices.ts:648-664",
+				"src/main/remote/devices.ts:662-664",
+				"src/main/remote/devices.ts:937-965",
 				"src/main/session-index.ts:273-275",
 				"src/main/session-index.ts:329-338",
 				"src/main/session-index.ts:369-383",
@@ -155,7 +155,7 @@
 				"native/ompdesk/crates/core/src/disk/tree.rs#live",
 				"native/ompdesk/crates/core/src/git/read.rs#blocking"
 			],
-			"syncCommit": "57db02a525813f94c88f49ab7c4942990ee1b7f1",
+			"syncCommit": "f094161e3444ba44a4d3b4b0f6894fd13e36f014",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"
 		},
 		{
