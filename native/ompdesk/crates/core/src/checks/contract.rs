@@ -748,6 +748,9 @@ pub mod wire {
     /// `{hub, gh, git, home}`: how gh and git run (main's `ghRunner` and `gitRunner`, null when not installed), sent
     /// after the open and again when the login shell's environment changed. Never kept in a log or an answer.
     pub const RUNNERS: &str = "checks.runners";
+    /// `{hub}` → this computer's own `LocalPool` as its poller reads it: what a paired computer's link forwards to
+    /// another hub as `MainFact::DevicePool` (with its own device id).
+    pub const LOCAL_POOL: &str = "checks.localPool";
     /// Drives the fake hub (`checks.open {fake: true}`): tests and the dev harness only.
     pub const FAKE: &str = "checks.fake";
     /// Event: the snapshot changed, while `checks.watch {on: true}` holds.
@@ -1237,6 +1240,7 @@ pub(crate) mod samples {
                 "snapshot": wire::SNAPSHOT,
                 "facts": wire::FACTS,
                 "runners": wire::RUNNERS,
+                "localPool": wire::LOCAL_POOL,
                 "result": wire::RESULT,
             },
             "enums": enums,

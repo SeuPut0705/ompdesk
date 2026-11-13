@@ -15,7 +15,7 @@ use super::contract::{
     Answer, MainFact, Origin, QueueEntry, RepoId, RunId, RunResult, Sha, Snapshot, StartReply,
     StartRequest, StartScope, StatusRequest, WaitRequest,
 };
-use super::sources::{GithubSource, LocalSource};
+use super::sources::{GithubSource, LocalPool, LocalSource};
 use crate::run::Runner;
 use crate::server::{Fault, Scope};
 
@@ -64,6 +64,10 @@ pub trait ChecksHub: Send + Sync {
 
     /// How gh and git run from now on.
     fn runners(&self, runners: Runners) -> Fut<'_, Result<(), Fault>>;
+
+    /// This computer's own pool as its poller reads it (device `local`): what a paired computer forwards to another
+    /// hub as `MainFact::DevicePool`, so the mapping of `ompdesk heavy status` stays in one place.
+    fn local_pool(&self) -> Fut<'_, Result<LocalPool, Fault>>;
 }
 
 fn not_built(part: &str) -> Fault {
@@ -199,5 +203,9 @@ impl ChecksHub for Hub {
 
     fn runners(&self, _runners: Runners) -> Fut<'_, Result<(), Fault>> {
         Box::pin(async { Err(not_built("the gh and git runners")) })
+    }
+
+    fn local_pool(&self) -> Fut<'_, Result<LocalPool, Fault>> {
+        Box::pin(async { Err(not_built("this computer's pool")) })
     }
 }

@@ -8,6 +8,7 @@ import {
 	CHECKS_WIRE,
 	type FakeCall,
 	type FakeOp,
+	type LocalPool,
 	type MainFact,
 	type Origin,
 	type RunResult,
@@ -105,6 +106,11 @@ export class CoreChecksHub implements FakeChecksHub {
 	/** How gh and git run from now on (`ghRunner`, `gitRunner`; null: not installed); `home` is where gh runs. */
 	async runners(gh: CoreRunner | null, git: CoreRunner | null, home: string): Promise<void> {
 		await this.#call(CHECKS_WIRE.runners, { gh, git, home });
+	}
+
+	/** This computer's own pool as its hub's poller reads it (device `local`); a paired link forwards it as `devicePool`. */
+	localPool(): Promise<LocalPool> {
+		return this.#call(CHECKS_WIRE.localPool, {});
 	}
 
 	apply(op: FakeOp): Promise<FakeCall[] | null> {
