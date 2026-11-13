@@ -19,6 +19,7 @@
 pub mod contract;
 pub mod fake;
 pub mod hub;
+pub mod queue;
 pub mod sources;
 
 use std::collections::HashMap;
