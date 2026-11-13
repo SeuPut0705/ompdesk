@@ -559,8 +559,7 @@ it is `<namespace>.<name>`. The ledger line is `.omp/rules/native-rust.md` › L
   `dialog`, `notification`, `net`, …), never a second copy of them; Node through its `Ctx` (`emit`, `emit_bin`, `ask`,
   every name prefixed with its namespace); the core through `Ctx::core` (§15.2).
 - Ids a module makes for shim-level objects (a window, a page, a view) come from `state.rs`'s counters, which start at
-  2^32; Node's own ids count from 1, so the two never meet. Node's shim does not know an id at or past 2^32: the module
-  that made the object tells Node what it needs through its own events.
+  2^32; Node's own ids count from 1, so the two never meet. Which of them Node hears about is §15.4 rule 4.
 
 **Node side** (`src/main/shell-host/modules/`):
 
@@ -585,9 +584,9 @@ file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `i
 |---|---|---|---|
 | SX1 chrome | `chrome.*` | `window.ts`, `menu.ts`, `tray.ts`, `app-quit.ts`, `deep-link.ts`, `gpu-fallback.ts`, `hang-watchdog.ts`, `app-icon.ts` | `modules/chrome/`, `chrome_core/` |
 | SX2 preview | `preview.*` | `preview/host.ts`, `agent-relay.ts`, `visuals.ts`, `page-scripts.ts`, `preview-check.ts`, `layout.ts`, `relay-socket.ts`, `visual-navigation.ts`; `web/preview-stream.ts`, `preview-input.ts`, `preview-dialog.ts`, `preview-pacer.ts` | `modules/preview/`, `preview_core/` |
-| SX3 services | `services.*` | the Electron services of `ipc.ts` (clipboard, dialog, screen, shell, `Notification`, window lookups), `web/ipc-registry.ts`, `ssh/ipc.ts`, `runtime-log.ts` | `modules/services/`, `services_core/` |
+| SX3 services | `services.*` | the Electron services of `ipc.ts` and `ssh/ipc.ts` (clipboard, dialog, screen, shell, `Notification`, window lookups); their IPC handlers stay registered in Node (§15.4 rule 5) and call the client. `web/ipc-registry.ts` and `runtime-log.ts` stay in Node (rules 5 and 1) | `modules/services/`, `services_core/` |
 | SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `updater-state.ts` | `modules/updater/`, `updater_core/` |
-| SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `i18n.ts`, `i18n-text.ts`, `sidecar-factory.ts`'s paths | `modules/boot/`, `boot_core/` |
+| SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `sidecar-factory.ts`'s paths. `i18n.ts`, `i18n-text.ts` and `tray-labels.ts`'s tables stay in Node (rule 2) | `modules/boot/`, `boot_core/` |
 
 - **Where a module lives**: in the shell when it needs CEF or the OS objects the shell holds (windows, tray, menus,
   Chromium's network stack with its proxy and certificate store, the `safeStorage` key). A slice whose rules need none
@@ -603,64 +602,110 @@ file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `i
   until the other slice landed it goes through the shim namespaces as today (chrome owns the windows: preview and
   services keep using `win.*` ids Node assigns until SX1 lands, then take SX1's functions).
 
-### 15.2 `core.call` (shell → Node, the relay to `ompdesk-core`)
+### 15.2 The contract's own frames (`core.*`, `log.*`, `i18n.*`)
 
-| Method | Asks | Params | Result |
+Served by `src/main/shell-host/modules/relay.ts` (`serveShellRelays`, `publishLabels`, both called in `index.ts` before
+`whenReady`); reached from Rust through `Ctx` and `shell_core::labels`. No module adds frames to these namespaces.
+
+| Method | Asks | Params | Result / notes |
 |---|---|---|---|
-| `core.call` | shell→Node | `{method, params, timeoutMs?}` + `bin` | the core's answer to `method` (its `bin` too). A fault keeps the core's `code` and message; `{cancel: id}` cancels the request in the core. Served by `shell-host/modules/core-relay.ts` (registered in `index.ts`), used through `Ctx::core`. When the core moves under the shell only `Ctx::core`'s body changes. |
+| `core.call` | shell→Node | `{method, params, timeoutMs?}` + `bin` | the core's answer to `method` (its `bin` too). A fault keeps the core's `code` and message; `{cancel: id}` cancels the request in the core. Used through `Ctx::core`. When the core moves under the shell only `Ctx::core`'s body changes. |
+| `log.runtime` (event) | shell→Node | `{report: RuntimeLogReport, windowId?}` | one line of `<userData>/logs/gui-runtime.jsonl`, written by Node's `writeRuntimeLog` (`runtime-log-core.ts`: rotation, normalising, context). Used through `Ctx::runtime_log`. |
+| `i18n.labels` (event) | Node | `{language: "en"\|"ko", text: {[key]: string}}` | the whole label table for the UI language: every `MAIN_TEXT` key as is, every `TRAY_LABELS` key as `tray.<key>`, placeholders unfilled. Sent before `whenReady` and after every language change; each replaces the last. Read with `shell_core::labels::label(key, params)` (`fillText`'s rule; `None` before the first table or for an unknown key). |
 
 ### 15.3 Parity proof, per slice
 
-The TypeScript that moves is the specification (native-rust › A port keeps behaviour). Each slice proves its module
-the same way, and runs nothing heavy locally (the owner's rule: `cargo check` of the shell crate only; every test,
-clippy, the e2e and CEF behaviour on GitHub runners).
+The TypeScript that moves is the specification (native-rust › A port keeps behaviour), and its tests stay: the
+suites that tested the moved code keep their cases and run them against the **real shell** on CI, as the core's
+units run theirs against the real core. Captured tables in Rust are added coverage, never a replacement. Locally a
+slice runs `cargo check` of the shell crate only (the owner's rule); every test, clippy, the e2e and CEF behaviour run
+on GitHub's runners.
 
-1. **Capture before deletion.** In the slice's first commit, while the TypeScript still exists, a capture script
-   (`scripts/shell-port/capture-<namespace>.ts`) drives the moved code through its public functions over a fake shell
-   (the `HostClient` fake of `electron/create.test.ts`) and records each step: the input, the shim frames the
-   TypeScript sent (method, params) and what it returned or emitted. Written to
-   `crates/shell/src/<namespace>_core/captured.json`, headed by the commit it was captured from. Run under bun, not a
-   heavy check.
-2. **The frames are the spec.** The module's pure part returns its decisions as data equal to those frames (a list of
-   window, tray, menu or view operations, a request to make, an event to send); the CEF part only carries them out.
-   `cargo test` replays `captured.json` against `<namespace>_core` and fails on the first step that differs.
-3. **Tests that stay.** Unit tests whose subject moved become Rust tests of the same cases. Tests of callers stay and run
-   against the typed client over a fake host (`shellModule(ns, () => fake)`). The e2e specs that cover the surface
-   stay unchanged and run against the built shell. CEF behaviour (windows, tray, menus, capture, network) is checked
-   only on GitHub's Windows and macOS runners: `shell-check` (fmt, clippy `-D warnings`, `cargo test`) and the batch
-   run `gh workflow run ci.yml --ref <branch> -f batch=true`; a slice adds its specs to that run's selection.
-4. **Ledger line** in the format of the others: what moved, kept exactly (the captured step count), differences, what
-   stays TypeScript and why, CI coverage.
+1. **The parity suite runs against the shell.** Each moved file's vitest cases move to
+   `src/main/shell-host/modules/<namespace>.test.ts` (or several `<namespace>-<part>.test.ts`), unchanged in what they
+   assert, now calling the module's typed client over a real shell: `startTestShell(testShellExecutable())`
+   (`modules/test-shell.ts`), inside `describe.skipIf(!executable)`. The harness starts the built shell with a relay as
+   its Node, so the test is main's side of the wire (`hello`, `app.init`, `app.ready`), then
+   `shellModule<Spec>(ns, () => shell.client)`; it closes with `app.exit`. A case that needs Node's side served (an
+   ask, `core.call`, `log.runtime`) serves it on `shell.client` in the test. CI's `shell-parity` job (Windows and
+   macOS, every batch run) runs that folder with `OMPDESK_TEST_SHELL_REQUIRED=1`, where a missing shell fails; on
+   Linux and in a checkout without `bun run build:shell` the suites skip.
+2. **Capture before deletion.** In the slice's first commit, while the TypeScript still exists, a capture script
+   (`scripts/shell-port/capture-<namespace>.ts`, run under bun) drives the moved code through its public functions
+   over a fake shell (the `HostClient` fake of `electron/create.test.ts`) and records each step: the input, the shim
+   frames the TypeScript sent (method, params) and what it returned or emitted, into
+   `crates/shell/src/<namespace>_core/captured.json`, headed by the commit it came from. The module's pure part
+   returns its decisions as data equal to those frames; `cargo test` replays the file and fails on the first step that
+   differs.
+3. **Tests of callers** stay where they are and run against the typed client over a fake host
+   (`shellModule(ns, () => fake)`). The e2e specs that cover the surface stay unchanged and run against the built
+   shell; a slice adds them to the batch run's selection. `shell-check` (fmt, clippy `-D warnings`, `cargo test`) runs
+   in the same batch run (`gh workflow run ci.yml --ref <branch> -f batch=true`).
+4. **Ledger line** in the format of the others: what moved, kept exactly (the parity suite's cases and the captured
+   step count), differences, what stays TypeScript and why, CI coverage.
 
-### 15.4 `chrome.*` (SX1)
+### 15.4 Rules across slices (decided 13 Nov 2026)
+
+1. **`gui-runtime.jsonl` has one writer: Node.** `runtime-log.ts` and `runtime-log-core.ts` stay in Node for the
+   batch; a module writes a line with `Ctx::runtime_log` (`log.runtime`, §15.2). The shell's own diagnostic log
+   (`log.rs`, `OMPDESK_SHELL_TRACE`) stays the shell's and is not that file. When Node goes (S's last step) the writer
+   moves once, with its rotation rule.
+2. **Strings stay in Node; the shell reads one pushed table.** `MAIN_TEXT`, `TRAY_LABELS` and `mainT` stay
+   TypeScript; the shell holds no string of its own. A module that shows text (a menu, the tray, a dialog it opens)
+   reads it from `shell_core::labels` (`i18n.labels`, §15.2), keyed as in the TypeScript. A new string is added to
+   `i18n-text.ts` (English and Korean) by the slice that needs it, never as a Rust literal. Text Node already sends in
+   a request (menu templates, dialog options) stays in that request.
+3. **Parity suites reach Rust through the real shell over the wire**, never through a second test binary or an FFI
+   (§15.3 step 1). Pure Rust tests and `captured.json` are added coverage.
+4. **App windows: the shell creates them once SX1 lands, and Node adopts them.** The shell's `chrome` module makes
+   every app window with ids from `state.rs` (2^32 up) and sends `win.adopted {winId, wcId, options, state: WinState}`
+   before any other frame about it; the shim then holds a `BrowserWindow` and its `webContents` over those ids exactly
+   as after a `win.create` it sent (`fromWebContents`, `getAllWindows`, `wc.send`, `win.state`, the IPC caller's
+   `win` all work), and never sends `win.create` for them. Node keeps `win.create` for what it still makes until its
+   last caller moves (rule 6). A page a module makes that Node never needs (the Preview's views and offscreen pages
+   once SX2 lands) is the module's alone: the shell sends no `win.*`/`wc.*`/`view.*` frame about it. SX1 adds
+   `win.adopted` (shell and shim) with its first window; until then every window is Node's.
+5. **Page IPC always goes through Node.** `ipc.invoke`/`ipc.send`/`ipc.sendSync` stay shell→Node, and main's
+   `IpcRegistry` (`web/ipc-registry.ts`, `IPC_POLICY`) stays the one dispatch table for the window and the paired web
+   page alike: a moved channel's handler stays registered in Node and calls the module's client. Pushes to pages go the
+   same way: a module emits its event, its client file sends the page channel as before (`wc.send` and the web
+   broadcast). No module reads or answers a page's IPC itself.
+6. **The slice that removes a shim method's last Node caller deletes the method in the same commits**: the shim's
+   TypeScript, its `dispatch.rs` arm, its row here and in INVENTORY.md, its tests; the Rust behind it stays when a
+   module calls it. Preview-only paths are SX2's: `view.*`, `wc.frame`, `wc.paint`, `session.op registerPreload`,
+   `setPermissions`, `setDownloads`, `session.download`, `ipc.sendSync`/`__ompdeskSendSync`, offscreen `win.create`,
+   `will-prevent-unload` (SX2 confirms each by `grep` of `src/main` before it deletes). A method another slice still
+   calls (`wc.cdp.*`, `capturePage`) stays until that slice's last caller goes; whichever slice lands last removes it.
+
+### 15.5 `chrome.*` (SX1)
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
 
 Deviations:
 
-### 15.5 `preview.*` (SX2)
+### 15.6 `preview.*` (SX2)
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
 
 Deviations:
 
-### 15.6 `services.*` (SX3)
+### 15.7 `services.*` (SX3)
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
 
 Deviations:
 
-### 15.7 `updater.*` (SX4)
+### 15.8 `updater.*` (SX4)
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
 
 Deviations:
 
-### 15.8 `boot.*` (SX5)
+### 15.9 `boot.*` (SX5)
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|

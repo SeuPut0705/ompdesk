@@ -41,6 +41,12 @@ jobs:
       - name: Playwright browsers
         run: bunx playwright install chromium
       - run: bunx playwright test --grep "@smoke"
+      # Batch SX's parity suites against the macOS shell staged above (ci.yml's shell-parity is the Windows run).
+      - name: The parity suites against the shell
+        if: ${{ !cancelled() }}
+        env:
+          OMPDESK_TEST_SHELL_REQUIRED: "1"
+        run: bunx vitest run --project node src/main/shell-host/modules
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:

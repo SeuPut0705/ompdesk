@@ -193,6 +193,8 @@ import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, onSessionDeleted, recordSessionDelete, renameSession } from "./session-mutations";
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
+import { shellHost } from "./shell-host/modules/client";
+import { publishLabels } from "./shell-host/modules/relay";
 import { readClipboardText } from "./shell-host/shell-calls";
 import { updateSidebarPrefs } from "./sidebar-prefs";
 import type { SidebarProjects } from "./sidebar-projects";
@@ -2128,6 +2130,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);
+			publishLabels(shellHost());
 		}
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();

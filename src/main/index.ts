@@ -203,7 +203,7 @@ import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { shellHost } from "./shell-host/modules/client";
-import { serveCoreRelay } from "./shell-host/modules/core-relay";
+import { publishLabels, serveShellRelays } from "./shell-host/modules/relay";
 import {
 	accessibilityTrusted,
 	defaultSessionCachePath,
@@ -810,8 +810,9 @@ function spawnWindow(
 	return win;
 }
 
-// Modules moved into the shell reach the core through main until the core moves under the shell (PROTOCOL.md §15.2).
-serveCoreRelay(shellHost(), core);
+// What every module moved into the shell needs from main: the core, the runtime log and the labels (PROTOCOL.md §15.2).
+serveShellRelays(shellHost(), { core, writeRuntimeLog });
+publishLabels(shellHost());
 
 app.whenReady().then(async () => {
 	installMainRuntimeLogging();

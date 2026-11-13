@@ -106,6 +106,17 @@ impl Ctx {
         }
         host::request("core.call", relay, bin, answer)
     }
+
+    /// A line of `<userData>/logs/gui-runtime.jsonl` (PROTOCOL.md §15.2 `log.runtime`): Node is the file's one writer.
+    /// `report` is a `RuntimeLogReport` (`src/main/runtime-log-core.ts`: `kind`, `message`, `details`, …); `window_id`
+    /// is Node's id of the window the line is about.
+    pub fn runtime_log(&self, report: Value, window_id: Option<u64>) {
+        let mut data = json!({ "report": report });
+        if let Some(id) = window_id {
+            data["windowId"] = json!(id);
+        }
+        host::event("log.runtime", data);
+    }
 }
 
 /// `MODULES` by namespace, its rules asserted once (a broken list is a programming error, as the core's `Registry`).

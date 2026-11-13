@@ -1449,7 +1449,9 @@ describe("workflows", () => {
 		};
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("batch");
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("mac");
-		expect(ci.jobs["win-platform"]?.if).toContain("inputs.batch");
+		for (const job of ["win-platform", "shell-parity"]) {
+			expect(ci.jobs[job]?.if, job).toContain("inputs.batch");
+		}
 		// mac-smoke, mac-native, memory and `native` on macOS are one unit (mac-checks.yml): a push to main starts it, a
 		// dispatch only with mac (and the queue gate's admission, see ci-queue.test.ts).
 		expect(ci.jobs.mac?.uses).toBe("./.github/workflows/mac-checks.yml");

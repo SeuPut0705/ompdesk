@@ -12,6 +12,7 @@ pub mod frame;
 pub mod handshake;
 pub mod hotkey;
 pub mod input_watch;
+pub mod labels;
 pub mod launcher;
 pub mod menu_model;
 pub mod migrate;

@@ -2,8 +2,9 @@
 //! subsystem moved out of the Node main into the shell (PROTOCOL.md §15, batch SX). Pure, so `cargo test` checks the
 //! registration list's rules without CEF; the binary asserts them once when it builds its registry.
 
-/// The namespaces the Electron shim speaks, plus `core` (the shell → Node relay to `ompdesk-core`, PROTOCOL.md §15).
-/// A moved module never takes one of these: `app.*` is the one namespace Node sends before `app.ready`, and a module
+/// The namespaces the Electron shim speaks, plus the contract's own (PROTOCOL.md §15): `core` (the relay to
+/// `ompdesk-core`), `log` (lines for `gui-runtime.jsonl`, written by Node) and `i18n` (Node's label table). A moved module
+/// never takes one of these: `app.*` is the one namespace Node sends before `app.ready`, and a module
 /// beside a shim namespace of the same name would split one table between two owners.
 pub const SHIM_NAMESPACES: &[&str] = &[
     "hello",
@@ -27,6 +28,8 @@ pub const SHIM_NAMESPACES: &[&str] = &[
     "system",
     "ipc",
     "core",
+    "log",
+    "i18n",
 ];
 
 /// The namespace of a method or event name: the text before its first dot (the whole name when it has none).
