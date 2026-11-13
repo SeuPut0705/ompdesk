@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IpcScheduledRetry } from "../shared/ipc-types";
 import { LIMIT_LOOK_MS, QUOTA_FALLBACK_MS } from "../shared/quota-reset";
 import type { RpcCommand, RpcResponse, UsageReport } from "../shared/rpc-types";
+import { hub } from "./core/hub";
 import type { SidecarLike } from "./sidecar-types";
 import {
 	type ResumeFact,
@@ -27,6 +28,19 @@ const NO_HINT = "429 usage limit reached for this account";
 const HOUR = 3_600_000;
 
 const TAB = "t1";
+
+/**
+ * Vitest's clock moves `ms` and every rule that woke has finished: what the core did after main's last answer (a
+ * look's continuation, its log line) reaches main on its next turn, which fake timers never wait for, so the hub's
+ * barrier fetches it, and the promises it settles run.
+ */
+async function advance(ms: number): Promise<void> {
+	await vi.advanceTimersByTimeAsync(ms);
+	for (let round = 0; round < 3; round++) {
+		hub().barrier();
+		await vi.advanceTimersByTimeAsync(0);
+	}
+}
 
 function ok(command: string, data: unknown): RpcResponse {
 	return { type: "response", command, success: true, data };
@@ -154,7 +168,7 @@ function world(patch: Partial<ResumeFact> = {}, options: WorldOptions = {}) {
 	/** The run ends in `errorMessage`, stock's own retries spent. */
 	const end = async (errorMessage: string) => {
 		set({ running: false, lastRun: { stopReason: "error", errorMessage } });
-		await vi.advanceTimersByTimeAsync(0);
+		await advance(0);
 	};
 	return {
 		resume,
@@ -197,7 +211,7 @@ describe("a turn stock gave up on at a provider limit", () => {
 		expect(w.shown.at(-1)).toMatchObject({ at: failedAt + WEEKLY_LIMIT_MS });
 		expect(w.sent("retry")).toBe(0);
 
-		await vi.advanceTimersByTimeAsync(WEEKLY_LIMIT_MS);
+		await advance(WEEKLY_LIMIT_MS);
 		expect(w.sent("retry")).toBe(1);
 		expect(w.shown.at(-1)).toBeUndefined();
 	});
@@ -223,7 +237,7 @@ describe("a turn stock gave up on at a provider limit", () => {
 	it("writes one runtime-log line for the wait and one for the try, so a turn that sat can be explained afterwards", async () => {
 		const w = world({ peer: "desktop" });
 		await w.fail(WEEKLY_LIMIT);
-		await vi.advanceTimersByTimeAsync(WEEKLY_LIMIT_MS);
+		await advance(WEEKLY_LIMIT_MS);
 		expect(w.logs.filter(([message]) => message === "limit")).toEqual([
 			[
 				"limit",
@@ -239,7 +253,7 @@ describe("a limit that lifts before its time", () => {
 		const w = world();
 		await w.fail(WEEKLY_LIMIT);
 		w.commands.length = 0;
-		await vi.advanceTimersByTimeAsync(HOUR);
+		await advance(HOUR);
 		// Six looks in the hour: stock's settings, the session's model, stock's cached usage reports. Never a turn.
 		expect(w.sent("get_usage")).toBe(6);
 		expect(new Set(w.commands.map(command => command.type))).toEqual(
@@ -252,11 +266,11 @@ describe("a limit that lifts before its time", () => {
 	it("goes on at the next look once a reset pass or a freed account lets the provider run again", async () => {
 		const w = world();
 		await w.fail(WEEKLY_LIMIT);
-		await vi.advanceTimersByTimeAsync(25 * 60_000);
+		await advance(25 * 60_000);
 		expect(w.sent("retry")).toBe(0);
 		// 11:33: a reset pass refills the account. The 11:38 look reads it.
 		w.state.usage = () => [report()];
-		await vi.advanceTimersByTimeAsync(LIMIT_LOOK_MS);
+		await advance(LIMIT_LOOK_MS);
 		expect(w.sent("retry")).toBe(1);
 		expect(w.shown.at(-1)).toBeUndefined();
 		expect(w.logs.at(-2)).toEqual(["limit", { tab: TAB, session: "/s/a.jsonl", wait: "lifted", by: "usage" }]);
@@ -265,7 +279,7 @@ describe("a limit that lifts before its time", () => {
 		const two = world({}, { usage: () => [report(Date.now() + 7 * 24 * HOUR), report(Date.now() + 2 * HOUR)] });
 		await two.fail(WEEKLY_LIMIT);
 		two.state.usage = () => [report(Date.now() + 7 * 24 * HOUR), report()];
-		await vi.advanceTimersByTimeAsync(LIMIT_LOOK_MS);
+		await advance(LIMIT_LOOK_MS);
 		expect(two.sent("retry")).toBe(1);
 	});
 
@@ -285,10 +299,10 @@ describe("a limit that lifts before its time", () => {
 	])("goes on at the next look after %s", async (_name, change) => {
 		const w = world();
 		await w.fail(WEEKLY_LIMIT);
-		await vi.advanceTimersByTimeAsync(LIMIT_LOOK_MS);
+		await advance(LIMIT_LOOK_MS);
 		expect(w.sent("retry")).toBe(0);
 		change(w);
-		await vi.advanceTimersByTimeAsync(LIMIT_LOOK_MS);
+		await advance(LIMIT_LOOK_MS);
 		expect(w.sent("retry")).toBe(1);
 		expect(w.logs.at(-2)).toEqual(["limit", { tab: TAB, session: "/s/a.jsonl", wait: "lifted", by: "setup" }]);
 	});
@@ -299,7 +313,7 @@ describe("a limit that lifts before its time", () => {
 		w.state.usage = () => {
 			throw new Error("GUI bridge closed");
 		};
-		await vi.advanceTimersByTimeAsync(3 * LIMIT_LOOK_MS);
+		await advance(3 * LIMIT_LOOK_MS);
 		expect(w.sent("retry")).toBe(0);
 		expect(w.shown).toHaveLength(1);
 	});
@@ -309,9 +323,9 @@ describe("a limit that lifts before its time", () => {
 		const w = world({}, { usage: () => [] });
 		await w.fail(WEEKLY_LIMIT);
 		for (const attempt of [1, 2, 3]) {
-			await vi.advanceTimersByTimeAsync(LIMIT_LOOK_MS - 1);
+			await advance(LIMIT_LOOK_MS - 1);
 			expect(w.sent("retry")).toBe(attempt - 1);
-			await vi.advanceTimersByTimeAsync(1);
+			await advance(1);
 			expect(w.sent("retry")).toBe(attempt);
 			// Stock took the retry and the provider refused it again.
 			w.start();
@@ -337,15 +351,15 @@ describe("a limit that lifts before its time", () => {
 			// The turn ended at the limit; a background job keeps the run on.
 			w.start();
 			w.set({ settling: true, lastRun: { stopReason: "error", errorMessage: message } });
-			await vi.advanceTimersByTimeAsync(0);
+			await advance(0);
 			expect(w.shown.at(-1)).toMatchObject({ limit: true });
 			lift(w);
-			await vi.advanceTimersByTimeAsync(3 * LIMIT_LOOK_MS);
+			await advance(3 * LIMIT_LOOK_MS);
 			expect(w.sent("retry")).toBe(0);
 			expect(w.shown).toHaveLength(1);
 			// The job ends with no turn of its own: the next look tries.
 			w.set({ running: false, settling: false });
-			await vi.advanceTimersByTimeAsync(LIMIT_LOOK_MS);
+			await advance(LIMIT_LOOK_MS);
 			expect(w.sent("retry")).toBe(1);
 			expect(w.shown.at(-1)).toBeUndefined();
 		},
@@ -372,7 +386,7 @@ describe("what waiting cannot fix is never waited for", () => {
 	])("%s", async message => {
 		const w = world();
 		await w.fail(message);
-		await vi.advanceTimersByTimeAsync(24 * HOUR);
+		await advance(24 * HOUR);
 		expect(w.shown).toEqual([]);
 		expect(w.commands).toEqual([]);
 		expect(w.markers()).toEqual([]);
@@ -381,7 +395,7 @@ describe("what waiting cannot fix is never waited for", () => {
 	it("leaves a live Autopilot run's limit to the run's own quota wait", async () => {
 		const w = world({}, { autopilot: true });
 		await w.fail(WEEKLY_LIMIT);
-		await vi.advanceTimersByTimeAsync(24 * HOUR);
+		await advance(24 * HOUR);
 		expect(w.shown).toEqual([]);
 		expect(w.commands).toEqual([]);
 	});
@@ -390,7 +404,7 @@ describe("what waiting cannot fix is never waited for", () => {
 		const w = world();
 		// The failed attempt is live and stock waits for its next one: the run has not ended.
 		w.start({ retry: { errorMessage: WEEKLY_LIMIT } });
-		await vi.advanceTimersByTimeAsync(24 * HOUR);
+		await advance(24 * HOUR);
 		expect(w.shown).toEqual([]);
 		expect(w.sent("retry")).toBe(0);
 	});
@@ -398,7 +412,7 @@ describe("what waiting cannot fix is never waited for", () => {
 	it("follows stock's own retry switch", async () => {
 		const w = world({}, { retryOn: false });
 		await w.fail(WEEKLY_LIMIT);
-		await vi.advanceTimersByTimeAsync(24 * HOUR);
+		await advance(24 * HOUR);
 		expect(w.shown).toEqual([]);
 		expect(w.sent("retry")).toBe(0);
 	});
@@ -423,11 +437,11 @@ describe("a limit wait is called off as a scheduled retry is", () => {
 		await w.fail(WEEKLY_LIMIT);
 		expect(w.markers()).toEqual(["limit"]);
 		await act(w);
-		await vi.advanceTimersByTimeAsync(0);
+		await advance(0);
 		expect(w.shown.at(-1)).toBeUndefined();
 		// The limit lifts and its time comes: nothing is sent for the turn that was let go.
 		w.state.usage = () => [report()];
-		await vi.advanceTimersByTimeAsync(WEEKLY_LIMIT_MS);
+		await advance(WEEKLY_LIMIT_MS);
 		expect(w.sent("retry")).toBe(0);
 		expect(w.markers().filter(reason => reason === "limit")).toEqual([]);
 	});
@@ -437,7 +451,7 @@ describe("a limit wait is called off as a scheduled retry is", () => {
 		await w.fail(WEEKLY_LIMIT);
 		w.state.frozen = true;
 		w.state.usage = () => [report()];
-		await vi.advanceTimersByTimeAsync(WEEKLY_LIMIT_MS);
+		await advance(WEEKLY_LIMIT_MS);
 		expect(w.sent("retry")).toBe(0);
 		expect(w.markers()).toEqual(["limit"]);
 	});
@@ -450,7 +464,7 @@ describe("a limit wait across a relaunch", () => {
 		expect(w.state.markers).toEqual([
 			expect.objectContaining({ tab: TAB, sessionPath: "/s/a.jsonl", reason: "limit", peer: "desktop" }),
 		]);
-		await vi.advanceTimersByTimeAsync(WEEKLY_LIMIT_MS);
+		await advance(WEEKLY_LIMIT_MS);
 		w.start();
 		expect(w.markers()).toEqual(["running"]);
 	});
@@ -470,7 +484,7 @@ describe("a limit wait across a relaunch", () => {
 				},
 			},
 		);
-		await vi.advanceTimersByTimeAsync(0);
+		await advance(0);
 		expect(w.commands.map(command => command.type)).toEqual(["retry"]);
 		w.start();
 		await w.end(WEEKLY_LIMIT);
