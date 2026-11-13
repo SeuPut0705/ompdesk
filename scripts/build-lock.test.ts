@@ -294,7 +294,7 @@ describe("bun scripts/build-lock.ts", () => {
 		expect(entries().at(-1)?.waitedMs).toBeLessThan(4_000);
 	}, 60_000);
 
-	it("lets a script that takes the lock and simply ends exit, and gives its slots back", () => {
+	it("lets a script that takes the lock and simply ends exit, and gives its slots back", async () => {
 		// build-cache's build path: acquireLock, work, fall off the end. The hold child kept the script alive while
 		// it waited for the script's stdin to close, so both waited forever (13 Nov 2026, six hours).
 		const script = path.join(dir, "falls-off.ts");
@@ -306,7 +306,8 @@ describe("bun scripts/build-lock.ts", () => {
 		expect(result.error).toBeUndefined();
 		expect(result.status).toBe(0);
 		expect(result.stdout).toContain("held");
-		expect(heavyNow().slots.every(slot => !slot.held)).toBe(true);
+		// The hold sees its stdin end a moment after the script exits.
+		await vi.waitFor(() => expect(heavyNow().slots.every(slot => !slot.held)).toBe(true), { timeout: 5_000 });
 		expect(locked(["--kind", "build", "--", "node", "-e", "0"]).status).toBe(0);
 		expect(entries().at(-1)?.waitedMs).toBeLessThan(4_000);
 	}, 60_000);
