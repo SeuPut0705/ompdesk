@@ -12,7 +12,8 @@
 #   A. the real users' path: a release-signed Electron creates "ompdesk Safe Storage" and encrypts a stand-in token (through its
 #      own IPC); the shell, signed with the same certificate, decrypts it via `--keychain-key`, and its page reads it.
 #   B. an ad-hoc item (a development machine): the same Electron signed ad hoc creates the item; `--keychain-key` answers
-#      {"unavailable":"keychain-would-ask"} within its time with no dialog line.
+#      {"unavailable":"keychain-would-ask"} within its time with no dialog line, and the shell's updater (which reads the
+#      key in its own process) drops the stored token: Settings' auth info says `droppedReason: keychain-would-ask`.
 #   C. a profile without ciphertext: the shell starts and the keychain is never read (no `--keychain-key` process ever runs,
 #      sampled every 0.2 s, and no item exists afterwards).
 # Evidence lines start with "EVIDENCE:" for the ledger. Exit 1 on any failed check.
@@ -76,6 +77,15 @@ START=$(date +%s)
 limit 60 "$SHELL_APP/Contents/MacOS/OMPdesk" --keychain-key "$UD" 2>/dev/null > "$W/key-b.json"; EL=$(( $(date +%s) - START ))
 evidence "B --keychain-key answered in ${EL} s: $(sed 's/"password":"[^"]*"/"password":"<hidden>"/' "$W/key-b.json")"
 grep -q '"unavailable":"keychain-would-ask"' "$W/key-b.json" && [ "$EL" -lt 30 ]; check $? "B: {unavailable: keychain-would-ask} within its time"
+# The updater reads the key in the shell's own process (modules/updater/token.rs, dialogs off), not through `--keychain-key`:
+# its would-ask answer drops the stored token and says why, as Settings › Updates shows it.
+OMP_GUI_TEST_USER_DATA_DIR=$UD "$SHELL_APP/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=19226 >"$W/shell-b.out" 2>&1 &
+(cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts 19226 read) | tee "$W/read-b.json"; check ${PIPESTATUS[0]} "B: the shell's page answered"
+kill_apps "$SHELL_APP/Contents/MacOS"
+grep -q '"droppedReason":"keychain-would-ask"' "$W/read-b.json" && ! grep -q '"source":"stored"' "$W/read-b.json"; check $? "B: the updater dropped the unreadable token (droppedReason keychain-would-ask, no stored source)"
+[ ! -e "$UD/update-token.bin" ] && grep -qx 'keychain-would-ask' "$UD/update-token.dropped"; check $? "B: update-token.bin removed, update-token.dropped says keychain-would-ask"
+evidence "B page: $(cut -c1-400 "$W/read-b.json")"
+grep -q '"droppedReason":"keychain-would-ask"' "$W/read-b.json" || crash_diag "$SHELL_APP" "$W/shell-b.out" "$UD"
 dialogs; check $? "B: no dialog (SecurityAgent) line"
 restore
 
