@@ -13,6 +13,12 @@
 # every dispatched macOS job of the account shares one lane (`mac-dispatch`). A push's own macOS checks are
 # mac-main.yml, a queue of their own, so a long wait for a macOS runner never holds back this run's verdict.
 #
+# What a run runs is decided once, by `plan` (scripts/ci-plan.ts), and written to the run's summary. A branch's
+# dispatch runs the unit tests its change reaches and `native` only when the change touches what it reads
+# (`scope`, default `changed`); a push to main, a pull request, the landing gate (`mac=true`) and `scope=full` run
+# everything; `static` and `build` always run whole. The vitest jobs are a matrix `plan` sizes from what each test
+# file cost in the recorded runs, so the shards end together (scripts/test-timings.ts; `timings` keeps the record).
+#
 # Pull requests (including from forks) run only the Linux jobs with a read-only
 # token and no secrets; no job here uses `pull_request_target`. Every other job
 # is a manual dispatch.
@@ -40,7 +46,7 @@ name: ci
 
 # What a dispatch was asked to run, in the run's name: queue-gate.yml compares it to find the same commit already green.
 # Keep it, `concurrency.group` and the `with:` of `gate` in step (src/main/packaging-config.test.ts pins them).
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('ci [{0}]', format('{0}{1}{2}{3}{4}{5}{6}', inputs.batch && 'batch ' || '', inputs.mac && 'mac ' || '', inputs.e2e && 'e2e ' || '', inputs.install_check && 'install-check ' || '', inputs.win_platform && 'win-platform ' || '', inputs.win_e2e && format('win-e2e={0} ', inputs.win_e2e_grep) || '', inputs.installer_check && format('installer={0} ', inputs.legacy_tag) || '')) || '' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('ci [{0}]', format('{0}{1}{2}{3}{4}{5}{6}{7}', inputs.batch && 'batch ' || '', inputs.scope == 'full' && 'scope=full ' || '', inputs.mac && 'mac ' || '', inputs.e2e && 'e2e ' || '', inputs.install_check && 'install-check ' || '', inputs.win_platform && 'win-platform ' || '', inputs.win_e2e && format('win-e2e={0} ', inputs.win_e2e_grep) || '', inputs.installer_check && format('installer={0} ', inputs.legacy_tag) || '')) || '' }}
 
 on:
   push:
@@ -54,9 +60,14 @@ on:
   workflow_dispatch:
     inputs:
       batch:
-        description: "Run every Linux and Windows job a push to main runs, on this ref (a branch's verdict while it is worked on)"
+        description: "Run the Linux and Windows jobs a push to main runs, on this ref (a branch's verdict while it is worked on)"
         type: boolean
         default: false
+      scope:
+        description: "changed: the unit tests this branch's change reaches, and Rust's checks only when it touches them. full: every test. A run with mac is always full"
+        type: choice
+        options: [changed, full]
+        default: changed
       mac:
         description: "Also run the macOS jobs a push to main runs (mac-smoke, mac-native, memory, native macOS): with batch, the gate right before landing"
         type: boolean
@@ -101,7 +112,7 @@ on:
 # skipped, release.yml checks it) cancels what runs and waits, so the runners it needs are free.
 # Any other ref: the newest dispatch with the same inputs replaces the older one; other inputs run beside it.
 concurrency:
-  group: ${{ github.event_name == 'push' && 'ci-main' || format('ci-{0}-{1}', github.ref, format('{0}{1}{2}{3}{4}{5}{6}', inputs.batch && 'batch ' || '', inputs.mac && 'mac ' || '', inputs.e2e && 'e2e ' || '', inputs.install_check && 'install-check ' || '', inputs.win_platform && 'win-platform ' || '', inputs.win_e2e && format('win-e2e={0} ', inputs.win_e2e_grep) || '', inputs.installer_check && format('installer={0} ', inputs.legacy_tag) || '')) }}
+  group: ${{ github.event_name == 'push' && 'ci-main' || format('ci-{0}-{1}', github.ref, format('{0}{1}{2}{3}{4}{5}{6}{7}', inputs.batch && 'batch ' || '', inputs.scope == 'full' && 'scope=full ' || '', inputs.mac && 'mac ' || '', inputs.e2e && 'e2e ' || '', inputs.install_check && 'install-check ' || '', inputs.win_platform && 'win-platform ' || '', inputs.win_e2e && format('win-e2e={0} ', inputs.win_e2e_grep) || '', inputs.installer_check && format('installer={0} ', inputs.legacy_tag) || '')) }}
   cancel-in-progress: "${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release: v') }}"
 
 permissions:
@@ -122,6 +133,53 @@ jobs:
       mac: ${{ inputs.mac || inputs.e2e }}
       mac-refs: ${{ vars.MAC_REFS }}
       force: ${{ inputs.force }}
+
+  # What this run runs (scripts/ci-plan.ts): everything, or what the branch's change reaches; and how many shards each
+  # vitest group gets, from the recorded cost of its files. Its summary says what it picked and why. The record and,
+  # for a picked run, the test files go to the jobs below as the `test-plan` artifact, so every job deals its shard
+  # from the same numbers. The whole history without blobs: the change is measured from where the branch left main.
+  plan:
+    needs: gate
+    if: "!cancelled() && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      scope: ${{ steps.plan.outputs.scope }}
+      check: ${{ steps.plan.outputs.check }}
+      win: ${{ steps.plan.outputs.win }}
+      native: ${{ steps.plan.outputs.native }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      # The newest record this branch or main saved; without one the plan starts from the repository's snapshot.
+      - name: Restore the recorded test timings
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/test-timings.json
+          key: vitest-timings-${{ github.run_id }}
+          restore-keys: vitest-timings-
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          SCOPE: ${{ inputs.scope }}
+          MAC: ${{ inputs.mac }}
+          # The Windows tests: pushes to main and batch runs; a pull request runs Linux alone.
+          WINDOWS: ${{ github.event_name == 'push' || inputs.win_platform || inputs.batch }}
+        run: bun scripts/ci-plan.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-plan
+          path: .ci/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
 
   # Pre-flight: the same blocking checks release.yml runs (types, biome, surface
   # policy, vitest, Windows `test:platform`, macOS @smoke, `native` and
@@ -168,17 +226,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # vitest as release.yml's `check`: the node project and the renderer project
-  # in two shards each, four jobs at once, against the newest published omp: the
-  # tests that read the installed stock omp (its settings, provider ids, tool
-  # renderers, the `*-stock` bridge suites) skip without one, and two omp
-  # releases in a row broke settings copy that only a developer's run caught.
-  # Those suites took the node project from 199 s to 299 s in one job, hence its
-  # two shards. omp-latest.yml runs the same daily, so a new omp shows without a push.
+  # vitest as release.yml's `check`: the node project and the renderer project, each in as many shards as `plan`
+  # gave it, against the newest published omp: the tests that read the installed stock omp (its settings, provider
+  # ids, tool renderers, the `*-stock` bridge suites) skip without one, and two omp releases in a row broke settings
+  # copy that only a developer's run caught. omp-latest.yml runs the same daily, so a new omp shows without a push.
+  # Each job writes what its files cost, for the record (`timings` below).
   check:
     name: check (${{ matrix.name }})
-    needs: gate
-    if: "!cancelled() && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
+    needs: plan
+    if: "!cancelled() && needs.plan.outputs.check != '' && needs.plan.outputs.check != '[]'"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -187,15 +243,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: node 1/2
-            args: --project=node --shard=1/2
-          - name: node 2/2
-            args: --project=node --shard=2/2
-          - name: renderer 1/2
-            args: --project=renderer --shard=1/2
-          - name: renderer 2/2
-            args: --project=renderer --shard=2/2
+        include: ${{ fromJSON(needs.plan.outputs.check) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -209,13 +257,43 @@ jobs:
           bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: test-plan
+          path: .ci
       - run: bunx vitest run ${{ matrix.args }}
+        env:
+          OMPDESK_TEST_TIMINGS: .ci/test-timings.json
+          OMPDESK_TEST_FILES: ${{ needs.plan.outputs.scope == 'changed' && '.ci/test-files.json' || '' }}
+          OMPDESK_TEST_TIMINGS_OUT: .ci/out/check-${{ strategy.job-index }}.json
+          OMPDESK_TEST_REPORT: test-report/vitest.json
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-timings-check-${{ strategy.job-index }}
+          path: .ci/out/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
       # The work card's verdict over 254 real cards and its generated invariants, by name, even when the run above
       # failed elsewhere: a red here is a card that changed colour or a check that changed its word
       # (src/renderer/components/chat/work/work-verdict-replay.test.tsx; `-u` only after reviewing each moved card).
+      # A run that picks its tests by the change runs them above when the change reaches them.
       - name: Work card verdict over real journals
-        if: ${{ !cancelled() && matrix.name == 'node 1/2' }}
+        if: ${{ !cancelled() && matrix.first && needs.plan.outputs.scope == 'full' }}
         run: bunx vitest run src/renderer/components/chat/work/work-verdict-replay.test.tsx src/renderer/components/chat/work/work-verdict.property.test.ts scripts/work-verdict-corpus.test.ts
+        env:
+          OMPDESK_TEST_REPORT: test-report/work-verdict.json
+      # Each test's result, for check control (its reader finds the job by this id; only report files go in it).
+      - name: Upload the test report
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-report-${{ job.check_run_id }}
+          path: test-report/
+          if-no-files-found: ignore
+          retention-days: 3
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:
@@ -249,11 +327,12 @@ jobs:
   # every OS it ships or tests on, as release.yml's `native`. A pull request runs
   # the Linux leg alone, a push to main and a batch run add Windows (the job `if`
   # cannot read the matrix, so the list itself depends on the event); the macOS
-  # leg is in mac-checks.yml with the other macOS jobs.
+  # leg is in mac-checks.yml with the other macOS jobs. A run that picks by the
+  # change skips it when the change touches nothing these checks read (`plan`).
   native:
     name: native (${{ matrix.name }})
-    needs: gate
-    if: "!cancelled() && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
+    needs: plan
+    if: "!cancelled() && needs.plan.outputs.native == 'true'"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
@@ -274,12 +353,11 @@ jobs:
 
   # release.yml's `win` pre-flight half: the tests outside src/renderer on
   # Windows (paths, PATH lookup, cmd.exe shims, spawn, named pipes, file modes),
-  # in three shards as release.yml's `win-platform`.
-  # Pushes to main and batch runs: a pull request runs Linux alone.
+  # in as many shards as `plan` gave them (none on a pull request, which runs Linux alone).
   win-platform:
-    name: win-platform (${{ matrix.shard }}/3)
-    needs: gate
-    if: "!cancelled() && ((github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && (inputs.win_platform || inputs.batch)))"
+    name: win-platform (${{ matrix.name }})
+    needs: plan
+    if: "!cancelled() && needs.plan.outputs.win != '' && needs.plan.outputs.win != '[]'"
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
@@ -288,7 +366,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        include: ${{ fromJSON(needs.plan.outputs.win) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -299,26 +377,78 @@ jobs:
         shell: bash
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - uses: ./.github/actions/install
-      # Vitest starts the files that took longest last time first (its results cache): without it the
-      # git-heavy files (disk care, autopilot) could start last and leave one worker alone at the end.
-      - name: Restore vitest's file durations
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          path: node_modules/.vite/vitest
-          key: vitest-results-win-${{ matrix.shard }}-${{ github.run_id }}
-          restore-keys: vitest-results-win-${{ matrix.shard }}-
-      - run: bun run test:platform --shard=${{ matrix.shard }}/3
-      - name: Save vitest's file durations
-        if: ${{ !cancelled() && hashFiles('node_modules/.vite/vitest/**/results.json') != '' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+          name: test-plan
+          path: .ci
+      # The longest files start first, by the same record the shards are dealt from (scripts/vitest-sequencer.ts):
+      # without it the git-heavy files (disk care, autopilot) could start last and leave one worker alone at the end.
+      - run: bun run test:platform ${{ matrix.args }}
+        env:
+          OMPDESK_TEST_TIMINGS: .ci/test-timings.json
+          OMPDESK_TEST_FILES: ${{ needs.plan.outputs.scope == 'changed' && '.ci/test-files.json' || '' }}
+          OMPDESK_TEST_TIMINGS_OUT: .ci/out/win-${{ strategy.job-index }}.json
+          OMPDESK_TEST_REPORT: test-report/vitest.json
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          path: node_modules/.vite/vitest
-          key: vitest-results-win-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: test-timings-win-${{ strategy.job-index }}
+          path: .ci/out/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
+      # Each test's result, for check control (its reader finds the job by this id; only report files go in it).
+      - name: Upload the test report
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-report-${{ job.check_run_id }}
+          path: test-report/
+          if-no-files-found: ignore
+          retention-days: 3
       - if: failure()
         shell: bash
         run: bash scripts/ci-failure.sh
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Keeps the record of what each test file costs: this run's measurements folded into the record the run started
+  # from, saved for the next run's `plan` and uploaded as `test-timings` (scripts/test-timings.ts). Only a run of
+  # everything saves it; a job that failed still leaves the files that passed.
+  timings:
+    needs: [plan, check, win-platform]
+    if: "!cancelled() && needs.plan.outputs.scope == 'full'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: test-plan
+          path: .ci
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: test-timings-*
+          path: .ci/jobs
+          merge-multiple: true
+      - run: mkdir -p .ci/jobs && bun scripts/test-timings.ts merge .ci/test-timings.json .ci/jobs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-timings
+          path: .ci/test-timings.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/test-timings.json
+          key: vitest-timings-${{ github.run_id }}-${{ github.run_attempt }}
 
   # The dispatched macOS checks as one unit (mac-checks.yml: mac-smoke, mac-native, memory, `native` on macOS arm64; a push
   # to main runs the same unit from mac-main.yml). macOS runners are the account's scarcest (5 at once), so a branch takes
