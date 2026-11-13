@@ -770,6 +770,11 @@ export interface UpdateAuthInfo {
 	hasStoredToken: boolean;
 	/** False when the OS cannot encrypt secrets (safeStorage unavailable): pasting is disabled. */
 	canStore: boolean;
+	/**
+	 * Why a stored token was removed: the macOS keychain would have asked for the login password to read it
+	 * (`KEYCHAIN_WOULD_ASK`), so main dropped the file instead (native-rust › S › The keychain on macOS). Null when none was.
+	 */
+	droppedReason: string | null;
 }
 
 export interface UpdateAuthTestResult {

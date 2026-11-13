@@ -330,6 +330,15 @@ in the other:
   a timeout is treated as unavailable with that reason. It must not start CEF, a window, or a second Node, and must
   not take the single-instance lock. The item is "ompdesk Safe Storage" (account "ompdesk"); key = PBKDF2-HMAC-SHA1(password,
   salt `"saltysalt"`, 1003 iterations, 16 bytes); encrypt: `"v10" ‖ AES-128-CBC(PKCS7, IV = 16 × 0x20)`.
+  The one-shot reads with keychain user interaction disabled: a read that **would show a dialog** answers exactly
+  `{"unavailable":"keychain-would-ask"}` (`src/shared/keychain.ts` `KEYCHAIN_WOULD_ASK`). The shim then keeps safeStorage
+  unavailable for the rest of the run and never runs the one-shot again; `safeStorage.getUnavailableReason()` (shim-only)
+  returns that string so main can tell it from other failures. A missing item is created (as Chromium does; creation never
+  asks). Other `unavailable` texts: `access to the keychain item "ompdesk Safe Storage" was denied`, or
+  `reading the keychain item … failed: … (OSStatus n)`. On `keychain-would-ask` main drops the stored update token
+  (`update-token.bin` removed, `update-token.dropped` left, Settings › Updates says why), marks each mail account whose
+  password file exists as needing re-entry (`MailAccount.needsReentry`, one in-app notice names them), and refuses to store
+  a new secret (`keychain_would_ask`).
 - Windows `{kind: "win-v10", key}` stays in the `hello` facts (no prompt exists there).
 - `{unavailable: reason}`: `isEncryptionAvailable()` is false, the reason is logged once; `encryptString` and
   `decryptString` throw.
@@ -373,4 +382,52 @@ Made asynchronous (cannot be mirrored; each call site changed, see `src/main/she
 
 ## 14. Shell deviations (ShellCrate records here)
 
-_(none yet)_
+What the Rust shell does differently from this table or from Electron. README.md › Deviations has the user-visible list.
+
+- **Startup**: `hello`'s answer carries `facts` (also `rendererRoot`, the folder served as `app://ompdesk/`:
+  `<dirname(main script)>/../renderer`, where the main script is `OMPDESK_APP_ENTRY` or `<appDir>/out/main/index.js`).
+  `app.init` is answered `{}` after CEF initialised; `app.ready` follows `on_context_initialized`. Node's argv after the
+  executable is the shell's own argv after it. `OMPDESK_APP_ENTRY`, `OMPDESK_APP_DIR`, `OMPDESK_NODE`,
+  `OMP_GUI_TEST_USER_DATA_DIR`, `OMP_GUI_TEST_NODE_INSPECT` are the shell's environment seams.
+- **Ids**: Node's `winId`/`wcId`/`viewId` are used as sent; the shell's own counters only serve a create that omits them.
+- **`app.exit`**: windows close without `win.closeRequested`; browsers that have not closed after 4 s do not hold the quit.
+  Node dying unexpectedly: the shell exits 1 after logging it on stderr.
+- **`app.secondInstance`** is sent for a second launch of the same user-data folder (named pipe, unix socket on macOS);
+  `app.openUrl`, `app.openFile`, `app.activate` are macOS only and unverified.
+- **`wc.navigate`**: for main-frame navigations Node did not start itself. A click on a `file:` link is reported by the
+  injected preload (`POST /__shell/will-navigate`) and the request is sent without waiting for the answer: Blink refuses
+  that navigation before the browser process sees it, so it is always blocked.
+  `isSameDocument` is always false.
+- **`wc.event`**: `did-navigate` carries status 200 / "OK" (CEF gives none there); `did-start-navigation` is per frame,
+  with `frameProcessId`/`frameRoutingId` 0; `input-event` (real mouse-up/key-up) is not produced; `will-prevent-unload` is
+  not produced (the before-unload dialog is accepted without asking).
+- **`wc.windowOpen`** is sent but not waited for: the popup is always cancelled.
+- **`wc.op`**: `setBackgroundThrottling` and `ignoreBeforeUnload` are accepted and do nothing; `copyImageAt` copies through
+  the page's clipboard API; `executeJavaScript` is CDP `Runtime.evaluate` (by value, promises awaited).
+- **`wc.cdp.send`**: every call times out after 60 s with `timeout`.
+- **`wc.frame`**: `width` scales by area averaging, never up.
+- **`win.op`**: `setProgressBar`, `setMenuBarVisibility`, `setAutoHideMenuBar`, `setBackgroundMaterial` (Mica is set at
+  creation) are accepted and do nothing; on a window that cannot take focus `show` and `showInactive` do not activate and
+  `win.state.focused` stays false.
+- **`win.closeRequested`**: no answer within 5 s closes the window.
+- **`view.*`**: a view is hidden until its first `setVisible`/`setBounds` with a non-empty size.
+- **`session.*`**: `setProxy` writes Chromium's `proxy` preference; `resolveProxy` is answered from the user's WinINET /
+  WinHTTP settings, not Chromium's resolver; `setSpellCheckerLanguages` and `addWordToSpellCheckerDictionary` are accepted
+  and do nothing; `session.create` reports `spellCheckerLanguages: []`.
+- **`protocol.request`**: request headers are one `[name, value]` pair per value; a failed head fails the request with
+  `ERR_FAILED`.
+- **`ipc.sendSync`** is sent from a `prompt()` the Preview preload's `__ompdeskSendSync` makes (message starting with NUL +
+  `omp-sync:`); it is answered when Node answers, and the page waits in the dialog meanwhile, not the UI thread.
+- **Page transport**: `Uint8Array` crosses as `{"$bin": "<base64>"}` in `ipc.invoke`/`ipc.send` args, `wc.send` args and
+  `{value}` of an invoke answer; the shim decodes and encodes it.
+- **`dialog.*`**: Windows dialogs run on a thread of their own (their modal loop does not block CEF's UI thread); a
+  macOS `messageBox` is app-modal, not a sheet.
+- **`notification.*`**: WinRT toasts keyed on the AppUserModelID; without a Start-menu shortcut carrying it a toast may
+  not show, though `show` is still reported.
+- **`theme.setSource`** is pushed into every page as CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme`).
+- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; `resolveHost` ignores `cacheUsage`; request headers
+  `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
+- **`menu.popup`** answers `null` when another popup is open; popup choices never emit `menu.click`.
+- **macOS**: `facts.safeStorage` is `{kind: "mac-v10-lazy"}` (the key is fetched with `--keychain-key <userData>`, never at
+  launch); every CEF process runs with `--use-mock-keychain`; Cmd-Q sends `app.quitRequested`. All macOS code is
+  unverified on a Mac.

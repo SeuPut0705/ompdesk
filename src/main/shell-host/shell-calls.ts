@@ -18,6 +18,15 @@ interface AsyncForms {
 // (a test that replaces `electron` without them must still load this module).
 const shim = (): AsyncForms => electron as unknown as AsyncForms;
 
+/**
+ * Why `safeStorage` cannot encrypt, in the shell's words (`KEYCHAIN_WOULD_ASK` when the macOS keychain would have shown
+ * a dialog); null while it can. Asking settles the key (the shell reads it once, and a refusal stays for the run).
+ */
+export function safeStorageUnavailableReason(): string | null {
+	const storage = (electron as unknown as { safeStorage: { getUnavailableReason?: () => string | null } }).safeStorage;
+	return storage.getUnavailableReason?.() ?? null;
+}
+
 /** `clipboard.readText()`. */
 export function readClipboardText(): Promise<string> {
 	return shim().clipboard.readTextAsync();

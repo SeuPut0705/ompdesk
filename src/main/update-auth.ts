@@ -13,6 +13,11 @@
  * the login password again after every update (and blocks the main process while it waits). So the
  * keychain is touched only when a stored token actually exists, or when the
  * user saves one.
+ *
+ * Under the shell the keychain is read with user interaction disabled: a read that would ask answers
+ * `KEYCHAIN_WOULD_ASK`, and nothing touches the keychain again that run. A stored token that cannot be read for that
+ * reason is dropped (its file removed, a marker left that Settings › Updates shows), so the env and `gh` sources apply;
+ * saving a new one fails with the same reason.
  */
 
 import { execFile } from "node:child_process";
@@ -21,7 +26,10 @@ import * as path from "node:path";
 import { app, net, safeStorage } from "electron";
 import { codedError } from "../shared/ipc-error-codes";
 import type { UpdateAccess, UpdateAuthInfo, UpdateTokenSource } from "../shared/ipc-types";
+import { KEYCHAIN_WOULD_ASK } from "../shared/keychain";
+import { writeRuntimeLog } from "./runtime-log";
 import { resolveLoginShellEnv, spawnPath } from "./shell-env";
+import { safeStorageUnavailableReason } from "./shell-host/shell-calls";
 import { executableName } from "./spawn";
 import { classifyRepoAccess, firstUpdateToken, githubApiHeaders, type ResolvedUpdateToken } from "./updater-state";
 
@@ -32,6 +40,28 @@ const GH_TIMEOUT_MS = 5_000;
 
 function storedTokenPath(): string {
 	return path.join(app.getPath("userData"), "update-token.bin");
+}
+
+/** The marker a dropped token leaves: why, for Settings › Updates; removed when a token is saved or cleared. */
+function droppedMarkerPath(): string {
+	return path.join(app.getPath("userData"), "update-token.dropped");
+}
+
+async function droppedReason(): Promise<string | null> {
+	try {
+		return (await fs.readFile(droppedMarkerPath(), "utf8")).trim() || null;
+	} catch {
+		return null;
+	}
+}
+
+async function dropStoredToken(reason: string): Promise<void> {
+	await fs.rm(storedTokenPath(), { force: true });
+	await fs.writeFile(droppedMarkerPath(), reason, { mode: 0o600 });
+	writeRuntimeLog({
+		source: "app-update",
+		message: `The saved update token was removed: it cannot be read on this computer (${reason}); GH_TOKEN, GITHUB_TOKEN and the gh login still apply`,
+	});
 }
 
 async function envToken(): Promise<string | undefined> {
@@ -61,7 +91,11 @@ async function storedToken(): Promise<string | undefined> {
 		return undefined;
 	}
 	try {
-		if (!safeStorage.isEncryptionAvailable()) return undefined;
+		if (!safeStorage.isEncryptionAvailable()) {
+			// The key was refused without a dialog: the token will never decrypt on this computer, so it goes.
+			if (safeStorageUnavailableReason() === KEYCHAIN_WOULD_ASK) await dropStoredToken(KEYCHAIN_WOULD_ASK);
+			return undefined;
+		}
 		return safeStorage.decryptString(encrypted);
 	} catch {
 		return undefined;
@@ -103,8 +137,11 @@ export async function checkRepoAccess(token: string | undefined): Promise<Update
 }
 
 export async function updateAuthInfo(): Promise<UpdateAuthInfo> {
-	const [resolved, stored] = await Promise.all([resolveUpdateToken(), hasStoredToken()]);
+	const resolved = await resolveUpdateToken();
+	// After the resolve: a token it just dropped is no longer stored, and says why.
+	const [stored, dropped] = await Promise.all([hasStoredToken(), droppedReason()]);
 	return {
+		droppedReason: dropped,
 		source: resolved?.source ?? null,
 		hasStoredToken: stored,
 		// macOS/Windows always have an OS keystore; probing it would prompt (see top).
@@ -113,13 +150,18 @@ export async function updateAuthInfo(): Promise<UpdateAuthInfo> {
 }
 
 export async function storeUpdateToken(token: string): Promise<void> {
-	if (!safeStorage.isEncryptionAvailable())
+	if (!safeStorage.isEncryptionAvailable()) {
+		if (safeStorageUnavailableReason() === KEYCHAIN_WOULD_ASK)
+			throw codedError("keychain_would_ask", "macOS would ask for the login password to open the keychain");
 		throw codedError("safe_storage_unavailable", "safeStorage encryption is unavailable");
+	}
 	const file = storedTokenPath();
 	await fs.mkdir(path.dirname(file), { recursive: true });
 	await fs.writeFile(file, safeStorage.encryptString(token), { mode: 0o600 });
+	await fs.rm(droppedMarkerPath(), { force: true });
 }
 
 export async function clearUpdateToken(): Promise<void> {
 	await fs.rm(storedTokenPath(), { force: true });
+	await fs.rm(droppedMarkerPath(), { force: true });
 }

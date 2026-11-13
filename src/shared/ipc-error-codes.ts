@@ -62,6 +62,8 @@ export const IPC_ERROR_CODES = [
 	"stats_not_ready",
 	"stats_api_error",
 	"safe_storage_unavailable",
+	// macOS would ask for the login password to open the keychain item (src/shared/keychain.ts): no secret is stored this run.
+	"keychain_would_ask",
 	// LocalCommandError codes (src/main/local) that reach toasts unchanged.
 	"busy",
 	"gh_missing",

@@ -25,6 +25,12 @@ export interface MailAccount {
 	address: string;
 	/** A password is stored (it is never sent back). */
 	hasPassword: boolean;
+	/**
+	 * The stored password cannot be read on this computer this run because the macOS keychain would have asked for the
+	 * login password (`KEYCHAIN_WOULD_ASK`, native-rust › S › The keychain on macOS): its routines do not log in, the
+	 * window names the account in one notice, and the owner enters the password again. `hasPassword` is false then.
+	 */
+	needsReentry: boolean;
 }
 
 export interface MailAccountDraft {

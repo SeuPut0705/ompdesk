@@ -201,7 +201,12 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
-import { accessibilityTrusted, readClipboardText, screenRecordingGranted } from "./shell-host/shell-calls";
+import {
+	accessibilityTrusted,
+	readClipboardText,
+	safeStorageUnavailableReason,
+	screenRecordingGranted,
+} from "./shell-host/shell-calls";
 import { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
@@ -2036,6 +2041,7 @@ app.whenReady().then(async () => {
 		...(process.env.OMP_GUI_TEST_IMAP_PLAIN ? { connect: plainImapConnect } : {}),
 		box: {
 			available: () => safeStorage.isEncryptionAvailable(),
+			blocked: () => safeStorageUnavailableReason(),
 			encrypt: text => safeStorage.encryptString(text),
 			decrypt: data => safeStorage.decryptString(data),
 		},

@@ -2,9 +2,12 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ipcErrorCode } from "../shared/ipc-error-codes";
+import { KEYCHAIN_WOULD_ASK } from "../shared/keychain";
 import type { MailAccountDraft } from "../shared/mail-accounts";
 import { MailAccounts, type SecretBox } from "./mail-accounts";
 import { type FakeImap, startFakeImap } from "./routines/fake-imap";
+import { createSafeStorage } from "./shell-host/electron/safe-storage";
 
 /** A keystore that marks what it sealed, so a test can tell a sealed password from a plain one. */
 function box(): SecretBox & { reads: number } {
@@ -113,5 +116,106 @@ describe("MailAccounts", () => {
 		const refused = await reloaded.test(id);
 		expect(refused).toEqual({ ok: false, error: "could not login: [AUTHENTICATIONFAILED] Invalid credentials" });
 		expect(JSON.stringify(refused)).not.toContain("pa55");
+	});
+});
+
+/** A keystore that is the real shim's `safeStorage` over a fake key fetch: the mock macOS keychain. */
+function wouldAskBox(): SecretBox & { fetches: number } {
+	const state = { fetches: 0 };
+	const storage = createSafeStorage(
+		{ kind: "mac-v10-lazy" },
+		{
+			warn: () => undefined,
+			fetchKey: () => {
+				state.fetches += 1;
+				return { unavailable: KEYCHAIN_WOULD_ASK };
+			},
+		},
+	);
+	return {
+		get fetches() {
+			return state.fetches;
+		},
+		available: () => storage.isEncryptionAvailable(),
+		blocked: () => storage.getUnavailableReason(),
+		encrypt: text => storage.encryptString(text),
+		decrypt: data => storage.decryptString(data),
+	};
+}
+
+describe("MailAccounts when the keychain would ask", () => {
+	function twoStored(): void {
+		const sealing = new MailAccounts({ dir, box: box() });
+		sealing.save(draft({ label: "Work" }));
+		sealing.save(draft({ label: "Home", username: "home@example.com" }));
+		sealing.save(draft({ label: "Draftless", username: "x@example.com", password: "pw" }));
+	}
+
+	it("marks each account whose password is stored as needing re-entry, asks the keychain once, and names no password", () => {
+		twoStored();
+		const keystore = wouldAskBox();
+		const accounts = new MailAccounts({ dir, box: keystore });
+		const state = accounts.state();
+		expect(state.accounts.map(account => [account.label, account.needsReentry, account.hasPassword])).toEqual([
+			["Work", true, false],
+			["Home", true, false],
+			["Draftless", true, false],
+		]);
+		accounts.state();
+		accounts.resolve("Work");
+		expect(keystore.fetches).toBe(1);
+	});
+
+	it("does not touch the keychain for an account without a stored password, nor for an empty list", () => {
+		const keystore = wouldAskBox();
+		expect(new MailAccounts({ dir, box: keystore }).state().accounts).toEqual([]);
+		expect(keystore.fetches).toBe(0);
+	});
+
+	it("never logs in: a poll fails before it connects, and the keychain is not asked again", async () => {
+		twoStored();
+		const keystore = wouldAskBox();
+		let connected = 0;
+		const accounts = new MailAccounts({
+			dir,
+			box: keystore,
+			connect: () => () => {
+				connected += 1;
+				return Promise.reject(new Error("must not connect"));
+			},
+		});
+		const [work] = accounts.state().accounts;
+		await expect(accounts.read(work?.id ?? "", null)).rejects.toThrow(/enter it again in Settings/);
+		expect(await accounts.test(work?.id ?? "")).toMatchObject({ ok: false });
+		expect(connected).toBe(0);
+		expect(keystore.fetches).toBe(1);
+	});
+
+	it("fails to save a new password with the reason, and writes nothing", () => {
+		const keystore = wouldAskBox();
+		const accounts = new MailAccounts({ dir, box: keystore });
+		let failure: unknown;
+		try {
+			accounts.save(draft());
+		} catch (error) {
+			failure = error;
+		}
+		expect(ipcErrorCode(failure)).toBe("keychain_would_ask");
+		expect(accounts.state().accounts).toEqual([]);
+		expect(written()).not.toContain("pa55");
+		// Re-entering an account marked above fails the same way, and a second try asks nothing more.
+		try {
+			accounts.save(draft());
+		} catch {
+			// the same refusal
+		}
+		expect(keystore.fetches).toBe(1);
+	});
+
+	it("an account whose password was saved this run is not marked", () => {
+		const keystore = box();
+		const accounts = new MailAccounts({ dir, box: { ...keystore, blocked: () => KEYCHAIN_WOULD_ASK } });
+		accounts.save(draft());
+		expect(accounts.state().accounts[0]).toMatchObject({ needsReentry: false, hasPassword: true });
 	});
 });

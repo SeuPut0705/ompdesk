@@ -201,3 +201,30 @@ function writeFakeExe(script: string): string {
 	);
 	return file;
 }
+
+describe("a keychain that would ask", () => {
+	it("is unavailable for the run, the one-shot runs once, and the reason is the shell's word", () => {
+		let fetched = 0;
+		const storage = createSafeStorage(
+			{ kind: "mac-v10-lazy" },
+			{
+				warn: quiet,
+				fetchKey: () => {
+					fetched += 1;
+					return { unavailable: "keychain-would-ask" };
+				},
+			},
+		);
+		expect(storage.getUnavailableReason()).toBe("keychain-would-ask");
+		expect(storage.isEncryptionAvailable()).toBe(false);
+		expect(() => storage.encryptString("x")).toThrow(/not available/);
+		expect(() => storage.decryptString(Buffer.from("v10abc"))).toThrow(/not available/);
+		expect(storage.getUnavailableReason()).toBe("keychain-would-ask");
+		expect(fetched).toBe(1);
+	});
+
+	it("reports no reason while it works", () => {
+		const storage = createSafeStorage({ kind: "mac-v10", password: MAC.password }, { warn: quiet });
+		expect(storage.getUnavailableReason()).toBeNull();
+	});
+});

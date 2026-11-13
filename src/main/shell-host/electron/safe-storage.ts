@@ -26,6 +26,12 @@ export interface SafeStorage {
 	encryptString(plainText: string): Buffer;
 	decryptString(encrypted: Buffer): string;
 	getSelectedStorageBackend(): string;
+	/**
+	 * Why encryption is unavailable (the shell's own words, e.g. `keychain-would-ask`), null while it is available. Not
+	 * in Electron: main reads it to tell "the keychain would ask" from "this system cannot encrypt". Settles the key
+	 * like any other call (once: the answer is kept, a refused read is never repeated).
+	 */
+	getUnavailableReason(): string | null;
 }
 
 interface Cipher {
@@ -168,6 +174,10 @@ export function createSafeStorage(
 					"Error while decrypting the ciphertext provided to safeStorage.decryptString. Decryption failed.",
 				);
 			}
+		},
+		getUnavailableReason() {
+			resolve();
+			return cipher ? null : reason;
 		},
 		getSelectedStorageBackend() {
 			resolve();
