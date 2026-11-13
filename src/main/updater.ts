@@ -985,9 +985,9 @@ export function updateInstallMode(): UpdateInstallMode {
 	return installMode;
 }
 
-/** Pref `appAutoUpdate` changed: look at once instead of at the next tick. */
-export function appAutoUpdatePrefChanged(): void {
-	void tickAutoInstall();
+/** Pref `appAutoUpdate` changed: look at once instead of at the next tick; settles once the scheduler looked. */
+export function appAutoUpdatePrefChanged(): Promise<void> {
+	return tickAutoInstall();
 }
 
 /** The automatic install's "Later" (the notice here, a paired page's or a paired computer's). */

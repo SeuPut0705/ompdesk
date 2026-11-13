@@ -32,8 +32,8 @@ export function readClipboardText(): Promise<string> {
 	return shim().clipboard.readTextAsync();
 }
 
-/** `powerMonitor.getSystemIdleTime()`, in seconds. */
-export function systemIdleSeconds(): Promise<number> {
+/** `powerMonitor.getSystemIdleTime()`, in seconds; a failure of any kind is a rejection, never a throw. */
+export async function systemIdleSeconds(): Promise<number> {
 	return shim().powerMonitor.getSystemIdleTimeAsync();
 }
 

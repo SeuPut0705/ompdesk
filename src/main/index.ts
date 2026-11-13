@@ -2345,7 +2345,7 @@ app.whenReady().then(async () => {
 				devices.keepAwakeChanged();
 			}
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
-			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
+			if (key === APP_AUTO_UPDATE_PREF) void appAutoUpdatePrefChanged();
 			if (key === TOOLS_AUTO_UPDATE_PREF) {
 				updater.prefChanged();
 				cliToolUpdater.prefChanged();

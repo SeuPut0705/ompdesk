@@ -37,7 +37,7 @@ const mocks = vi.hoisted(() => {
 		runtimeLog: [] as Array<{ message: string; details: Record<string, unknown> }>,
 		userData: { dir: "" },
 		windowVisible: true,
-		/** `powerMonitor.getSystemIdleTime()`: seconds since anyone gave the computer input. */
+		/** `powerMonitor.getSystemIdleTimeAsync()` (the shim's form of `getSystemIdleTime()`): seconds since anyone gave the computer input. */
 		idleSeconds: 0,
 		/** What the restart confirm is told: it reads the work like the real one, then answers `answer.go`. */
 		confirmUpdateRestart: vi.fn(async (readWork: () => Promise<unknown>) => {
@@ -70,7 +70,7 @@ vi.mock("electron", () => ({
 		],
 	},
 	net: {},
-	powerMonitor: { getSystemIdleTime: () => mocks.idleSeconds },
+	powerMonitor: { getSystemIdleTimeAsync: async () => mocks.idleSeconds },
 	shell: {},
 }));
 vi.mock("electron-updater", () => ({ default: { autoUpdater: mocks.updater } }));
@@ -158,12 +158,12 @@ afterAll(() => {
 	fs.rmSync(mocks.userData.dir, { recursive: true, force: true });
 });
 
-afterEach(() => {
+afterEach(async () => {
 	autoInstallOn = false;
 	holds.asking = false;
 	holds.planWaiting = false;
 	mocks.idleSeconds = 0;
-	appAutoUpdatePrefChanged();
+	await appAutoUpdatePrefChanged();
 });
 
 beforeEach(() => {
@@ -202,16 +202,16 @@ describe("Restart & install with background work running", () => {
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 	});
 
-	it("the automatic install does not wait for it: countdown at once, install at the deadline, no question", () => {
+	it("the automatic install does not wait for it: countdown at once, install at the deadline, no question", async () => {
 		background.work = SUBAGENTS;
 		autoInstallOn = true;
-		appAutoUpdatePrefChanged();
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
 		const countdown = mocks.sent.at(-1);
 		if (countdown?.state !== "downloaded" || countdown.restartAt === undefined) throw new Error("no countdown");
 		vi.setSystemTime(countdown.restartAt);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["safe", "countdown", "install"]);
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 		expect(mocks.confirmUpdateRestart).not.toHaveBeenCalled();
@@ -221,11 +221,11 @@ describe("Restart & install with background work running", () => {
 	it("a check while the countdown shows keeps the countdown the scheduler shows", async () => {
 		background.work = SUBAGENTS;
 		autoInstallOn = true;
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		const countdown = { state: "downloaded", restartAt: expect.any(Number) };
 		expect(mocks.sent.at(-1)).toMatchObject(countdown);
 		await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, []);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(mocks.sent.at(-1)).toMatchObject(countdown);
 		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
 	});
@@ -263,24 +263,24 @@ describe("Restart & install on Windows", () => {
 
 	it("keeps saying 'installing' when Later is pressed after Now", async () => {
 		autoInstallOn = true;
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(mocks.sent.at(-1)).toMatchObject({ state: "downloaded", restartAt: expect.any(Number) });
 		await restartAndInstall();
 		await registry.invoke(IPC_COMMANDS.UPDATER_POSTPONE, caller, []);
 		expect(mocks.sent.at(-1)).toMatchObject({ state: "downloaded", installing: true });
 	});
 
-	it("an automatic install is not followed by a second countdown when the app stalls after it", () => {
+	it("an automatic install is not followed by a second countdown when the app stalls after it", async () => {
 		autoInstallOn = true;
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		const countdown = mocks.sent.at(-1);
 		if (countdown?.state !== "downloaded" || countdown.restartAt === undefined) throw new Error("no countdown");
 		vi.setSystemTime(countdown.restartAt);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 		// The 5.6 s the installer's start once froze the app for, then the tick that follows.
 		vi.setSystemTime(countdown.restartAt + 5600);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		const logged = mocks.runtimeLog.flatMap(report => (report.message === "scheduler" ? [report.details.event] : []));
 		expect(logged).toEqual(["safe", "countdown", "install"]);
 		expect(mocks.sent.at(-1)).toMatchObject({ state: "downloaded", installing: true });
@@ -294,38 +294,38 @@ describe("The automatic install and an open card", () => {
 	it("writes nothing and starts no countdown after an install a person started", async () => {
 		autoInstallOn = true;
 		holds.asking = true;
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		await restartAndInstall();
 		holds.asking = false;
 		vi.setSystemTime(Date.now() + 1000);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["waiting:open ask", "install"]);
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 	});
 
-	it("installs over a question nobody at the computer answered for ten minutes", () => {
+	it("installs over a question nobody at the computer answered for ten minutes", async () => {
 		autoInstallOn = true;
 		holds.asking = true;
 		mocks.idleSeconds = 60 * 60;
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		vi.setSystemTime(Date.now() + 10 * 60 * 1000);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		const countdown = mocks.sent.at(-1);
 		if (countdown?.state !== "downloaded" || countdown.restartAt === undefined) throw new Error("no countdown");
 		vi.setSystemTime(countdown.restartAt);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["waiting:open ask", "unattended", "countdown", "install"]);
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 	});
 
-	it("keeps waiting for a plan proposal however long nobody is there: the relaunch would lose it", () => {
+	it("keeps waiting for a plan proposal however long nobody is there: the relaunch would lose it", async () => {
 		autoInstallOn = true;
 		holds.asking = true;
 		holds.planWaiting = true;
 		mocks.idleSeconds = 24 * 60 * 60;
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["waiting:open ask"]);
 		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
 	});

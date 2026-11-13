@@ -44,7 +44,7 @@ vi.mock("electron", () => ({
 		],
 	},
 	net: {},
-	powerMonitor: { getSystemIdleTime: () => 0 },
+	powerMonitor: { getSystemIdleTimeAsync: async () => 0 },
 	shell: {},
 }));
 vi.mock("electron-updater", () => ({
