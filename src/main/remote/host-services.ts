@@ -71,6 +71,7 @@ import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation } from "../../shared/terminal-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import { AtomicSaver } from "../atomic-file";
 import type { BackgroundWorkMember } from "../background-work";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
@@ -207,7 +208,7 @@ import type { PeerInfo } from "./peers-store";
 import { PreviewRelayTunnels } from "./preview-relay-tunnels";
 import type { TabHolder } from "./protocol";
 import { commandUsesModel } from "./quota-commands";
-import { readJson, writeSecureJson } from "./secure-file";
+import { readJson } from "./secure-file";
 import { FrameTooLargeError } from "./wire";
 
 /** How long a disconnected device's tabs keep running, waiting for it to come back. */
@@ -622,6 +623,8 @@ export class LocalHostServices implements HostServices {
 	#agentReview: HostedAgentReview | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
 	#runCharges: Map<string, RunCharge> | null = null;
+	/** Saves `#runCharges`: a charge changes on a turn's event, so a full disk must never throw into it. */
+	#chargesSaver: AtomicSaver | null = null;
 	/** The run (worktree root) a window tab holding a session belongs to: the run itself or one of its children. */
 	#runRootOfSession: ((sessionPath: string) => string | undefined) | null = null;
 
@@ -718,7 +721,11 @@ export class LocalHostServices implements HostServices {
 
 	#saveCharges(): void {
 		const file = this.#deps.runChargesFile;
-		if (file) writeSecureJson(file, Object.fromEntries(this.#charges()));
+		if (!file) return;
+		this.#chargesSaver ??= new AtomicSaver(file, { mode: 0o600 }, error =>
+			console.warn(`[remote-host] run charges not saved: ${error}`),
+		);
+		this.#chargesSaver.save(`${JSON.stringify(Object.fromEntries(this.#charges()), null, "\t")}\n`);
 	}
 
 	/**
