@@ -509,6 +509,122 @@ export function runRpcUi(): void {
 	let boardUsage = false;
 	/** `fixture:usage-accounts:N` (1..5): that many subscription accounts, the second of the fixture's own provider. */
 	let usageAccounts: Array<Record<string, unknown>> | undefined;
+	/**
+	 * `OMP_GUI_TEST_USAGE_ACCOUNTS=many`: the owner's shape, four Claude accounts and four ChatGPT accounts (made-up
+	 * addresses), the session on one Claude account: a Fable window beside 5H and 7D on Claude, one account without a
+	 * 5H window, one at its limit, one near it, one with an address too long for a line. `fixture:usage-accounts:N`
+	 * replaces it.
+	 */
+	const ownerUsage = (): Array<Record<string, unknown>> | undefined => {
+		if (process.env.OMP_GUI_TEST_USAGE_ACCOUNTS !== "many") return undefined;
+		const now = Date.now();
+		const HOUR = 3_600_000;
+		interface Row {
+			provider: string;
+			id: number;
+			account: string;
+			/** Window id, share used, hours until it resets, and the model a model's own window belongs to. */
+			windows: Array<[span: string, used: number, resetsInHours: number, model?: string]>;
+			rest?: Record<string, unknown>;
+		}
+		const rows: Row[] = [
+			{
+				provider: "anthropic",
+				id: 1,
+				account: "work@example.com",
+				windows: [
+					["5h", 0.62, 2.1],
+					["7d", 0.41, 100],
+					["7d", 0.12, 90, "Fable"],
+				],
+			},
+			{
+				provider: "anthropic",
+				id: 2,
+				account: "home@example.com",
+				windows: [
+					["5h", 0.15, 4.1],
+					["7d", 0.39, 96],
+					["7d", 0.07, 90, "Fable"],
+				],
+				rest: { active: true, lastUsedAt: now - 30_000 },
+			},
+			{
+				provider: "anthropic",
+				id: 3,
+				account: "a.very.long.address.that.must.wrap.whole@subdomain.example-company.example.com",
+				windows: [
+					["7d", 0.92, 72],
+					["7d", 0.88, 90, "Fable"],
+				],
+			},
+			{
+				provider: "anthropic",
+				id: 4,
+				account: "spare@example.com",
+				windows: [
+					["5h", 0.3, 3],
+					["7d", 1, 48],
+				],
+				rest: { resetAt: now + 48 * HOUR },
+			},
+			{
+				provider: "openai-codex",
+				id: 11,
+				account: "codex1@example.com",
+				windows: [
+					["5h", 0.3, 3],
+					["7d", 0.97, 120],
+				],
+			},
+			{
+				provider: "openai-codex",
+				id: 12,
+				account: "codex2@example.com",
+				windows: [
+					["5h", 1, 1],
+					["7d", 0.61, 72],
+				],
+				rest: { resetAt: now + HOUR },
+			},
+			{
+				provider: "openai-codex",
+				id: 13,
+				account: "codex3@example.com",
+				windows: [
+					["5h", 0.05, 4],
+					["7d", 0.2, 144],
+				],
+			},
+			{
+				provider: "openai-codex",
+				id: 14,
+				account: "codex4@example.com",
+				windows: [
+					["5h", 0, 5],
+					["7d", 0, 168],
+				],
+			},
+		];
+		const label = (span: string, model?: string) => {
+			if (model) return `Claude 7 Day (${model})`;
+			return span === "5h" ? "5 hour" : "7 day";
+		};
+		return rows.map(({ provider, id, account, windows, rest }) => ({
+			provider,
+			fetchedAt: now - 90_000,
+			account,
+			credentialId: id,
+			limits: windows.map(([span, used, hours, model]) => ({
+				id: `${provider}:${span}${model ? `:${model.toLowerCase()}` : ""}`,
+				label: label(span, model),
+				windowId: span,
+				usedFraction: used,
+				resetsAt: now + hours * HOUR,
+			})),
+			...rest,
+		}));
+	};
 	/** Stock's `RpcSubagentsTracker`: the stream starts off and writes no `subagent_*` frame until the GUI asks. */
 	let subagentSubscription = "off";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
@@ -2830,6 +2946,7 @@ export function runRpcUi(): void {
 		usage: () => ({
 			reports:
 				usageAccounts ??
+				ownerUsage() ??
 				(usageLimitResetAt === undefined
 					? boardUsage
 						? [

@@ -2,7 +2,7 @@
  * The work board on the fake omp: a wide session pane docks this session's live state in its right
  * margin — the running subagents and the todo list here — and shifts the transcript and composer
  * columns left together. It leaves when the pane gets narrow and when the side panel opens; the
- * sidebar's usage block lists one gauge line per provider. The board's sections, ⌥B and its folds are
+ * sidebar's usage block lists every account, grouped by provider. The board's sections, ⌥B and its folds are
  * component-tested (WorkBoard, work-board-focus). Captures go to `OMP_GUI_WORK_BOARD_CAPTURES`
  * (default: the test output directory).
  */
@@ -237,7 +237,7 @@ test("a 30-task plan's bar stays left of its count, and the count stays in the p
 
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
-		test(`the sidebar's usage block: one gauge line per provider with its last-used account's email, in use marked, a click opens accounts (${language} ${theme})`, async () => {
+		test(`the sidebar's usage block: every account grouped by provider, the session's own marked, the gear opens accounts (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const { app, page, root } = await launch(language, theme);
 			try {
@@ -251,69 +251,67 @@ for (const language of variants(["en", "ko"] as const))
 							scale: "css",
 						});
 				};
-				const lines = page.locator("[data-rail-pin='usage'] .omp-sidebar-usage-line");
+				const block = page.locator("[data-rail-pin='usage']");
+				const groups = block.locator("[data-provider-row]");
+				const accounts = block.locator("[data-usage-account]");
 				// No subscription account (the fixture provider reports no windows): nothing in the footer.
-				await expect(page.locator("[data-rail-pin='usage']")).toHaveCount(0);
+				await expect(block).toHaveCount(0);
 
-				const emails = ["me@example.com", "side@example.com", "codex@example.com", "kimi@example.com"];
+				// Providers the fixture adds with each count, and the accounts they hold in all.
+				const accountsOf: Record<number, number> = { 1: 1, 2: 3, 3: 5, 5: 7 };
 				for (const count of [1, 2, 3, 5]) {
 					await fixture(page, `fixture:usage-accounts:${count}`);
 					await page.reload();
 					await page.waitForFunction(() => window.omp?.rpc != null);
-					// One line per provider (never per account), the tab's own provider first.
-					await expect(lines).toHaveCount(Math.min(count, 4));
-					await expect(lines.first().locator('[data-window="5h"] .omp-usage-gauge-text')).toContainText("5H");
-					await expect(lines.first().locator('[data-window="7d"] .omp-usage-gauge-text')).toContainText("7D");
-					// Under each line the account that provider used last: its bare email, muted and truncated (with
-					// five providers the others follow by company name, so only the first two are fixed).
-					await expect(lines.locator(".omp-sidebar-usage-account")).toHaveText(
-						count === 5
-							? [emails[0] ?? "", emails[1] ?? "", /@example\.com$/, /@example\.com$/]
-							: emails.slice(0, count),
-					);
-					expect(
-						await lines
-							.first()
-							.locator(".omp-sidebar-usage-account")
-							.evaluate(email => {
-								const style = getComputedStyle(email);
-								return { overflow: style.overflow, ellipsis: style.textOverflow, nowrap: style.whiteSpace };
-							}),
-					).toEqual({ overflow: "hidden", ellipsis: "ellipsis", nowrap: "nowrap" });
-					if (count === 5) {
-						await expect(page.locator(".omp-sidebar-usage-more")).toHaveText(
-							language === "en" ? "+1 more" : "+1개 더 보기",
-						);
-					} else {
-						await expect(page.locator(".omp-sidebar-usage-more")).toHaveCount(0);
-					}
+					// One group per provider and a row per account, none left to Settings, the tab's own provider first.
+					await expect(groups).toHaveCount(count);
+					await expect(accounts).toHaveCount(accountsOf[count] ?? 0);
+					await expect(groups.first()).toHaveAttribute("data-provider-row", "fixture");
+					await expect(accounts.first().locator('[data-window="5h"] .omp-usage-gauge-text')).toContainText("5H");
+					await expect(accounts.first().locator('[data-window="7d"] .omp-usage-gauge-text')).toContainText("7D");
+					await expect(accounts.first().locator(".omp-usage-gauge-reset").first()).toContainText("↻");
+					// The session's own account is marked, and only it.
+					await expect(block.locator("[data-in-use]")).toHaveCount(1);
+					await expect(accounts.first()).toHaveAttribute("data-in-use", "true");
+					await expect(accounts.first()).toContainText(language === "en" ? "In use" : "사용 중");
+					// The address is whole (it wraps, never an ellipsis); the full label, parenthetical too, is the tooltip.
+					const label = accounts.first().locator("[data-account-label]");
+					await expect(label).toHaveText("me@example.com");
+					await expect(label).toHaveAttribute("title", "me@example.com (me…)");
 					if (count >= 2) {
-						await expect(lines.nth(1)).not.toHaveAttribute("data-in-use", /.*/);
-						await expect(lines.nth(1)).toHaveAttribute("title", /side@example\.com|codex@example\.com/);
+						// Both Claude accounts, in a fixed order by address, neither marked.
+						const claude = block.locator('[data-provider-row="anthropic"]');
+						const emails = claude.locator("[data-usage-account] [data-account-label]");
+						await expect(emails).toHaveText(["side@example.com", "work@example.com"]);
+						await expect(claude.locator("[data-in-use]")).toHaveCount(0);
 					}
-					// The fixture's own provider is the model in use: its line is the one marked, and the first.
-					await expect(page.locator("[data-rail-pin='usage'] [data-in-use]")).toHaveCount(1);
-					await expect(lines.first()).toHaveAttribute("data-in-use", "true");
-					await expect(lines.first()).toHaveAttribute("data-rail-account", /^fixture:/);
-					// No edge or shadow marks the line in use (32bcf114); the tooltip names the in-use account.
-					expect(
-						await lines.first().evaluate(line => {
-							const edge = getComputedStyle(line, "::before");
-							return { shadow: getComputedStyle(line).boxShadow, content: edge.content };
-						}),
-					).toEqual({ shadow: "none", content: "none" });
-					await expect(lines.first()).toHaveAttribute(
-						"title",
-						/^me@example\.com\n5H 15% · ↻ (2h \d+m|3h)\n7D 39% · ↻ 3d 23h/,
+					const cut = await block.locator("[data-usage-account] [data-account-label]").evaluateAll(
+						labels =>
+							labels.filter(entry => {
+								const style = getComputedStyle(entry);
+								return style.textOverflow === "ellipsis" || entry.scrollWidth > entry.clientWidth + 1;
+							}).length,
 					);
+					expect(cut, "no address is cut").toBe(0);
+					// The groups scroll inside a height cap: 20rem, at most 40 % of the window.
+					const scroller = await block.locator("[data-sidebar-usage-scroll]").evaluate(list => {
+						const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+						return {
+							height: list.getBoundingClientRect().height,
+							cap: Math.min(20 * rem, innerHeight * 0.4),
+							overflowY: getComputedStyle(list).overflowY,
+						};
+					});
+					expect(scroller.height).toBeLessThanOrEqual(scroller.cap + 1);
+					expect(scroller.overflowY).toBe("auto");
 					if (captures && count === 3)
 						await fs.writeFile(
 							path.join(captures, `sidebar-usage-tooltip-${language}-${theme}.txt`),
-							(await lines.first().getAttribute("title")) ?? "",
+							(await accounts.first().locator("[data-quota-updated]").getAttribute("title")) ?? "",
 						);
 					await shot(`${count}`);
 				}
-				await lines.first().click();
+				await block.locator("[data-sidebar-usage-open]").click();
 				await expect(page.locator('button[data-destination="settings"]')).toHaveAttribute("aria-current", "page");
 			} finally {
 				await exitApp(app);

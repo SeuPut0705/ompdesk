@@ -18,7 +18,7 @@ use crate::agentctl::journal::mail_outbox::OutboxMail;
 use crate::agentctl::rules::mail::{Mail, MailDelivery, MailKind, mail_details, mail_text};
 use crate::agentctl::service::fail::R;
 use crate::agentctl::service::host::HostState;
-use crate::server::{Call, Fault, Registry, Reply};
+use crate::server::{Call, Fault, Registry, Reply, at_once};
 
 /// A run waiting for the turn its wake-up mail starts.
 pub struct Wake {
@@ -304,8 +304,8 @@ async fn wake_call(call: Call) -> Result<Reply, Fault> {
     }
 }
 
-/// `agentRuntime.wakeStop {port, runId}` → `{holder, started}`.
-async fn wake_stop_call(call: Call) -> Result<Reply, Fault> {
+/// `agentRuntime.wakeStop {port, runId}` → `{holder, started}`. Done as its line is read, after the activity before it.
+fn wake_stop_call(call: &Call) -> Result<Reply, Fault> {
     let params: StopParams = call.params()?;
     let (holder, started) = runtime_of(params.port)?.wake_stop(&params.run_id);
     Reply::json(&json!({ "holder": holder, "started": started }))
@@ -314,6 +314,6 @@ async fn wake_stop_call(call: Call) -> Result<Reply, Fault> {
 pub fn register(registry: &mut Registry) {
     registry.add("agentRuntime.wake", |call| Box::pin(wake_call(call)));
     registry.add("agentRuntime.wakeStop", |call| {
-        Box::pin(wake_stop_call(call))
+        at_once(wake_stop_call(&call))
     });
 }

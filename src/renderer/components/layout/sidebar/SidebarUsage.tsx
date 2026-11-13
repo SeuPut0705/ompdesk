@@ -1,27 +1,115 @@
 /**
- * Sidebar footer usage block (mixdog's "Rail bars", pin `usage`, on by default): one entry per AI provider company
- * that reports usage windows, showing the account that company's sessions used last (`lastUsedAccounts`, shared with
- * the work board). The first row is the provider mark and two inline gauges ("5H 15%", "7D 39%", the shared
- * `UsageGauges`); a slim second row under it carries that account's email, muted and truncated. The provider this
- * tab uses comes first and is marked with a quiet edge. Reset times, the full window names and the full account
- * label are in each entry's tooltip; a click opens Settings › Models & accounts. API-key providers have no windows
- * and are not listed; with no entry at all the block renders nothing. Reads go through `useUsageReports` (live
- * quotas, no polling of its own).
+ * Sidebar footer usage block (mixdog's "Rail bars", pin `usage`, on by default): every subscription account that
+ * reports usage windows, grouped by provider the way Settings › Models & accounts lists them (the shared
+ * `ProviderGroupItem` and `ConnectedRow`, `compact`): a provider header that folds its accounts (the fold is
+ * remembered, `usageGroups`), and under it one row per account with the address whole (it wraps, never an
+ * ellipsis; the full label is the tooltip), "In use" on the account this tab's session is pinned to, and every
+ * measured window as a gauge with its reset beneath (5H, 7D, a model's own weekly limit), a window at its limit in
+ * the danger fill and one near it in warning, as in Settings (`AccountQuota.tsx`). The provider this tab uses comes
+ * first; inside a group the accounts keep a fixed order, so a reading never moves a row. The accounts scroll inside
+ * a capped height, so many of them never take the sidebar. The in-use account's row says why the session is on it
+ * (`rotationReason`, the account rotation's last decision) when the report carries one. API-key providers have no
+ * windows and are not listed; with no account at all the block renders nothing. The header's gear opens Settings ›
+ * Models & accounts. Reads go through `useUsageReports` (live quotas, no polling of its own).
  */
 
-import type { KeyboardEvent, MouseEvent } from "react";
+import { Settings2 } from "lucide-react";
+import { type KeyboardEvent, type MouseEvent, useMemo } from "react";
+import type { ProviderInfo, UsageReport } from "../../../../shared/rpc-types";
 import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { useT } from "../../../lib/i18n";
-import { lastUsedAccounts } from "../../../lib/usage-reports";
+import { type UsageAccountGroup, usageAccountGroups } from "../../../lib/usage-reports";
+import { rotationReason } from "../../../lib/usage-rotation";
+import { gaugeColumns } from "../../../lib/usage-windows";
 import { useModelStore } from "../../../stores/model";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useUiStore } from "../../../stores/ui";
-import { DisclosureButton, UsageGauges, usageDescription, usageTooltip } from "../../common";
-import { ProviderMark } from "../../settings/providers/ProviderMark";
-import { AccountAddress, bareEmail, shortAccountLabel } from "../AccountLimit";
+import { DisclosureButton, IconButton } from "../../common";
+import {
+	AccountBadges,
+	type AccountQuotaSource,
+	accountNames,
+	accountStanding,
+	QuotaCell,
+	quotaLimits,
+} from "../../settings/providers/AccountQuota";
+import { ConnectedRow, ProviderGroupItem } from "../../settings/providers/ConnectedRow";
+import { type ProviderGroup, providerPlan, shortProviderName } from "../../settings/providers/provider-groups";
 
-/** Providers the block stacks before "+N" takes the rest to Settings. */
-export const USAGE_LINE_CAP = 4;
+/** What a row says of a usage report: the account's quota, and its state while omp skips it after a limit. */
+function sourceOf(report: UsageReport, inUse: boolean): AccountQuotaSource {
+	const limited = report.resetAt !== undefined;
+	return {
+		limits: report.limits,
+		fetchedAt: report.fetchedAt,
+		inUse,
+		...(limited ? { state: "depleted" as const, limitedUntil: report.resetAt } : {}),
+	};
+}
+
+/** The group a provider is drawn as: its stock name when the catalog lists it, else its id. */
+function groupOf(id: string, providers: readonly ProviderInfo[]): ProviderGroup {
+	const info = providers.find(provider => provider.id === id);
+	const provider: ProviderInfo = info ?? {
+		id,
+		name: id,
+		authenticated: true,
+		loginAvailable: false,
+		disabled: false,
+		modelCount: 0,
+	};
+	return {
+		provider,
+		shortName: shortProviderName(provider),
+		fullName: provider.name,
+		plan: providerPlan(provider),
+		kind: "accounts",
+	};
+}
+
+function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers: readonly ProviderInfo[] }) {
+	const t = useT();
+	const folded = useSidebarFolds(s => s.usageGroups[group.provider] === true);
+	const sources = group.accounts.map(({ report, inUse }) => sourceOf(report, inUse));
+	const labels = group.accounts.map(({ report }) => report.account?.trim() || report.provider);
+	const names = accountNames(labels);
+	const columns = gaugeColumns(sources.map(quotaLimits));
+	const now = Date.now();
+	return (
+		<ProviderGroupItem
+			compact
+			count={group.accounts.length}
+			fold={{
+				open: !folded,
+				onToggle: () => useSidebarFolds.getState().setUsageGroupFolded(group.provider, !folded),
+			}}
+			group={groupOf(group.provider, providers)}
+		>
+			{group.accounts.map(({ report, inUse }, index) => {
+				const source = sources[index] as AccountQuotaSource;
+				return (
+					<ConnectedRow
+						account={names[index]?.address ?? labels[index] ?? report.provider}
+						accountSuffix={names[index]?.suffix}
+						accountTitle={labels[index]}
+						badges={<AccountBadges account={source} />}
+						compact
+						key={`${report.provider}:${report.credentialId ?? labels[index]}`}
+						quota={<QuotaCell account={source} columns={columns} compact now={now} tracks={0} />}
+						quotaColumns={columns.length}
+						reason={inUse ? rotationReason(report.rotation, t) : null}
+						rowProps={{
+							"data-in-use": inUse || undefined,
+							"data-rail-account": `${report.provider}:${report.account ?? ""}`,
+							"data-usage-account": report.credentialId ?? labels[index],
+							"data-usage-standing": accountStanding(source),
+						}}
+					/>
+				);
+			})}
+		</ProviderGroupItem>
+	);
+}
 
 export function SidebarUsage({
 	onContextMenu,
@@ -32,66 +120,46 @@ export function SidebarUsage({
 }) {
 	const t = useT();
 	const provider = useModelStore(s => s.model?.provider ?? null);
+	const providers = useModelStore(s => s.providers);
 	const reports = useUsageReports();
-	const lines = reports ? lastUsedAccounts(reports, provider) : [];
+	const groups = useMemo(() => (reports ? usageAccountGroups(reports, provider) : []), [reports, provider]);
 	// The block folds to its header; the fold is remembered (`stores/sidebar-folds.ts`).
 	const collapsed = useSidebarFolds(s => s.usageCollapsed);
-	if (lines.length === 0) return null;
-	const shown = collapsed ? [] : lines.slice(0, USAGE_LINE_CAP);
-	const more = collapsed ? 0 : lines.length - USAGE_LINE_CAP;
+	if (groups.length === 0) return null;
 	return (
 		<div
 			className="omp-sidebar-usage"
-			// The block stacks `USAGE_LINE_CAP` providers: past it, the work board's gauges are the only place the rest show.
-			data-capped={lines.length > USAGE_LINE_CAP || undefined}
 			data-collapsed={collapsed || undefined}
 			data-rail-pin="usage"
 			onContextMenu={onContextMenu}
 			onKeyDown={onKeyDown}
 		>
-			<DisclosureButton
-				chevron="end"
-				chevronClassName="size-(--sc-icon-sm)"
-				className="h-6 min-w-0 gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) hover:text-(--sc-text)"
-				data-sidebar-usage-toggle
-				onToggle={() => useSidebarFolds.getState().setUsageCollapsed(!collapsed)}
-				open={!collapsed}
-			>
-				<span className="min-w-0 flex-1 truncate text-left">{t("sidebar.pin.usage")}</span>
-			</DisclosureButton>
-			{shown.map(({ report, inUse }) => {
-				const label = report.account?.trim() || report.provider;
-				const email = shortAccountLabel(label);
-				return (
-					// controls-ok: the omp-sidebar-usage-line class draws the whole row
-					<button
-						className="omp-sidebar-usage-line"
-						data-in-use={inUse || undefined}
-						data-rail-account={`${report.provider}:${report.account ?? ""}`}
-						key={report.provider}
-						aria-label={usageDescription(report, label, t)}
-						onClick={() => useUiStore.getState().openProviders()}
-						title={`${usageTooltip(report, bareEmail(label), t)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
-						type="button"
-					>
-						<ProviderMark provider={{ id: report.provider, name: report.provider }} />
-						<UsageGauges compact limits={report.limits} />
-						<span className="omp-sidebar-usage-account flex">
-							<AccountAddress label={email} />
-						</span>
-					</button>
-				);
-			})}
-			{more > 0 ? (
-				// controls-ok: the omp-sidebar-usage-more class draws the whole row
-				<button
-					className="omp-sidebar-usage-more"
-					onClick={() => useUiStore.getState().openProviders()}
-					type="button"
+			<div className="flex items-center gap-0.5">
+				<DisclosureButton
+					chevron="end"
+					chevronClassName="size-(--sc-icon-sm)"
+					className="h-6 min-w-0 flex-1 gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) hover:text-(--sc-text)"
+					data-sidebar-usage-toggle
+					onToggle={() => useSidebarFolds.getState().setUsageCollapsed(!collapsed)}
+					open={!collapsed}
 				>
-					{t("sidebar.pin.usageMore", { count: more })}
-				</button>
-			) : null}
+					<span className="min-w-0 flex-1 truncate text-left">{t("sidebar.pin.usage")}</span>
+				</DisclosureButton>
+				<IconButton
+					data-sidebar-usage-open
+					icon={<Settings2 />}
+					label={t("sidebar.pin.usageOpen")}
+					onClick={() => useUiStore.getState().openProviders()}
+					size="sm"
+				/>
+			</div>
+			{!collapsed && (
+				<ul aria-label={t("sidebar.pin.usage")} className="omp-sidebar-usage-groups" data-sidebar-usage-scroll>
+					{groups.map(group => (
+						<UsageGroup group={group} key={group.provider} providers={providers} />
+					))}
+				</ul>
+			)}
 		</div>
 	);
 }

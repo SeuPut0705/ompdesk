@@ -6,10 +6,12 @@
  * rewrite look new; trigrams over characters, not words, so Korean (no spaces inside a phrase) reads the same way.
  */
 
+import { WORD_CHAR } from "../../../../resources/gui-bridge/word-char";
+
 export const SAME_ANSWER = 0.6;
 
 function lettersOf(text: string): string {
-	return [...text.toLowerCase().normalize("NFKC")].filter(char => /[\p{L}\p{N}]/u.test(char)).join("");
+	return [...text.toLowerCase().normalize("NFKC")].filter(char => WORD_CHAR.test(char)).join("");
 }
 
 function trigrams(letters: string): Map<string, number> {

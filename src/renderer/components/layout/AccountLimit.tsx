@@ -1,7 +1,7 @@
 /**
  * The work board's account items: one per provider company that reports usage windows (API-key providers show
- * nothing), each the account that company's sessions used last (`lastUsedAccounts`, shared with the sidebar's
- * usage block), on one line: the provider's mark and its windows' inline gauges ("5H 82%", `UsageGauges compact`),
+ * nothing), each the account that company's sessions used last (`lastUsedAccounts`), on one line: the provider's
+ * mark and its windows' inline gauges ("5H 82%", `UsageGauges compact`),
  * then the account's model-scoped window ("Fable 44%"): the one of the model this tab runs on, which decides whether
  * its next turn runs, else the tightest (`accountWindows` with `session`).
  * The account's address, every window and its reset are the item's tooltip and accessible name. The provider this
@@ -15,40 +15,9 @@ import { useUiStore } from "../../stores/ui";
 import { UsageGauges, usageDescription, usageTooltip } from "../common";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 
-/**
- * "me@example.com (me…)" shows as "me@example.com": a parenthesized name that only repeats the start of the
- * address (or its local part) adds nothing, however it is cut ("(me…)", "(me...", "(me)"). Any other suffix stays.
- */
-export function shortAccountLabel(label: string): string {
-	const match = /^(\S+@[^\s(]+)\s*\((.*)$/.exec(label.trim());
-	if (!match) return label;
-	const email = (match[1] ?? "").toLowerCase();
-	const inner = (match[2] ?? "")
-		.replace(/[….)\s]+$/, "")
-		.trim()
-		.toLowerCase();
-	return inner === "" || email.startsWith(inner) ? (match[1] ?? label) : label;
-}
-
 /** The address alone: "me@example.com (Work account)" shows as "me@example.com", the suffix left to the tooltip. */
 export function bareEmail(label: string): string {
 	return /^(\S+@[^\s(]+)\s*\(/.exec(label.trim())?.[1] ?? label;
-}
-
-/**
- * An account label that gives way in the middle of an address: a narrow row shortens the name before the "@" and keeps
- * the domain, which says which account it is ("someone.with.a…@example.com"). Any other label ends in an ellipsis.
- * Renders spans for a flex row (`flex` on the parent, which clips).
- */
-export function AccountAddress({ label }: { label: string }) {
-	const match = /^([^\s@]+)(@\S+)$/.exec(label.trim());
-	if (!match) return <span className="min-w-0 truncate">{label}</span>;
-	return (
-		<>
-			<span className="min-w-0 truncate">{match[1]}</span>
-			<span className="shrink-0">{match[2]}</span>
-		</>
-	);
 }
 
 export function AccountLimit() {

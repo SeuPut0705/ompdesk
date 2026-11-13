@@ -914,7 +914,7 @@ export const en: Record<string, string> = {
 	"sidebar.menu.showToAgents": "Show to other agents",
 	"sidebar.agentHiddenFailed": "Couldn't save the agent visibility",
 	"sidebar.pin.usage": "Usage limits",
-	"sidebar.pin.usageMore": "+{count} more",
+	"sidebar.pin.usageOpen": "Open accounts in Settings",
 	"sidebar.pin.unpin": "Unpin from sidebar",
 	"sidebar.pin.menu": "{name} actions",
 	"sidebar.pinned": "Pinned",

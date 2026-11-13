@@ -54,6 +54,8 @@ export interface SidebarFolds {
 	starterOpen: boolean;
 	/** The footer usage block is folded to its header. */
 	usageCollapsed: boolean;
+	/** A provider's id → its accounts folded in the footer usage block (`SidebarUsage`). Absent = open. */
+	usageGroups: Record<string, boolean>;
 	/** Device section order the user set (`LOCAL_DEVICE` or a host's deviceId), top first; `lib/device-order.ts`. */
 	deviceOrder: string[];
 	/** The paired hosts the last host-list read named, so the first frame draws their sections before the next read. */
@@ -84,6 +86,7 @@ export const EMPTY_FOLDS: SidebarFolds = {
 	deviceArchived: {},
 	starterOpen: false,
 	usageCollapsed: false,
+	usageGroups: {},
 	deviceOrder: [],
 	knownHosts: [],
 };
@@ -121,6 +124,7 @@ export function parseSidebarFolds(value: unknown): SidebarFolds {
 		deviceArchived: parseFlags(record.deviceArchived),
 		starterOpen: record.starterOpen === true,
 		usageCollapsed: record.usageCollapsed === true,
+		usageGroups: parseFlags(record.usageGroups),
 		deviceOrder: parseDeviceOrder(record.deviceOrder),
 		knownHosts: parseKnownHosts(record.knownHosts),
 	};

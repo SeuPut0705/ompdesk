@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ModelSetupFacts } from "../../resources/gui-bridge/model-setup-contracts";
 import { billingOf, fullAutoAllows, type PlanRoleInput, type PlanRow, planRoles } from "../shared/role-plan";
-import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp, withoutAwsCredentials } from "./test-bridge-probe";
 
 /**
  * Pins the model setup's billing classification to stock's own auth data, on the installed omp in a private agent
@@ -119,6 +119,7 @@ function runProbe(options: {
 		if (options.modelsYml) writeFileSync(join(isolated, "models.yml"), options.modelsYml);
 		const spawnEnv: Record<string, string | undefined> = { ...process.env };
 		for (const key of Object.keys(spawnEnv)) if (AMBIENT.test(key)) Reflect.deleteProperty(spawnEnv, key);
+		withoutAwsCredentials(spawnEnv, isolated);
 		Object.assign(spawnEnv, {
 			HOME: isolated,
 			PI_CODING_AGENT_DIR: isolated,

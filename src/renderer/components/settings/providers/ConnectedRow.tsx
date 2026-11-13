@@ -12,12 +12,14 @@
  * every provider and account listed is. A provider with one credential (API key, env) is the
  * header alone, with its detail and any abnormal-state badges on the same line.
  * `data-provider-row` is on the group, `data-provider-account` on each account row.
+ * The sidebar's usage block draws the same two components `compact` (layout/sidebar/SidebarUsage.tsx): a head that
+ * folds its accounts (`fold`), no ⋯ (`menu` absent), the address wrapped whole, and a `reason` line under the quota.
  */
 
 import { MoreHorizontal, Plus } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useT } from "../../../lib/i18n";
-import { Button, type ContextMenuItem, MenuButton, Spinner } from "../../common";
+import { Button, Collapse, type ContextMenuItem, DisclosureButton, MenuButton, Spinner } from "../../common";
 import { ProviderMark } from "./ProviderMark";
 import type { ProviderGroup } from "./provider-groups";
 
@@ -60,6 +62,8 @@ export function ProviderGroupItem({
 	addDisabled = false,
 	menu,
 	busy = false,
+	fold,
+	compact = false,
 	children,
 	after,
 }: {
@@ -73,9 +77,13 @@ export function ProviderGroupItem({
 	/** Present for a subscription: the header's "Add account". */
 	onAdd?: () => void;
 	addDisabled?: boolean;
-	/** The provider's own actions. */
-	menu: ContextMenuItem[];
+	/** The provider's own actions; no ⋯ slot at all when absent. */
+	menu?: ContextMenuItem[];
 	busy?: boolean;
+	/** The head folds the account list: `open` and its toggle (the sidebar remembers it). */
+	fold?: { open: boolean; onToggle: () => void };
+	/** A dense list (the sidebar): a lower head and a smaller name. */
+	compact?: boolean;
 	/** The account rows (`ConnectedRow`s and notices) of a subscription. */
 	children?: ReactNode;
 	/** Rendered inside the group after its account list (a confirm dialog). */
@@ -86,41 +94,64 @@ export function ProviderGroupItem({
 	const single = group.kind === "single";
 	const secondary = detail ?? plan;
 	const countText = count !== undefined && count > 1 ? t("providers.accounts.count", { count }) : null;
-	return (
-		<li className="@container py-1.5" data-provider-row={provider.id}>
-			<div className="flex min-h-8 items-center gap-x-3 px-2.5" data-provider-head>
-				<div className="flex min-w-0 flex-1 items-center gap-2.5" title={fullName}>
-					<ProviderMark provider={provider} />
-					<span className="flex min-w-0 flex-1 items-baseline gap-2">
-						<span
-							className="max-w-[60%] shrink-0 truncate text-sc-md font-medium text-(--sc-text)"
-							data-provider-name
-						>
-							{shortName}
-						</span>
-						{secondary && (
-							<span
-								className={`min-w-0 truncate text-sc-sm text-(--sc-text-muted)${detail === undefined ? " hidden @md:inline" : ""}`}
-								data-account-label
-								title={detailTitle}
-							>
-								{secondary}
-							</span>
-						)}
-						{countText && (
-							<span className="shrink-0 text-sc-sm whitespace-nowrap text-(--sc-text-muted)" data-account-count>
-								{secondary && detail === undefined ? (
-									<>
-										<span className="hidden @md:inline">· </span>
-										{countText}
-									</>
-								) : (
-									countText
-								)}
-							</span>
+	const list = children && (
+		<ul aria-label={fullName} className="flex flex-col" data-provider-accounts>
+			{children}
+		</ul>
+	);
+	const identity = (
+		<>
+			<ProviderMark provider={provider} />
+			<span className="flex min-w-0 flex-1 items-baseline gap-2">
+				<span
+					className={`max-w-[60%] shrink-0 truncate font-medium text-(--sc-text) ${compact ? "text-sc-sm" : "text-sc-md"}`}
+					data-provider-name
+				>
+					{shortName}
+				</span>
+				{secondary && (
+					<span
+						className={`min-w-0 truncate text-sc-sm text-(--sc-text-muted)${detail === undefined ? " hidden @md:inline" : ""}`}
+						data-account-label
+						title={detailTitle}
+					>
+						{secondary}
+					</span>
+				)}
+				{countText && (
+					<span className="shrink-0 text-sc-sm whitespace-nowrap text-(--sc-text-muted)" data-account-count>
+						{secondary && detail === undefined ? (
+							<>
+								<span className="hidden @md:inline">· </span>
+								{countText}
+							</>
+						) : (
+							countText
 						)}
 					</span>
-				</div>
+				)}
+			</span>
+		</>
+	);
+	return (
+		<li className={`@container ${compact ? "py-0.5" : "py-1.5"}`} data-provider-row={provider.id}>
+			<div className={`flex ${compact ? "min-h-7" : "min-h-8"} items-center gap-x-3 px-2.5`} data-provider-head>
+				{fold ? (
+					<DisclosureButton
+						chevron="end"
+						className="min-w-0 flex-1 gap-2.5 rounded-(--sc-radius-md)"
+						data-provider-fold={provider.id}
+						onToggle={fold.onToggle}
+						open={fold.open}
+						title={fullName}
+					>
+						{identity}
+					</DisclosureButton>
+				) : (
+					<div className="flex min-w-0 flex-1 items-center gap-2.5" title={fullName}>
+						{identity}
+					</div>
+				)}
 				{single && detail !== undefined && badges && (
 					<span className="flex shrink-0 items-center gap-1.5">{badges}</span>
 				)}
@@ -137,13 +168,9 @@ export function ProviderGroupItem({
 						{t("providers.accounts.addShort")}
 					</Button>
 				)}
-				<RowMenu busy={busy} label={t("providers.row.actions", { name: fullName })} menu={menu} />
+				{menu && <RowMenu busy={busy} label={t("providers.row.actions", { name: fullName })} menu={menu} />}
 			</div>
-			{children && (
-				<ul aria-label={fullName} className="flex flex-col" data-provider-accounts>
-					{children}
-				</ul>
-			)}
+			{list && (fold ? <Collapse open={fold.open}>{list}</Collapse> : list)}
 			{after}
 		</li>
 	);
@@ -169,6 +196,8 @@ export function ConnectedRow({
 	pass,
 	menu,
 	busy = false,
+	compact = false,
+	reason,
 	rowProps,
 }: {
 	/** The account: an email or id. */
@@ -176,8 +205,8 @@ export function ConnectedRow({
 	/** What tells this account from another of the provider with the same address ("team", "pro"), muted after it. */
 	accountSuffix?: string;
 	accountTitle?: string;
-	/** Names the ⋯ ("{provider} {account}"). */
-	actionName: string;
+	/** Names the ⋯ ("{provider} {account}"); the account's own name when absent. */
+	actionName?: string;
 	/** State marks after the account: in use, and a limit no gauge shows. */
 	badges?: ReactNode;
 	/** The account's quota cell (QuotaCell); renders nothing for an account without a report. */
@@ -188,18 +217,30 @@ export function ConnectedRow({
 	credits?: ReactNode;
 	/** The account's reset pass, `null` for an account without one; `undefined` when no account of the provider has any. */
 	pass?: ReactNode;
-	/** This account's actions; no menu when empty. */
-	menu: ContextMenuItem[];
+	/** This account's actions; no menu when empty, and no ⋯ slot at all when absent (a list with nothing to do per account). */
+	menu?: ContextMenuItem[];
 	/** An action is running for this row. */
 	busy?: boolean;
+	/** A list too narrow for a row to give its account a line of its own: the address wraps whole instead of ending in an ellipsis. */
+	compact?: boolean;
+	/** One line of why the session is on this account, under the quota (the rotation's reason); nothing when absent. */
+	reason?: ReactNode;
 	rowProps?: DataAttributes;
 }) {
 	const t = useT();
 	return (
-		<li {...rowProps} className="@container py-1.5">
-			<div className="flex flex-wrap items-start gap-x-3 gap-y-1.5 pr-2.5 pl-[calc(0.625rem+1.25rem+0.625rem)]">
-				<span className="order-1 flex min-h-(--sc-control-sm) min-w-0 flex-1 basis-24 items-center gap-2">
-					<span className="min-w-0 truncate text-sc-sm text-(--sc-text)" data-account-label title={accountTitle}>
+		<li {...rowProps} className={`@container ${compact ? "py-1" : "py-1.5"}`}>
+			<div
+				className={`flex flex-wrap items-start gap-x-3 gap-y-1.5 pr-2.5 ${compact ? "pl-6" : "pl-[calc(0.625rem+1.25rem+0.625rem)]"}`}
+			>
+				<span
+					className={`order-1 flex ${compact ? "min-h-6 flex-wrap" : "min-h-(--sc-control-sm)"} min-w-0 flex-1 basis-24 items-center gap-x-2 gap-y-0.5`}
+				>
+					<span
+						className={`min-w-0 text-sc-sm text-(--sc-text) ${compact ? "[overflow-wrap:anywhere]" : "truncate"}`}
+						data-account-label
+						title={accountTitle}
+					>
 						{account}
 						{accountSuffix && (
 							<span className="text-(--sc-text-muted)" data-account-suffix>
@@ -236,12 +277,19 @@ export function ConnectedRow({
 						{pass}
 					</span>
 				)}
-				<RowMenu
-					busy={busy}
-					className="order-3 @2xl:order-5"
-					label={t("providers.row.actions", { name: actionName })}
-					menu={menu}
-				/>
+				{menu && (
+					<RowMenu
+						busy={busy}
+						className="order-3 @2xl:order-5"
+						label={t("providers.row.actions", { name: actionName ?? account })}
+						menu={menu}
+					/>
+				)}
+				{reason && (
+					<span className="order-6 basis-full text-sc-xs break-words text-(--sc-text-muted)" data-account-reason>
+						{reason}
+					</span>
+				)}
 			</div>
 		</li>
 	);

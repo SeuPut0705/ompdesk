@@ -10,6 +10,7 @@
  * {@link titleIsAuto} reads that stamp back, so no state lives outside the session file.
  */
 import { explicitTitle, unwrapPrompt } from "../memory-prompt";
+import { WORD_CHAR } from "../word-char";
 import { TITLE_TRIGGER } from "./auto-title-contracts";
 
 /**
@@ -236,7 +237,6 @@ export function titleShorterLine(tooLong: string): string {
 }
 
 const CJK = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const HAS_WORD = /[\p{L}\p{N}]/u;
 /** English words a cut title must not end on (`CSV export empty with` → `CSV export empty`). */
 const DANGLING = /^(?:a|an|the|and|or|but|of|for|with|without|to|in|on|at|by|from|into|via|vs)$/i;
 
@@ -268,11 +268,11 @@ export function conciseTitle(title: string): string {
 			kept.splice(filler, 1);
 		}
 		while (kept.length > 1 && kept.join(" ").length > cap) kept.shift();
-		while (kept.length > 1 && !HAS_WORD.test(kept[0] ?? "")) kept.shift();
+		while (kept.length > 1 && !WORD_CHAR.test(kept[0] ?? "")) kept.shift();
 		return kept.join(" ").replace(/^[\s,:;\-–—/&]+/u, "") || kept.join(" ");
 	}
 	while (kept.length > 1 && kept.join(" ").length > cap) kept.pop();
-	while (kept.length > 1 && (!HAS_WORD.test(kept.at(-1) ?? "") || DANGLING.test(kept.at(-1) ?? ""))) kept.pop();
+	while (kept.length > 1 && (!WORD_CHAR.test(kept.at(-1) ?? "") || DANGLING.test(kept.at(-1) ?? ""))) kept.pop();
 	return kept.join(" ").replace(/[\s,:;\-–—/&]+$/u, "") || kept.join(" ");
 }
 

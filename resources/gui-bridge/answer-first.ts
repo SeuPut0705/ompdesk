@@ -37,6 +37,7 @@
  * (src/main/bridge-answer-first.test.ts), as for modes/memory-recall.ts.
  */
 import { type TypedPrompts, typedPrompts } from "./typed-prompts";
+import { WORD_CHAR } from "./word-char";
 
 export const ANSWER_FIRST_MESSAGE_TYPE = "ompdesk-answer-first";
 
@@ -99,7 +100,7 @@ function saysSomething(message: AssistantEvent["message"]): boolean {
 				: block?.type === "thinking" && block.narration === true
 					? block.thinking
 					: undefined;
-		return typeof said === "string" && /[\p{L}\p{N}]/u.test(said);
+		return typeof said === "string" && WORD_CHAR.test(said);
 	});
 }
 

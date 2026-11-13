@@ -35,6 +35,8 @@ interface SidebarFoldsStore extends SidebarFolds {
 	setDeviceArchivedOpen: (deviceId: string, open: boolean) => void;
 	setStarterOpen: (open: boolean) => void;
 	setUsageCollapsed: (collapsed: boolean) => void;
+	/** One provider's accounts in the usage block, folded or open. */
+	setUsageGroupFolded: (providerId: string, folded: boolean) => void;
 	/** Remembers the device sections' order (top first). */
 	setDeviceOrder: (order: readonly string[]) => void;
 	/** Drops the folds of groups `exists` refuses. Call only once the folders are known (a live read answered). */
@@ -60,6 +62,7 @@ function saved(state: SidebarFolds): SidebarFolds {
 		deviceArchived: state.deviceArchived,
 		starterOpen: state.starterOpen,
 		usageCollapsed: state.usageCollapsed,
+		usageGroups: state.usageGroups,
 		deviceOrder: state.deviceOrder,
 		knownHosts: state.knownHosts,
 	};
@@ -94,6 +97,8 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 		setUsageCollapsed: collapsed => {
 			if (get().usageCollapsed !== collapsed) edit({ usageCollapsed: collapsed });
 		},
+		setUsageGroupFolded: (providerId, folded) =>
+			edit({ usageGroups: withFlag(get().usageGroups, providerId, folded) }),
 		setDeviceOrder: order => {
 			if (order.join("\n") !== get().deviceOrder.join("\n")) edit({ deviceOrder: [...order] });
 		},

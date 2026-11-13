@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp, withoutAwsCredentials } from "./test-bridge-probe";
 
 /**
  * The model setup's plan reaches OMPdesk's own `review` role end to end, on the installed omp in a private agent dir
@@ -114,6 +114,7 @@ function runPlan(providers: string[]): PlanProbe {
 		writeFileSync(extension, PROBE);
 		const env: Record<string, string | undefined> = { ...process.env };
 		for (const key of Object.keys(env)) if (AMBIENT.test(key)) Reflect.deleteProperty(env, key);
+		withoutAwsCredentials(env, isolated);
 		Object.assign(env, {
 			HOME: isolated,
 			PI_CODING_AGENT_DIR: isolated,

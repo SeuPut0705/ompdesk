@@ -24,9 +24,18 @@ import { CoreError, core } from "./process";
  */
 export const HUB_CALL_DEADLINE_MS = 2_000;
 
+/**
+ * How long a connection's first waits may take while its worker has not reached the hub yet: the worker thread starts,
+ * and the core may be starting (spawned by this very call). That is a process starting, not a hub that stopped
+ * answering, and on a loaded Windows runner it took over 2 s. Once connected, every wait has {@link HUB_CALL_DEADLINE_MS}.
+ */
+export const HUB_START_DEADLINE_MS = 10_000;
+
 /** Control words of the shared buffer: [state, length]; the lines follow at {@link DATA_OFFSET}. */
 const STATE = 0;
 const LENGTH = 1;
+/** Set by the worker once its socket reached the hub. */
+const CONNECTED = 2;
 const IDLE = 0;
 const WAITING = 1;
 const READY = 2;
@@ -94,6 +103,7 @@ function connect(endpoint, deadline) {
 		candidate.once("connect", () => {
 			connecting = false;
 			socket = candidate;
+			Atomics.store(control, ${CONNECTED}, 1);
 			socket.setNoDelay?.(true);
 			socket.write(JSON.stringify({ token: endpoint.token }) + "\\n");
 			for (const line of queued) socket.write(line);
@@ -130,7 +140,7 @@ function connect(endpoint, deadline) {
 
 const queued = [];
 parentPort.on("message", message => {
-	if (message.endpoint && !socket && !connecting) connect(message.endpoint, Date.now() + ${HUB_CALL_DEADLINE_MS});
+	if (message.endpoint && !socket && !connecting) connect(message.endpoint, Date.now() + ${HUB_START_DEADLINE_MS});
 	if (message.line) {
 		if (socket) socket.write(message.line);
 		else queued.push(message.line);
@@ -327,13 +337,26 @@ export class Hub {
 		}
 	}
 
+	/**
+	 * Waits for the worker's hand-over: {@link HUB_CALL_DEADLINE_MS} from a wait that began connected, and while the
+	 * worker has not reached the hub, slice after slice up to {@link HUB_START_DEADLINE_MS} in all.
+	 */
+	#block(control: Int32Array): "ok" | "not-equal" | "timed-out" {
+		const started = Date.now();
+		for (;;) {
+			const connected = Atomics.load(control, CONNECTED) === 1;
+			const outcome = Atomics.wait(control, STATE, WAITING, HUB_CALL_DEADLINE_MS);
+			if (outcome !== "timed-out" || connected || Date.now() - started >= HUB_START_DEADLINE_MS) return outcome;
+		}
+	}
+
 	/** Blocks until the worker handed over the lines that settle `id` (or `"drain"`: whatever there is). */
 	#wait(connection: Connection, id: number | "drain"): Line[] {
 		const { control, worker } = connection;
 		Atomics.store(control, STATE, WAITING);
 		worker.postMessage({ wait: id });
 		const started = this.measuring ? performance.now() : 0;
-		const outcome = Atomics.wait(control, STATE, WAITING, HUB_CALL_DEADLINE_MS);
+		const outcome = this.#block(control);
 		if (this.measuring) {
 			const us = Math.round((performance.now() - started) * 1000);
 			this.stats.waitsUs.push(us);

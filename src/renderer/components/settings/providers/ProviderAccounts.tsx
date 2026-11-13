@@ -20,11 +20,11 @@ import { Copy, RefreshCw, Trash2, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AccountCredits, ProviderAccount, ProviderAccountsResult, UsageLimit } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { copyText, formatClock, formatCredits, formatSpan } from "../../../lib/format";
+import { copyText, formatCredits } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { accountGauges, gaugeColumns } from "../../../lib/usage-windows";
+import { gaugeColumns } from "../../../lib/usage-windows";
 import { toast, toastError } from "../../../stores/toast";
 import {
 	Badge,
@@ -33,40 +33,13 @@ import {
 	type ContextMenuItem,
 	InlineNotice,
 	MAX_USAGE_COLUMNS,
-	NEAR_FRACTION,
 	Tooltip,
-	UsageGauges,
-	usageTooltip,
 } from "../../common";
-import { bareEmail } from "../../layout/AccountLimit";
 import { useSettingsNavigate } from "../settings-navigation";
+import { AccountBadges, accountNames, QuotaCell, quotaLimits } from "./AccountQuota";
 import { ConnectedRow, ProviderGroupItem } from "./ConnectedRow";
 import type { ProviderGroup } from "./provider-groups";
 import { ResetPassControl } from "./ResetPasses";
-
-/**
- * The windows the row gauges: the report's limits, else (an account that only reports what is left of its quota)
- * one window holding the share used.
- */
-function quotaLimits(account: ProviderAccount): UsageLimit[] {
-	if (account.limits.some(limit => limit.usedFraction !== undefined)) return account.limits;
-	if (account.remainingFraction === undefined) return [];
-	return [{ id: "quota", label: "Quota", windowId: "quota", usedFraction: 1 - account.remainingFraction }];
-}
-
-/**
- * What a row names each account by: the bare address, and the label's parenthetical ("team", "pro") muted after it only
- * where another account of the provider shares that address, so two logins with one email are told apart.
- */
-export function accountNames(labels: readonly string[]): { address: string; suffix?: string }[] {
-	const addresses = labels.map(bareEmail);
-	return labels.map((label, index) => {
-		const address = addresses[index] ?? label;
-		const shared = addresses.filter(other => other === address).length > 1;
-		const suffix = shared ? /\(([^)]*)\)\s*$/.exec(label.trim())?.[1]?.trim() : undefined;
-		return suffix ? { address, suffix } : { address };
-	});
-}
 
 /**
  * What every account row of the list shares, so the same window stands in the same column from one provider to the
@@ -160,64 +133,6 @@ export function useProviderAccounts(
 	}, [usagePolls, enabled, load]);
 
 	return { result, error, loading, load };
-}
-
-/**
- * The account's windows as shared gauges (share used, reset beneath each), each in its column of the provider's
- * set, on the track count the whole list shares; the tooltip lists every window and the read's age.
- */
-function QuotaCell({
-	account,
-	columns,
-	tracks,
-	now,
-}: {
-	account: ProviderAccount;
-	columns: readonly string[];
-	tracks: number;
-	now: number;
-}) {
-	const t = useT();
-	const limits = quotaLimits(account);
-	if (accountGauges(limits).length === 0) return null;
-	const title = [
-		usageTooltip({ provider: "", fetchedAt: account.fetchedAt ?? 0, limits }, "", t)
-			.split("\n")
-			.slice(1)
-			.join("\n"),
-		account.fetchedAt === undefined ? null : t("usage.updatedAgo", { time: formatSpan(now - account.fetchedAt) }),
-	]
-		.filter(Boolean)
-		.join("\n");
-	return (
-		<div
-			data-quota-updated={account.fetchedAt === undefined ? undefined : formatClock(account.fetchedAt)}
-			title={title}
-		>
-			<UsageGauges columns={columns} limits={limits} resets tracks={tracks} />
-		</div>
-	);
-}
-
-/** In use, and what no gauge of the row says: skipped after a limit, or low, with no window at or near its end. */
-function AccountBadges({ account }: { account: ProviderAccount }) {
-	const t = useT();
-	const gauges = accountGauges(quotaLimits(account));
-	return (
-		<>
-			{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}
-			{account.state === "depleted" && !gauges.some(gauge => gauge.fraction >= 1) && (
-				<Badge variant="warning">
-					{account.limitedUntil !== undefined
-						? t("providers.accounts.limitedUntil", { time: formatClock(account.limitedUntil) })
-						: t("providers.accounts.limited")}
-				</Badge>
-			)}
-			{account.state === "reserve" && !gauges.some(gauge => gauge.fraction >= NEAR_FRACTION) && (
-				<Badge variant="warning">{t("providers.accounts.low")}</Badge>
-			)}
-		</>
-	);
 }
 
 /**

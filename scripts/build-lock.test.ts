@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { nativeBinPath } from "../src/main/native-bin";
+import { removeWhenFree } from "../src/main/test-folders";
 import { describeExit, run } from "./build-lock";
 import { ensureNative } from "./build-native";
 import { type LockLogEntry, readLockLog } from "./lock-log";
@@ -68,8 +69,10 @@ beforeAll(() => {
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-build-lock-"));
 });
-afterEach(() => {
-	fs.rmSync(dir, { recursive: true, force: true });
+// A released `ompdesk heavy hold` removes its slot's owner file a moment after the locked command exits; on Windows
+// that pending delete refuses the folder's removal (EPERM) until the hold is gone.
+afterEach(async () => {
+	await removeWhenFree(dir);
 });
 
 describe("bun scripts/build-lock.ts", () => {
