@@ -52,7 +52,26 @@ use crate::lifecycle::Boot;
 use crate::log::log;
 use crate::state::{PATHS, Paths};
 
+/// A panic is logged where it can be read after the process is gone (`<temp>/ompdesk-shell-panic.log`, the shell log, stderr):
+/// most panics happen inside CEF callbacks, which cannot unwind, so the process aborts right after this hook.
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let text = format!("{info}\n{}", std::backtrace::Backtrace::force_capture());
+        log("panic", json!({ "message": text }));
+        let path = std::env::temp_dir().join("ompdesk-shell-panic.log");
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut f| {
+                use std::io::Write;
+                writeln!(f, "[{}] {text}", std::process::id())
+            });
+    }));
+}
+
 fn main() {
+    install_panic_hook();
     log::start_clock();
     let argv: Vec<String> = std::env::args().collect();
     // macOS: the one-shot keychain read the shim runs on first use of safeStorage (never at launch).

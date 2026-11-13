@@ -123,6 +123,8 @@ pub struct WcEntry {
     pub watch_nav: HashSet<String>,
     pub cdp_attached: bool,
     pub cdp_registration: Option<Registration>,
+    /// The DevTools observer was added (whatever `add_dev_tools_message_observer` returned): CEF adds each page's once.
+    pub cdp_observer_added: bool,
     pub cdp_next_id: i32,
     /// CDP calls waiting for their answer, by the id the shell chose.
     pub cdp_pending: HashMap<i32, CdpCallback>,
@@ -159,6 +161,7 @@ impl WcEntry {
             watch_nav: HashSet::new(),
             cdp_attached: false,
             cdp_registration: None,
+            cdp_observer_added: false,
             cdp_next_id: 0,
             cdp_pending: HashMap::new(),
             painted: None,

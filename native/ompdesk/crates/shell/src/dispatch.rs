@@ -7,6 +7,14 @@ use crate::{ipc, lifecycle, protocol};
 
 pub fn request(call: Call) {
     let method = call.method.clone();
+    if std::env::var_os("OMPDESK_SHELL_TRACE").is_some() {
+        let mut params = call.params.to_string();
+        params.truncate(300);
+        crate::log::log(
+            "host.request",
+            serde_json::json!({ "method": method, "params": params }),
+        );
+    }
     match method.as_str() {
         "app.init" => lifecycle::init(call),
         m if m.starts_with("app.") => crate::appops::handle(call),

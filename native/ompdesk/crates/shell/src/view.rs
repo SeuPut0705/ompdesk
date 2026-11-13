@@ -62,13 +62,18 @@ pub fn apply_bounds(view_id: u64) {
         (e.wc_id, e.bounds, e.visible)
     };
     if let Some(v) = browser_view(wc_id) {
-        v.set_bounds(Some(&Rect {
-            x,
-            y,
-            width: w,
-            height: h,
-        }));
-        v.set_visible(i32::from(visible && w > 0 && h > 0));
+        // An empty rectangle is never given to Views (a zero-sized browser view is a fatal check in Chromium): the view
+        // is only hidden, and takes its bounds when it has some.
+        let usable = w > 0 && h > 0;
+        if usable {
+            v.set_bounds(Some(&Rect {
+                x,
+                y,
+                width: w,
+                height: h,
+            }));
+        }
+        v.set_visible(i32::from(visible && usable));
     }
 }
 
@@ -101,7 +106,12 @@ fn run_op(call: Call, view_id: u64, name: &str, args: &Value) {
             // The window's panel may not exist yet (it is made on the OS window's creation): attach when it does.
             match container_of(win_id) {
                 Some(container) => {
-                    container.add_child_view(Some(&mut View::from(&page)));
+                    // Adding a child that is already in the widget makes Views observe it twice (a fatal NOTREACHED in
+                    // Chromium): attaching again to the same window only re-applies the bounds.
+                    let already = entry.borrow().win_id == Some(win_id);
+                    if !already {
+                        container.add_child_view(Some(&mut View::from(&page)));
+                    }
                     entry.borrow_mut().win_id = Some(win_id);
                     if !window.borrow().views.contains(&view_id) {
                         window.borrow_mut().views.push(view_id);

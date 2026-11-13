@@ -71,7 +71,7 @@ fn on_message(wc_id: u64, value: Value) {
 fn ensure_observer(entry: &Rc<RefCell<WcEntry>>) {
     let (browser, registered, wc_id) = {
         let e = entry.borrow();
-        (e.browser.clone(), e.cdp_registration.is_some(), e.id)
+        (e.browser.clone(), e.cdp_observer_added, e.id)
     };
     if registered {
         return;
@@ -79,6 +79,7 @@ fn ensure_observer(entry: &Rc<RefCell<WcEntry>>) {
     let Some(host) = browser.and_then(|b| b.host()) else {
         return;
     };
+    entry.borrow_mut().cdp_observer_added = true;
     let mut observer = Observer::new(wc_id);
     let registration = host.add_dev_tools_message_observer(Some(&mut observer));
     entry.borrow_mut().cdp_registration = registration;

@@ -225,6 +225,9 @@ fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
                 }
             }
         }
+        "clearCache" | "clearStorageData" if !partition.starts_with("persist:") => {
+            // An in-memory partition keeps nothing past its pages.
+        }
         "clearCache" => {
             if let Some(context) = context_or_global(partition) {
                 context.clear_http_cache(None);
