@@ -389,7 +389,7 @@ jobs:
         shell: bash
         env:
           OMPDESK_TEST_SHELL_REQUIRED: "1"
-        run: bunx vitest run --project node --passWithNoTests src/main/shell-host/modules
+        run: bunx vitest run --project node src/main/shell-host/modules
       - if: failure()
         shell: bash
         run: bash scripts/ci-failure.sh
