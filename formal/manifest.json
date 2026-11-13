@@ -23,7 +23,7 @@
 				"src/main/turn-resume.ts:174-265",
 				"src/main/turn-resume.ts:818-832",
 				"src/main/connectivity.ts",
-				"src/main/index.ts:2180-2184",
+				"src/main/index.ts:2192-2196",
 				"src/main/sidecar-run-state.ts",
 				"src/main/remote/host-services.ts",
 				"src/main/ipc.ts"
@@ -108,7 +108,7 @@
 				"native/ompdesk/crates/core/src/sidecar/launch.rs",
 				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
-			"syncCommit": "842ae08796333a393f1e197dcd3ef8380408fa31",
+			"syncCommit": "6cc292258518be1caade8ae8595f898f183aaf55",
 			"verifySkill": ".omp/skills/tab-session-verify/SKILL.md"
 		},
 		{
@@ -170,7 +170,7 @@
 				"src/main/session-processes.ts",
 				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
-			"syncCommit": "842ae08796333a393f1e197dcd3ef8380408fa31",
+			"syncCommit": "6cc292258518be1caade8ae8595f898f183aaf55",
 			"verifySkill": ".omp/skills/session-processes-verify/SKILL.md"
 		},
 		{
