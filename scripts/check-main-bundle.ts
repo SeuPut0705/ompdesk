@@ -335,7 +335,13 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The markdown chunk gains `remark-dollar-math.ts` (13 Nov 2026: prices stay text, Pandoc's rule on single-dollar math;
 // the phone's first screen renders replies with it): measured 2,201,852 by the runner's build of the branch, 902
 // bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_201_900;
+// The shell swap (batch S, 13 Nov 2026): the one notice naming the email accounts whose password the macOS keychain
+// would have asked for (`MailReentryNotice` above the session and its store, `stores/mail-reentry.ts`; the session is
+// the first screen), the Updates row's reason a stored token was dropped and their strings in the English catalog,
+// and the shell's named answer to an empty IPC reply (`shared/shell-answer.ts`): measured 2,203,896 on 848ff9c27 by
+// shell-batch-checks' build (before the markdown change above), 2,946 bytes over that budget. Both together, estimated
+// (not yet measured on one build): 2,204,850.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_205_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which the Node that
 // runs main (shipped beside the shell) does not have: a bundle importing `ws` at runtime must fail here, not pass
