@@ -8,6 +8,11 @@
  *   bun feed.ts --setup <ompdesk-windows-setup.exe> --version 0.200.0 --cert-dir <dir> [--port 8443]
  *   bun feed.ts --setup <ompdesk-mac-arm64.dmg> --platform mac --version 0.200.0 --cert-dir <dir>   (the Mac's run)
  *
+ * `--rollback-dmg <dmg> --rollback-tag v0.127.0 --http-port <n>` also serves the "last Electron release" the shell's launcher
+ * downloads when the new shell does not come up (OMPDESK_LAUNCHER_RELEASE_URL=http://127.0.0.1:<n>): the tag route
+ * `/repos/SeuPut0705/ompdesk/releases/tags/<tag>` (the release JSON with its ompdesk-update comment) and the asset, over
+ * plain HTTP, the same routes and comment format as above.
+ *
  * The self-signed certificate for api.github.com is made in `--cert-dir` (never the repository). One JSON line per
  * request on stdout; the first line says it is listening.
  */
@@ -23,6 +28,9 @@ const { values } = parseArgs({
 		"cert-dir": { type: "string" },
 		platform: { type: "string", default: "windows" },
 		port: { type: "string", default: "8443" },
+		"rollback-dmg": { type: "string" },
+		"rollback-tag": { type: "string" },
+		"http-port": { type: "string" },
 	},
 });
 const setup = values.setup ?? "";
@@ -90,4 +98,50 @@ const server = Bun.serve({
 		return new Response("not here", { status: 404 });
 	},
 });
+if (values["rollback-dmg"]) {
+	const tag = values["rollback-tag"] ?? "";
+	const httpPort = Number(values["http-port"]);
+	if (!tag || !httpPort) throw new Error("--rollback-dmg needs --rollback-tag and --http-port");
+	const previous = new Uint8Array(await Bun.file(values["rollback-dmg"]).arrayBuffer());
+	const previousName = "ompdesk-mac-arm64.dmg";
+	const previousMetadata = {
+		version: tag.replace(/^v/, ""),
+		releaseDate: new Date().toISOString(),
+		files: {
+			mac: {
+				name: previousName,
+				size: previous.length,
+				sha512: createHash("sha512").update(previous).digest("base64"),
+			},
+		},
+	};
+	const previousRelease = {
+		tag_name: tag,
+		name: tag,
+		body: `The last Electron release (a stand-in).\n\n<!-- ompdesk-update ${JSON.stringify(previousMetadata)} -->`,
+		draft: false,
+		prerelease: false,
+		assets: [
+			{
+				id: 2,
+				name: previousName,
+				size: previous.length,
+				url: `http://127.0.0.1:${httpPort}/repos/SeuPut0705/ompdesk/releases/assets/2`,
+			},
+		],
+	};
+	const http = Bun.serve({
+		port: httpPort,
+		hostname: "127.0.0.1",
+		fetch(request) {
+			const url = new URL(request.url);
+			console.log(JSON.stringify({ at: Date.now(), http: true, method: request.method, path: url.pathname }));
+			if (url.pathname === `/repos/SeuPut0705/ompdesk/releases/tags/${tag}`) return Response.json(previousRelease);
+			if (url.pathname === "/repos/SeuPut0705/ompdesk/releases/assets/2")
+				return new Response(previous, { headers: { "content-type": "application/octet-stream" } });
+			return new Response("not here", { status: 404 });
+		},
+	});
+	console.log(JSON.stringify({ rollbackListening: http.port, tag, size: previous.length }));
+}
 console.log(JSON.stringify({ listening: server.port, version, size: bytes.length, sha512: sha512.slice(0, 12) }));

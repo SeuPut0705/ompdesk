@@ -104,9 +104,9 @@ const copy = (from: string, to: string) => {
 };
 
 /**
- * Assemble `<out>/OMPdesk.app` from the staged inputs under `repo`; returns its path. The shell executable (the CEF
- * build's `ompdesk-shell`) is the app's executable and each helper app's, copied, as CEF starts its helper processes
- * from `Contents/Frameworks/<product> Helper*.app`.
+ * Assemble `<out>/OMPdesk.app` from the staged inputs under `repo`; returns its path. The launcher (`ompdesk-launcher`) is
+ * the app's executable (CFBundleExecutable `OMPdesk`), the shell (`ompdesk-shell`) sits beside it in `Contents/MacOS` and
+ * is copied into each helper app, as CEF starts its helper processes from `Contents/Frameworks/<product> Helper*.app`.
  */
 export function assembleBundle(repo: string, out: string, version?: string): string {
 	const manifest = JSON.parse(fs.readFileSync(path.join(repo, "package.json"), "utf8")) as { version: string };
@@ -114,10 +114,17 @@ export function assembleBundle(repo: string, out: string, version?: string): str
 	const staged = path.join(repo, "resources", "ompdesk-shell", KEY);
 	const recordFile = path.join(staged, "ompdesk-shell.build.json");
 	if (!fs.existsSync(recordFile)) fail(`${recordFile} is missing; run \`bun run build:shell\``);
-	const record = JSON.parse(fs.readFileSync(recordFile, "utf8")) as { binary: string; files: Record<string, string> };
+	const record = JSON.parse(fs.readFileSync(recordFile, "utf8")) as {
+		binary: string;
+		launcher: string;
+		files: Record<string, string>;
+	};
+	if (record.binary !== bundle.SHELL || record.launcher !== bundle.LAUNCHER) {
+		fail(`${recordFile} names ${record.binary} and ${record.launcher}, not ${bundle.SHELL} and ${bundle.LAUNCHER}`);
+	}
 	for (const name of Object.keys(record.files)) {
-		if (name !== record.binary && !name.startsWith(`${bundle.FRAMEWORK}/`)) {
-			fail(`${recordFile} lists ${name}; the bundle holds the executable and ${bundle.FRAMEWORK} only`);
+		if (name !== record.binary && name !== record.launcher && !name.startsWith(`${bundle.FRAMEWORK}/`)) {
+			fail(`${recordFile} lists ${name}; the bundle holds the shell, the launcher and ${bundle.FRAMEWORK} only`);
 		}
 	}
 	const app = path.join(out, `${bundle.PRODUCT}.app`);
@@ -127,8 +134,13 @@ export function assembleBundle(repo: string, out: string, version?: string): str
 	fs.rmSync(app, { recursive: true, force: true });
 	for (const dir of [path.join(contents, "MacOS"), frameworks, resources]) fs.mkdirSync(dir, { recursive: true });
 
-	fs.copyFileSync(path.join(staged, record.binary), path.join(contents, "MacOS", bundle.PRODUCT));
-	fs.chmodSync(path.join(contents, "MacOS", bundle.PRODUCT), 0o755);
+	for (const [from, to] of [
+		[record.launcher, bundle.PRODUCT],
+		[record.binary, bundle.SHELL],
+	] as const) {
+		fs.copyFileSync(path.join(staged, from), path.join(contents, "MacOS", to));
+		fs.chmodSync(path.join(contents, "MacOS", to), 0o755);
+	}
 	copy(path.join(staged, bundle.FRAMEWORK), path.join(frameworks, bundle.FRAMEWORK));
 	fs.writeFileSync(path.join(contents, "Info.plist"), plist.build(bundle.appInfo(manifest.version)));
 	for (const helper of bundle.HELPERS) {
@@ -211,6 +223,11 @@ export function signBundle(app: string, identity: string, keychain: string | nul
 	for (const helper of bundle.HELPERS) {
 		codesign([...options, path.join(contents, "Frameworks", `${bundle.PRODUCT} Helper${helper.suffix}.app`)]);
 	}
+	// The shell is a code object of its own inside Contents/MacOS (only the CFBundleExecutable is sealed with the app):
+	// its identifier is the bundle's, so the requirement of the keychain item Electron made (`identifier
+	// "com.seuput.ompdesk" and certificate root = …`) holds for the process that reads it. The launcher is the app's
+	// own executable, signed with the app.
+	codesign([...options, "--identifier", bundle.APP_ID, path.join(contents, "MacOS", bundle.SHELL)]);
 	codesign([...options, app]);
 	codesign(["--verify", "--deep", "--strict", "--verbose=2", app]);
 }

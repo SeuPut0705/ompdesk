@@ -5,7 +5,11 @@
  * `OMPdesk.app` (bundle id `com.seuput.ompdesk`, the identity the updater's `stageBundleFromDmg` checks and the pinned
  * certificate's designated requirement names):
  *
- *   Contents/MacOS/OMPdesk                                the shell (`ompdesk-shell`, renamed)
+ *   Contents/MacOS/OMPdesk                                the launcher (`ompdesk-launcher`, renamed): CFBundleExecutable.
+ *                                                         It starts the shell below and, on the first start after an update
+ *                                                         that never gets the page up, puts the last Electron release back
+ *   Contents/MacOS/ompdesk-shell                          the shell. Signed with the bundle's identifier (the keychain item's
+ *                                                         requirement names it: a nested executable is a code object of its own)
  *   Contents/Frameworks/Chromium Embedded Framework.framework
  *   Contents/Frameworks/OMPdesk Helper[ (GPU| (Renderer)| (Plugin)| (Alerts))].app   each a copy of the shell
  *   Contents/Resources/{node, app/out, gui-bridge, ompdesk-bin, ai-memory-bin, agent-desktop-bin, …}
@@ -16,6 +20,9 @@
 const APP_ID = "com.seuput.ompdesk";
 const PRODUCT = "OMPdesk";
 const FRAMEWORK = "Chromium Embedded Framework.framework";
+/** The two Mach-Os `build:shell` stages: the shell, and the launcher that becomes `Contents/MacOS/<PRODUCT>`. */
+const SHELL = "ompdesk-shell";
+const LAUNCHER = "ompdesk-launcher";
 
 /** CEF's five helper kinds: the suffix of the app's name and of its bundle id. */
 const HELPERS = [
@@ -99,4 +106,16 @@ function frameworkRoot(framework) {
 	return require("node:fs").existsSync(versioned) ? versioned : framework;
 }
 
-module.exports = { frameworkRoot, APP_ID, PRODUCT, FRAMEWORK, HELPERS, PRIVACY, TRANSPORT, appInfo, helperInfo };
+module.exports = {
+	frameworkRoot,
+	APP_ID,
+	PRODUCT,
+	FRAMEWORK,
+	SHELL,
+	LAUNCHER,
+	HELPERS,
+	PRIVACY,
+	TRANSPORT,
+	appInfo,
+	helperInfo,
+};

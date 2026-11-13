@@ -13,13 +13,18 @@
 #  S1 the move: check found, download verified (stageBundleFromDmg: codesign --verify --deep --strict, bundle id, version),
 #     scheduler safe, countdown, install auto, swap helper, swap.log installed, the shell started with Electron's argv, Local
 #     Storage imported, the page loaded, the seeded token decrypted, no SecurityAgent/coreauthd line.
+#  S3 a new shell that does not start (OMP_GUI_TEST_SHELL_FAIL_START=1 in the relaunch's launchd environment): v0.127.0's swap
+#     script installs it and deletes `.previous`, so the shell bundle's launcher, which sees no page within the window
+#     (OMPDESK_LAUNCHER_START_WAIT_S), downloads the last Electron release from the stand-in (OMPDESK_LAUNCHER_RELEASE_URL: the
+#     released v0.127.0 re-signed stands in for it), swaps it back and opens it; swap.log reports it and Electron says
+#     `swap result … rolled back`; no dialog.
 #  S2 a failed move: the apps folder is made read-only before the countdown ends; the swap fails (copy failed), Electron is
 #     untouched, and the next launch of the released app logs `swap result outcome rolled back`.
 # Evidence lines start with "EVIDENCE:". Exit 1 on any failed check.
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
 . "$HERE/mac-common.sh"
-PORT=19230; FEEDPORT=18444
-cleanup() { launchctl unsetenv OMP_GUI_TEST_USER_DATA_DIR; chmod -R u+w "$W" 2>/dev/null; kill $WATCH $FEED 2>/dev/null; }
+PORT=19230; FEEDPORT=18444; HTTPPORT=18445
+cleanup() { for v in OMP_GUI_TEST_USER_DATA_DIR OMP_GUI_TEST_SHELL_FAIL_START OMPDESK_LAUNCHER_RELEASE_URL OMPDESK_LAUNCHER_START_WAIT_S; do launchctl unsetenv $v; done; chmod -R u+w "$W" 2>/dev/null; kill $WATCH $FEED 2>/dev/null; }
 trap cleanup EXIT
 
 step "control: a prompt-free keychain read"
@@ -35,7 +40,10 @@ curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.
 mkdir mnt && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint mnt rel.dmg >/dev/null && ditto mnt/OMPdesk.app rel.app && hdiutil detach mnt >/dev/null
 bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
-start_feed $FEEDPORT "$W/new.dmg"
+# The last Electron release the launcher puts back: the re-signed v0.127.0 itself (release 1 stands in when it exists).
+hdiutil create -quiet -volname OMPdesk -srcfolder rel.app -ov -format UDZO "$W/rollback.dmg"; check $? "the stand-in last Electron release (rel.app as a DMG)"
+start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag v0.127.0 --http-port $HTTPPORT
+curl -s "http://127.0.0.1:$HTTPPORT/repos/SeuPut0705/ompdesk/releases/tags/v0.127.0" | grep -q ompdesk-update; check $? "the stand-in serves the last Electron release's tag route on :$HTTPPORT"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:$FEEDPORT" --ignore-certificate-errors)
 update_lines() { jq -r 'select(.source=="app-update") | "\(.message) \(.details.event // "") \(.details.outcome // "") \(.details.mode // "") \(.details.reason // "")"' "$1/logs/gui-runtime.jsonl" 2>/dev/null; }
 has_line() { update_lines "$1" | grep -q "^$2"; }
@@ -66,13 +74,19 @@ relaunch_diag() {
   evidence "diag: started directly: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | head -1 | cut -c1-160); output: $(head -c 600 "$W/$name-direct.out" | tr '\n' '|')"
 }
 
-# scenario <name> <fail 0|1>
+# scenario <name> <0 success | 1 read-only apps folder | 2 the new shell does not start>
 scenario() {
   local name=$1 fail=$2
   use_keychain "$name"
   local APPS=$W/$name/Applications UD=$W/$name/ud
   mkdir -p "$APPS" "$UD"; ditto rel.app "$APPS/OMPdesk.app"
   launchctl setenv OMP_GUI_TEST_USER_DATA_DIR "$UD"
+  if [ "$fail" = 2 ]; then
+    # The swap script relaunches with `open -n`, which hands the new shell launchd's environment, not the old app's.
+    launchctl setenv OMP_GUI_TEST_SHELL_FAIL_START 1
+    launchctl setenv OMPDESK_LAUNCHER_RELEASE_URL "http://127.0.0.1:$HTTPPORT"
+    launchctl setenv OMPDESK_LAUNCHER_START_WAIT_S 20
+  fi
   step "$name: the released app seeds a token and Local Storage (its own IPC)"
   OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-seed.out" 2>&1 &
   (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts $PORT) | tee "$W/$name-seed.json"; check ${PIPESTATUS[0]} "$name: seeded"
@@ -87,13 +101,30 @@ scenario() {
   fi
   wait_for "has_line $UD 'swap helper'" 300; check $? "$name: install auto, swap helper"
   update_lines "$UD" | sed 's/^/EVIDENCE: update log: /'
-  if [ "$fail" = 0 ]; then
+  if [ "$fail" = 2 ]; then
+    wait_for "grep -q '^installed' $UD/updates/swap.log" 120; check $? "S3: the swap installed the shell bundle (swap.log installed)"
+    wait_for "grep -q 'previous app restored\|restore failed' $UD/updates/swap.log" 300; check $? "S3: the launcher finished (swap.log)"
+    evidence "S3 swap.log: $(tr '\n' '|' < "$UD/updates/swap.log" | cut -c1-900)"
+    for line in 'start failed' 'rollback: fetching' 'rollback: download ok' 'rollback: sha512 ok' 'rollback: verified' 'rollback: swapped' 'rollback: opened' 'start failed; previous app restored'; do
+      grep -q "$line" "$UD/updates/swap.log"; check $? "S3: swap.log has \"$line\""
+    done
+    evidence "S3 launcher traffic: $(grep -c . "$W/feed.log") feed lines; http: $(grep http "$W/feed.log" | cut -c1-110 | tr '\n' '|')"
+    sleep 5
+    evidence "S3 restored bundle: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist"), shell binary present: $(ls "$APPS/OMPdesk.app/Contents/MacOS" | tr '\n' ' ')"
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = 0.127.0 ] && [ ! -e "$APPS/OMPdesk.app/Contents/MacOS/ompdesk-shell" ]; check $? "S3: the Electron app is back in place (0.127.0, no shell binary)"
+    codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S3: the restored app verifies"
+    wait_for "has_line $UD 'swap result'" 120; update_lines "$UD" | sed 's/^/EVIDENCE: S3 update log: /'
+    update_lines "$UD" | grep -Eq '^swap result (rolled back|changed)'; check $? "S3: the restored Electron logged swap result (rolled back/changed)"
+    ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | grep -q .; check $? "S3: the Electron app is running"
+    ls "$APPS" | grep -q 'updating\|previous'; [ $? != 0 ]; check $? "S3: no .updating or .previous leftovers"
+    evidence "S3 shell started at all: $(ls "$UD/shell-webview" 2>&1 | tr '\n' ' ')"
+  elif [ "$fail" = 0 ]; then
     wait_for "grep -q '^installed' $UD/updates/swap.log" 120; check $? "S1: swap.log says installed"
     evidence "S1 swap.log: $(tr '\n' '|' < "$UD/updates/swap.log" | cut -c1-300)"
     wait_for "grep -q window.created $UD/shell-webview/shell.log.jsonl 2>/dev/null" 180; check $? "S1: the new shell started (window.created)"
     if ! grep -q window.created "$UD/shell-webview/shell.log.jsonl" 2>/dev/null; then relaunch_diag "$APPS" "$UD" "$name"; fi
-    evidence "S1 shell command line: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | head -1 | cut -c1-260)"
-    ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | grep -q -- "--user-data-dir=$UD"; check $? "S1: the shell was started with Electron's argv (--user-data-dir)"
+    evidence "S1 shell command line: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/" | grep -v grep | head -1 | cut -c1-260)"
+    ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/" | grep -v grep | grep -q -- "--user-data-dir=$UD"; check $? "S1: the shell was started with Electron's argv (--user-data-dir)"
     grep -q '"migrate.localStorage"' "$UD/shell-webview/shell.log.jsonl"; check $? "S1: migrate.localStorage in the shell log"
     evidence "S1 shell log: $(grep -E 'migrate|cef.ready|window.created' "$UD/shell-webview/shell.log.jsonl" | cut -c1-200 | tr '\n' '|')"
     (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts $PORT read) | tee "$W/$name-read.json"; check ${PIPESTATUS[0]} "S1: the shell's page answered"
@@ -118,9 +149,11 @@ scenario() {
   evidence "$name feed log: $(tail -n 6 "$W/feed.log" | cut -c1-120 | tr '\n' '|')"
   dialogs; check $? "$name: no dialog (SecurityAgent) line"
   kill_apps "$APPS/OMPdesk.app/Contents/MacOS"; pkill -f "$W/$name" 2>/dev/null
+  for v in OMP_GUI_TEST_SHELL_FAIL_START OMPDESK_LAUNCHER_RELEASE_URL OMPDESK_LAUNCHER_START_WAIT_S; do launchctl unsetenv $v; done
   restore
 }
 scenario s1 0
+scenario s3 2
 scenario s2 1
 dialog_evidence
 security delete-keychain "$KC0" 2>/dev/null

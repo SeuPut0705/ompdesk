@@ -80,8 +80,9 @@ const SHELL_RECORD = "ompdesk-shell.build.json";
 /**
  * Fail the package unless the shell is in the packed app exactly as `bun run build:shell` staged it: its build record
  * (`ompdesk-shell.build.json`) lists every staged file with its SHA-256 and this holds each packed file to it (this
- * runs before rcedit and signing; the executable is the record's `ompdesk-shell[.exe]` under the product's name), CEF
- * with it. On macOS the helper apps are copies of the same executable.
+ * runs before rcedit and signing; the executable is the record's `ompdesk-shell.exe` under the product's name; on macOS
+ * the product's name is the launcher and the shell stays `ompdesk-shell` beside it), CEF with it. On macOS the helper apps
+ * are copies of the shell.
  */
 async function checkShell(context) {
 	const platform = context.electronPlatformName;
@@ -98,14 +99,21 @@ async function checkShell(context) {
 	if (record.binary !== binary || !record.files?.[binary] || record.platform !== platform) {
 		throw new Error(`${recordFile} describes ${record.binary} for ${record.platform}, not ${binary} for ${platform}`);
 	}
+	// macOS: `Contents/MacOS/<product>` is the launcher and the shell sits beside it.
+	if (platform === "darwin" && (record.launcher !== bundle.LAUNCHER || !record.files?.[bundle.LAUNCHER])) {
+		throw new Error(`${recordFile} stages no ${bundle.LAUNCHER}; run \`bun run build:shell\` before packaging`);
+	}
+	const shellFile = platform === "darwin" ? path.join(path.dirname(where.executable), binary) : where.executable;
 	if (!/^\d+\.\d+\.\d+$/.test(record.cef?.version ?? "") || !/^[0-9a-f]{64}$/.test(record.cef?.archiveSha256 ?? "")) {
 		throw new Error(`${recordFile} names no CEF version and archive hash`);
 	}
 	for (const [name, expected] of Object.entries(record.files)) {
 		const file =
 			name === binary
-				? where.executable
-				: path.join(platform === "darwin" ? where.frameworks : where.contents, name);
+				? shellFile
+				: name === record.launcher
+					? where.executable
+					: path.join(platform === "darwin" ? where.frameworks : where.contents, name);
 		let actual;
 		try {
 			actual = await sha256File(file);
@@ -116,6 +124,7 @@ async function checkShell(context) {
 	}
 	await requireExecutable(platform, where.executable);
 	if (platform !== "darwin") return;
+	await requireExecutable(platform, shellFile);
 	for (const helper of bundle.HELPERS) {
 		const name = `${bundle.PRODUCT} Helper${helper.suffix}`;
 		const file = path.join(where.frameworks, `${name}.app`, "Contents", "MacOS", name);

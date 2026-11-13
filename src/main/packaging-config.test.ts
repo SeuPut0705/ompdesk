@@ -201,6 +201,8 @@ const bundleInfo = require(path.join(PACKAGE_ROOT, "scripts/mac-bundle-info.cjs"
 	appInfo: (version: string) => Record<string, unknown>;
 };
 const FAKE_SHELL = Buffer.from("#!/bin/sh\necho fake ompdesk-shell\n");
+/** The macOS bundle's `Contents/MacOS/OMPdesk`: the launcher that starts the shell beside it. */
+const FAKE_LAUNCHER = Buffer.from("#!/bin/sh\necho fake ompdesk-launcher\n");
 /** CEF's files as the Windows stage holds them (names from `bun run build:shell`); tiny stand-ins for 200 MB of them. */
 const WIN_CEF_FILES = ["libcef.dll", "chrome_elf.dll", "icudtl.dat", "resources.pak", "v8_context_snapshot.bin"];
 
@@ -244,7 +246,11 @@ async function fakeShell(
 		await fs.promises.writeFile(file, bytes, { mode: fileMode });
 		await fs.promises.chmod(file, fileMode);
 	};
-	await write(where.executable, FAKE_SHELL, mode);
+	if (platform === "darwin") {
+		files["ompdesk-launcher"] = sha256(FAKE_LAUNCHER);
+		await write(where.executable, FAKE_LAUNCHER, mode);
+		await write(path.join(path.dirname(where.executable), "ompdesk-shell"), FAKE_SHELL, mode);
+	} else await write(where.executable, FAKE_SHELL, mode);
 	const cef =
 		platform === "darwin"
 			? [
@@ -271,6 +277,7 @@ async function fakeShell(
 			platform,
 			arch: platform === "darwin" ? "arm64" : "x64",
 			binary,
+			...(platform === "darwin" ? { launcher: "ompdesk-launcher" } : {}),
 			files,
 			cef: { version: "156.0.26", archiveSha256: "a".repeat(64) },
 			...options.record,
@@ -892,8 +899,12 @@ describe("mac bundle configs", () => {
 				await put("out/.build-stamp.json");
 				await put("out/.used");
 				const staged = "resources/ompdesk-shell/darwin-arm64";
-				const files: Record<string, string> = { "ompdesk-shell": sha256(FAKE_SHELL) };
+				const files: Record<string, string> = {
+					"ompdesk-shell": sha256(FAKE_SHELL),
+					"ompdesk-launcher": sha256(FAKE_LAUNCHER),
+				};
 				await put(`${staged}/ompdesk-shell`, FAKE_SHELL);
+				await put(`${staged}/ompdesk-launcher`, FAKE_LAUNCHER);
 				for (const name of [
 					`${bundleInfo.FRAMEWORK}/Versions/A/Chromium Embedded Framework`,
 					`${bundleInfo.FRAMEWORK}/Versions/A/Resources/en.lproj/locale.pak`,
@@ -909,6 +920,7 @@ describe("mac bundle configs", () => {
 						platform: "darwin",
 						arch: "arm64",
 						binary: "ompdesk-shell",
+						launcher: "ompdesk-launcher",
 						files,
 						cef: { version: "156.0.26", archiveSha256: "a".repeat(64) },
 					}),
@@ -927,7 +939,9 @@ describe("mac bundle configs", () => {
 				}
 				const app = assembleBundle(repo, out);
 				const resources = path.join(app, "Contents", "Resources");
-				expect(fs.readFileSync(path.join(app, "Contents", "MacOS", "OMPdesk"))).toEqual(FAKE_SHELL);
+				// The launcher is the app's executable; the shell sits beside it (and in each helper app).
+				expect(fs.readFileSync(path.join(app, "Contents", "MacOS", "OMPdesk"))).toEqual(FAKE_LAUNCHER);
+				expect(fs.readFileSync(path.join(app, "Contents", "MacOS", "ompdesk-shell"))).toEqual(FAKE_SHELL);
 				expect(fs.existsSync(path.join(resources, "app", "out", ".build-stamp.json"))).toBe(false);
 				expect(fs.existsSync(path.join(resources, "app", "out", ".used"))).toBe(false);
 				expect(fs.existsSync(path.join(resources, "app", "out", "preload", "shell.js"))).toBe(true);
