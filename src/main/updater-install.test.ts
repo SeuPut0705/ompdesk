@@ -338,7 +338,7 @@ describe("the start mark and a start that failed", () => {
 	const failedFile = () => path.join(mocks.userData.dir, "update-start-failed.json");
 	const results = () => mocks.runtimeLog.filter(report => report.details.event === "result");
 
-	it("is written once, with the running version, before the previous install is reported; a start failure is remembered", () => {
+	it("is written once, with the running version, before the previous install is reported; a start failure is remembered", async () => {
 		fs.rmSync(markFile(), { force: true });
 		// The helper rolled 0.45.0 back to this 0.44.0: its log's last outcome says the new app did not start.
 		fs.writeFileSync(
@@ -384,17 +384,17 @@ describe("the start mark and a start that failed", () => {
 
 	// The tests below run after the one above, which recorded 0.45.0 (the version `beforeEach` downloads) as one that
 	// failed to start; the last one downloads a newer version, which clears the record.
-	it("leaves that version to the person: the automatic install skips it, once", () => {
+	it("leaves that version to the person: the automatic install skips it, once", async () => {
 		autoInstallOn = true;
-		appAutoUpdatePrefChanged();
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["withdrawn:start failed before"]);
 		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
 	});
 
-	it("an ordinary quit installs nothing of it: electron-updater's install at quit is off while it is held", () => {
+	it("an ordinary quit installs nothing of it: electron-updater's install at quit is off while it is held", async () => {
 		expect(mocks.updater.autoInstallOnAppQuit).toBe(false);
 		expect(mocks.updater.autoDownload).toBe(false);
 		for (const listener of mocks.appEvents.get("will-quit") ?? []) listener();
@@ -432,12 +432,12 @@ describe("the start mark and a start that failed", () => {
 		await restartAndInstall();
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 		expect(mocks.updater.autoInstallOnAppQuit).toBe(true);
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 	});
 
 	it("a newer release found while it is held is downloaded and replaces it: the scheduler counts down for the newer one", async () => {
 		autoInstallOn = true;
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(mocks.updater.autoDownload).toBe(false);
 		mocks.sent.length = 0;
 		mocks.updater.checkForUpdates.mockImplementationOnce(async () => {
@@ -453,8 +453,8 @@ describe("the start mark and a start that failed", () => {
 		expect(mocks.updater.downloadUpdate).toHaveBeenCalledTimes(1);
 		expect(mocks.sent.map(sent => sent.state)).toEqual(["available", "downloaded"]);
 		mocks.runtimeLog.length = 0;
-		appAutoUpdatePrefChanged();
-		appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
+		await appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
 		expect(fs.existsSync(failedFile())).toBe(false);
 		expect(mocks.updater.autoInstallOnAppQuit).toBe(true);
