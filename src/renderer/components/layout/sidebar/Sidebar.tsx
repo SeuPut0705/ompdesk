@@ -35,7 +35,6 @@ import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
-	Suspense,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -67,7 +66,6 @@ import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { useTabListRows } from "../../../hooks/use-tab-list-rows";
 import { ATTENTION_LABEL_KEY, type AttentionKind, isAsk } from "../../../lib/attention";
-import { lazyChunk } from "../../../lib/chunk-load";
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
@@ -96,7 +94,6 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { isTabFailed } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
-import { useChecksStore } from "../../../stores/checks";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { LOCAL_SUMMARIES, summariesOf, useHostedSessionsStore, useSummaryMap } from "../../../stores/hosted-sessions";
@@ -148,6 +145,7 @@ import { projectMenuItems } from "./project-menu";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { logSelection, useRowSelection } from "./row-selection";
 import { SidebarChats } from "./SidebarChats";
+import { SidebarChecks } from "./SidebarChecks";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarDoneMark } from "./SidebarDoneMark";
@@ -305,12 +303,6 @@ function useHelpItems(customizeSidebar: () => void): ContextMenuItem[] {
 	];
 }
 
-/**
- * The Checks block's code loads only once main sent a frame (`stores/checks.ts`): without one it draws nothing, and the
- * phone's first screen (this sidebar is on it) does not carry it.
- */
-const SidebarChecks = lazyChunk(() => import("./SidebarChecks").then(m => ({ default: m.SidebarChecks })));
-
 /** Footer: Agents · Stats (each shown only while pinned) · Settings, with the help menu closing the Settings row. */
 function SidebarFooter() {
 	const t = useT();
@@ -321,7 +313,6 @@ function SidebarFooter() {
 	const [pinMenu, setPinMenu] = useState<PinMenuState | null>(null);
 	const helpItems = useHelpItems(() => setPinsSheet({ open: true }));
 	const railPins = useSidebarPrefs(s => s.railPins);
-	const hasChecksFrame = useChecksStore(s => s.frame !== null);
 	const shortcutFor = (id: PageDestination) =>
 		id === "agents"
 			? actionKbd("agents.hub", keymapOverrides)
@@ -340,11 +331,7 @@ function SidebarFooter() {
 			className="flex shrink-0 flex-col gap-px border-t border-(--sc-divider) p-2"
 			data-sidebar-destinations
 		>
-			{hasChecksFrame && (
-				<Suspense fallback={null}>
-					<SidebarChecks />
-				</Suspense>
-			)}
+			<SidebarChecks />
 			{railPins.map(pin => {
 				if (pin === "usage") return <SidebarUsage key={pin} {...pinMenuHandlers(pin, setPinMenu)} />;
 				// Agents and Stats are the destination rows below, shown only while pinned.
