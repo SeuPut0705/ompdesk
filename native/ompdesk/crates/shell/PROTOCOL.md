@@ -720,7 +720,7 @@ and swap helper, the Windows installer. It lives in the shell because its networ
 PAC and certificate store, through `net.rs`'s `CefURLRequest`) and its secret is `safeStorage`'s key, which the shell
 holds. Node keeps what needs Node's other state: the windows the status goes to and their words (`mainT`), the
 automatic install's scheduler (`app-auto-update.ts`, reading the tab pool), the restart confirm and the quit path
-(`app-quit.ts`), the window presence an install remembers, the runtime log, and the next launch's report of the last
+(`app-quit.ts`), the window presence an install remembers, and the next launch's report of the last
 install (`update-log-core.ts`, read synchronously before the first window). Client: `src/main/shell-host/modules/updater.ts`.
 
 `RawStatus` is `UpdateStatus` (`src/shared/ipc-types.ts`) with an error spelled as words to translate:
@@ -743,7 +743,6 @@ countdown, the install Node began). `State = {status: RawStatus, installable: bo
 | `updater.authSave` | Node | `{token}` | `UpdateAuthTestResult` — stored (encrypted with `safeStorage`'s key) only when the repository answers `ok` to it. Errors: `keychain_would_ask`, `safe_storage_unavailable`. |
 | `updater.authClear` | Node | `{}` | `UpdateAuthInfo` — the stored token and the dropped marker removed. |
 | `updater.status` (event) | shell→Node | `State` | after every change; Node mirrors it (`updateStatus()`, `restartableUpdate()` read the mirror synchronously). |
-| `updater.log` (event) | shell→Node | `{message: "check"\|"download"\|"swap", details}` or `{message}` | one line of `gui-runtime.jsonl` (source `app-update`): a decision line (`details`, info level; the token is already cut out, Node passes each `reason` through `scrubUpdateText`), or a plain notice without details (a dropped stored token). |
 | `updater.loginEnv` | shell→Node | `{}` | `{token?: string, path: string}` — `GH_TOKEN`/`GITHUB_TOKEN` of Node's launch environment, else the login shell's; `spawnPath()` for `gh`. |
 
 Deviations:
@@ -763,9 +762,9 @@ Deviations:
   installer whose SHA-512 matches.
 - The release metadata's schema errors read in serde's and this module's words (`version must be semver`), not zod's
   `path: message` list; codes are unchanged.
-- Decision lines go through `updater.log`, not `Ctx::runtime_log` (§15.4 rule 1 still holds: Node writes the file):
-  the app-updater rule runs every failure reason through `scrubUpdateText`, whose diagnostics redactor
-  (`resources/gui-bridge/redactor.ts`) is TypeScript; the shell cuts the token out before the event, Node the rest.
+- Decision lines are `log.runtime` lines (`Ctx::runtime_log`, source `app-update`, `details.level: "info"`). The shell
+  cuts the token out of each `reason`; Node's relay (`index.ts`, `update-log-core.ts` `scrubUpdateReport`) runs the
+  app-updater rule's `scrubUpdateText` (URLs, the diagnostics redactor) over it before writing.
 - Error statuses carry the `MAIN_TEXT` key, not the text (§15.4 rule 2): the shell shows none of it, Node localizes
   it as it reaches the windows.
 

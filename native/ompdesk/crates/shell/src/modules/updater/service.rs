@@ -321,15 +321,23 @@ impl Service {
         self.lock().status.clone()
     }
 
-    /// One decision line of `gui-runtime.jsonl` (source `app-update`); Node scrubs every `reason` and writes it.
+    /// One decision line of `gui-runtime.jsonl` (source `app-update`, info level), written by Node (`log.runtime`,
+    /// PROTOCOL.md §15.4 rule 1); Node's relay scrubs every `reason` of URLs and secrets the redactor knows.
     fn log(&self, message: &str, details: Value) {
-        self.ctx
-            .emit("log", json!({ "message": message, "details": details }));
+        let mut details = details;
+        if let Some(object) = details.as_object_mut() {
+            object.insert("level".into(), json!("info"));
+        }
+        self.ctx.runtime_log(
+            json!({ "source": "app-update", "message": message, "details": details }),
+            None,
+        );
     }
 
     /// A plain line of the same log, without decision details.
     pub fn log_line(&self, message: &str) {
-        self.ctx.emit("log", json!({ "message": message }));
+        self.ctx
+            .runtime_log(json!({ "source": "app-update", "message": message }), None);
     }
 
     /// `GH_TOKEN`/`GITHUB_TOKEN` and the `PATH` for `gh`, from Node (its launch environment and the login shell's).

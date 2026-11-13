@@ -570,25 +570,7 @@ describe("The mirror of the shell's state", () => {
 	});
 });
 
-describe("The decision lines and the shell's asks", () => {
-	it("writes each `updater.log` line to the runtime log, its reason scrubbed of URLs", () => {
-		emit("log", {
-			message: "download",
-			details: {
-				event: "failed",
-				version: VERSION,
-				mode: "relaunch",
-				reason: "GET https://objects.example.com/a?sig=secret failed",
-			},
-		});
-		expect(mocks.runtimeLog).toHaveLength(1);
-		const [line] = mocks.runtimeLog;
-		expect(line?.message).toBe("download");
-		expect(line?.details).toMatchObject({ level: "info", event: "failed", version: VERSION, mode: "relaunch" });
-		expect(String(line?.details.reason)).toContain("<url>");
-		expect(String(line?.details.reason)).not.toContain("secret");
-	});
-
+describe("The shell's asks", () => {
 	it("serves the login shell's token and PATH before it calls start", async () => {
 		let servedAtStart: boolean | undefined;
 		const saved = { gh: process.env.GH_TOKEN, github: process.env.GITHUB_TOKEN };

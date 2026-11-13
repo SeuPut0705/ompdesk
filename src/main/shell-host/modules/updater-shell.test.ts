@@ -1,7 +1,7 @@
 /**
  * The app updater (PROTOCOL.md §15.8) against the real shell: the cases of the TypeScript it replaced
  * (`updater-check.test.ts`, `update-auth.test.ts`, `update-provider.test.ts`, `nsis-updater.test.ts`) as Node sees
- * them, through `updater.*` answers, `updater.status` and `updater.log` events. A local HTTP server stands in for GitHub
+ * them, through `updater.*` answers, `updater.status` events and the `log.runtime` lines it sends. A local HTTP server stands in for GitHub
  * (`OMP_DEV_UPDATE_API`, an unpackaged shell only); the shell's files go under a temp folder (macOS `HOME`, Windows
  * `LOCALAPPDATA`), never the runner's own. macOS runs the manual mode (a relaunch needs a writable stand-in bundle),
  * Windows the automatic one.
@@ -56,7 +56,7 @@ type Spec = {
 		authTest: { params: { token?: string }; result: UpdateAuthTestResult };
 	};
 	posts: Record<never, never>;
-	events: { status: State; log: LogLine };
+	events: { status: State };
 	asks: { loginEnv: { params: Record<string, never>; result: { token?: string; path: string } } };
 };
 
@@ -263,7 +263,10 @@ async function boot(extraEnv: Record<string, string> = {}): Promise<Rig> {
 	const statuses = new Feed<State>();
 	const logs = new Feed<LogLine>();
 	updater.on("status", state => statuses.push(state));
-	updater.on("log", line => logs.push(line));
+	// The updater's lines reach Node as `log.runtime` (PROTOCOL.md §15.2), Node's to write.
+	shell.client.on("log.runtime", ({ report }: { report: LogLine & { source?: string } }) => {
+		if (report.source === "app-update") logs.push(report);
+	});
 	const rig: Rig = {
 		updater,
 		stand,

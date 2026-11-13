@@ -83,10 +83,6 @@ type UpdaterSpec = {
 	};
 	events: {
 		status: State;
-		/** A decision line; a plain line (the dropped token's notice) carries no `details`. */
-		log:
-			| { message: "check" | "download" | "swap"; details: UpdateLogDetails }
-			| { message: string; details?: undefined };
 	};
 	asks: {
 		loginEnv: { params: Record<string, never>; result: { token?: string; path: string } };
@@ -592,18 +588,6 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	});
 
 	updater.on("status", state => mirror(state, true));
-	updater.on("log", line => {
-		if (line.details === undefined) {
-			writeRuntimeLog({ source: "app-update", message: line.message });
-			return;
-		}
-		const { message, details } = line;
-		const scrubbed: UpdateLogDetails = {};
-		for (const [key, value] of Object.entries(details)) {
-			scrubbed[key] = key === "reason" && typeof value === "string" ? scrubUpdateText(value) : value;
-		}
-		logUpdate(message, scrubbed);
-	});
 	// The shell asks for the login shell's token and PATH (for `gh`) while it checks: serve it before the first call.
 	updater.serve("loginEnv", async () => {
 		const login = await resolveLoginShellEnv();

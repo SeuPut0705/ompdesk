@@ -245,6 +245,7 @@ import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, limitLook, retryDelays, TurnResume } from "./turn-resume";
 import { recordTurnStop, setTurnStopLog } from "./turn-stop-log";
 
+import { scrubUpdateReport } from "./update-log-core";
 import { FileEditReports } from "./web/file-edit-reports";
 import { IPC_POLICY } from "./web/ipc-policy";
 import { IpcRegistry } from "./web/ipc-registry";
@@ -812,7 +813,11 @@ function spawnWindow(
 }
 
 // What every module moved into the shell needs from main: the core, the runtime log and the labels (PROTOCOL.md §15.2).
-serveShellRelays(shellHost(), { core, writeRuntimeLog });
+// The updater's lines carry failure reasons: the app-updater rule's scrub applies before they are written.
+serveShellRelays(shellHost(), {
+	core,
+	writeRuntimeLog: (report, context) => writeRuntimeLog(scrubUpdateReport(report), context),
+});
 publishLabels(shellHost());
 
 app.whenReady().then(async () => {
