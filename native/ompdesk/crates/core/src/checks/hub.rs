@@ -148,6 +148,8 @@ const ACCOUNT_JOBS: u32 = 40;
 const LEASE_MS: u64 = 30 * 60 * 1000;
 const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
 const SETTLE_EVERY: Duration = Duration::from_secs(30);
+/// The passes an ended run's answer is tried before it is answered unknown (20 passes of `SETTLE_EVERY`: 10 min).
+const JUDGE_TRIES: u32 = 20;
 /// The answers the snapshot keeps for the board.
 const ANSWERS_SHOWN: usize = 50;
 /// The decisions the snapshot keeps for the board's "Decided automatically" log.
@@ -176,6 +178,9 @@ struct Book {
     /// Why a dispatch failed, by run.
     failures: HashMap<RunId, String>,
     ledgers: HashMap<RepoId, Ledger>,
+    /// Runs that ended but whose answer could not be read yet (GitHub unreadable, facts stale, the run not bound):
+    /// judged again on every pass, with how many tries they had.
+    unjudged: HashMap<RunId, (super::contract::Run, u32)>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -344,10 +349,7 @@ impl Hub {
                     let Some(core) = core.upgrade() else {
                         return;
                     };
-                    for (id, run) in core.settle() {
-                        core.judge(&id, &run).await;
-                    }
-                    core.pump().await;
+                    core.pass().await;
                 }
                 tokio::select! {
                     changed = changes.changed() => if changed.is_err() { return },
@@ -414,6 +416,30 @@ fn places(
 }
 
 impl Core {
+    /// One pass of the hub's loop: settle what the poller saw, answer the runs that ended, admit what may start. A
+    /// run whose answer could not be read is judged again next pass, and after `JUDGE_TRIES` it is answered unknown
+    /// with the last reason, so the session that waits for it is woken either way.
+    async fn pass(&self) {
+        let ended = self.settle();
+        let again: Vec<_> = locked(&self.book).unjudged.drain().collect();
+        let ended = ended
+            .into_iter()
+            .map(|(id, run)| (id, run, 0))
+            .chain(again.into_iter().map(|(id, (run, tries))| (id, run, tries)));
+        for (id, run, tries) in ended {
+            let answer = self.judge(&id, &run).await;
+            if self.answered(&id).is_some() {
+                continue;
+            }
+            if tries + 1 >= JUDGE_TRIES {
+                self.finish(&id, answer);
+            } else {
+                locked(&self.book).unjudged.insert(id, (run, tries + 1));
+            }
+        }
+        self.pump().await;
+    }
+
     fn next_id(&self) -> RunId {
         let n = self.ids.fetch_add(1, Ordering::Relaxed);
         format!("chk-{:x}-{n}", clock::now_ms())

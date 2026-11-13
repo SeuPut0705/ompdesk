@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use super::*;
 use crate::checks::contract::{AnswerVerdict, samples};
-use crate::checks::sources::{Checkout, FakeGithub, FakeLocal, GithubJob, GithubRun, GithubWrite};
+use crate::checks::sources::{
+    Checkout, FakeGithub, FakeLocal, GithubJob, GithubRun, GithubWrite, SourceError,
+};
 
 const REPO: &str = "o/app";
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -185,6 +187,46 @@ async fn a_run_github_started_on_another_commit_than_asked_is_never_reused_as_gr
         .await
         .unwrap();
     assert_ne!(again.decision, StartDecision::Reused, "{}", again.reason);
+    clock::set_real();
+}
+
+#[tokio::test]
+async fn a_run_whose_results_could_not_be_read_when_it_ended_is_answered_once_they_can() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI);
+    let hub = hub(&github);
+    let mut results = hub.results();
+    let id = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap()
+        .run_id
+        .unwrap();
+    let at = clock::now_ms() + 1_000;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, None))];
+        facts.jobs = vec![gh_job(701, 77, at, None)];
+    });
+    rounds(&hub, 2).await;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, Some("success")))];
+        facts.jobs = vec![gh_job(701, 77, at, Some("success"))];
+    });
+    rounds(&hub, 3).await;
+    // The run ended, and GitHub cannot be read the moment the hub comes to judge it.
+    github.with(|facts| facts.down = Some(SourceError::new("offline", "no network")));
+    hub.pass().await;
+    assert!(results.try_recv().is_err());
+    github.with(|facts| facts.down = None);
+    hub.pass().await;
+    let heard = results
+        .try_recv()
+        .expect("the session is woken with its answer");
+    assert_eq!(
+        (heard.run_id, heard.answer.verdict),
+        (id, AnswerVerdict::Green)
+    );
     clock::set_real();
 }
 
