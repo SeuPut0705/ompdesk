@@ -97,8 +97,8 @@ interface HostRig {
 	gate: { next: (ip: string) => GateResult };
 	/** Whether the person approves a new device, and who was asked about. */
 	admit: { answer: boolean; asked: TailnetVisitor[] };
-	/** This computer's tailnet addresses; `hold` keeps a rebind waiting on them. */
-	addresses: { hosts: string[]; hold: Promise<void> | null };
+	/** This computer's tailnet addresses; `hold` keeps a rebind waiting on them, and `held` hears a read reach it. */
+	addresses: { hosts: string[]; hold: Promise<void> | null; held?: () => void };
 }
 
 /**
@@ -112,6 +112,7 @@ function rigTailscale(
 	addresses: HostRig["addresses"],
 ): Pick<SharingOptions, "tailnet" | "policy"> {
 	const status = async (): Promise<TailscaleStatus> => {
+		if (addresses.hold) addresses.held?.();
 		await addresses.hold;
 		return { backend: "running", login: LOGIN, selfIps: addresses.hosts, peers: [] } as unknown as TailscaleStatus;
 	};
@@ -634,10 +635,15 @@ describe("a host whose addresses change while a device is connected", () => {
 		await rig.host.rebind();
 		await fakeLinkClock();
 		const held = Promise.withResolvers<void>();
+		const reached = Promise.withResolvers<void>();
 		rig.addresses.hold = held.promise;
+		rig.addresses.held = reached.resolve;
 		rig.addresses.hosts = [LOOPBACK];
 		const pass = rig.host.rebind();
 
+		// The core arms its 2 s timer as the rebind starts, before it reads the addresses: once that read waits here,
+		// the timer is there to be advanced.
+		await reached.promise;
 		await advanceCoreTimers(2_000);
 		expect(lines.at(-1)).toEqual({ message: "rebind-slow", details: { links: 1 } });
 
