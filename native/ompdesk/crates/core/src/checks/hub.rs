@@ -30,7 +30,7 @@ use super::poller::Poller;
 use super::poller::provenance::{Claim, Expected};
 use super::results::ledger::Ledger;
 use super::results::store::Store;
-use super::sources::{Dispatch, GithubSource, LocalSource};
+use super::sources::{Dispatch, GithubSource, LocalPool, LocalSource};
 use super::ticket::{self, AdmissionKey};
 use crate::clock;
 use crate::run::Runner;
@@ -81,6 +81,10 @@ pub trait ChecksHub: Send + Sync {
 
     /// How gh and git run from now on.
     fn runners(&self, runners: Runners) -> Fut<'_, Result<(), Fault>>;
+
+    /// This computer's own pool as its poller reads it (device `local`): what a paired computer forwards to another
+    /// hub as `MainFact::DevicePool`, so the mapping of `ompdesk heavy status` stays in one place.
+    fn local_pool(&self) -> Fut<'_, Result<LocalPool, Fault>>;
 }
 
 fn not_built(part: &str) -> Fault {
@@ -1201,6 +1205,16 @@ impl ChecksHub for Hub {
         *locked(&self.git) = runners.git.clone();
         self.poller.runners(runners);
         Box::pin(async { Ok(()) })
+    }
+
+    fn local_pool(&self) -> Fut<'_, Result<LocalPool, Fault>> {
+        Box::pin(async move {
+            let pools = self.local.pools().await.map_err(source_fault)?;
+            pools
+                .into_iter()
+                .find(|pool| pool.device == "local")
+                .ok_or_else(|| Fault::new("checks_source", "this computer's pool was not read"))
+        })
     }
 }
 

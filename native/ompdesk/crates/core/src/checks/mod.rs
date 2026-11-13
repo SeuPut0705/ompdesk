@@ -301,6 +301,12 @@ async fn runners(call: Call) -> Result<Reply, Fault> {
     Reply::json(&())
 }
 
+async fn local_pool(call: Call) -> Result<Reply, Fault> {
+    let params: HubParams = call.params()?;
+    let hub = entry(params.hub)?.hub.clone();
+    Reply::json(&hub.local_pool().await?)
+}
+
 #[derive(Deserialize)]
 struct FakeParams {
     hub: u64,
@@ -329,5 +335,6 @@ pub fn register(registry: &mut Registry) {
     registry.add(wire::PAUSE, |call| Box::pin(pause(call)));
     registry.add(wire::FACTS, |call| Box::pin(facts(call)));
     registry.add(wire::RUNNERS, |call| Box::pin(runners(call)));
+    registry.add(wire::LOCAL_POOL, |call| Box::pin(local_pool(call)));
     registry.add(wire::FAKE, |call| Box::pin(fake(call)));
 }

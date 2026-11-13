@@ -377,3 +377,27 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
     drop(hub);
     assert!(host.start_batch(REPO, "feat", SHA).await.is_err());
 }
+
+#[tokio::test]
+async fn the_hub_answers_its_own_computers_pool_for_a_paired_link_to_forward() {
+    let local = Arc::new(FakeLocal::default());
+    let pool = |device: &str| crate::checks::sources::LocalPool {
+        device: device.into(),
+        os: crate::checks::contract::Os::Macos,
+        slots: 2,
+        held: 1,
+        queued: 0,
+        oldest_wait_ms: 0,
+        volumes: Vec::new(),
+        as_of: 1,
+        offline: false,
+        check_store_bytes: None,
+        foreign: Vec::new(),
+    };
+    // A paired computer's pool is in the list too; only this computer's own is answered.
+    local.with(|facts| facts.pools = vec![pool("mac-mini"), pool("local")]);
+    let hub = Hub::new(Arc::new(FakeGithub::default()), local.clone());
+    assert_eq!(hub.local_pool().await.unwrap(), pool("local"));
+    local.with(|facts| facts.pools = vec![pool("mac-mini")]);
+    assert_eq!(hub.local_pool().await.unwrap_err().code, "checks_source");
+}

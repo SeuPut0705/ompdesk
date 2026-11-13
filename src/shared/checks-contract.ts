@@ -106,6 +106,8 @@ export const CHECKS_WIRE = {
 	facts: "checks.facts",
 	/** `{hub, gh, git, home}`: how gh and git run (main's runners, null when not installed). Never logged. */
 	runners: "checks.runners",
+	/** `{hub}` → this computer's own `LocalPool`, which a paired computer's link forwards as `devicePool`. */
+	localPool: "checks.localPool",
 	fake: "checks.fake",
 	snapshot: "checks.snapshot",
 	result: "checks.result",
