@@ -352,6 +352,18 @@ if (dir) {
 				answered.set("Parity limit wait", session);
 				return session;
 			};
+			/**
+			 * A long session of short turns, for the turn rail (`transcript-turn-rail*`): more turns than the rail draws
+			 * ticks. The fake omp answers "Parity turn N" with "Answer to Parity turn N".
+			 */
+			const turnsSession = () =>
+				answeredSession(
+					"Parity turns",
+					Array.from({ length: 44 }, (_, index): [string, string] => [
+						`Parity turn ${index + 1}`,
+						`Answer to Parity turn ${index + 1}`,
+					]),
+				);
 			/** B's `session` as it is when a view shows it. */
 			const hostSession = async (session: ParitySession): Promise<HostSession> =>
 				session === "work"
@@ -363,7 +375,9 @@ if (dir) {
 							: session === "advisor"
 								? // A session of its own too: a turn more in the reply session shifts what its other surfaces reach.
 									answeredSession("Parity advisor", [["fixture advisor note", "Advisor note delivered."]])
-								: limitSession();
+								: session === "turns"
+									? turnsSession()
+									: limitSession();
 			/** Put `view` on B's `session`, with nothing left open from the surface before. */
 			const show: Record<View, (session: ParitySession) => Promise<void>> = {
 				local: async session => {

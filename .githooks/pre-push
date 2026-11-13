@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runs scripts/pre-push-gate.ts before every push: biome, the typecheck, the surface policy and the fix-commit rule on
+# the pushed commits (what it runs and why: the header of that script). `git push --no-verify` skips it.
+# Installed by `core.hooksPath = .githooks`, which .ompdesk/worktree-setup and scripts/agent-commit.sh set.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+if ! command -v bun >/dev/null 2>&1; then
+	echo "[pre-push] SKIPPED: bun is not on PATH, so no check ran" >&2
+	exit 0
+fi
+exec bun "$root/scripts/pre-push-gate.ts" "$@"

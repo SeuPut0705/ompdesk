@@ -35,7 +35,7 @@
 import { create } from "zustand";
 import type { RpcResponse, UsageLimit, UsageReport } from "../../shared/rpc-types";
 import { providerBrand } from "../components/settings/providers/provider-marks";
-import { accountGauges, accountWindows } from "./usage-windows";
+import { accountWindows } from "./usage-windows";
 
 export const USAGE_POLL_MS = 5 * 60_000;
 export const USAGE_EVENT_GAP_MS = 60_000;
@@ -128,60 +128,6 @@ export function lastUsedAccounts(
 		})
 		.sort((a, b) => Number(b.inUse) - Number(a.inUse) || collator.compare(a.company, b.company))
 		.map(({ report, inUse }) => ({ report, inUse }));
-}
-
-/** One account of a provider in a list of every account (the sidebar's usage block). */
-export interface UsageAccount {
-	report: UsageReport;
-	/** This tab's session is pinned to this account (`report.active`). */
-	inUse: boolean;
-}
-
-/** One provider's accounts, each with its windows. */
-export interface UsageAccountGroup {
-	provider: string;
-	accounts: UsageAccount[];
-	/** This tab's model belongs to the provider, or one of its accounts is the session's. */
-	inUse: boolean;
-}
-
-/**
- * Every account that reports a measured window, grouped by provider as Settings › Models & accounts groups them
- * (API-key providers have no windows and are not listed). The provider this tab uses comes first, the others by
- * company; inside a group the accounts keep a fixed order (by address), so a reading never moves a row. The
- * session's own account is marked `inUse`, not moved.
- */
-export function usageAccountGroups(
-	reports: readonly UsageReport[],
-	provider: string | null | undefined,
-): UsageAccountGroup[] {
-	const byProvider = new Map<string, UsageReport[]>();
-	for (const report of reports) {
-		if (accountGauges(report.limits).length === 0) continue;
-		byProvider.set(report.provider, [...(byProvider.get(report.provider) ?? []), report]);
-	}
-	return [...byProvider.entries()]
-		.map(([id, own]) => {
-			const accounts = [...own]
-				.sort(
-					(a, b) =>
-						collator.compare(a.account ?? "", b.account ?? "") || (a.credentialId ?? 0) - (b.credentialId ?? 0),
-				)
-				.map(report => ({ report, inUse: report.active === true }));
-			return {
-				provider: id,
-				accounts,
-				inUse: id === provider || accounts.some(account => account.inUse),
-				company: providerBrand({ id, name: id }).company,
-			};
-		})
-		.sort(
-			(a, b) =>
-				Number(b.inUse) - Number(a.inUse) ||
-				collator.compare(a.company, b.company) ||
-				collator.compare(a.provider, b.provider),
-		)
-		.map(({ provider: id, accounts, inUse }) => ({ provider: id, accounts, inUse }));
 }
 
 /**

@@ -11,7 +11,7 @@
  * request to the repository-lock step it is made in as `execBin` holds a git.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { withoutGitSelectors } from "../../../shared/git-env";
 import { type CoreAnswer, core } from "../../core/process";
@@ -297,7 +297,8 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	child.on("error", err => {
 		clearTimeout(timer);
 		hold?.removeEventListener("abort", stop);
-		reject(err);
+		// The OS reports a missing working folder as the program's own ENOENT (`spawn /…/git ENOENT`): name the folder.
+		reject(opts.cwd && folderMissing(opts.cwd) ? new Error(`working folder ${opts.cwd} does not exist`) : err);
 	});
 	child.on("close", code => {
 		clearTimeout(timer);
@@ -305,6 +306,16 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 		resolve({ code: code ?? 1, stdout: Buffer.concat(chunks), stderr, truncated });
 	});
 	return promise;
+}
+
+/** `dir` is confirmed absent: nothing there, or a path step is a file. Any other answer (EACCES, a stat error) is not. */
+function folderMissing(dir: string): boolean {
+	try {
+		return !statSync(dir).isDirectory();
+	} catch (error) {
+		const code = error instanceof Error && "code" in error ? error.code : undefined;
+		return code === "ENOENT" || code === "ENOTDIR";
+	}
 }
 
 export class GitCommandError extends Error {

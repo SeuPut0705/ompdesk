@@ -18,7 +18,6 @@ import { type KeyboardEvent, type MouseEvent, useMemo } from "react";
 import type { ProviderInfo, UsageReport } from "../../../../shared/rpc-types";
 import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { useT } from "../../../lib/i18n";
-import { type UsageAccountGroup, usageAccountGroups } from "../../../lib/usage-reports";
 import { rotationReason } from "../../../lib/usage-rotation";
 import { gaugeColumns } from "../../../lib/usage-windows";
 import { useModelStore } from "../../../stores/model";
@@ -35,6 +34,7 @@ import {
 } from "../../settings/providers/AccountQuota";
 import { ConnectedRow, ProviderGroupItem } from "../../settings/providers/ConnectedRow";
 import { type ProviderGroup, providerPlan, shortProviderName } from "../../settings/providers/provider-groups";
+import { type UsageAccountGroup, usageAccountGroups } from "./usage-groups";
 
 /** What a row says of a usage report: the account's quota, and its state while omp skips it after a limit. */
 function sourceOf(report: UsageReport, inUse: boolean): AccountQuotaSource {

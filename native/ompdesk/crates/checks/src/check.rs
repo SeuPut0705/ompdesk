@@ -1708,7 +1708,6 @@ fn finish(
         }
     );
     rt.run.summary = Some(summary.clone());
-    rt.save();
     let note = if decision.plan.mode == "reused" {
         " (nothing had to run)"
     } else {
@@ -1721,6 +1720,8 @@ fn finish(
         rt.run.saved_ms / 1000,
         verdict.display()
     ));
+    // The finished state goes last: `attach_id` stops reading the log once it reads the run as finished.
+    rt.save();
     rt.store.prune(&rt.run.key);
     exit_of(&rt.run)
 }
@@ -1780,6 +1781,58 @@ mod tests {
             !decision.reused.iter().any(|r| r.record.status == "failed"),
             "a failed result was carried over as reused"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// `attach_id` returns once it reads the run as finished, so the verdict line (the one `session-pace` and the
+    /// caller read) must already be in the log by then: a reader that sees `finished` sees the whole log.
+    #[test]
+    fn a_run_that_reads_as_finished_has_its_verdict_line_in_the_log() {
+        let dir = std::env::temp_dir().join(format!("ompdesk-finish-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let store = Store::open(dir.clone()).unwrap();
+        for n in 0..200 {
+            let id = format!("{n:04}");
+            let mut run = earlier_run(&store, &id, "running", "same");
+            run.state = State::Running;
+            store.write(&run).unwrap();
+            // The runner holds `alive` while it runs; a free one reads as a killed run, which is finished.
+            let alive = fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(store.file(&id, "alive"))
+                .unwrap();
+            alive.lock().unwrap();
+            let log = fs::OpenOptions::new()
+                .append(true)
+                .open(store.file(&id, "log"))
+                .unwrap();
+            let started = std::sync::atomic::AtomicBool::new(false);
+            let seen = std::thread::scope(|scope| {
+                let reader = scope.spawn(|| {
+                    started.store(true, std::sync::atomic::Ordering::SeqCst);
+                    loop {
+                        if store.read(&id).is_some_and(|r| r.state.finished()) {
+                            return fs::read_to_string(store.file(&id, "log")).unwrap_or_default();
+                        }
+                    }
+                });
+                while !started.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::hint::spin_loop();
+                }
+                let mut rt = Runtime {
+                    store: &store,
+                    run,
+                    log,
+                    resource_stop: None,
+                };
+                let decision = full(String::new(), Vec::new(), runner::Rewrite::default());
+                finish(&mut rt, 0, false, &decision, "same");
+                reader.join().unwrap()
+            });
+            assert!(seen.contains(" — verdict "), "run {id}: {seen}");
+        }
         let _ = fs::remove_dir_all(dir);
     }
 }

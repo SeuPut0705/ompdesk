@@ -134,6 +134,10 @@ export async function createWorktree(
 		throw new LocalCommandError(`Invalid worktree branch prefix "${input.branchPrefix}".`, "invalid_name");
 	}
 	const baseCwd = input.baseCwd ?? sessionCwd;
+	// A folder that is gone fails git's spawn with git's own ENOENT; say what is missing instead.
+	if (!(await fs.stat(baseCwd).catch(() => null))?.isDirectory()) {
+		throw new LocalCommandError(`The folder "${baseCwd}" does not exist.`, "file_not_found");
+	}
 	// The repository, its main checkout, and the commit a new branch starts at (`HEAD`, `default`, or a ref it has).
 	const { primary, startPoint } = await worktreeGit<{ primary: string; startPoint: string }>(
 		"git.worktreePlan",

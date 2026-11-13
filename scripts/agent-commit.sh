@@ -164,9 +164,19 @@ check_origin() {
 [ "$push" = 0 ] || check_origin
 commit_once
 if [ "$push" = 1 ]; then
+	# A push runs the pre-push gate (.githooks/pre-push) only where core.hooksPath names it: set it for a checkout that
+	# never ran .ompdesk/worktree-setup, so an agent's push cannot skip the gate by accident.
+	if [ -z "$(git config core.hooksPath || true)" ] && [ -d .githooks ]; then git config core.hooksPath .githooks; fi
+	# The gate leaves this file when it refuses: a refusal is no rejection by a moved origin, so retrying only reruns it.
+	refused="$(git rev-parse --absolute-git-dir)/ompdesk-gate/refused"
 	for attempt in 1 2 3; do
 		check_origin
+		rm -f "$refused"
 		git push origin HEAD:main && exit 0
+		if [ -e "$refused" ]; then
+			echo "agent-commit: the pre-push gate refused $(git rev-parse --short HEAD) (its output is above); the commit stays local: fix, commit again, push" >&2
+			exit 1
+		fi
 		echo "agent-commit: push rejected, retrying ($attempt)" >&2
 	done
 	exit 1

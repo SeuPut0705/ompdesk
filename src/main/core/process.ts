@@ -327,9 +327,12 @@ export class CoreProcess {
 
 	/**
 	 * Hands the core work it never answers, handled in the order pushed (a remote link's messages). Starts the core
-	 * like a request; a push to a core that ended is lost with whatever it was for.
+	 * like a request; a push to a core that ended is lost with whatever it was for. With `generation` it goes only to
+	 * the core of that generation: a push that answers a question the core asked (`web.reply`) is dropped, and starts
+	 * no core, when another one runs, because the next core numbers its questions from 1 again.
 	 */
-	push(method: string, params: unknown, bin?: Uint8Array): void {
+	push(method: string, params: unknown, bin?: Uint8Array, generation?: number): void {
+		if (generation !== undefined && generation !== this.generation) return;
 		const child = this.#start();
 		const tail = bin ? `,"bin":${bin.byteLength}` : "";
 		child.stdin.write(`{"push":${JSON.stringify(method)},"params":${JSON.stringify(params, wellFormed)}${tail}}\n`);

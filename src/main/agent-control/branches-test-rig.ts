@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach } from "vitest";
-import { gitSync, initRepo } from "../local/git/test-repos";
+import { copyTemplate, gitSync, initRepo, template } from "../local/git/test-repos";
 import type { WorktreeRef } from "./branches";
 
 export let root: string;
@@ -27,22 +27,32 @@ export async function commitIn(dir: string, file: string, content: string): Prom
 
 /**
  * The parent tracks a bare remote (`main` → `origin/main`, no `origin/HEAD`), and another clone pushed three commits
- * there that the parent fetched but never pulled: its local main is stale, as a checkout agents push past is.
+ * there that the parent fetched but never pulled: its local main is stale, as a checkout agents push past is. Built
+ * once per test process (fifteen git processes, 20 s on a busy Windows runner: run 43487785919) and copied.
  */
 export async function staleParentMain(): Promise<void> {
+	const from = await template("stale-parent", async dir => {
+		const parent = path.join(dir, "repo");
+		const remote = path.join(dir, "remote.git");
+		await initRepo(parent);
+		gitSync(dir, "init", "-q", "--bare", "-b", "main", remote);
+		gitSync(parent, "remote", "add", "origin", remote);
+		gitSync(parent, "push", "-q", "-u", "origin", "main");
+		const other = path.join(dir, "other");
+		gitSync(dir, "clone", "-q", remote, other);
+		gitSync(other, "config", "user.email", "other@example.com");
+		gitSync(other, "config", "user.name", "Other");
+		for (const name of ["x.ts", "y.ts", "z.ts"]) await commitIn(other, name, `${name}\n`);
+		gitSync(other, "push", "-q", "origin", "main");
+		gitSync(parent, "fetch", "-q", "origin");
+		// Newer git records `origin/HEAD` on fetch; drop it so only `main@{upstream}` can name the remote's main.
+		gitSync(parent, "update-ref", "--no-deref", "-d", "refs/remotes/origin/HEAD");
+	});
 	const remote = path.join(root, "remote.git");
-	gitSync(root, "init", "-q", "--bare", "-b", "main", remote);
-	gitSync(repo, "remote", "add", "origin", remote);
-	gitSync(repo, "push", "-q", "-u", "origin", "main");
-	const other = path.join(root, "other");
-	gitSync(root, "clone", "-q", remote, other);
-	gitSync(other, "config", "user.email", "other@example.com");
-	gitSync(other, "config", "user.name", "Other");
-	for (const name of ["x.ts", "y.ts", "z.ts"]) await commitIn(other, name, `${name}\n`);
-	gitSync(other, "push", "-q", "origin", "main");
-	gitSync(repo, "fetch", "-q", "origin");
-	// Newer git records `origin/HEAD` on fetch; drop it so only `main@{upstream}` can name the remote's main.
-	gitSync(repo, "update-ref", "--no-deref", "-d", "refs/remotes/origin/HEAD");
+	await fs.rm(repo, { recursive: true, force: true });
+	await copyTemplate(path.join(from, "repo"), repo);
+	await copyTemplate(path.join(from, "remote.git"), remote);
+	gitSync(repo, "remote", "set-url", "origin", remote);
 }
 
 /** A child cut from the parent's stale HEAD that rebased onto the remote's main (`git fetch && git rebase origin/main`). */

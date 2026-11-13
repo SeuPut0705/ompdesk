@@ -22,7 +22,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cargoPath } from "./cargo";
+import { cargoEnv, cargoPath } from "./cargo";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TARGETS = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"];
@@ -135,6 +135,7 @@ export function committedCrateList(name: WorkspaceName): string {
 function run(cmd: string, args: string[], cwd?: string): string {
 	return execFileSync(cmd, args, {
 		cwd,
+		env: cargoEnv(cmd),
 		encoding: "utf8",
 		maxBuffer: 256 * 1024 * 1024,
 		stdio: ["ignore", "pipe", "inherit"],
@@ -272,7 +273,7 @@ function generate(workspace: Workspace, cargo: string): void {
 }
 
 if (import.meta.main) {
-	const cargo = cargoPath();
+	const cargo = cargoPath(join(ROOT, "native", "ompdesk"));
 	if (!cargo) {
 		console.error("gen-crate-notices: Rust is not installed (no `cargo` on PATH or in ~/.cargo/bin).");
 		process.exit(1);

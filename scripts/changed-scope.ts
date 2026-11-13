@@ -13,6 +13,14 @@ const ROOT_CONFIG =
 /** Root files that decide which tests vitest runs and with what. */
 const TEST_RUNNER = /^(?:vitest[^/]*\.[cm]?ts|package\.json|bun\.lock|bunfig\.toml)$/;
 
+const BIOME_EXT = /\.(?:[cm]?[jt]sx?|json|jsonc|css)$/;
+const BIOME_DIRS = /^(?:(?:src|e2e|resources|scripts)\/|[^/]+$)/;
+
+/** The files biome runs on: `check:changed` and the pre-push gate (scripts/pre-push-gate.ts) pick them alike. */
+export function biomeFiles(files: readonly string[]): string[] {
+	return files.filter(file => BIOME_DIRS.test(file) && BIOME_EXT.test(file));
+}
+
 export interface ChangedScope {
 	/** Every changed file a check looks at (source and root configuration). */
 	files: string[];

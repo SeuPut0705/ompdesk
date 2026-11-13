@@ -22,7 +22,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cargoPath, rustcPath } from "./cargo";
+import { cargoEnv, cargoPath, rustcPath } from "./cargo";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const NATIVE_DIR = path.join(REPO_ROOT, "native", "ompdesk");
@@ -103,7 +103,7 @@ export function checkNative(): NativeBuildRecord {
  * a second call costs a fraction of a second. `quiet` keeps cargo's progress out of a test run's output.
  */
 export function buildNative(options: { quiet?: boolean } = {}): string {
-	const cargo = cargoPath();
+	const cargo = cargoPath(NATIVE_DIR);
 	if (!cargo)
 		throw new BuildError(
 			"Rust is not installed (no `cargo` on PATH or in ~/.cargo/bin). OMPdesk's own native code needs it: install it " +
@@ -113,6 +113,7 @@ export function buildNative(options: { quiet?: boolean } = {}): string {
 	const started = Date.now();
 	const run = spawnSync(cargo, ["build", "--locked", "--release", "--workspace"], {
 		cwd: NATIVE_DIR,
+		env: cargoEnv(cargo),
 		stdio: options.quiet ? ["ignore", "ignore", "pipe"] : "inherit",
 		encoding: "utf8",
 	});

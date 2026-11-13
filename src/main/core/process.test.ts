@@ -140,6 +140,18 @@ describe("CoreProcess", () => {
 		});
 	});
 
+	it("drops a push meant for a core that ended, and starts none for it", async () => {
+		const core = startCore();
+		const first = await echo(core, { value: 1 });
+		await core.stop();
+		core.push("core.echo", { value: 2 }, undefined, first.generation);
+		expect(core.pid).toBeNull();
+		const second = await echo(core, { value: 3 });
+		// Written to the core that runs now, because that is the generation it names.
+		core.push("core.echo", { value: 4 }, undefined, second.generation);
+		expect(core.pid).not.toBeNull();
+	});
+
 	it("carries a megabyte of raw bytes each way", async () => {
 		const bytes = new Uint8Array(randomBytes(1024 * 1024));
 		const answer = await echo(startCore(), { value: "bytes" }, bytes);

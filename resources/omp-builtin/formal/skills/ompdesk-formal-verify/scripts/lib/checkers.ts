@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isolateProperties, parseCfg } from "./cfg";
 import { checkLean } from "./lean-trust";
-import type { Checker, CheckerSpec, CheckOutcome } from "./mutate-core";
+import type { Checker, CheckerSpec, CheckOutcome, Mutation } from "./mutate-core";
 import { run, Unavailable } from "./proc";
 import { prepareTla, type TlaEnv } from "./tla-env";
 import { runTlc } from "./tlc-run";
@@ -23,7 +23,40 @@ export function cfgProperties(configPath: string): string[] {
 	return [...info.invariants, ...info.properties];
 }
 
-function tlcChecker(spec: Extract<CheckerSpec, { kind: "tlc" }>): Checker {
+type TlcCheckerSpec = Extract<CheckerSpec, { kind: "tlc" }>;
+
+/** What one TLC check of a mutation run reads besides the model files: the config text and the TLC options. */
+export interface TlcCheckInputs {
+	configName: string;
+	/** The config TLC reads: the file's text, or the derived single-property text of an `isolate` mutation. */
+	configText: string;
+	workers: string | undefined;
+	/** `-deadlock`: deadlock checking off. */
+	deadlockOff: boolean;
+	timeoutMs: number;
+}
+
+/** The inputs of the check of `model` (its folder holds the configs) under `mutation`'s config, or the reason there are none. */
+export function tlcCheckInputs(
+	spec: TlcCheckerSpec,
+	model: string,
+	mutation?: Pick<Mutation, "config" | "isolate" | "breaks" | "deadlock">,
+): TlcCheckInputs | { error: string } {
+	const configName = mutation?.config ?? spec.config ?? `${path.basename(model, ".tla")}.cfg`;
+	const config = path.join(path.dirname(model), configName);
+	if (!fs.existsSync(config)) return { error: `config not found: ${configName}` };
+	const text = fs.readFileSync(config, "utf8");
+	const deadlock = mutation?.deadlock ?? spec.deadlock;
+	return {
+		configName,
+		configText: mutation?.isolate ? isolateProperties(text, mutation.breaks) : text,
+		workers: spec.workers,
+		deadlockOff: deadlock === false,
+		timeoutMs: (spec.timeoutSec ?? 180) * 1000,
+	};
+}
+
+function tlcChecker(spec: TlcCheckerSpec): Checker {
 	// One preparation shared by checks that run at the same time.
 	let preparing: Promise<TlaEnv> | undefined;
 	return async (_dir, model, mutation) => {
@@ -36,23 +69,22 @@ function tlcChecker(spec: Extract<CheckerSpec, { kind: "tlc" }>): Checker {
 			if (error instanceof Unavailable) return { status: "unavailable", violated: [], detail: error.message };
 			throw error;
 		}
-		const configName = mutation?.config ?? spec.config ?? `${path.basename(model, ".tla")}.cfg`;
-		let config = path.join(path.dirname(model), configName);
-		if (!fs.existsSync(config)) return { status: "error", violated: [], detail: `config not found: ${configName}` };
+		const inputs = tlcCheckInputs(spec, model, mutation);
+		if ("error" in inputs) return { status: "error", violated: [], detail: inputs.error };
+		let config = path.join(path.dirname(model), inputs.configName);
 		if (mutation?.isolate) {
 			// The model's folder is this mutation's own scratch copy: the derived config can live beside the model.
-			const derived = path.join(path.dirname(model), `__isolated-${path.basename(configName)}`);
-			fs.writeFileSync(derived, isolateProperties(fs.readFileSync(config, "utf8"), mutation.breaks));
+			const derived = path.join(path.dirname(model), `__isolated-${path.basename(inputs.configName)}`);
+			fs.writeFileSync(derived, inputs.configText);
 			config = derived;
 		}
-		const deadlock = mutation?.deadlock ?? spec.deadlock;
 		const tlcRun = await runTlc({
 			tla,
 			spec: model,
 			config,
-			workers: spec.workers,
-			deadlock: deadlock === false ? false : undefined,
-			timeoutMs: (spec.timeoutSec ?? 180) * 1000,
+			workers: inputs.workers,
+			deadlock: inputs.deadlockOff ? false : undefined,
+			timeoutMs: inputs.timeoutMs,
 		});
 		if (tlcRun.spawnError)
 			return { status: "unavailable", violated: [], detail: `java could not be started: ${tlcRun.spawnError}` };

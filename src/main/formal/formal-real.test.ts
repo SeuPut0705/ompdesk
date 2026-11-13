@@ -38,8 +38,8 @@ function bunRun(
 	return promise;
 }
 
-function copyExample(name: string): string {
-	const dest = path.join(temp, name);
+function copyExample(name: string, as = name): string {
+	const dest = path.join(temp, as);
 	fs.cpSync(path.join(SKILL, "examples", name), dest, { recursive: true });
 	return path.join(dest, "formal");
 }
@@ -58,6 +58,75 @@ describe.skipIf(!REAL)("the real formal toolchain", () => {
 		expect(verified.out).toContain("4 of 4 mutations detected");
 		expect(verified.out).not.toMatch(/MISSED|UNCOVERED|INVALID/);
 		expect(verified.code).toBe(0);
+	}, 300_000);
+
+	it("spreads the TLA+ example over units, prints the serial run's report from their verdicts and reuses them after a tag edit", async () => {
+		const formal = copyExample("job-lease", "job-lease-sharded");
+		const unitsOf = async (): Promise<string> => {
+			const plan = await bunRun("shard.ts", ["plan", formal, "--tier", "fast"], cache);
+			expect(plan.code).toBe(0);
+			const parsed: { matrix: { include: { units: string }[] } } = JSON.parse(plan.out);
+			return parsed.matrix.include.map(job => job.units).join(" ");
+		};
+		/** The report without the times and the cache marks, which are what may differ. */
+		const lines = (out: string): string =>
+			out
+				.split("\n")
+				.map(line => line.replace(/, [0-9.]+s(, cached)?\)/, ")"))
+				.join("\n");
+		const serial = await bunRun("verify-all.ts", [formal, "--tier", "fast"], cache);
+		expect(serial.code).toBe(0);
+		const verdicts = path.join(temp, "verdicts");
+		const cacheDir = path.join(temp, "verdict-cache");
+		const first = await bunRun(
+			"shard.ts",
+			["run", formal, "--tier", "fast", "--units", await unitsOf(), "--out", verdicts, "--cache", cacheDir],
+			cache,
+		);
+		expect(first.code).toBe(0);
+		expect(first.out).not.toContain("(cached)");
+		const replayed = await bunRun("verify-all.ts", [formal, "--tier", "fast", "--verdicts", verdicts], cache);
+		expect(replayed.code).toBe(0);
+		expect(lines(replayed.out)).toBe(lines(serial.out));
+		// A comment-only edit of the spec (an `@code` tag moving) keeps every digest: nothing is checked again.
+		const spec = path.join(formal, "job-lease/tla/JobLease.tla");
+		fs.writeFileSync(spec, fs.readFileSync(spec, "utf8").replaceAll("@code ", "@code (moved) "));
+		const again = await bunRun(
+			"shard.ts",
+			[
+				"run",
+				formal,
+				"--tier",
+				"fast",
+				"--units",
+				await unitsOf(),
+				"--out",
+				path.join(temp, "verdicts2"),
+				"--cache",
+				cacheDir,
+			],
+			cache,
+		);
+		expect(again.out.match(/\(cached\)/g)).toHaveLength(9);
+		// A change of the model's code is checked again.
+		fs.writeFileSync(spec, fs.readFileSync(spec, "utf8").replace("token < MaxClaims", "token < MaxClaims /\\ TRUE"));
+		const changed = await bunRun(
+			"shard.ts",
+			[
+				"run",
+				formal,
+				"--tier",
+				"fast",
+				"--units",
+				await unitsOf(),
+				"--out",
+				path.join(temp, "verdicts3"),
+				"--cache",
+				cacheDir,
+			],
+			cache,
+		);
+		expect(changed.out).not.toContain("(cached)");
 	}, 300_000);
 
 	it("falls back to the portable Temurin JRE when no system java runs, and TLC still passes", async () => {

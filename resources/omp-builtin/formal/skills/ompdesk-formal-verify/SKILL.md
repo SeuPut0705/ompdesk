@@ -25,7 +25,8 @@ bun <skill-dir>/scripts/tlc.ts <spec.tla> [--config X.cfg] [--matrix matrix.json
 bun <skill-dir>/scripts/lean-check.ts <lake project> [files.lean]
 bun <skill-dir>/scripts/mutate.ts <model file> <mutations.json>
 bun <skill-dir>/scripts/report.ts <findings.json | formal dir>...
-bun <skill-dir>/scripts/verify-all.ts <formal dir> [--tier fast|deep] [--stamp [--allow-dirty]] [--strict-drift]
+bun <skill-dir>/scripts/verify-all.ts <formal dir> [--tier fast|deep] [--stamp [--allow-dirty]] [--strict-drift] [--verdicts <folder>]
+bun <skill-dir>/scripts/shard.ts plan|run <formal dir> ...     spread a verify-all run over CI jobs (references/ci-and-drift.md)
 bun <skill-dir>/scripts/new-lean.ts <dir> <Pkg>
 bun <skill-dir>/scripts/statechart/statechart.mjs --help
 ```

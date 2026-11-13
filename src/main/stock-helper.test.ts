@@ -53,9 +53,11 @@ const methods = {
 const input = createInterface({ input: process.stdin });
 input.on("close", () => process.exit(0));
 const dispatch = createDispatcher(methods, line => process.stdout.write(line + "\\n"), false);
-// Every withdrawal the worker read, so a test can release a gate only once the worker knows what to skip.
+// Every withdrawal the worker read, so a test can release a gate only once the worker knows what to skip, and every
+// method it was handed, so a test can release one once a request queued behind it reached the worker.
 input.on("line", line => {
 	if (line.includes('"cancel"')) appendFileSync(${JSON.stringify(path.join(dir, "cancels"))}, line + "\\n");
+	else appendFileSync(${JSON.stringify(path.join(dir, "handed"))}, JSON.parse(line).method + "\\n");
 	dispatch(line);
 });
 `,
@@ -248,6 +250,15 @@ describe("StockHelper request timeout", () => {
 			expect(workers()).toHaveLength(2);
 			await install("18.19.1");
 			const queued = helper.request("fast", {});
+			// The core judges the change when the request reaches it: released before that, the gated answer can reach
+			// the core first, the queued request then finds the worker idle and starts a fresh one (run 43487785919).
+			// It reached the core once the worker it holds was handed it.
+			await vi.waitFor(() =>
+				expect(readFileSync(path.join(dir, "handed"), "utf8").trim().split("\n").slice(-2)).toEqual([
+					"gated",
+					"fast",
+				]),
+			);
 			await fs.writeFile(path.join(dir, "release"), "");
 			await expect(gated).resolves.toBe("gated");
 			await expect(queued).resolves.toBe("ok");

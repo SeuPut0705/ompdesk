@@ -153,18 +153,24 @@ describe("buildPlan", () => {
 		expect(script).toContain("if (Test-Path -LiteralPath $exe) {");
 	});
 
-	it.runIf(process.platform === "win32")("is a script Windows PowerShell parses", () => {
-		const script = buildPlan("bun", "bun-script", win)?.command ?? "";
-		const check =
-			"$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:OMPDESK_SCRIPT, [ref]$null, [ref]$errors); $errors | ForEach-Object { $_.Message }; exit $errors.Count";
-		const parsed = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", check], {
-			env: { ...process.env, OMPDESK_SCRIPT: script },
-			encoding: "utf8",
-			windowsHide: true,
-		});
-		expect(`${parsed.stdout}${parsed.stderr}`.trim()).toBe("");
-		expect(parsed.status).toBe(0);
-	});
+	// Windows PowerShell's cold start took over 20 s on a loaded shared runner (13 Nov 2026), the suite's default limit.
+	it.runIf(process.platform === "win32")(
+		"is a script Windows PowerShell parses",
+		() => {
+			const script = buildPlan("bun", "bun-script", win)?.command ?? "";
+			const check =
+				"$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:OMPDESK_SCRIPT, [ref]$null, [ref]$errors); $errors | ForEach-Object { $_.Message }; exit $errors.Count";
+			const parsed = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", check], {
+				env: { ...process.env, OMPDESK_SCRIPT: script },
+				encoding: "utf8",
+				windowsHide: true,
+				timeout: 80_000,
+			});
+			expect(`${parsed.stdout}${parsed.stderr}`.trim()).toBe("");
+			expect(parsed.status).toBe(0);
+		},
+		90_000,
+	);
 
 	it("installs omp with the absolute bun path, and refuses without Bun", () => {
 		const plan = buildPlan("omp", "bun-global", win);

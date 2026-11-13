@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetLoginShellEnvCache } from "../../shell-env";
 import { findOnPath } from "../../spawn";
-import { developerGit, gitRaw, resolveBin } from "./exec";
+import { developerGit, execBin, gitRaw, resolveBin } from "./exec";
 
 const made: string[] = [];
 const savedEnv = { PATH: process.env.PATH, SHELL: process.env.SHELL };
@@ -55,6 +55,33 @@ describe.skipIf(process.platform === "win32")("resolveBin", () => {
 		resetLoginShellEnvCache();
 		expect(await resolveBin("gh")).toBe(path.join(managed, "gh"));
 	});
+});
+
+describe("execBin", () => {
+	it("names a working folder that does not exist instead of the program's ENOENT", async () => {
+		const gone = path.join(await tempDir("omp-exec-cwd-"), "gone");
+		await expect(execBin(process.execPath, ["--version"], { cwd: gone })).rejects.toThrow(
+			`working folder ${gone} does not exist`,
+		);
+	});
+
+	// A cwd beneath a regular file stats as absent (Node's `throwIfNoEntry` covers ENOTDIR too); a folder that cannot
+	// be read throws EACCES from that stat, which once escaped the spawn's error handler as an uncaught exception.
+	it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+		"keeps the spawn's own error for a working folder it may not enter, and still rejects",
+		async () => {
+			const locked = path.join(await tempDir("omp-exec-cwd-"), "locked");
+			await fs.mkdir(path.join(locked, "inner"), { recursive: true });
+			await fs.chmod(locked, 0o000);
+			try {
+				await expect(
+					execBin(process.execPath, ["--version"], { cwd: path.join(locked, "inner") }),
+				).rejects.toMatchObject({ code: "EACCES" });
+			} finally {
+				await fs.chmod(locked, 0o700);
+			}
+		},
+	);
 });
 
 describe("the git GUI git calls run", () => {

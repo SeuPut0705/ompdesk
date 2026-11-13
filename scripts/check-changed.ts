@@ -43,7 +43,7 @@ import path from "node:path";
 import { en } from "../src/renderer/locales/en";
 import { acquireLock, describeExit, type RunResult, run, runLocked, runSteps } from "./build-lock";
 import { changeBase, changedPaths, changedReaders } from "./changed-readers";
-import { changedScope } from "./changed-scope";
+import { biomeFiles, changedScope } from "./changed-scope";
 import { specsFor } from "./changed-specs";
 import { pickTests, RELATED_CAP, reach, sourceImports } from "./changed-tests";
 import { browsersNeeded, missingBrowsers, missingBrowsersNotice } from "./e2e-browsers";
@@ -88,8 +88,6 @@ function rendererSourcesNaming(className: string): string[] {
 	}
 }
 
-const BIOME_EXT = /\.(?:[cm]?[jt]sx?|json|jsonc|css)$/;
-const BIOME_DIRS = /^(?:(?:src|e2e|resources|scripts)\/|[^/]+$)/;
 const noE2e = flag("--no-e2e");
 const specs = noE2e
 	? []
@@ -128,11 +126,11 @@ if (changed.length === 0 && readers.length === 0) {
 	process.exit(0);
 }
 
-const biomeFiles = changed.filter(file => BIOME_DIRS.test(file) && BIOME_EXT.test(file));
+const biomeTargets = biomeFiles(changed);
 const CHECKS: Array<readonly [string, string[]]> = [["types", ["bun", "run", "check:types"]]];
 // biome.json ignores some of these (stylesheets): a change of only those is no failure.
-if (biomeFiles.length > 0)
-	CHECKS.push(["biome", ["bunx", "biome", "check", "--no-errors-on-unmatched", ...biomeFiles]]);
+if (biomeTargets.length > 0)
+	CHECKS.push(["biome", ["bunx", "biome", "check", "--no-errors-on-unmatched", ...biomeTargets]]);
 CHECKS.push(["surfaces", ["node", "scripts/lint-surfaces.mjs"]]);
 // This branch's fix commits each change a test (or say `no-test: <reason>`), before CI refuses the push.
 CHECKS.push(["fix-tests", ["bun", "scripts/lint-fix-tests.mjs"]]);

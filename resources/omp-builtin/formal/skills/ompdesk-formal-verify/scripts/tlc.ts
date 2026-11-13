@@ -35,7 +35,7 @@ import {
 	type TlcResult,
 	type TraceRow,
 } from "./lib/tlc-parse";
-import { deadActions, definitionLoader, runSany, runTlc, type TlcRun } from "./lib/tlc-run";
+import { deadActions, definitionLoader, runSany, runTlc, type TlcRun, type TlcRunOptions } from "./lib/tlc-run";
 
 /** A run with no `--timeout` ends after this long: an unbounded run looks like a hang and nobody can tell which. */
 export const DEFAULT_TIMEOUT_SEC = 600;
@@ -280,7 +280,53 @@ export function timeoutMsFor(seconds: number | undefined): number | undefined {
 	return limit === 0 ? undefined : limit * 1000;
 }
 
-export async function main(argv: string[]): Promise<number> {
+/** The TLC options of one matrix run: its own settings, else the command line's. */
+export function rowRunOptions(
+	run: MatrixRun,
+	spec: string,
+	args: Pick<Args, "workers" | "noDeadlock" | "timeoutSec" | "extra" | "coverage">,
+): Omit<TlcRunOptions, "tla" | "outDir" | "onProgress"> {
+	return {
+		spec,
+		config: path.resolve(path.dirname(spec), run.config ?? `${path.basename(spec, ".tla")}.cfg`),
+		constants: run.constants,
+		workers: run.workers ?? args.workers,
+		deadlock: run.deadlock === false || args.noDeadlock ? false : undefined,
+		coverage: args.coverage,
+		extraArgs: [...(run.args ?? []), ...args.extra],
+		timeoutMs: timeoutMsFor(run.timeoutSec ?? args.timeoutSec),
+	};
+}
+
+/**
+ * Takes the place of running TLC: the finished runs come from verdicts recorded elsewhere (one CI job per run), and
+ * everything else (the judging, the report, the exit code) stays this script's.
+ */
+export interface TlcReplay {
+	/** The finished run for run `index` of the matrix; `undefined`: it never reported. */
+	result(run: MatrixRun, index: number): TlcRun | undefined;
+	/** The banner line the runs printed (`TLC (tla2tools release ...)  java ...  spec ...`), when a run recorded one. */
+	banner(runs: MatrixRun[]): string | undefined;
+}
+
+function noVerdict(config: string): TlcRun {
+	return {
+		code: null,
+		result: {
+			outcome: "error",
+			message: "no verdict was recorded for this run: its job did not finish",
+			stats: {},
+			trace: [],
+			errors: [],
+			warnings: [],
+		},
+		text: "",
+		configUsed: config,
+		durationMs: 0,
+	};
+}
+
+export async function main(argv: string[], replay?: TlcReplay): Promise<number> {
 	let args: Args;
 	try {
 		args = parseArgs(argv);
@@ -323,24 +369,27 @@ export async function main(argv: string[]): Promise<number> {
 		}
 	}
 	const codeRoot = args.codeRoot ? path.resolve(args.codeRoot) : findCodeRoot(specDir);
-	let tla: TlaEnv;
-	try {
-		tla = await prepareTla();
-	} catch (error) {
-		if (error instanceof Unavailable) {
-			console.log(`UNAVAILABLE  TLC could not be prepared: ${error.message}`);
-			console.log("  Report this check as not run. Install Java 11+ or retry with network access.");
-			return EXIT.unavailable;
+	let tla: TlaEnv | undefined;
+	if (!replay) {
+		try {
+			tla = await prepareTla();
+		} catch (error) {
+			if (error instanceof Unavailable) {
+				console.log(`UNAVAILABLE  TLC could not be prepared: ${error.message}`);
+				console.log("  Report this check as not run. Install Java 11+ or retry with network access.");
+				return EXIT.unavailable;
+			}
+			throw error;
 		}
-		throw error;
+		if (args.sanyOnly) return sanyOnly(tla, spec, specDir, runs[0]);
 	}
-	if (args.sanyOnly) return sanyOnly(tla, spec, specDir, runs[0]);
 	for (const warning of matrixWarnings(args.matrix ? runs : [])) console.log(`WARN  ${warning}`);
 	const definitions = definitionLoader(spec);
 	printTags(checkTags(extractTags(fs.readFileSync(spec, "utf8")), spec, codeRoot));
-	console.log(
-		`TLC (tla2tools release ${tla.tlaVersion})  java ${tla.javaMajor} (${tla.javaSource})  spec ${path.basename(spec)}`,
-	);
+	const banner = tla
+		? `TLC (tla2tools release ${tla.tlaVersion})  java ${tla.javaMajor} (${tla.javaSource})  spec ${path.basename(spec)}`
+		: replay?.banner(runs);
+	if (banner) console.log(banner);
 	let bannerShown = false;
 	const reports: RunReport[] = [];
 	let bad = 0;
@@ -349,34 +398,35 @@ export async function main(argv: string[]): Promise<number> {
 	// (`--workers auto`) already uses the cores, so those run one after another unless --jobs says otherwise.
 	const wide = runs.some(run => (run.workers ?? args.workers ?? "1") !== "1");
 	const jobs = Math.min(runs.length, args.jobs ?? (wide && !process.env.OMPDESK_FORMAL_JOBS ? 1 : defaultJobs()));
-	const started = poolPromises(runs, jobs, async run => {
-		const runStarted = Date.now();
-		let lastOutput = runStarted;
-		const tag = jobs > 1 ? `[${run.name}] ` : "";
-		const heartbeat = setInterval(() => {
-			if (Date.now() - lastOutput < HEARTBEAT_SEC * 1000) return;
-			lastOutput = Date.now();
-			console.log(`  ... ${run.name} still running (${Math.round((Date.now() - runStarted) / 1000)} s)`);
-		}, 5000);
-		return runTlc({
-			tla,
-			spec,
-			config: path.resolve(specDir, run.config ?? `${path.basename(spec, ".tla")}.cfg`),
-			constants: run.constants,
-			workers: run.workers ?? args.workers,
-			deadlock: run.deadlock === false || args.noDeadlock ? false : undefined,
-			coverage: args.coverage,
-			extraArgs: [...(run.args ?? []), ...args.extra],
-			timeoutMs: timeoutMsFor(run.timeoutSec ?? args.timeoutSec),
-			outDir: args.out ? path.resolve(args.out) : undefined,
-			onProgress: line => {
-				// TLC prints one last Progress line when a short run ends: noise unless the run took a while.
-				if (Date.now() - runStarted < 10_000) return;
-				lastOutput = Date.now();
-				console.log(`  ${tag}${line}`);
-			},
-		}).finally(() => clearInterval(heartbeat));
-	});
+	const started = replay
+		? runs.map((run, index) =>
+				Promise.resolve(
+					replay.result(run, index) ??
+						noVerdict(path.resolve(specDir, run.config ?? `${path.basename(spec, ".tla")}.cfg`)),
+				),
+			)
+		: poolPromises(runs, jobs, async run => {
+				if (!tla) throw new Error("TLC was not prepared");
+				const runStarted = Date.now();
+				let lastOutput = runStarted;
+				const tag = jobs > 1 ? `[${run.name}] ` : "";
+				const heartbeat = setInterval(() => {
+					if (Date.now() - lastOutput < HEARTBEAT_SEC * 1000) return;
+					lastOutput = Date.now();
+					console.log(`  ... ${run.name} still running (${Math.round((Date.now() - runStarted) / 1000)} s)`);
+				}, 5000);
+				return runTlc({
+					tla,
+					...rowRunOptions(run, spec, args),
+					outDir: args.out ? path.resolve(args.out) : undefined,
+					onProgress: line => {
+						// TLC prints one last Progress line when a short run ends: noise unless the run took a while.
+						if (Date.now() - runStarted < 10_000) return;
+						lastOutput = Date.now();
+						console.log(`  ${tag}${line}`);
+					},
+				}).finally(() => clearInterval(heartbeat));
+			});
 	// Results are printed in matrix order, whichever run finishes first.
 	for (const [index, run] of runs.entries()) {
 		const tlcRun = await (started[index] as Promise<TlcRun>);
@@ -401,12 +451,14 @@ export async function main(argv: string[]): Promise<number> {
 		const matrixMode = Boolean(args.matrix);
 		if (!matrixMode) {
 			console.log(
-				`${result.outcome === "pass" ? "PASS" : "FAIL"}  ${describeOutcome(result)}  (${stats || "no statistics"}, ${seconds}s)`,
+				`${result.outcome === "pass" ? "PASS" : "FAIL"}  ${describeOutcome(result)}  (${stats || "no statistics"}, ${seconds}s${tlcRun.cached ? ", cached" : ""})`,
 			);
 			if (result.outcome !== "pass") printFailure(result, rows, tlcRun.text);
 		} else {
 			const label = judged.ok ? "ok  " : "FAIL";
-			console.log(`${label}  ${run.name}: ${judged.reason}  (${stats || "no statistics"}, ${seconds}s)`);
+			console.log(
+				`${label}  ${run.name}: ${judged.reason}  (${stats || "no statistics"}, ${seconds}s${tlcRun.cached ? ", cached" : ""})`,
+			);
 			if (!judged.ok || args.trace) {
 				if (result.outcome !== "pass") printFailure(result, rows, tlcRun.text);
 			}

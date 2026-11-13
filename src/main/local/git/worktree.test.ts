@@ -107,6 +107,13 @@ describe("removeWorktree", () => {
 			code: "invalid_name",
 		});
 	});
+	it("refuses a base folder that does not exist by naming it, never as a missing git", async () => {
+		const gone = path.join(scratch, "projects", "gone");
+		await expect(createWorktree(outside, { name: "x", baseCwd: gone }, bridge)).rejects.toMatchObject({
+			code: "file_not_found",
+			message: `The folder "${gone}" does not exist.`,
+		});
+	});
 	it("starts the worktree's branch at the branch, tag or commit baseRef names, and refuses one that is no commit or reads as an option", async () => {
 		await initRepo(outside);
 		const mainTip = gitSync(outside, "rev-parse", "HEAD");

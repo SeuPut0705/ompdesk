@@ -16,11 +16,14 @@ import path from "node:path";
 import { cfgProperties, checkerRoot, makeChecker } from "./lib/checkers";
 import { readJson } from "./lib/json";
 import {
+	assembleReport,
 	type MutationReport,
 	type MutationSpec,
 	mutationExitCode,
 	parseMutations,
+	planMutations,
 	runMutations,
+	type UnitResults,
 } from "./lib/mutate-core";
 import { defaultJobs } from "./lib/pool";
 import { EXIT, UsageError } from "./lib/proc";
@@ -81,7 +84,11 @@ export function render(report: MutationReport): string[] {
 	return out;
 }
 
-export async function main(argv: string[]): Promise<number> {
+/**
+ * `replay`, when given, takes the place of the checker runs: the results of the units of a run that was spread over
+ * CI jobs (`lib/shard.ts`), put together by `assembleReport` exactly as an in-process run does.
+ */
+export async function main(argv: string[], replay?: UnitResults): Promise<number> {
 	let args: Args;
 	try {
 		args = parseArgs(argv);
@@ -120,18 +127,21 @@ export async function main(argv: string[]): Promise<number> {
 		}
 		properties = cfgProperties(config);
 	}
-	const report = await runMutations({
-		root,
-		model,
-		spec,
-		properties,
-		check: makeChecker(spec.checker),
-		keep: args.keep,
-		jobs: args.jobs ?? (spec.checker.kind === "tlc" && (spec.checker.workers ?? "1") === "1" ? defaultJobs() : 1),
-	});
+	const report = replay
+		? assembleReport(spec, properties, planMutations(spec), replay)
+		: await runMutations({
+				root,
+				model,
+				spec,
+				properties,
+				check: makeChecker(spec.checker),
+				keep: args.keep,
+				jobs:
+					args.jobs ?? (spec.checker.kind === "tlc" && (spec.checker.workers ?? "1") === "1" ? defaultJobs() : 1),
+			});
 	if (args.json) console.log(JSON.stringify({ ...report, exit: mutationExitCode(report) }, null, 2));
 	else for (const line of render(report)) console.log(line);
-	if (args.keep) console.error(`kept the mutated copies in ${report.workDir}`);
+	if (args.keep && "workDir" in report) console.error(`kept the mutated copies in ${report.workDir}`);
 	return mutationExitCode(report);
 }
 

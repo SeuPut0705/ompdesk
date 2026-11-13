@@ -349,6 +349,10 @@ impl Client {
             }
             self.log("attempt", details);
         }
+        // The address lookup is a step of its own: a `peer` wake while it runs measures against it, never against
+        // the last dial of an earlier attempt, whose age would end this attempt before it dialed (run 43496522688).
+        inner.step += 1;
+        inner.step_at = clock::now_ms();
         self.set_state(inner, LinkState::Connecting);
         let cancel = Scope::detached();
         inner.cancel = Some(cancel.clone());
@@ -676,4 +680,70 @@ pub async fn connect_first(
         .put(record.clone())
         .map_err(|error| Failure::new("protocol", error.to_string()))?;
     Ok(store.get(&host.device_id).unwrap_or(record))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::pin::Pin;
+
+    use tokio::sync::{Notify, mpsc};
+
+    use super::*;
+
+    /// Addresses that answer once the test lets them: the attempt stays in its lookup meanwhile.
+    struct Held(Arc<Notify>);
+
+    impl Addresses for Held {
+        fn resolve(
+            &self,
+            _host: Map<String, Value>,
+        ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send>> {
+            let release = Arc::clone(&self.0);
+            Box::pin(async move {
+                release.notified().await;
+                Vec::new()
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_peer_link_never_ends_an_attempt_still_looking_up_its_host() {
+        let _serial = clock::TEST_CLOCK.lock().await;
+        clock::set_real();
+        let dir = std::env::temp_dir().join(format!("ompdesk-client-peer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (frames, _read) = mpsc::unbounded_channel();
+        let release = Arc::new(Notify::new());
+        let mut host = Map::new();
+        host.insert("deviceId".into(), "studio".into());
+        let client = Client::new(ClientOptions {
+            events: crate::server::test_events(&frames),
+            identity: Arc::new(crate::remote::identity::load_or_create(&dir).unwrap()),
+            host,
+            name: "laptop".into(),
+            app_version: "0.0.0".into(),
+            capabilities: Map::new(),
+            liveness: Liveness::default(),
+            store: None,
+            addresses: Box::new(Held(Arc::clone(&release))),
+        });
+        client.connect();
+        // The other computer's link reached this one's host while the attempt has not dialed anything yet.
+        client.wake("peer");
+        {
+            let inner = client.inner();
+            assert_eq!(inner.rerun, None, "the attempt is not run again");
+            assert!(
+                inner
+                    .cancel
+                    .as_ref()
+                    .is_some_and(|cancel| !cancel.cancelled()),
+                "the attempt goes on"
+            );
+        }
+        client.close();
+        release.notify_one();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

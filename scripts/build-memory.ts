@@ -27,7 +27,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cargoPath, rustcPath } from "./cargo";
+import { cargoEnv, cargoPath, rustcPath } from "./cargo";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const MEMORY_DIR = path.join(REPO_ROOT, "native", "memory");
@@ -105,7 +105,7 @@ if (import.meta.main) {
 		check(key, binary, source, embeddedSha256);
 		process.exit(0);
 	}
-	const cargo = cargoPath();
+	const cargo = cargoPath(MEMORY_DIR);
 	if (!cargo) {
 		fail(
 			"Rust is not installed (no `cargo` on PATH). Memory needs it only when you build it yourself: install it from https://rustup.rs " +
@@ -116,6 +116,7 @@ if (import.meta.main) {
 	const started = Date.now();
 	const run = spawnSync(cargo, ["build", "--locked", "--release", "-p", "ai-memory-cli"], {
 		cwd: MEMORY_DIR,
+		env: cargoEnv(cargo),
 		stdio: "inherit",
 	});
 	if (run.status !== 0) fail(`cargo build failed (${run.status ?? run.signal}).`);

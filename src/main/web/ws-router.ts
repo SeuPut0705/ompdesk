@@ -249,17 +249,17 @@ let routed: CoreProcess | null = null;
 function route(process: CoreProcess): void {
 	if (routed === process) return;
 	routed = process;
-	process.on("web.call", (data, bin) => {
+	process.on("web.call", (data, bin, generation) => {
 		const event = data as CallEvent;
-		routers.get(event.host)?.call(event, bin === null ? "[]" : Buffer.from(bin).toString("utf8"));
+		routers.get(event.host)?.call(event, bin === null ? "[]" : Buffer.from(bin).toString("utf8"), generation);
 	});
 	process.on("web.conns", data => {
 		const event = data as ConnsEvent;
 		routers.get(event.host)?.connections(event);
 	});
-	process.on("web.resync", data => {
+	process.on("web.resync", (data, _bin, generation) => {
 		const { host, conn, device } = data as { host: number; conn: number; device: string };
-		routers.get(host)?.resync(conn, device);
+		routers.get(host)?.resync(conn, device, generation);
 	});
 	process.on(CORE_EXITED, () => {
 		for (const router of routers.values()) router.coreExited();
@@ -402,9 +402,9 @@ export class WsRouter {
 	}
 
 	/** A page is about to be told to resync: the pool sends whole stream snapshots from now, then the hello goes. */
-	resync(conn: number, deviceId: string): void {
+	resync(conn: number, deviceId: string, generation: number): void {
 		this.#deps.onResync?.(deviceId);
-		core().push("web.resynced", { host: this.host, conn });
+		core().push("web.resynced", { host: this.host, conn }, undefined, generation);
 	}
 
 	/** The core ended, and every page socket with it. */
@@ -418,8 +418,12 @@ export class WsRouter {
 		}
 	}
 
-	/** A call the core let through: run here, and answered when the core waits for it. */
-	call(event: CallEvent, argsText: string): void {
+	/**
+	 * A call the core let through: run here, and answered when the core waits for it. The answer goes only to the core
+	 * of `generation` that asked: the next core numbers its calls from 1 again, and a reply to its same-numbered call
+	 * would hand this device's answer to another device's page.
+	 */
+	call(event: CallEvent, argsText: string, generation: number): void {
 		let args: unknown[];
 		try {
 			args = JSON.parse(argsText) as unknown[];
@@ -429,29 +433,33 @@ export class WsRouter {
 		const running = this.#dispatch(event, args);
 		if (event.dir === "send") {
 			const done = () => {
-				if (event.answer) core().push("web.reply", { host: this.host, call: event.call, ok: true });
+				if (event.answer) this.#answer(generation, { call: event.call, ok: true });
 			};
 			running.then(done, done);
 			return;
 		}
 		running.then(
-			value => this.#reply(event, value),
-			error => core().push("web.reply", { host: this.host, call: event.call, ok: false, e: webError(error) }),
+			value => this.#reply(event, value, generation),
+			error => this.#answer(generation, { call: event.call, ok: false, e: webError(error) }),
 		);
 	}
 
+	#answer(generation: number, reply: object, bin?: Uint8Array): void {
+		core().push("web.reply", { host: this.host, ...reply }, bin, generation);
+	}
+
 	/** An invoke's answer; a value JSON cannot carry fails the call instead of leaving the page to wait forever. */
-	#reply(event: CallEvent, value: unknown): void {
+	#reply(event: CallEvent, value: unknown, generation: number): void {
 		let text: string | undefined;
 		try {
 			text = JSON.stringify(value);
 		} catch {
 			const e = { message: `The computer's answer to ${event.ch} could not be sent to this page` };
-			core().push("web.reply", { host: this.host, call: event.call, ok: false, e });
+			this.#answer(generation, { call: event.call, ok: false, e });
 			return;
 		}
 		const bin = text === undefined ? undefined : Buffer.from(text, "utf8");
-		core().push("web.reply", { host: this.host, call: event.call, ok: true }, bin);
+		this.#answer(generation, { call: event.call, ok: true }, bin);
 	}
 
 	async #dispatch(event: CallEvent, args: readonly unknown[]): Promise<unknown> {

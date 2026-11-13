@@ -7,3 +7,6 @@ export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 command -v bun >/dev/null 2>&1 || { echo "worktree-setup: bun is not on PATH" >&2; exit 1; }
 bun install --frozen-lockfile
 bun scripts/ensure-electron.ts
+# Every push of this repository runs scripts/pre-push-gate.ts (biome, types, surface policy, fix-commit rule) through
+# the tracked hook; git keeps this setting in the config all worktrees of the repository share.
+git config core.hooksPath .githooks

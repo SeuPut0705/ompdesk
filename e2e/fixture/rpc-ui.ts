@@ -5818,7 +5818,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 																		? ACTIONS_REPLY
 																		: message === "fixture documents"
 																			? DOCUMENTS_REPLY
-																			: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
+																			: message.startsWith("Parity turn ")
+																				? `Answer to ${message}`
+																				: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
 					},
 				],
 				timestamp: Date.now(),
