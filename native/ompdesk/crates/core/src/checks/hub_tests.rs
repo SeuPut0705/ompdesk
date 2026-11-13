@@ -191,6 +191,87 @@ async fn a_run_github_started_on_another_commit_than_asked_is_never_reused_as_gr
 }
 
 #[tokio::test]
+async fn a_rerun_of_failed_jobs_waits_for_admission_and_is_answered_as_its_own_run() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI);
+    let hub = hub(&github);
+    let first = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap()
+        .run_id
+        .unwrap();
+    let at = clock::now_ms() + 1_000;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, None))];
+        facts.jobs = vec![gh_job(701, 77, at, None)];
+    });
+    rounds(&hub, 2).await;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, Some("failure")))];
+        facts.jobs = vec![gh_job(701, 77, at, Some("failure"))];
+    });
+    rounds(&hub, 3).await;
+    hub.pass().await;
+    let red = hub.answered(&first).expect("the red run is answered");
+    assert_eq!(red.next, Next::RerunFailed, "{:?}", red.notes);
+    let reruns = |github: &FakeGithub| {
+        github
+            .writes()
+            .into_iter()
+            .filter(|write| matches!(write, GithubWrite::RerunFailed { .. }))
+            .count()
+    };
+    let rerun = || StartRequest {
+        rerun: Some(Rerun::Failed),
+        ..start(Purpose::Branch, "feat")
+    };
+    // The owner paused admission: a rerun starts nothing either.
+    hub.pause(true).await.unwrap();
+    let refused = hub.start(samples::session(), rerun()).await.unwrap();
+    assert_eq!(
+        refused.decision,
+        StartDecision::Refused,
+        "{}",
+        refused.reason
+    );
+    assert_eq!(reruns(&github), 0);
+    hub.pause(false).await.unwrap();
+    let again = hub.start(samples::session(), rerun()).await.unwrap();
+    assert_eq!(again.decision, StartDecision::Started, "{}", again.reason);
+    assert_eq!(reruns(&github), 1);
+    let again = again.run_id.unwrap();
+    assert_ne!(again, first, "the rerun is answered by its own id");
+    // GitHub runs the failed jobs again (attempt 2) and they pass: the rerun's own answer is green.
+    let again_at = clock::now_ms() + 1_000;
+    let attempt = |conclusion: Option<&str>| {
+        let mut run = gh_run(77, "feat", SHA, again_at, conclusion);
+        run.attempt = 2;
+        let mut job = gh_job(702, 77, again_at, conclusion);
+        job.attempt = 2;
+        (run, job)
+    };
+    github.with(|facts| {
+        let (run, job) = attempt(None);
+        facts.runs = vec![(REPO.into(), run)];
+        facts.jobs = vec![job];
+    });
+    rounds(&hub, 2).await;
+    github.with(|facts| {
+        let (run, job) = attempt(Some("success"));
+        facts.runs = vec![(REPO.into(), run)];
+        facts.jobs = vec![job];
+    });
+    rounds(&hub, 3).await;
+    hub.pass().await;
+    let green = hub.answered(&again).expect("the rerun is answered");
+    assert_eq!(green.verdict, AnswerVerdict::Green, "{:?}", green.notes);
+    assert_eq!(hub.answered(&first).unwrap().verdict, AnswerVerdict::Red);
+    clock::set_real();
+}
+
+#[tokio::test]
 async fn a_run_whose_results_could_not_be_read_when_it_ended_is_answered_once_they_can() {
     let _serial = clock::TEST_CLOCK.lock().await;
     clock::set_manual(1_794_000_000_000);

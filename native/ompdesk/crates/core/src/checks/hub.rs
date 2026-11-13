@@ -173,6 +173,8 @@ struct Pending {
     ticketed: bool,
     digest: String,
     gate: Option<String>,
+    /// GitHub's run whose failed jobs this entry runs again, instead of a dispatch.
+    rerun_of: Option<u64>,
 }
 
 /// The hub's memory of its runs, behind one lock (never held across an await).
@@ -512,6 +514,26 @@ impl Core {
         let Some(pending) = locked(&self.book).pending.get(&ask.id).cloned() else {
             return false;
         };
+        let claim = Claim {
+            run_id: ask.id.clone(),
+            origin: pending.origin.clone(),
+            lane: ask.lane,
+            gate: pending.gate.clone(),
+            digest: pending.digest.clone(),
+        };
+        if let Some(run) = pending.rerun_of {
+            // The same commit runs again: GitHub's run is this entry's from now on.
+            return match self.github.rerun_failed(&pending.repo, run).await {
+                Ok(()) => {
+                    self.poller.rerun(&pending.repo, run, claim);
+                    true
+                }
+                Err(error) => {
+                    locked(&self.book).failures.insert(ask.id, error.message);
+                    false
+                }
+            };
+        }
         if let Ok(Some(tip)) = self.github.head(&pending.repo, &pending.git_ref).await
             && tip != pending.sha
         {
@@ -533,13 +555,7 @@ impl Core {
             workflow: pending.plan.workflow.clone(),
             git_ref: pending.git_ref.clone(),
             after: now,
-            claim: Claim {
-                run_id: ask.id.clone(),
-                origin: pending.origin.clone(),
-                lane: ask.lane,
-                gate: pending.gate.clone(),
-                digest: pending.digest.clone(),
-            },
+            claim,
         });
         let mut inputs = pending.plan.inputs.clone();
         if pending.ticketed
@@ -837,22 +853,34 @@ impl Core {
                 short(sha)
             )));
         };
-        let Some((repo, run)) = self.poller.github_of(&id) else {
+        let Some((_, run)) = self.poller.github_of(&id) else {
             return Ok(refused(format!("GitHub's run for {id} is not known")));
         };
-        self.github
-            .rerun_failed(&repo, run)
-            .await
-            .map_err(source_fault)?;
-        locked(&self.book).answers.remove(&id);
-        self.poller.nudge(&repo);
-        Ok(StartReply {
-            run_id: Some(id.clone()),
-            decision: StartDecision::Started,
-            placement: Some(Where::GithubHosted),
-            expected_start_min: None,
-            reason: format!("the failed jobs of {id} run again; wait on {id}"),
-        })
+        let Some(lane) = locked(&self.admission)
+            .entry(&id)
+            .map(|entry| entry.ask.lane)
+        else {
+            return Ok(refused(format!("{id} is not in OMPdesk's queue any more")));
+        };
+        let Some(pending) = locked(&self.book).pending.get(&id).cloned() else {
+            return Ok(refused(format!("{id} is not in OMPdesk's queue any more")));
+        };
+        // The rerun is a run of its own: it waits for a place like any start, under the owner's pause and the
+        // pools' limits, and is answered by its own id.
+        let mut reply = self
+            .admit_entry(
+                self.next_id(),
+                Pending {
+                    rerun_of: Some(run),
+                    ..pending
+                },
+                lane,
+            )
+            .await?;
+        if reply.decision == StartDecision::Started {
+            reply.reason = format!("the failed jobs of {id} run again ({})", reply.reason);
+        }
+        Ok(reply)
     }
 
     async fn start(&self, origin: Origin, request: StartRequest) -> Result<StartReply, Fault> {
@@ -1019,22 +1047,47 @@ impl Core {
             policy::lane(purpose, named.is_some(), plan.macos, &git_ref, &mac_refs)
         };
         let digest = policy::digest(&sha, &text, &plan.inputs);
-        let id = self.next_id();
-        let pool = policy::pool(plan.macos);
         let workflow = plan.workflow.clone();
-        locked(&self.book).pending.insert(
-            id.clone(),
-            Pending {
-                origin: origin.clone(),
-                repo: repo.clone(),
-                git_ref: git_ref.clone(),
-                sha,
-                plan,
-                ticketed,
-                digest: digest.clone(),
-                gate: (lane == Lane::Release).then(|| format!("release {workflow}")),
-            },
+        let pending = Pending {
+            origin,
+            repo,
+            git_ref,
+            sha,
+            plan,
+            ticketed,
+            digest,
+            gate: (lane == Lane::Release).then(|| format!("release {workflow}")),
+            rerun_of: None,
+        };
+        self.admit_entry(self.next_id(), pending, lane).await
+    }
+
+    /// One entry into admission: a start's, or a rerun's of a red run's failed jobs. It supersedes older runs of its
+    /// key, may be reused from a green run of its digest, and is dispatched now or held.
+    async fn admit_entry(
+        &self,
+        id: RunId,
+        pending: Pending,
+        lane: Lane,
+    ) -> Result<StartReply, Fault> {
+        let refuse = |reason: String| {
+            Ok(StartReply {
+                run_id: None,
+                decision: StartDecision::Refused,
+                placement: None,
+                expected_start_min: None,
+                reason,
+            })
+        };
+        let (origin, repo, git_ref) = (
+            pending.origin.clone(),
+            pending.repo.clone(),
+            pending.git_ref.clone(),
         );
+        let workflow = pending.plan.workflow.clone();
+        let digest = pending.digest.clone();
+        let pool = policy::pool(pending.plan.macos);
+        locked(&self.book).pending.insert(id.clone(), pending);
         let now = clock::now_ms();
         let started = locked(&self.admission).start(
             Ask {

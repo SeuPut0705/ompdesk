@@ -128,6 +128,14 @@ impl Claims {
         self.nobodys.retain(|(repo, run)| known(repo, *run));
     }
 
+    /// GitHub's run `run` runs again for the hub's new run (a rerun of its failed jobs, admitted as its own entry):
+    /// from now on it is that run's.
+    pub fn rebind(&mut self, repo: &str, run: u64, claim: Claim) {
+        let key = (repo.to_owned(), run);
+        self.nobodys.remove(&key);
+        self.github.insert(key, claim);
+    }
+
     /// A dispatch to `repo` still waits for its run.
     pub fn expects(&self, repo: &str) -> bool {
         self.expected.iter().any(|expected| expected.repo == repo)

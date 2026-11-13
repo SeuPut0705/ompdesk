@@ -334,6 +334,23 @@ impl Engine {
         self.repos.entry(repo.to_owned()).or_default().nudged = true;
     }
 
+    /// The hub asked GitHub to run `run`'s failed jobs again for its run `claim`: the run is the new attempt's from
+    /// now on and reads unfinished until GitHub shows that attempt, so its old end is never taken for the new one.
+    pub fn rerun(&mut self, repo: &str, run: u64, claim: Claim) {
+        self.claims.rebind(repo, run, claim);
+        let watched = self.repos.entry(repo.to_owned()).or_default();
+        watched.nudged = true;
+        if let Some(tracked) = watched.runs.get_mut(&run) {
+            tracked.run.attempt += 1;
+            tracked.run.status = "queued".to_owned();
+            tracked.run.conclusion = None;
+            tracked.follow = true;
+            tracked.done_at = None;
+            tracked.final_reads = 0;
+            tracked.settled = false;
+        }
+    }
+
     /// The repositories to follow, as main says: those of the open sessions' checkouts. One a start of the hub's
     /// still waits on (a dispatch expected, a claimed run unfinished) stays followed.
     pub fn follow(&mut self, repos: &[RepoId]) {
@@ -1000,6 +1017,12 @@ impl Poller {
     /// A run was started or changed from here (a dispatch went out, a cancel, a rerun): read `repo` now.
     pub fn nudge(&self, repo: &str) {
         locked(&self.engine).nudge(repo);
+        self.wake.notify_one();
+    }
+
+    /// The hub reruns GitHub's run `run` for its run `claim` (`Engine::rerun`): read `repo` now.
+    pub fn rerun(&self, repo: &str, run: u64, claim: Claim) {
+        locked(&self.engine).rerun(repo, run, claim);
         self.wake.notify_one();
     }
 
