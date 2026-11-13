@@ -67,7 +67,7 @@ const CLOSE_WAIT: Duration = Duration::from_secs(2);
 const READ_BUFFER: usize = 64 * 1024;
 
 pub fn register(registry: &mut Registry) {
-    registry.add("stock.request", |call| Box::pin(request(call)));
+    registry.add("stock.request", enqueue);
     registry.add("stock.launched", |call| {
         Box::pin(async move { launched(&call) })
     });
@@ -222,7 +222,24 @@ static LANES: LazyLock<Mutex<HashMap<(String, Worker), Entry>>> = LazyLock::new(
 /// Names requests and starts: one sequence, so no two of either share a number in this process.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
-async fn request(call: Call) -> Result<Reply, Fault> {
+/// What `place` leaves for the wait: the lane the request went to, its name and the answer it waits for.
+struct Placed {
+    inbox: mpsc::UnboundedSender<Msg>,
+    id: u64,
+    timeout: Duration,
+    answer: oneshot::Receiver<Answer>,
+}
+
+/// `stock.request`: takes the request's place in its lane now, before the server reads the next line, so two requests
+/// a caller sent one after the other reach a serial lane in that order. The body of an `async fn` runs only once its
+/// future is polled, in a task of its own, and two such tasks start in either order: a mutation sent after a scan
+/// ran before it (main's `stock-helper.test.ts`, "never runs a queued mutation", run 43357570260).
+fn enqueue(call: Call) -> crate::server::Answer {
+    let placed = place(&call);
+    Box::pin(async move { wait(call, placed?).await })
+}
+
+fn place(call: &Call) -> Result<Placed, Fault> {
     let RequestParams {
         host,
         method,
@@ -265,6 +282,21 @@ async fn request(call: Call) -> Result<Reply, Fault> {
         });
         entry.inbox.clone()
     };
+    Ok(Placed {
+        inbox,
+        id,
+        timeout,
+        answer,
+    })
+}
+
+async fn wait(call: Call, placed: Placed) -> Result<Reply, Fault> {
+    let Placed {
+        inbox,
+        id,
+        timeout,
+        answer,
+    } = placed;
     let gave_up = |fault: Fault| {
         let _ = inbox.send(Msg::GaveUp(id));
         Err(fault)

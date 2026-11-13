@@ -8,7 +8,7 @@ All code is `native/ompdesk/crates/core/src/stock/mod.rs`. A lane is one task (`
 | `Outlived` | `Lane::outlived_its_omp`: not the terminals worker, nothing unanswered, no other request pending, omp's stamp differs from the one read when the worker started | read inside `request`; the stamp is one `metadata` call |
 | `Ask` | the `stock.launch` event, numbered from `NEXT_ID` (one sequence for the whole process) | inside `request` |
 | `Launched(l, ok)` | main's `stock.launched` → `Msg::Launched` → `Lane::launched`: spawn and write what waited, or fail it | one message; `answers` models how late main answers, or never |
-| `TimerFires(r)` | the `stock.request` handler's `select!` chose the timer (or main's cancel) over the answer: the caller is answered at once and `Msg::GaveUp` is sent | the handler decides once; `biased` takes an answer that is already there |
+| `TimerFires(r)` | the `stock.request` handler's `wait` `select!` chose the timer (or main's cancel) over the answer: the caller is answered at once and `Msg::GaveUp` is sent. `place`, run as the frame is read, puts the request in its lane in frame order; the model lets requests arrive in any order, a superset | the handler decides once; `biased` takes an answer that is already there |
 | `GaveUp(r)` | `Lane::gave_up`: forgets the request, writes `{cancel}` to the worker, arms the grace for a stock worker | one message |
 | `WorkerAnswers(g, r)` | the worker writes `{id, result}` / `{id, error}` (also `withdrawn`) | environment |
 | `ReadLine(g, r)` | `read_lines` → `Msg::Line` → `Lane::line`: a line of a worker that is not the lane's is dropped (`Lane::current`) | one message |

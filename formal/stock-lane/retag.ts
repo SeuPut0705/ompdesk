@@ -16,7 +16,7 @@ function range(opener: string, closer: string): string {
 }
 
 const free: Record<string, string> = {
-	request: range("async fn request(", "}"),
+	wait: range("async fn wait(", "}"),
 	read_lines: range("fn read_lines(", "}"),
 };
 let tags = 0;
