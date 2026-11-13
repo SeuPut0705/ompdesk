@@ -194,6 +194,8 @@ export type RpcCommand =
 			askId?: string;
 			response?: ExtensionUIResponse;
 			plan?: RpcCommand;
+			/** The plan file of the proposal the answer was about: only that very plan is approved. */
+			planFile?: string;
 	  }
 	// One attachment of `ompdesk_session_send` / `ompdesk_report` read where this session's omp runs
 	// (gui-bridge agent-control.ts `agent_control.attachment`): `{path}` a file, `{image}` the n-th newest picture of

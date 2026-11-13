@@ -792,9 +792,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { ...page, messages: localizePromptOrigins(page.messages, ownId, hostName) };
 	};
 
+	/** The plan approvals an agent's attachment step sends for the plan it claimed (`TargetAnswer`). */
+	const ownPlanApprovals = new WeakSet<object>();
 	const targetAnswer = new TargetAnswer({
 		askOpen: (tabId, id) => sidecarPool.isRequestOpen(tabId, id),
-		planOpen: tabId => sidecarPool.pendingPlan(tabId) !== null,
+		claimPlan: (tabId, planFile) => sidecarPool.claimPlan(tabId, planFile),
+		planStillClaimed: (tabId, claim) => sidecarPool.planStillClaimed(tabId, claim),
+		releasePlan: (tabId, claim) => sidecarPool.releasePlan(tabId, claim),
 		claim: (tabId, id) => sidecarPool.claimRequest(tabId, id),
 		release: (id, claim) => sidecarPool.releaseRequest(id, claim),
 		route: (tabId, id, response, claim) => sidecarPool.routeSideChannel(id, response, tabId, undefined, claim),
@@ -925,15 +929,32 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				};
 			}
 		}
+		// A plan an agent's approval holds (`SidecarPool.claimPlan`) takes no other approve or reject.
+		if (
+			cmd.type === "plan_approval" &&
+			issuerTabId &&
+			sidecarPool.planClaimed(issuerTabId) &&
+			!ownPlanApprovals.has(payload)
+		)
+			return {
+				id: _id,
+				type: "response",
+				command: cmd.type,
+				success: false,
+				error: "An agent is answering this plan right now",
+				code: "being_answered",
+			};
 		// An answer with attachments is one step where the answered session runs (`target-answer.ts`): this main for its
 		// own tabs; a paired host's tab goes on to that host's main below.
 		if (cmd.type === "agent_control_answer" && !sidecar.device) {
 			if (!issuerTabId)
 				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
 			try {
-				await targetAnswer.run(issuerTabId, cmd as AnswerStep, command =>
-					dispatchRpcCommand(win, sidecar, issuerTabId, { ...payload, command }, channel),
-				);
+				await targetAnswer.run(issuerTabId, cmd as AnswerStep, (command, own) => {
+					const inner = { ...payload, command };
+					if (own) ownPlanApprovals.add(inner);
+					return dispatchRpcCommand(win, sidecar, issuerTabId, inner, channel);
+				});
 				return { id: _id, type: "response", command: cmd.type, success: true, data: null };
 			} catch (err) {
 				return {

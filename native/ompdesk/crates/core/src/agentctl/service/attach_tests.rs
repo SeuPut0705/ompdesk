@@ -665,3 +665,30 @@ async fn pictures_for_a_paired_device_stay_under_the_links_frame_cap() {
         control.host.port().close();
     }
 }
+
+#[tokio::test]
+async fn a_plan_answer_with_attachments_names_the_plan_it_was_about() {
+    let mut plan = tab("b");
+    plan["plan"] = json!({ "title": "Ship it", "planFilePath": "/p/plan-1.md" });
+    let (control, asked) = rig(
+        9_430,
+        state(vec![tab("a"), plan]),
+        Caps::default(),
+        &Files::default(),
+        omp,
+    );
+    let done = control
+        .run(
+            "a",
+            "ompdesk_session_answer",
+            json!({ "session": "b", "approve": false, "text": "no", "attachments": [{ "path": "/w/doc.pdf" }] }),
+            None,
+        )
+        .await;
+    assert!(!done.is_error, "{}", done.text);
+    let steps = commands(&asked, "agent_control_answer");
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["planFile"], "/p/plan-1.md");
+    assert_eq!(steps[0]["plan"]["type"], "plan_approval");
+    control.host.port().close();
+}

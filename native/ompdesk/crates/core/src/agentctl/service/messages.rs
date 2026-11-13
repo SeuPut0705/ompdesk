@@ -1026,7 +1026,9 @@ impl AgentControl {
         if asks.is_empty()
             && let Some(plan) = &target.plan
         {
-            return self.answer_plan(caller, target, &plan.title, args).await;
+            return self
+                .answer_plan(caller, target, &plan.title, &plan.plan_file_path, args)
+                .await;
         }
         if asks.is_empty() {
             return fail(if !target.asks.is_empty() {
@@ -1280,6 +1282,7 @@ impl AgentControl {
         caller: &ControlTab,
         target: &ControlTab,
         plan_title: &str,
+        plan_file: &str,
         args: &AnswerArgs,
     ) -> R<String> {
         let resolved = self
@@ -1359,7 +1362,11 @@ impl AgentControl {
         {
             Some(companion) => {
                 self.host
-                    .answer_with_companion(&target.tab_id, json!({ "plan": command }), &companion)
+                    .answer_with_companion(
+                        &target.tab_id,
+                        json!({ "plan": command, "planFile": plan_file }),
+                        &companion,
+                    )
                     .await?
             }
             None => {

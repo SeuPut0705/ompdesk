@@ -16,6 +16,9 @@ function target(options: { open?: string[]; routeFails?: boolean; noteFails?: bo
 	const claims = new Map<string, symbol>();
 	const appended: string[] = [];
 	const answered: string[] = [];
+	/** The plan file of the pending proposal, and of the proposal the claim took. */
+	const planFile = { current: "/p/plan-1.md" };
+	const planObject = { current: "" };
 	let routeFails = options.routeFails ?? false;
 	const send = vi.fn(async (command: RpcCommand) => {
 		if (command.type === "agent_control_mail") {
@@ -29,7 +32,17 @@ function target(options: { open?: string[]; routeFails?: boolean; noteFails?: bo
 	});
 	const answers = new TargetAnswer({
 		askOpen: (_tab, id) => open.has(id),
-		planOpen: () => open.has("plan"),
+		claimPlan: (_tab, file) => {
+			if (!open.has("plan") || file !== planFile.current || claims.has("plan")) return null;
+			claims.set("plan", Symbol("plan"));
+			planObject.current = planFile.current;
+			return claims.get("plan") ?? null;
+		},
+		planStillClaimed: (_tab, claim) =>
+			claims.get("plan") === claim && open.has("plan") && planObject.current === planFile.current,
+		releasePlan: (_tab, claim) => {
+			if (claims.get("plan") === claim) claims.delete("plan");
+		},
 		claim: (_tab, id) => {
 			if (!open.has(id) || claims.has(id)) return null;
 			const claim = Symbol(id);
@@ -59,7 +72,17 @@ function target(options: { open?: string[]; routeFails?: boolean; noteFails?: bo
 		answered.push(`person:${id}`);
 		return "answered";
 	};
+	/** The person's approve or reject of the plan: refused while an agent's approval holds it. */
+	const personApprovesPlan = () => {
+		if (claims.has("plan")) return "being_answered";
+		if (!open.has("plan")) return "gone";
+		open.delete("plan");
+		answered.push("person:plan");
+		return "answered";
+	};
 	return {
+		planFile,
+		personApprovesPlan,
 		answers,
 		send,
 		open,
@@ -180,10 +203,78 @@ describe("an answer with attachments is one step on the answered session's compu
 		const t = target({ open: ["plan"] });
 		await t.answers.run(
 			"tab",
-			{ requestId: "answer-1|plan", companion, plan: { type: "plan_approval", approved: false } as RpcCommand },
+			{
+				requestId: "answer-1|plan",
+				companion,
+				plan: { type: "plan_approval", approved: false } as RpcCommand,
+				planFile: "/p/plan-1.md",
+			},
 			t.send,
 		);
 		expect(t.appended).toEqual(["answer-1"]);
 		expect(t.answered).toEqual(["plan_approval"]);
+	});
+
+	describe("a plan approval", () => {
+		const plan: AnswerStep = {
+			requestId: "answer-1|plan",
+			companion,
+			plan: { type: "plan_approval", approved: true } as RpcCommand,
+			planFile: "/p/plan-1.md",
+		};
+
+		it("refuses the person's approval while the note goes in, then approves that plan once", async () => {
+			const t = target({ open: ["plan"] });
+			let during = "";
+			t.send.mockImplementationOnce(async command => {
+				during = t.personApprovesPlan();
+				if (command.type === "agent_control_mail") t.appended.push(String(command.details.id));
+				return { success: true };
+			});
+			await t.answers.run("tab", plan, t.send);
+			expect(during).toBe("being_answered");
+			expect(t.appended).toEqual(["answer-1"]);
+			expect(t.answered).toEqual(["plan_approval"]);
+			expect(t.claims.size).toBe(0);
+		});
+
+		it("sends no approval to a replacement plan, and says the attachments arrived", async () => {
+			const t = target({ open: ["plan"] });
+			t.send.mockImplementationOnce(async command => {
+				t.planFile.current = "/p/plan-2.md";
+				if (command.type === "agent_control_mail") t.appended.push(String(command.details.id));
+				return { success: true };
+			});
+			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(
+				/plan changed or was closed.*the attachments reached that session, and no approval was sent to any plan/,
+			);
+			expect(t.answered).toEqual([]);
+			expect(t.claims.size).toBe(0);
+		});
+
+		it("says so when the plan is closed meanwhile", async () => {
+			const t = target({ open: ["plan"] });
+			t.send.mockImplementationOnce(async () => {
+				t.open.delete("plan");
+				return { success: true };
+			});
+			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(/plan changed or was closed/);
+			expect(t.answered).toEqual([]);
+		});
+
+		it("refuses a plan that is not the one named, and one already held", async () => {
+			const t = target({ open: ["plan"] });
+			t.planFile.current = "/p/plan-2.md";
+			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(
+				/not open any more, or another answer holds it/,
+			);
+			expect(t.send).not.toHaveBeenCalled();
+		});
+
+		it("releases the claim when the note fails, so the person can still approve", async () => {
+			const t = target({ open: ["plan"], noteFails: true });
+			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(/Neither the attachments nor the answer/);
+			expect(t.personApprovesPlan()).toBe("answered");
+		});
 	});
 });
