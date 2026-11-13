@@ -897,6 +897,24 @@ describe("workflows", () => {
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "scripts/windows-installer-check.ps1"))).toBe(true);
 	});
 
+	it("runs formal verification by hand on any branch and stamps only through a branch", () => {
+		const formal = parse(workflows.find(entry => entry.name === "formal.yml")?.text ?? "") as {
+			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+			permissions: Record<string, string>;
+			concurrency: { group: string };
+			jobs: { formal: { steps: { run?: string; if?: string }[] } };
+		};
+		expect(Object.keys(formal.on.workflow_dispatch.inputs)).toEqual(["only", "tier", "stamp", "skip_mutations"]);
+		expect(formal.permissions).toEqual({ contents: "write" });
+		expect(formal.concurrency.group).toContain("github.ref");
+		expect(formal.concurrency.group).toContain("inputs.only");
+		const steps = formal.jobs.formal.steps;
+		expect(steps[0]?.if).toBe("inputs.stamp && github.ref == 'refs/heads/main'");
+		const runs = steps.map(step => step.run ?? "").join("\n");
+		expect(runs).toContain("ompdesk-formal-verify/scripts/verify-all.ts");
+		expect(runs).toContain("chore(formal): stamp ${ids} on ${sha7}");
+	});
+
 	it("runs the @smoke e2e on every Windows release, and offers it by hand with captures and the omp update lock check", () => {
 		const release = parse(workflows.find(entry => entry.name === "release.yml")?.text ?? "") as ReleaseWorkflow;
 		const runs = (job: string) => release.jobs[job]?.steps.map(step => step.run ?? "") ?? [];

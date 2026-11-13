@@ -11,6 +11,10 @@ A test checks the cases someone thought to write. A model checker explores every
 
 A pass means "no counterexample within this model and these bounds". It never means "the code is correct". Say the bounds, and name what the model leaves out.
 
+## Run on the runner, not on this machine
+
+TLC, the mutation runs and the stamp are hours of CPU. In the OMPdesk repo they run on a GitHub runner: `gh workflow run formal.yml --ref <branch> -f only=<model id> -f stamp=true` (inputs `only`, `tier` fast|deep, `stamp`, `skip_mutations`), then `gh run watch <run-id> --interval 120` once as an async bash job. With `stamp=true` the workflow commits the updated `formal/manifest.json` to that branch as `chore(formal): stamp <ids> on <sha7>`; it refuses `main`, so stamp from a branch. Locally run only a sub-second spec edit check (a parse of the spec), never the matrix, the mutations or `--stamp`.
+
 ## Where things are
 
 `<skill-dir>` is the folder that holds this SKILL.md: the path shown when you read it. Everything below is relative to it. Scripts are Bun TypeScript (omp always has Bun) and run the same on macOS and Windows:
