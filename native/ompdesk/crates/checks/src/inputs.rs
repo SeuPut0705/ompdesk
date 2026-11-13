@@ -250,8 +250,17 @@ fn hash_file(path: &Path) -> io::Result<String> {
         .collect())
 }
 
+/// A file modified this close to the moment it was hashed may change again within the same timestamp tick (Windows
+/// updates a write time at the clock's 1-16 ms resolution, HFS+ and FAT keep whole seconds), leaving size and times
+/// as the cache saw them with new bytes: git's "racy clean" case. Its hash is not cached, so the next look hashes it.
+const RACY: Duration = Duration::from_secs(3);
+
 /// Walks the checkout and hashes what the cache cannot vouch for; the cache learns the new hashes.
 pub fn snapshot(root: &Path, ignored: Option<&[String]>, cache: &mut StatCache) -> Files {
+    let racy_after = std::time::SystemTime::now()
+        .checked_sub(RACY)
+        .unwrap_or(std::time::UNIX_EPOCH);
+    let mut racy: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut found: Vec<(String, PathBuf, Option<Stat>, Option<String>)> = Vec::new();
     let mut stack = vec![(root.to_path_buf(), String::new())];
     while let Some((dir, rel)) = stack.pop() {
@@ -288,6 +297,9 @@ pub fn snapshot(root: &Path, ignored: Option<&[String]>, cache: &mut StatCache) 
                 ));
             } else if let Ok(meta) = entry.metadata() {
                 let stat = stat_of(&meta);
+                if meta.modified().map_or(true, |m| m >= racy_after) {
+                    racy.insert(child.clone());
+                }
                 let known = cache
                     .map
                     .get(&child)
@@ -335,7 +347,11 @@ pub fn snapshot(root: &Path, ignored: Option<&[String]>, cache: &mut StatCache) 
     for (rel, _, stat, hash) in found {
         let hash = hash.unwrap_or_default();
         if let Some(stat) = stat {
-            cache.map.insert(rel.clone(), (stat, hash.clone()));
+            if racy.contains(&rel) {
+                cache.map.remove(&rel);
+            } else {
+                cache.map.insert(rel.clone(), (stat, hash.clone()));
+            }
             let mark = if stat.exec { "x" } else { "" };
             files.push((rel, format!("{hash}{mark}")));
         } else {
@@ -684,6 +700,30 @@ mod tests {
         assert_eq!(changed_paths(&first, &edited), vec!["a.ts".to_string()]);
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn a_file_written_just_now_is_hashed_again_next_time() {
+        // Windows keeps a write time at the clock's tick: two same-size writes in one tick look unchanged, so a
+        // hash of a file that fresh is never kept (it failed exactly so on windows-latest, 13 Nov 2026).
+        let root = temp("racy");
+        fs::write(root.join("fresh.ts"), "one").unwrap();
+        fs::write(root.join("old.ts"), "one").unwrap();
+        let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
+        fs::File::options()
+            .write(true)
+            .open(root.join("old.ts"))
+            .unwrap()
+            .set_modified(hour_ago)
+            .unwrap();
+        let mut cache = StatCache {
+            path: root.join("cache.tsv"),
+            map: HashMap::new(),
+        };
+        snapshot(&root, None, &mut cache);
+        assert!(!cache.map.contains_key("fresh.ts"));
+        assert!(cache.map.contains_key("old.ts"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
