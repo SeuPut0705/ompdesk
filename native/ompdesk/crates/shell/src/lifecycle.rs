@@ -120,6 +120,7 @@ pub fn on_event(name: &str, data: Value, _bin: Option<Vec<u8>>) {
 
 /// Used by the host's request handler for `app.init`.
 pub fn init(call: Call) {
+    crate::started::node_ready();
     boot_send(Boot::Init(call));
 }
 

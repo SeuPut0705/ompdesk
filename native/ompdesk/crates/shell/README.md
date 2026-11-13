@@ -119,6 +119,9 @@ file name).
   (`prefers-color-scheme`).
 - **Preview partitions** (no `persist:` prefix) are in-memory request contexts that keep nothing, so `clearCache` and
   `clearStorageData` do nothing for them; creating the two Preview contexts logs a non-fatal Chromium `NOTREACHED` line.
+- **Start marker**: `<userData>/shell-started.json` (`{version, pid, at}`) is written atomically once Node has sent
+  `app.init` and an app window's page has loaded: the installer's swap treats a missing marker as a failed start.
+  `OMP_GUI_TEST_SHELL_FAIL_START=1` makes the shell exit 1 right after CEF initialised, without a marker.
 - **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs each host request; a Rust panic writes `%TEMP%/ompdesk-shell-panic.log`.
 - **Dialogs** run on a thread of their own so their modal loop does not block CEF's UI thread; macOS `messageBox` is
   an app-modal alert, not a sheet.

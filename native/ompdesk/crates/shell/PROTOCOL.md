@@ -435,6 +435,11 @@ What the Rust shell does differently from this table or from Electron. README.md
   `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
 - **Application menu accelerators** are matched by a message hook for typed keys; a key sent through the DevTools protocol
   (the e2e harness) reaches the shell as an unhandled key event and is matched there.
+- **Start marker**: `<userData>/shell-started.json` `{"version": "<app package.json version>", "pid": n, "at": <epoch ms>}`,
+  written atomically (temp file + rename) once Node has sent `app.init` AND an app window's main frame finished loading
+  (`marker.rs`, `started.rs`), never earlier and once per launch. The installer's swap reads it: a moved install whose
+  new shell never writes it gets the previous Electron back. Test seam `OMP_GUI_TEST_SHELL_FAIL_START=1`: the shell exits
+  1 right after CEF initialised, without a marker.
 - **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs every host request (`host.request`); a Rust panic writes
   `%TEMP%/ompdesk-shell-panic.log`.
 - **`menu.popup`** answers `null` when another popup is open; popup choices never emit `menu.click`.
