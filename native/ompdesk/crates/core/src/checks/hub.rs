@@ -9,13 +9,26 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use serde::Deserialize;
 use tokio::sync::{broadcast, watch};
 
 use super::contract::{
-    Answer, Origin, RunResult, Snapshot, StartReply, StartRequest, StatusRequest, WaitRequest,
+    Answer, MainFact, Origin, RunResult, Snapshot, StartReply, StartRequest, StatusRequest,
+    WaitRequest,
 };
 use super::sources::{GithubSource, LocalSource};
+use crate::run::Runner;
 use crate::server::{Fault, Scope};
+
+/// How gh and git run, as main hands it over (`ghRunner` and `gitRunner`; None: not installed). It holds the
+/// environment, tokens included: never logged, never part of an answer.
+#[derive(Deserialize)]
+pub struct Runners {
+    pub gh: Option<Runner>,
+    pub git: Option<Runner>,
+    /// Where gh runs when a request names its repository itself.
+    pub home: String,
+}
 
 pub type Fut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -46,6 +59,12 @@ pub trait ChecksHub: Send + Sync {
 
     /// The owner's switch: while paused every start is refused with "paused by the owner".
     fn pause(&self, paused: bool) -> Fut<'_, Result<(), Fault>>;
+
+    /// What main knows and the hub cannot read itself.
+    fn told(&self, fact: MainFact) -> Fut<'_, Result<(), Fault>>;
+
+    /// How gh and git run from now on.
+    fn runners(&self, runners: Runners) -> Fut<'_, Result<(), Fault>>;
 }
 
 fn not_built(part: &str) -> Fault {
@@ -102,5 +121,13 @@ impl ChecksHub for Hub {
 
     fn pause(&self, _paused: bool) -> Fut<'_, Result<(), Fault>> {
         Box::pin(async { Err(not_built("pause")) })
+    }
+
+    fn told(&self, _fact: MainFact) -> Fut<'_, Result<(), Fault>> {
+        Box::pin(async { Err(not_built("what main tells the hub")) })
+    }
+
+    fn runners(&self, _runners: Runners) -> Fut<'_, Result<(), Fault>> {
+        Box::pin(async { Err(not_built("the gh and git runners")) })
     }
 }

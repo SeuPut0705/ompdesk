@@ -132,6 +132,10 @@ export function createFakeChecksHub(): FakeChecksHub {
 			show({ ...snapshot, paused });
 		},
 
+		async told(fact) {
+			called("told", null, fact);
+		},
+
 		async apply(op) {
 			switch (op.op) {
 				case "snapshot":
@@ -244,6 +248,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				jobs: [
 					{
 						id: "job-411",
+						name: "mac-smoke",
 						os: "macos",
 						pool: "github-macos",
 						state: "running",
@@ -252,6 +257,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 					},
 					{
 						id: "job-412",
+						name: "check (node 1/2)",
 						os: "linux",
 						pool: "github-linux",
 						state: "passed",
@@ -271,7 +277,16 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				lane: "branch",
 				trigger: "dispatch",
 				origin: { kind: "session", session: "4e5f6a7b", device: "mac-mini" },
-				jobs: [{ id: "job-421", os: "macos", pool: "github-macos", state: "held", queuedAt: asOf - 6 * minute }],
+				jobs: [
+					{
+						id: "job-421",
+						name: "mac-native",
+						os: "macos",
+						pool: "github-macos",
+						state: "held",
+						queuedAt: asOf - 6 * minute,
+					},
+				],
 				digest: "sha256:02af",
 			},
 			{
@@ -285,6 +300,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				jobs: [
 					{
 						id: "job-401",
+						name: "build",
 						os: "linux",
 						pool: "github-linux",
 						state: "failed",
@@ -326,6 +342,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				repo: "example/app",
 				base: "main",
 				pr: 128,
+				title: "Index the search results",
 				sha: "1a3c5e7092b4d6f8a0c2e4f6081a3c5e7092b4d6",
 				lane: "land",
 				position: 1,
@@ -337,14 +354,14 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 			{
 				policy: "cancel-superseded",
 				run: "run-39",
-				action: "cancelled",
+				action: "cancel-superseded",
 				reason: "run-42 is a newer run of the same ref and workflow",
 				at: asOf - 6 * minute,
 			},
 			{
 				policy: "release-first",
 				run: "run-42",
-				action: "held",
+				action: "hold",
 				reason: "macOS is full (5 of 5) and a release job is ahead",
 				at: asOf - 6 * minute,
 			},
@@ -356,8 +373,13 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				{
 					test: "t-91ac",
 					name: "e2e/smoke.e2e.ts › opens a tab",
+					os: "windows",
 					p50Ms30d: 4200,
+					runs7d: 140,
+					fails7d: 11,
 					state: "quarantined",
+					flakedOn: "sha256:a31f",
+					quarantinedAt: asOf - 2 * 24 * 60 * minute,
 					quarantinedBy: SESSION,
 					cleanSince: 2,
 				},
@@ -366,18 +388,25 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				{
 					test: "t-55d0",
 					name: "src/store/save.test.ts > saves the file once",
+					os: "linux",
 					p50Ms30d: 900,
-					lastMs: [1300, 1280, 1410],
+					lastMs: [880, 910, 1300, 1280, 1410],
+					sinceSha: "9f2c1d7e4b6a8c0d2e4f6a8b0c1d3e5f7a9b1c3d",
 				},
 			],
 			minutes: [
-				{ os: "macos", month: "2026-11", minutes: 412.5 },
-				{ os: "linux", month: "2026-11", minutes: 1890 },
+				{ os: "macos", month: "2026-11", minutes: 412.5, costUsd: 33 },
+				{ os: "linux", month: "2026-11", minutes: 1890, costUsd: 15.12 },
 			],
 			queueDepth: [
 				{ at: asOf - 30 * minute, pool: "github-macos", queued: 1 },
 				{ at: asOf, pool: "github-macos", queued: 3 },
 			],
+			lostMs7d: 90 * minute,
+			lostMsPrev7d: 150 * minute,
+			savedByRerunMs7d: 360 * minute,
+			savedByReuseMs7d: 240 * minute,
+			storeBytes: 6_800_000_000,
 		},
 	};
 }

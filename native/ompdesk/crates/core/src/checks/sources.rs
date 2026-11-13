@@ -101,6 +101,8 @@ pub struct GithubJob {
     pub id: u64,
     pub run: u64,
     pub name: String,
+    /// GitHub's `run_attempt` of the job: one not run again in a rerun keeps the earlier attempt's number.
+    pub attempt: u32,
     pub status: String,
     pub conclusion: Option<String>,
     /// The runner labels (`macos-15`, `ubuntu-latest`); empty while a concurrency group holds the job back.
@@ -109,6 +111,17 @@ pub struct GithubJob {
     pub started_at: Option<Timestamp>,
     pub completed_at: Option<Timestamp>,
     pub steps: Vec<GithubStep>,
+}
+
+/// A file a run uploaded (`actions/runs/<id>/artifacts`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubArtifact {
+    pub id: u64,
+    pub name: String,
+    pub size_bytes: u64,
+    pub expired: bool,
+    pub created_at: Timestamp,
 }
 
 /// A workflow dispatch. `inputs` carry the admission ticket once the workflows ask for one.
@@ -161,6 +174,19 @@ pub trait GithubSource: Send + Sync {
 
     /// None before the first answer.
     fn budget(&self) -> Option<Budget>;
+
+    /// The run's artifacts (the test reports a workflow uploads).
+    fn artifacts<'a>(
+        &'a self,
+        repo: &'a str,
+        run: u64,
+    ) -> Fut<'a, Result<Vec<GithubArtifact>, SourceError>>;
+
+    /// One artifact's zip, as GitHub serves it.
+    fn artifact<'a>(&'a self, repo: &'a str, id: u64) -> Fut<'a, Result<Vec<u8>, SourceError>>;
+
+    /// Whether the repo is private (placement: a private repo goes local first, a public one to runners).
+    fn is_private<'a>(&'a self, repo: &'a str) -> Fut<'a, Result<bool, SourceError>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,6 +222,9 @@ pub struct LocalPool {
     pub as_of: Timestamp,
     /// The paired link to that computer is lost: zero capacity, shown as `offline`, never as empty.
     pub offline: bool,
+    /// The size of that computer's check store (`<cache>/ompdesk/checks`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_store_bytes: Option<u64>,
 }
 
 /// One `ompdesk check` run, from its journal (`<cache>/ompdesk/checks/runs/<id>/run.json`).
@@ -270,6 +299,12 @@ pub struct GithubFacts {
     /// By folder.
     pub checkouts: BTreeMap<String, Checkout>,
     pub budget: Option<Budget>,
+    /// By run id.
+    pub artifacts: Vec<(u64, GithubArtifact)>,
+    /// An artifact's zip, by its id.
+    pub archives: BTreeMap<u64, Vec<u8>>,
+    /// The private repos; every other is public.
+    pub private: Vec<RepoId>,
     /// Every read and write fails with this while it is set.
     pub down: Option<SourceError>,
 }
@@ -405,6 +440,34 @@ impl GithubSource for FakeGithub {
 
     fn budget(&self) -> Option<Budget> {
         locked(&self.facts).budget
+    }
+
+    fn artifacts<'a>(
+        &'a self,
+        _repo: &'a str,
+        run: u64,
+    ) -> Fut<'a, Result<Vec<GithubArtifact>, SourceError>> {
+        Box::pin(async move {
+            self.read(|facts| {
+                facts
+                    .artifacts
+                    .iter()
+                    .filter(|(of, _)| *of == run)
+                    .map(|(_, artifact)| artifact.clone())
+                    .collect()
+            })
+        })
+    }
+
+    fn artifact<'a>(&'a self, _repo: &'a str, id: u64) -> Fut<'a, Result<Vec<u8>, SourceError>> {
+        Box::pin(async move {
+            self.read(|facts| facts.archives.get(&id).cloned())?
+                .ok_or_else(|| SourceError::new("failed", format!("no artifact {id}")))
+        })
+    }
+
+    fn is_private<'a>(&'a self, repo: &'a str) -> Fut<'a, Result<bool, SourceError>> {
+        Box::pin(async move { self.read(|facts| facts.private.iter().any(|of| of == repo)) })
     }
 }
 

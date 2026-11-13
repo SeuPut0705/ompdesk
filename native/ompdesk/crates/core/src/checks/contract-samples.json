@@ -19,6 +19,8 @@
     "pause": "checks.pause",
     "fake": "checks.fake",
     "snapshot": "checks.snapshot",
+    "facts": "checks.facts",
+    "runners": "checks.runners",
     "result": "checks.result"
   },
   "enums": {
@@ -187,6 +189,7 @@
     "Job": [
       {
         "id": "job-1",
+        "name": "mac-smoke",
         "os": "macos",
         "pool": "github-macos",
         "state": "running",
@@ -214,6 +217,7 @@
         "jobs": [
           {
             "id": "job-1",
+            "name": "mac-smoke",
             "os": "macos",
             "pool": "github-macos",
             "state": "running",
@@ -267,8 +271,14 @@
       {
         "test": "t-91ac",
         "name": "e2e/smoke.e2e.ts › opens a tab",
+        "os": "windows",
         "p50Ms30d": 4200,
+        "runs7d": 140,
+        "fails7d": 11,
         "state": "quarantined",
+        "flakedOn": "sha256:a31f",
+        "quarantinedAt": 1793900000000,
+        "clearedAt": 1793990000000,
         "quarantinedBy": {
           "kind": "session",
           "session": "0a1b2c3d",
@@ -422,6 +432,7 @@
             "jobs": [
               {
                 "id": "job-1",
+                "name": "mac-smoke",
                 "os": "macos",
                 "pool": "github-macos",
                 "state": "running",
@@ -461,6 +472,7 @@
             "repo": "example/app",
             "base": "main",
             "pr": 12,
+            "title": "Index the search results",
             "sha": "0123456789abcdef0123456789abcdef01234567",
             "lane": "land",
             "position": 1,
@@ -472,7 +484,7 @@
           {
             "policy": "cancel-superseded",
             "run": "run-0",
-            "action": "cancelled",
+            "action": "cancel-superseded",
             "reason": "run-1 is a newer run of the same ref and workflow",
             "at": 1794000100000
           }
@@ -528,8 +540,14 @@
             {
               "test": "t-91ac",
               "name": "e2e/smoke.e2e.ts › opens a tab",
+              "os": "windows",
               "p50Ms30d": 4200,
+              "runs7d": 140,
+              "fails7d": 11,
               "state": "quarantined",
+              "flakedOn": "sha256:a31f",
+              "quarantinedAt": 1793900000000,
+              "clearedAt": 1793990000000,
               "quarantinedBy": {
                 "kind": "session",
                 "session": "0a1b2c3d",
@@ -543,19 +561,23 @@
             {
               "test": "t-91ac",
               "name": "e2e/smoke.e2e.ts › opens a tab",
+              "os": "linux",
               "p50Ms30d": 4200,
               "lastMs": [
+                4100,
                 5900,
                 6100,
                 6300
-              ]
+              ],
+              "sinceSha": "0123456789abcdef0123456789abcdef01234567"
             }
           ],
           "minutes": [
             {
               "os": "macos",
               "month": "2026-11",
-              "minutes": 412.5
+              "minutes": 412.5,
+              "costUsd": 33.0
             }
           ],
           "queueDepth": [
@@ -564,7 +586,78 @@
               "pool": "github-macos",
               "queued": 3
             }
-          ]
+          ],
+          "lostMs7d": 5400000,
+          "lostMsPrev7d": 9000000,
+          "savedByRerunMs7d": 21600000,
+          "savedByReuseMs7d": 14400000,
+          "storeBytes": 6800000000
+        }
+      }
+    ],
+    "LocalPool": [
+      {
+        "device": "mac-mini",
+        "os": "macos",
+        "slots": 1,
+        "held": 1,
+        "queued": 2,
+        "oldestWaitMs": 120000,
+        "volumes": [
+          {
+            "path": "/",
+            "freeGb": 18.9,
+            "totalGb": 245.1,
+            "low": true
+          }
+        ],
+        "asOf": 1794000700000,
+        "offline": false,
+        "checkStoreBytes": 6800000000
+      }
+    ],
+    "MainFact": [
+      {
+        "kind": "repos",
+        "repos": [
+          "example/app"
+        ]
+      },
+      {
+        "kind": "devicePool",
+        "pool": {
+          "device": "mac-mini",
+          "os": "macos",
+          "slots": 1,
+          "held": 1,
+          "queued": 2,
+          "oldestWaitMs": 120000,
+          "volumes": [
+            {
+              "path": "/",
+              "freeGb": 18.9,
+              "totalGb": 245.1,
+              "low": true
+            }
+          ],
+          "asOf": 1794000700000,
+          "offline": false,
+          "checkStoreBytes": 6800000000
+        }
+      },
+      {
+        "kind": "deviceOffline",
+        "device": "mac-mini"
+      },
+      {
+        "kind": "sessions",
+        "tags": {
+          "3f9a": {
+            "kind": "session",
+            "session": "0a1b2c3d",
+            "device": "local",
+            "goal": "goal-7"
+          }
         }
       }
     ],
@@ -608,6 +701,7 @@
               "jobs": [
                 {
                   "id": "job-1",
+                  "name": "mac-smoke",
                   "os": "macos",
                   "pool": "github-macos",
                   "state": "running",
@@ -647,6 +741,7 @@
               "repo": "example/app",
               "base": "main",
               "pr": 12,
+              "title": "Index the search results",
               "sha": "0123456789abcdef0123456789abcdef01234567",
               "lane": "land",
               "position": 1,
@@ -658,7 +753,7 @@
             {
               "policy": "cancel-superseded",
               "run": "run-0",
-              "action": "cancelled",
+              "action": "cancel-superseded",
               "reason": "run-1 is a newer run of the same ref and workflow",
               "at": 1794000100000
             }
@@ -714,8 +809,14 @@
               {
                 "test": "t-91ac",
                 "name": "e2e/smoke.e2e.ts › opens a tab",
+                "os": "windows",
                 "p50Ms30d": 4200,
+                "runs7d": 140,
+                "fails7d": 11,
                 "state": "quarantined",
+                "flakedOn": "sha256:a31f",
+                "quarantinedAt": 1793900000000,
+                "clearedAt": 1793990000000,
                 "quarantinedBy": {
                   "kind": "session",
                   "session": "0a1b2c3d",
@@ -729,19 +830,23 @@
               {
                 "test": "t-91ac",
                 "name": "e2e/smoke.e2e.ts › opens a tab",
+                "os": "linux",
                 "p50Ms30d": 4200,
                 "lastMs": [
+                  4100,
                   5900,
                   6100,
                   6300
-                ]
+                ],
+                "sinceSha": "0123456789abcdef0123456789abcdef01234567"
               }
             ],
             "minutes": [
               {
                 "os": "macos",
                 "month": "2026-11",
-                "minutes": 412.5
+                "minutes": 412.5,
+                "costUsd": 33.0
               }
             ],
             "queueDepth": [
@@ -750,7 +855,12 @@
                 "pool": "github-macos",
                 "queued": 3
               }
-            ]
+            ],
+            "lostMs7d": 5400000,
+            "lostMsPrev7d": 9000000,
+            "savedByRerunMs7d": 21600000,
+            "savedByReuseMs7d": 14400000,
+            "storeBytes": 6800000000
           }
         }
       },

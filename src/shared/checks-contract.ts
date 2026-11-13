@@ -88,6 +88,10 @@ export const CHECKS_WIRE = {
 	status: "checks.status",
 	watch: "checks.watch",
 	pause: "checks.pause",
+	/** `{hub, fact}`: what main knows and the hub cannot read itself (`MainFact`). */
+	facts: "checks.facts",
+	/** `{hub, gh, git, home}`: how gh and git run (main's runners, null when not installed). Never logged. */
+	runners: "checks.runners",
 	fake: "checks.fake",
 	snapshot: "checks.snapshot",
 	result: "checks.result",
@@ -128,8 +132,11 @@ export type Pool = z.infer<typeof PoolSchema>;
 export const OriginSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
 		kind: z.literal("session"),
+		/** The saved id (the id in the session file's name, `savedIdOfPath`); a session with no file yet goes by its tab id. */
 		session: z.string(),
+		/** `local` for the hub's own computer, else the paired device's OMPdesk id. */
 		device: z.string(),
+		/** The goal's own short text as its computer knew it at the start: shown as written, never looked up. */
 		goal: z.string().optional(),
 	}),
 	z.strictObject({ kind: z.literal("person") }),
@@ -140,6 +147,8 @@ export type Origin = z.infer<typeof OriginSchema>;
 
 export const JobSchema = z.strictObject({
 	id: z.string(),
+	/** The workflow job's name (`mac-smoke`, `check (node 1/2)`), as a gate's `jobs` list it. */
+	name: z.string(),
 	os: z.enum(OS),
 	pool: z.string(),
 	state: z.enum(JOB_STATES),
@@ -201,7 +210,7 @@ export type Policy = z.infer<typeof PolicySchema>;
 export const DecisionSchema = z.strictObject({
 	policy: z.string(),
 	run: z.string(),
-	action: z.string(),
+	action: z.enum(POLICY_ACTIONS),
 	reason: z.string(),
 	at: Timestamp,
 });
@@ -212,6 +221,8 @@ export const QueueEntrySchema = z.strictObject({
 	repo: z.string(),
 	base: z.string(),
 	pr: Count,
+	/** The pull request's title. */
+	title: z.string(),
 	sha: z.string(),
 	lane: z.enum(LANES),
 	position: Count,
@@ -235,8 +246,16 @@ export const TestHistorySchema = z.strictObject({
 	test: z.string(),
 	/** The name a person reads (file and titles). */
 	name: z.string(),
+	/** Quarantine is per OS: a test that flakes on Windows is not suspect on Linux. */
+	os: z.enum(OS),
 	p50Ms30d: Count,
+	runs7d: Count,
+	fails7d: Count,
 	state: z.enum(TEST_STATES),
+	/** The inputs it both passed and failed on. */
+	flakedOn: z.string().optional(),
+	quarantinedAt: Timestamp.optional(),
+	clearedAt: Timestamp.optional(),
 	quarantinedBy: OriginSchema.optional(),
 	/** Clean runs on different inputs so far, of the 5 that clear it. */
 	cleanSince: Count,
@@ -309,10 +328,28 @@ export type RunResult = z.infer<typeof RunResultSchema>;
 /** The "Tests and cost" tab (empty until P4 fills it). */
 export const TrendsSchema = z.strictObject({
 	tests: z.array(TestHistorySchema),
-	slowdowns: z.array(z.strictObject({ test: z.string(), name: z.string(), p50Ms30d: Count, lastMs: z.array(Count) })),
-	/** `month`: `YYYY-MM`. */
-	minutes: z.array(z.strictObject({ os: z.enum(OS), month: z.string(), minutes: z.number() })),
+	slowdowns: z.array(
+		z.strictObject({
+			test: z.string(),
+			name: z.string(),
+			os: z.enum(OS),
+			p50Ms30d: Count,
+			/** The recent durations, oldest first; the last three are the slow runs. */
+			lastMs: z.array(Count),
+			/** The commit of the first slow run. */
+			sinceSha: z.string().optional(),
+		}),
+	),
+	/** `month`: `YYYY-MM`. `costUsd`: the minutes at GitHub's published rate for the runner (an estimate, not a bill). */
+	minutes: z.array(z.strictObject({ os: z.enum(OS), month: z.string(), minutes: z.number(), costUsd: z.number() })),
 	queueDepth: z.array(z.strictObject({ at: Timestamp, pool: z.string(), queued: Count })),
+	/** Time lost to flaky failures in the last 7 days, and in the 7 before. */
+	lostMs7d: Count,
+	lostMsPrev7d: Count,
+	savedByRerunMs7d: Count,
+	savedByReuseMs7d: Count,
+	/** What the check logs and the reuse store hold on disk. */
+	storeBytes: Count.optional(),
 });
 export type Trends = z.infer<typeof TrendsSchema>;
 
@@ -333,6 +370,37 @@ export const SnapshotSchema = z.strictObject({
 });
 export type Snapshot = z.infer<typeof SnapshotSchema>;
 
+/** A computer's heavy pool (`ompdesk heavy status --json`), as that computer answers it. */
+export const LocalPoolSchema = z.strictObject({
+	device: z.string(),
+	os: z.enum(OS),
+	slots: Count,
+	held: Count,
+	queued: Count,
+	oldestWaitMs: Count,
+	/** `low`: under `min_free`, so no heavy work starts on it. */
+	volumes: z.array(z.strictObject({ path: z.string(), freeGb: z.number(), totalGb: z.number(), low: z.boolean() })),
+	asOf: Timestamp,
+	/** The paired link to that computer is lost: zero capacity, shown as `offline`, never as empty. */
+	offline: z.boolean(),
+	/** The size of that computer's check store. */
+	checkStoreBytes: Count.optional(),
+});
+export type LocalPool = z.infer<typeof LocalPoolSchema>;
+
+/**
+ * What main knows and the hub cannot read itself; main says it again whenever it changes. `repos`: those of the open
+ * sessions' checkouts. `devicePool`: a paired computer's pool, as it answered over the link. `deviceOffline`: that
+ * link is lost. `sessions`: whose each session tag is, so a local check run names the session that started it.
+ */
+export const MainFactSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("repos"), repos: z.array(z.string()) }),
+	z.strictObject({ kind: z.literal("devicePool"), pool: LocalPoolSchema }),
+	z.strictObject({ kind: z.literal("deviceOffline"), device: z.string() }),
+	z.strictObject({ kind: z.literal("sessions"), tags: z.record(OriginSchema) }),
+]);
+export type MainFact = z.infer<typeof MainFactSchema>;
+
 /** What `checks.fake` takes (the scripted hub of tests and the dev harness). */
 export const FakeOpSchema = z.discriminatedUnion("op", [
 	z.strictObject({ op: z.literal("snapshot"), snapshot: SnapshotSchema }),
@@ -342,7 +410,10 @@ export const FakeOpSchema = z.discriminatedUnion("op", [
 ]);
 export type FakeOp = z.infer<typeof FakeOpSchema>;
 
-/** A call the fake hub got: `op` is `start`, `wait`, `status` or `pause`. */
+/**
+ * A call the fake hub got: `op` is `start`, `wait`, `status`, `pause`, `told` (the request is the fact) or `runners`
+ * (the request says only which of gh and git came).
+ */
 export const FakeCallSchema = z.strictObject({ op: z.string(), origin: OriginSchema.nullable(), request: z.unknown() });
 export type FakeCall = z.infer<typeof FakeCallSchema>;
 
@@ -364,6 +435,8 @@ export const CHECKS_SCHEMAS = {
 	StatusRequest: StatusRequestSchema,
 	RunResult: RunResultSchema,
 	Snapshot: SnapshotSchema,
+	LocalPool: LocalPoolSchema,
+	MainFact: MainFactSchema,
 	FakeOp: FakeOpSchema,
 	FakeCall: FakeCallSchema,
 } as const;
@@ -382,6 +455,8 @@ export interface ChecksHub {
 	/** Every result as it arrives, whoever waits; returns the unsubscribe. */
 	onResult(listener: (result: RunResult) => void): () => void;
 	pause(paused: boolean): Promise<void>;
+	/** What main knows and the hub cannot read itself. */
+	told(fact: MainFact): Promise<void>;
 }
 
 export function emptySnapshot(asOf: number): Snapshot {
@@ -395,6 +470,15 @@ export function emptySnapshot(asOf: number): Snapshot {
 		decisions: [],
 		answers: [],
 		adoption: { started: 0, refused: 0, polls: 0, wrongGreens: 0 },
-		trends: { tests: [], slowdowns: [], minutes: [], queueDepth: [] },
+		trends: {
+			tests: [],
+			slowdowns: [],
+			minutes: [],
+			queueDepth: [],
+			lostMs7d: 0,
+			lostMsPrev7d: 0,
+			savedByRerunMs7d: 0,
+			savedByReuseMs7d: 0,
+		},
 	};
 }

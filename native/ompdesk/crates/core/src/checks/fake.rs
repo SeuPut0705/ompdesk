@@ -12,10 +12,10 @@ use serde_json::{Value, json};
 use tokio::sync::{Notify, broadcast, watch};
 
 use super::contract::{
-    Answer, AnswerVerdict, Counts, Next, Origin, RunResult, Snapshot, StartDecision, StartReply,
-    StartRequest, StatusRequest, Until, WAIT_DEFAULT_SECONDS, WaitRequest, Where,
+    Answer, AnswerVerdict, Counts, MainFact, Next, Origin, RunResult, Snapshot, StartDecision,
+    StartReply, StartRequest, StatusRequest, Until, WAIT_DEFAULT_SECONDS, WaitRequest, Where,
 };
-use super::hub::{ChecksHub, Fut, RESULTS_KEPT};
+use super::hub::{ChecksHub, Fut, RESULTS_KEPT, Runners};
 use crate::clock;
 use crate::server::{Fault, Scope};
 
@@ -37,7 +37,8 @@ pub enum FakeOp {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FakeCall {
-    /// `start`, `wait`, `status` or `pause`.
+    /// `start`, `wait`, `status`, `pause`, `told` (the request is the fact) or `runners` (the request says only
+    /// which of gh and git came, never how they run).
     pub op: String,
     pub origin: Option<Origin>,
     pub request: Value,
@@ -226,6 +227,21 @@ impl ChecksHub for FakeHub {
             self.state().changes += 1;
             self.snapshot.send_replace(Arc::new(snapshot));
             self.changed.notify_waiters();
+            Ok(())
+        })
+    }
+
+    fn told(&self, fact: MainFact) -> Fut<'_, Result<(), Fault>> {
+        Box::pin(async move {
+            self.called("told", None, &fact);
+            Ok(())
+        })
+    }
+
+    fn runners(&self, runners: Runners) -> Fut<'_, Result<(), Fault>> {
+        Box::pin(async move {
+            let came = json!({ "gh": runners.gh.is_some(), "git": runners.git.is_some() });
+            self.called("runners", None, &came);
             Ok(())
         })
     }
