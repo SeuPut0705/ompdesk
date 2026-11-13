@@ -430,6 +430,9 @@ What the Rust shell does differently from this table or from Electron. README.md
   overrides), retried for 2 s while the taskbar button does not exist yet; macOS draws it on the Dock tile with an
   `NSProgressIndicator` (UNVERIFIED); on a window that cannot take focus `show` and `showInactive` do not activate and
   `win.state.focused` stays false.
+- **macOS focus**: `setFocusable(false)` has no window flag there; the shell keeps it per window (the window never reports
+  `focused`, `show` does not activate it) and `showInactive` shows the window and hands key status back at once (never
+  `NSApp activate`). A created window's size is set again when Views made it 1 px off the requested one (UNVERIFIED on a Mac).
 - **`win.closeRequested`**: no answer within 5 s closes the window.
 - **`view.*`**: a view is hidden until its first `setVisible`/`setBounds` with a non-empty size; an empty `setBounds` only
   hides the view (a zero-sized browser view is a fatal check in Chromium).
@@ -463,7 +466,9 @@ What the Rust shell does differently from this table or from Electron. README.md
   cancel never ends the next alert. File dialogs are not cancelled.
 - **`notification.*`**: WinRT toasts keyed on the AppUserModelID; without a Start-menu shortcut carrying it a toast may
   not show, though `show` is still reported.
-- **`theme.setSource`** is pushed into every page as CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme`) and reaches
+- **`theme.setSource`** is a browser-wide colour scheme: `RequestContext::set_chrome_color_scheme` (SYSTEM/LIGHT/DARK) on the global
+  context and every partition's, in force before a page loads (a page's `<head>` script reads `prefers-color-scheme`
+  synchronously), plus CDP `Emulation.setEmulatedMedia` on each page as a second hold; it reaches
   native chrome: Windows sets `DWMWA_USE_IMMERSIVE_DARK_MODE` on every window (when the source changes, on window creation
   and on `theme.changed`), macOS sets `NSApp.appearance` (UNVERIFIED).
 - **`app.childProcessGone`**: CEF has no callback for a helper process ending, so a thread polls the shell's children once

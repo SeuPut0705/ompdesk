@@ -1,9 +1,11 @@
-//! `theme.setSource` and `theme.changed`: the OS colour scheme with Electron's `themeSource` override on top. CEF pages
-//! follow the OS scheme on their own; the override is Node's mirror only (the cef crate has no per-browser colour-scheme
-//! setter, so the override reaches each page as CDP media emulation of `prefers-color-scheme`).
+//! `theme.setSource` and `theme.changed`: the OS colour scheme with Electron's `themeSource` override on top. The override
+//! is a browser-wide colour scheme: `RequestContext::set_chrome_color_scheme` on the global context and every
+//! partition's, in force before any page loads (a page's `<head>` script reads `prefers-color-scheme` synchronously), and
+//! also CDP media emulation of `prefers-color-scheme` on each page as a second hold.
 
 use std::cell::RefCell;
 
+use cef::{ColorVariant, ImplRequestContext, RequestContext, request_context_get_global_context};
 use serde_json::{Value, json};
 use shell_core::desk_state::{ThemeSource, effective_theme};
 
@@ -62,6 +64,7 @@ pub fn handle(call: Call) {
             };
             crate::ui::run(move || {
                 STATE.with(|s| s.borrow_mut().source = source);
+                apply_scheme_all();
                 refresh();
                 apply_all();
                 apply_chrome_all();
@@ -70,6 +73,37 @@ pub fn handle(call: Call) {
             });
         }
         _ => call.unsupported(),
+    }
+}
+
+/// CEF's colour variant for a theme source (`system` hands the choice back to the OS).
+fn variant(source: ThemeSource) -> ColorVariant {
+    match source {
+        ThemeSource::System => ColorVariant::SYSTEM,
+        ThemeSource::Light => ColorVariant::LIGHT,
+        ThemeSource::Dark => ColorVariant::DARK,
+    }
+}
+
+/// Puts the current theme source on one request context (UI thread). A context made while the source is `system` is
+/// left alone: that is its default.
+pub fn apply_scheme_to_new_context(context: &RequestContext) {
+    let source = STATE.with(|s| s.borrow().source);
+    if source != ThemeSource::System {
+        context.set_chrome_color_scheme(variant(source), 0);
+    }
+}
+
+/// The theme source on the global context and every partition's context (UI thread).
+fn apply_scheme_all() {
+    let source = STATE.with(|s| s.borrow().source);
+    let contexts: Vec<RequestContext> =
+        crate::state::ui_state(|u| u.contexts.values().cloned().collect());
+    for context in request_context_get_global_context()
+        .into_iter()
+        .chain(contexts)
+    {
+        context.set_chrome_color_scheme(variant(source), 0);
     }
 }
 

@@ -237,6 +237,9 @@ pub struct WinEntry {
     /// application menu act on it, as Electron's roles act on the focused webContents.
     pub focused_wc: Option<u64>,
     pub sent_state: Option<Value>,
+    /// `setFocusable(false)` on a platform with no window flag for it (macOS): the window never reports focus and `show`
+    /// does not activate it.
+    pub no_focus: bool,
 }
 
 impl WinEntry {
@@ -260,6 +263,7 @@ impl WinEntry {
             views: Vec::new(),
             focused_wc: None,
             sent_state: None,
+            no_focus: false,
         }
     }
 }

@@ -106,6 +106,7 @@ pub fn context_for(partition: &str) -> Option<RequestContext> {
     };
     let context = request_context_create_context(Some(&settings), None)?;
     ui_state(|u| u.contexts.insert(partition.to_string(), context.clone()));
+    crate::theme::apply_scheme_to_new_context(&context);
     log(
         "session.created",
         json!({ "partition": partition, "persist": !cache_path.is_empty() }),

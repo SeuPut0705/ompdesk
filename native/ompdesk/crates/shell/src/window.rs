@@ -49,6 +49,7 @@ struct Snap {
     title: String,
     opacity: f64,
     options: Value,
+    no_focus: bool,
 }
 
 fn snap(entry: &WinEntry) -> Snap {
@@ -58,6 +59,7 @@ fn snap(entry: &WinEntry) -> Snap {
         title: entry.title.clone(),
         opacity: entry.opacity,
         options: entry.options.clone(),
+        no_focus: entry.no_focus,
     }
 }
 
@@ -101,7 +103,7 @@ fn state_json(entry: &Snap) -> Value {
         "normalBounds": normal_bounds,
         "contentBounds": rect_of(&content),
         "visible": window.is_visible() != 0,
-        "focused": window.is_active() != 0 && focusable(window),
+        "focused": window.is_active() != 0 && focusable(window) && !entry.no_focus,
         "minimized": minimized,
         "maximized": maximized,
         "fullscreen": fullscreen,
@@ -304,6 +306,15 @@ wrap_window_delegate! {
             };
             if !has_xy {
                 window.center_window(Some(&Size { width: w, height: h }));
+            }
+            // macOS: Views gave a window 1 px shorter than asked (the e2e relaunch lost a pixel per launch, as the bounds
+            // main saves are what it read back): the requested size is set again until it reads back as asked.
+            #[cfg(not(windows))]
+            {
+                let b = window.bounds();
+                if b.width != w || b.height != h {
+                    window.set_bounds(Some(&Rect { x: b.x, y: b.y, width: w, height: h }));
+                }
             }
             window.set_title(Some(&cs(&title)));
             #[cfg(windows)]
@@ -760,8 +771,10 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
             #[cfg(not(windows))]
             {
                 window.show();
-                window.activate();
-                window.bring_to_top();
+                if !entry.borrow().no_focus {
+                    window.activate();
+                    window.bring_to_top();
+                }
             }
         }
         "showInactive" => {
@@ -774,8 +787,12 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
                 window.show();
                 shell_core::sys::winops::set_focusable(hwnd, was);
             }
+            // macOS: Views shows the window and makes it key; it is then handed back (never `NSApp activate`).
             #[cfg(not(windows))]
-            window.show();
+            {
+                window.show();
+                window.deactivate();
+            }
         }
         "hide" => window.hide(),
         "close" => {
@@ -939,8 +956,20 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
                 shell_core::sys::winops::set_icon(hwnd, path);
             }
         }
+        #[cfg(not(windows))]
+        "setFocusable" => {
+            // No window flag does it on macOS: the window just never reports focus and `show` leaves it inactive.
+            let focusable = args
+                .get("focusable")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            entry.borrow_mut().no_focus = !focusable;
+            if !focusable {
+                window.deactivate();
+            }
+        }
         #[cfg(target_os = "macos")]
-        "setOpacity" | "setIgnoreMouseEvents" | "setSkipTaskbar" | "setFocusable" | "setIcon" => {
+        "setOpacity" | "setIgnoreMouseEvents" | "setSkipTaskbar" | "setIcon" => {
             crate::platform::window_op(&window, name, args)
         }
         other => {
