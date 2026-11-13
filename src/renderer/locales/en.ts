@@ -4474,6 +4474,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.sessionDump": "Save diagnostic bundle (session dump)",
 	"bridgeHealth.feature.advisorStats": "Advisor spend and advisories (Run popover, Insights)",
 	"bridgeHealth.feature.todoReminder": "Todo reminder after a refused todo call",
+	"bridgeHealth.feature.todoWait": "No todo reminder while a session waits for a reply",
 	"bridgeHealth.feature.todoStale": "Old todo list shown to the agent on a new request",
 	"bridgeHealth.feature.todoCompact": "Long todo list folded by the agent",
 	"bridgeHealth.feature.wasteGuards": "Refusing a bash ready.log that cannot match, and a hint against polling",

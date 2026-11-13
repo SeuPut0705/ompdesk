@@ -324,7 +324,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // marks the stand-in, `stores/model.ts` `chosenModelOf`, two strings) and the credit use switch's strings in the
 // English catalog (the row itself is Settings', off the first screen): measured 2,199,241 on the working tree,
 // 659 bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_199_241;
+// A todo reminder turn that only repeats the answer above folds under it (13 Nov 2026: `foldRepeatedAnswers` and
+// `repeated-answer.ts` in the transcript, `FoldedReminders`, two strings, plus the health label of the bridge feature
+// that keeps the reminder from waking a waiting session, all in the English catalog): measured 2,199,378 on
+// cb261f72 by ci.yml's build before the label (about 110 bytes), 137 bytes over; the budget takes both.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_199_500;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
