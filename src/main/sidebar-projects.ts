@@ -1,7 +1,8 @@
 /**
  * This computer's sidebar project list (contract `src/shared/sidebar-projects.ts`): the folders the person opened or
- * added, and every folder this computer's sessions ran in, so a project outlives its last session. Kept in main
- * because a paired device reads and edits it too (`host.projects.command`), whether or not a window here is open.
+ * added, and every folder this computer's sessions ran in. A project the person opened or added outlives its last
+ * session; one only sessions brought in (`by: "sessions"`) leaves with it, unless pinned. Kept in main because a
+ * paired device reads and edits it too (`host.projects.command`), whether or not a window here is open.
  *
  * Sessions bring their folder in by themselves: `sync` runs once at start (which also lists every folder that had
  * sessions before the list existed) and again after the session index changes. A folder the person removed stays out
@@ -37,8 +38,8 @@ export type SidebarProjectsSession = Pick<
 export interface SidebarProjectsDeps {
 	read: () => unknown;
 	write: (state: SidebarProjectsState) => void;
-	/** This computer's stored sessions. */
-	sessions: () => Promise<readonly SidebarProjectsSession[]>;
+	/** This computer's stored sessions; null while they cannot be read (no usable omp yet), never taken as none. */
+	sessions: () => Promise<readonly SidebarProjectsSession[] | null>;
 	/** The no-project Work workspace: its sessions are the sidebar's chats, never a project's. */
 	defaultWorkspace: () => string;
 	/** The project a folder belongs to (a linked worktree's main checkout, else the folder), null when it is gone. */
@@ -56,6 +57,8 @@ export interface SidebarProjectsDeps {
 	autopilotRunOf?: (cwd: string) => Promise<AutopilotRun | null>;
 	/** The worktrees this computer's own tabs are bound to (folder, branch, main checkout): a run git cannot read yet. */
 	worktreeBindings?: () => ReadonlyArray<{ path: string; branch: string; baseCwd: string }>;
+	/** The projects the person pinned on this computer: one only sessions brought in stays while pinned. */
+	pinned?: () => readonly string[];
 	onState: (state: SidebarProjectsState) => void;
 	now?: () => number;
 }
@@ -142,16 +145,20 @@ export class SidebarProjects {
 		return this.#state;
 	}
 
-	/** The person opened or added a folder: it is listed (its project, for a worktree), removed or not before. */
+	/** The person opened or added a folder: it is listed (its project, for a worktree) as theirs, removed or not before. */
 	async add(path: string): Promise<void> {
 		if (!path || path === this.#deps.defaultWorkspace()) return;
 		const project = (await this.#projectOf(path)) ?? path;
 		if (project === this.#deps.defaultWorkspace()) return;
-		const listed = this.#state.projects.some(entry => entry.path === project);
-		if (listed && !this.#state.removed.includes(project)) return;
+		const entry = this.#state.projects.find(listed => listed.path === project);
+		if (entry && !entry.by && !this.#state.removed.includes(project)) return;
 		this.#commit({
-			projects: listed ? this.#state.projects : [...this.#state.projects, { path: project, addedAt: this.#now() }],
-			removed: this.#state.removed.filter(entry => entry !== project),
+			projects: entry
+				? this.#state.projects.map(listed =>
+						listed === entry ? { path: listed.path, addedAt: listed.addedAt } : listed,
+					)
+				: [...this.#state.projects, { path: project, addedAt: this.#now() }],
+			removed: this.#state.removed.filter(removed => removed !== project),
 		});
 	}
 
@@ -199,9 +206,10 @@ export class SidebarProjects {
 
 	async #syncOnce(): Promise<void> {
 		const workspace = this.#deps.defaultWorkspace();
+		const sessions = await this.#deps.sessions();
 		// Each folder once, with its newest session's start: that is where it sorts until a session there sorts it.
 		const newest = new Map<string, number>();
-		for (const session of await this.#deps.sessions()) {
+		for (const session of sessions ?? []) {
 			// A file stock wrote before the first message is no conversation yet (the sidebar's `sessionHasContent`).
 			const content = session.messageCount > 0 || Boolean(session.title?.trim() || session.firstMessage?.trim());
 			if (session.kind === "chat" || session.cwd === workspace || !session.cwd || !content) continue;
@@ -268,13 +276,34 @@ export class SidebarProjects {
 			);
 		}
 		if (this.#disposed) return;
+		// A project only sessions brought in leaves with its last one (unless pinned); a list an older OMPdesk stored,
+		// which knows no origins, drops every unpinned project with no session once. Never on a list that could not be read.
+		const pinned = new Set(this.#deps.pinned?.() ?? []);
+		const legacy = !this.#state.byRecorded;
+		const ended = new Set(
+			sessions === null
+				? []
+				: this.#state.projects
+						.filter(entry => !moved.has(entry.path) && !found.has(entry.path) && !pinned.has(entry.path))
+						.filter(entry => entry.by === "sessions" || legacy)
+						.map(entry => entry.path),
+		);
 		const listed = new Set(this.#state.projects.filter(entry => !moved.has(entry.path)).map(entry => entry.path));
 		const added: SidebarProject[] = [];
 		for (const [path, addedAt] of found) {
 			if (listed.has(path) || this.#state.removed.includes(path)) continue;
-			added.push({ path, addedAt: addedAt || this.#now() });
+			added.push({ path, addedAt: addedAt || this.#now(), by: "sessions" });
 		}
-		await this.#checkFolders(added, worktrees, worktreeKinds, autopilotRuns, moved, gone.sort());
+		await this.#checkFolders(
+			added,
+			ended,
+			worktrees,
+			worktreeKinds,
+			autopilotRuns,
+			moved,
+			gone.sort(),
+			sessions !== null,
+		);
 	}
 
 	/**
@@ -305,35 +334,43 @@ export class SidebarProjects {
 		return undefined;
 	}
 
-	/** Marks each listed project whose folder is gone (and unmarks one that came back); commits with `added`. */
+	/**
+	 * Marks each listed project whose folder is gone (and unmarks one that came back); commits with `added` in and
+	 * `ended` out. `read`: the sessions were read, so the list now records origins.
+	 */
 	async #checkFolders(
 		added: readonly SidebarProject[],
+		ended: ReadonlySet<string>,
 		worktrees: Record<string, string>,
 		worktreeKinds: Record<string, WorktreeKind>,
 		autopilotRuns: Record<string, AutopilotRun>,
 		moved: ReadonlyMap<string, string>,
 		gone: readonly string[],
+		read: boolean,
 	): Promise<void> {
 		const exists = this.#deps.exists ?? folderExists;
 		const before = this.#state;
-		const kept = before.projects.filter(entry => !moved.has(entry.path));
+		const kept = before.projects.filter(entry => !moved.has(entry.path) && !ended.has(entry.path));
 		const checked = (
 			await Promise.all(
-				[...kept, ...added].map(
-					async ({ path, addedAt }): Promise<SidebarProject> =>
-						(await exists(path)) ? { path, addedAt } : { path, addedAt, missing: true },
-				),
+				[...kept, ...added].map(async ({ path, addedAt, by }): Promise<SidebarProject> => {
+					const entry: SidebarProject = { path, addedAt, ...(by ? { by } : {}) };
+					return (await exists(path)) ? entry : { ...entry, missing: true };
+				}),
 			)
 		)
 			// A checkout OMPdesk made (`gui-<name>-<hash7>`) that is gone was a worktree, never a project: it leaves.
 			.filter(entry => !(entry.missing && isOmpdeskWorktreeFolder(entry.path)));
 		// Something else changed the list meanwhile: the next pass checks again.
 		if (this.#disposed || this.#state !== before) return;
+		const recorded = before.byRecorded || read;
 		const changed =
 			added.length > 0 ||
+			ended.size > 0 ||
 			moved.size > 0 ||
+			recorded !== Boolean(before.byRecorded) ||
 			checked.length !== kept.length + added.length ||
-			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
+			checked.some((entry, index) => entry.missing !== kept[index]?.missing) ||
 			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees) ||
 			JSON.stringify(worktreeKinds) !== JSON.stringify(before.worktreeKinds ?? {}) ||
 			JSON.stringify(autopilotRuns) !== JSON.stringify(before.autopilotRuns ?? {}) ||
@@ -345,6 +382,7 @@ export class SidebarProjects {
 				worktreeKinds: Object.keys(worktreeKinds).length > 0 ? worktreeKinds : undefined,
 				autopilotRuns: Object.keys(autopilotRuns).length > 0 ? autopilotRuns : undefined,
 				...(gone.length > 0 ? { gone: [...gone] } : { gone: undefined }),
+				...(recorded ? { byRecorded: true as const } : {}),
 			});
 	}
 

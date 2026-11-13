@@ -49,6 +49,7 @@ import {
 	AGENT_HIDDEN_PREFS_KEY,
 	agentHiddenPaths,
 	parseClosedChildren,
+	sidebarViewOf,
 } from "../shared/agent-control";
 import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
@@ -1016,11 +1017,12 @@ app.whenReady().then(async () => {
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
-	// The sidebar's project list: folders outlive their last session (src/main/sidebar-projects.ts).
+	// The sidebar's project list: a folder the person opened outlives its last session (src/main/sidebar-projects.ts).
 	const sidebarProjects = new SidebarProjects({
 		read: () => prefsStore().get(SIDEBAR_PROJECTS_PREF),
 		write: state => prefsStore().set(SIDEBAR_PROJECTS_PREF, state),
-		sessions: () => sessionIndex.list("global"),
+		sessions: () => sessionIndex.listKnown(),
+		pinned: () => sidebarViewOf(prefsStore().get(AGENT_HIDDEN_PREFS_KEY)).pinnedProjects,
 		defaultWorkspace: ensureDefaultWorkspace,
 		// A removed worktree's project, read off its `gui-<name>-<hash7>` folder name (stock's root and repo hash).
 		worktreeLocation: project => stockWorktreeLocation(tablessWorktreeBridge, project),

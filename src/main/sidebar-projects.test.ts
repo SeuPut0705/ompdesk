@@ -29,7 +29,8 @@ const LOCATIONS: Record<string, { root: string; hash: string }> = {
 };
 
 function harness(stored: unknown = undefined) {
-	let sessions: SidebarProjectsSession[] = [];
+	let sessions: SidebarProjectsSession[] | null = [];
+	let pinned: string[] = [];
 	let saved: unknown = stored;
 	const gone = new Set<string>();
 	const pushes: SidebarProjectsState[] = [];
@@ -45,14 +46,18 @@ function harness(stored: unknown = undefined) {
 			projectOf: async cwd => (gone.has(cwd) ? null : cwd in FOLDERS ? (FOLDERS[cwd] as string | null) : cwd),
 			exists: async path => !gone.has(path),
 			worktreeLocation: async project => LOCATIONS[project] ?? null,
+			pinned: () => pinned,
 			onState: state => pushes.push(state),
 			now: () => 5_000,
 		});
 	return {
 		projects: make(),
 		reopen: make,
-		setSessions: (next: SidebarProjectsSession[]) => {
+		setSessions: (next: SidebarProjectsSession[] | null) => {
 			sessions = next;
+		},
+		setPinned: (next: string[]) => {
+			pinned = next;
 		},
 		pushes,
 		gone,
@@ -78,8 +83,8 @@ describe("SidebarProjects", () => {
 		await h.projects.sync();
 		expect(h.projects.state().projects).toEqual([
 			// The project sorts by its newest session, the worktree's included.
-			{ path: "/work/alpha", addedAt: Date.parse("2026-10-03T00:00:00Z") },
-			{ path: "/work/beta", addedAt: Date.parse("2026-10-02T00:00:00Z") },
+			{ path: "/work/alpha", addedAt: Date.parse("2026-10-03T00:00:00Z"), by: "sessions" },
+			{ path: "/work/beta", addedAt: Date.parse("2026-10-02T00:00:00Z"), by: "sessions" },
 		]);
 		expect(h.pushes).toHaveLength(1);
 		// The worktree's folder is named with its project, for a paired device that cannot ask this computer's git.
@@ -183,11 +188,12 @@ describe("SidebarProjects", () => {
 			],
 			removed: [],
 			worktrees: {},
+			byRecorded: true,
 		});
 		await h.projects.sync();
 		expect(h.projects.state().projects).toEqual([
 			{ path: "/work/beta", addedAt: 1 },
-			{ path: "/work/alpha", addedAt: 3 },
+			{ path: "/work/alpha", addedAt: 3, by: "sessions" },
 		]);
 		expect(h.projects.state().worktrees).toEqual({ "/home/me/.omp/wt/gui-alpha-1234567": "/work/alpha" });
 	});
@@ -201,6 +207,7 @@ describe("SidebarProjects", () => {
 			],
 			removed: [],
 			worktrees: {},
+			byRecorded: true,
 		});
 		h.gone.add("/work/beta");
 		h.gone.add("/home/me/.omp/wt/gui-agent-m41hj7-5a1b2c3");
@@ -278,6 +285,7 @@ describe("SidebarProjects", () => {
 			],
 			removed: [],
 			worktrees: {},
+			byRecorded: true,
 		});
 		h.gone.add(F07);
 		h.gone.add(STRAY);
@@ -294,13 +302,62 @@ describe("SidebarProjects", () => {
 		expect(paths(h.projects)).toEqual(["/work/alpha", "/work/beta"]);
 	});
 
-	it("keeps a project whose last session was deleted", async () => {
+	// The owner's report (13 Nov 2026): a computer's sidebar kept projects that only another device's agent sessions had
+	// brought in (seuoffice, yuyu-mos on the Mac mini) after their sessions were deleted.
+	it("drops a project only sessions brought in with its last session, unless pinned; keeps one the person opened", async () => {
 		const h = harness();
-		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z"), session("/work/beta", "2026-10-02T00:00:00Z")]);
+		h.setSessions([
+			session("/work/alpha", "2026-10-01T00:00:00Z"),
+			session("/work/beta", "2026-10-02T00:00:00Z"),
+			session("/work/gamma", "2026-10-03T00:00:00Z"),
+		]);
 		await h.projects.sync();
-		h.setSessions([session("/work/beta", "2026-10-02T00:00:00Z")]);
+		// The person starts a session in gamma: it is theirs from now on.
+		await h.projects.command({ action: "add", path: "/work/gamma" });
+		h.setPinned(["/work/beta"]);
+		h.setSessions([]);
 		await h.projects.sync();
-		expect(paths(h.projects)).toEqual(["/work/alpha", "/work/beta"]);
+		expect(paths(h.projects)).toEqual(["/work/beta", "/work/gamma"]);
+		expect(h.projects.state().removed).toEqual([]);
+		// Kept across a relaunch, and the next session in alpha brings it back.
+		expect(paths(h.reopen())).toEqual(["/work/beta", "/work/gamma"]);
+		h.setSessions([session("/work/alpha", "2026-10-04T00:00:00Z")]);
+		await h.projects.sync();
+		expect(paths(h.projects)).toEqual(["/work/beta", "/work/gamma", "/work/alpha"]);
+	});
+
+	it("drops an older OMPdesk's unpinned projects with no session once, then keeps what the person adds", async () => {
+		const h = harness({
+			projects: [
+				{ path: "/work/alpha", addedAt: 1 },
+				{ path: "/work/beta", addedAt: 2 },
+				{ path: "/work/gamma", addedAt: 3 },
+			],
+			removed: [],
+			worktrees: {},
+		});
+		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z")]);
+		h.setPinned(["/work/gamma"]);
+		await h.projects.sync();
+		expect(paths(h.projects)).toEqual(["/work/alpha", "/work/gamma"]);
+		expect(h.projects.state().byRecorded).toBe(true);
+		// A list that records origins keeps the person's empty project.
+		await h.projects.command({ action: "add", path: "/work/beta" });
+		h.setPinned([]);
+		await h.projects.sync();
+		expect(paths(h.reopen())).toEqual(["/work/alpha", "/work/gamma", "/work/beta"]);
+	});
+
+	it("drops nothing while the sessions cannot be read", async () => {
+		const h = harness({
+			projects: [{ path: "/work/alpha", addedAt: 1, by: "sessions" }],
+			removed: [],
+			worktrees: {},
+		});
+		h.setSessions(null);
+		await h.projects.sync();
+		expect(paths(h.projects)).toEqual(["/work/alpha"]);
+		expect(h.projects.state().byRecorded).toBeUndefined();
 	});
 
 	it("drops a removed project for good until the person opens the folder again", async () => {
@@ -327,7 +384,7 @@ describe("SidebarProjects", () => {
 	});
 
 	it("keeps a project whose folder went missing, marked, and unmarks it when it comes back", async () => {
-		const h = harness({ projects: [{ path: "/work/alpha", addedAt: 1 }], removed: [] });
+		const h = harness({ projects: [{ path: "/work/alpha", addedAt: 1 }], removed: [], byRecorded: true });
 		h.gone.add("/work/alpha");
 		await h.projects.command({ action: "get" });
 		expect(h.projects.state().projects).toEqual([{ path: "/work/alpha", addedAt: 1, missing: true }]);
@@ -349,6 +406,7 @@ describe("SidebarProjects", () => {
 		const h = harness({
 			projects: many.map(path => ({ path, addedAt: 1 })),
 			removed: many.map(path => `${path}-removed`),
+			byRecorded: true,
 		});
 		expect(h.projects.state().projects).toHaveLength(600);
 		await h.projects.command({ action: "add", path: "/work/p600" });

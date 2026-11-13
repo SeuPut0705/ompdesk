@@ -1,8 +1,10 @@
 /**
  * The projects a device's sidebar lists, kept apart from its sessions (as Codex desktop keeps its saved workspace
- * roots apart from its threads): a project stays listed when its last session goes, and leaves only by the person's
- * "Remove from sidebar", which deletes no file and no session. Each computer keeps its own list (a paired host's
- * sidebar section shows the host's), in main's prefs under `SIDEBAR_PROJECTS_PREF`.
+ * roots apart from its threads). A project the person opened or added stays listed when its last session goes, and
+ * leaves only by the person's "Remove from sidebar", which deletes no file and no session. A project only sessions
+ * brought in (an agent's session ran in that folder; `by: "sessions"`) leaves with its last session unless it is
+ * pinned. Each computer keeps its own list (a paired host's sidebar section shows the host's), in main's prefs under
+ * `SIDEBAR_PROJECTS_PREF`.
  *
  * A project is a folder: a main checkout, a subfolder of one, or a plain folder. A linked worktree is never one; it
  * names the project it was cut from (main resolves it before a path is stored).
@@ -22,6 +24,11 @@ export interface SidebarProject {
 	addedAt: number;
 	/** Its folder is gone from disk: still listed (dimmed), until the person removes it or it comes back. */
 	missing?: true;
+	/**
+	 * Listed only because sessions ran in its folder (no person opened or added it): it leaves the list with its last
+	 * session, unless pinned, and comes back with the next. The person opening or adding it clears this.
+	 */
+	by?: "sessions";
 }
 
 export interface SidebarProjectsState {
@@ -56,6 +63,11 @@ export interface SidebarProjectsState {
 	 * sessions leave, a gone project's stay under it, dimmed). Absent from an older host.
 	 */
 	gone?: string[];
+	/**
+	 * The list records `by` (OMPdesk 0.128 on). A list an older OMPdesk stored has no origins: its first pass drops
+	 * every unpinned project with no session once, then sets this.
+	 */
+	byRecorded?: true;
 }
 
 export type SidebarProjectsRequest =
@@ -79,8 +91,8 @@ export interface SidebarProjectsApi {
 export const EMPTY_SIDEBAR_PROJECTS: SidebarProjectsState = { projects: [], removed: [], worktrees: {} };
 
 /**
- * A stored value read back: anything malformed falls away, duplicates keep their first entry. Nothing is trimmed: a
- * project leaves only by the person's Remove, and a removed one must stay removed.
+ * A stored value read back: anything malformed falls away, duplicates keep their first entry. Nothing is trimmed here:
+ * only main's `sync` drops a project sessions brought in, and a removed one must stay removed.
  */
 export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 	const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -88,13 +100,14 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 	const projects: SidebarProject[] = [];
 	for (const entry of Array.isArray(record.projects) ? record.projects : []) {
 		if (!entry || typeof entry !== "object") continue;
-		const { path, addedAt, missing } = entry as Record<string, unknown>;
+		const { path, addedAt, missing, by } = entry as Record<string, unknown>;
 		if (typeof path !== "string" || path.length === 0 || seen.has(path)) continue;
 		seen.add(path);
 		projects.push({
 			path,
 			addedAt: typeof addedAt === "number" && Number.isFinite(addedAt) ? addedAt : 0,
 			...(missing === true ? { missing: true as const } : {}),
+			...(by === "sessions" ? { by: "sessions" as const } : {}),
 		});
 	}
 	const removed = [
@@ -132,6 +145,7 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 		...(Object.keys(worktreeKinds).length > 0 ? { worktreeKinds } : {}),
 		...(Object.keys(autopilotRuns).length > 0 ? { autopilotRuns } : {}),
 		...(gone.length > 0 ? { gone } : {}),
+		...(record.byRecorded === true ? { byRecorded: true as const } : {}),
 	};
 }
 

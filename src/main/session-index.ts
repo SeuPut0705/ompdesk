@@ -233,7 +233,16 @@ export class SessionIndex {
 	 *   own so each window sees only its project's sessions.
 	 */
 	async list(scope: "local" | "global", cwd?: string): Promise<SessionInfo[]> {
-		const { sessions } = await this.listShared();
+		return this.#shown((await this.listShared()).sessions, scope, cwd);
+	}
+
+	/** Every session, or null while none can be read (no usable omp yet): for a reader that drops what is absent. */
+	async listKnown(): Promise<SessionInfo[] | null> {
+		const { version, sessions } = await this.listShared();
+		return version ? this.#shown(sessions, "global") : null;
+	}
+
+	#shown(sessions: readonly SessionInfo[], scope: "local" | "global", cwd?: string): SessionInfo[] {
 		const localCwd = cwd !== undefined ? resolve(cwd) : this.#cwd;
 		const deleted = deletedSessions();
 		// A file a stray writer put back after its session was deleted is not that session coming back.
