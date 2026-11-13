@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
 import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
-import { appAutoUpdatePrefChanged, readRelaunchPresence, setupUpdater } from "./updater";
+import { appAutoUpdatePrefChanged, noteAppStarted, readRelaunchPresence, setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
 
 const mocks = vi.hoisted(() => {
@@ -26,7 +26,13 @@ const mocks = vi.hoisted(() => {
 			},
 			setFeedURL: () => {},
 			quitAndInstall: vi.fn(),
+			// What electron-updater's own flags read at a quit and when a check ends.
+			autoInstallOnAppQuit: true,
+			autoDownload: true,
+			checkForUpdates: vi.fn(async () => null),
+			downloadUpdate: vi.fn(async () => []),
 		},
+		appEvents: new Map<string, Array<() => void>>(),
 		sent: [] as UpdateStatus[],
 		runtimeLog: [] as Array<{ message: string; details: Record<string, unknown> }>,
 		userData: { dir: "" },
@@ -48,7 +54,9 @@ vi.mock("electron", () => ({
 		isPackaged: true,
 		getVersion: () => "0.44.0",
 		getPath: () => mocks.userData.dir,
-		on: () => {},
+		on: (event: string, listener: () => void) => {
+			mocks.appEvents.set(event, [...(mocks.appEvents.get(event) ?? []), listener]);
+		},
 	},
 	BrowserWindow: {
 		getAllWindows: () => [
@@ -71,6 +79,20 @@ vi.mock("./nsis-updater", () => ({
 		on = mocks.updater.on;
 		setFeedURL = mocks.updater.setFeedURL;
 		quitAndInstall = mocks.updater.quitAndInstall;
+		checkForUpdates = () => mocks.updater.checkForUpdates();
+		downloadUpdate = () => mocks.updater.downloadUpdate();
+		get autoInstallOnAppQuit() {
+			return mocks.updater.autoInstallOnAppQuit;
+		}
+		set autoInstallOnAppQuit(value: boolean) {
+			mocks.updater.autoInstallOnAppQuit = value;
+		}
+		get autoDownload() {
+			return mocks.updater.autoDownload;
+		}
+		set autoDownload(value: boolean) {
+			mocks.updater.autoDownload = value;
+		}
 	},
 }));
 vi.mock("./app-quit", () => ({
@@ -306,5 +328,136 @@ describe("The automatic install and an open card", () => {
 		appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["waiting:open ask"]);
 		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
+	});
+});
+
+// The macOS swap helper reopens the new app and waits for this mark before it drops the old one (updater-state.ts).
+describe("the start mark and a start that failed", () => {
+	const markFile = () => path.join(mocks.userData.dir, "app-started.json");
+	const installFile = () => path.join(mocks.userData.dir, "update-install.json");
+	const failedFile = () => path.join(mocks.userData.dir, "update-start-failed.json");
+	const results = () => mocks.runtimeLog.filter(report => report.details.event === "result");
+
+	it("is written once, with the running version, before the previous install is reported; a start failure is remembered", () => {
+		fs.rmSync(markFile(), { force: true });
+		// The helper rolled 0.45.0 back to this 0.44.0: its log's last outcome says the new app did not start.
+		fs.writeFileSync(
+			installFile(),
+			JSON.stringify({ from: "0.44.0", to: "0.45.0", mode: "relaunch", trigger: "auto", at: Date.now() }),
+		);
+		fs.mkdirSync(path.join(mocks.userData.dir, "updates"), { recursive: true });
+		fs.writeFileSync(
+			path.join(mocks.userData.dir, "updates", "swap.log"),
+			"swap Mon Oct 19 14:03:22 KST 2026: /s -> /d\ninstalled\nwaiting for the new app to start\nstart failed; previous app restored\n",
+		);
+		// Set up and running, no page yet: no mark, and the install marker is still unread (a new app that dies here
+		// leaves it for the old app the helper restores).
+		expect(fs.existsSync(markFile())).toBe(false);
+		expect(fs.existsSync(installFile())).toBe(true);
+		expect(results()).toEqual([]);
+		expect(fs.existsSync(failedFile())).toBe(false);
+
+		noteAppStarted();
+		const mark = JSON.parse(fs.readFileSync(markFile(), "utf8"));
+		expect(mark).toEqual({ version: "0.44.0", pid: process.pid, at: expect.any(Number) });
+		expect(results()).toHaveLength(1);
+		expect(results()[0]?.details).toMatchObject({
+			outcome: "rolled back",
+			previous: "0.44.0",
+			expected: "0.45.0",
+			current: "0.44.0",
+			swapOutcome: "start failed; previous app restored",
+		});
+		expect(fs.existsSync(installFile())).toBe(false);
+		expect(JSON.parse(fs.readFileSync(failedFile(), "utf8"))).toEqual({
+			version: "0.45.0",
+			count: 1,
+			at: expect.any(Number),
+		});
+
+		// A second page (another window, a reload) writes nothing more.
+		fs.rmSync(markFile());
+		noteAppStarted();
+		expect(fs.existsSync(markFile())).toBe(false);
+		expect(results()).toHaveLength(1);
+	});
+
+	// The tests below run after the one above, which recorded 0.45.0 (the version `beforeEach` downloads) as one that
+	// failed to start; the last one downloads a newer version, which clears the record.
+	it("leaves that version to the person: the automatic install skips it, once", () => {
+		autoInstallOn = true;
+		appAutoUpdatePrefChanged();
+		appAutoUpdatePrefChanged();
+		vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual(["withdrawn:start failed before"]);
+		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
+	});
+
+	it("an ordinary quit installs nothing of it: electron-updater's install at quit is off while it is held", () => {
+		expect(mocks.updater.autoInstallOnAppQuit).toBe(false);
+		expect(mocks.updater.autoDownload).toBe(false);
+		for (const listener of mocks.appEvents.get("will-quit") ?? []) listener();
+		expect(mocks.runtimeLog.filter(report => report.details.event === "helper")).toEqual([]);
+		expect(fs.existsSync(installFile())).toBe(false);
+		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
+	});
+
+	it("a check that finds the held version again keeps it downloaded, fetches nothing and shows no spinner", async () => {
+		mocks.sent.length = 0;
+		mocks.updater.checkForUpdates.mockImplementationOnce(async () => {
+			emitUpdater("checking-for-update");
+			emitUpdater("update-available", { version: "0.45.0", files: [{ size: 1 }] });
+			return null;
+		});
+		const status = await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, []);
+		expect(status).toMatchObject({ state: "downloaded", version: "0.45.0" });
+		expect(mocks.sent.map(sent => sent.state)).toEqual([]);
+		expect(mocks.updater.downloadUpdate).not.toHaveBeenCalled();
+		// Nothing newer, said by the updater too: the held download is still the answer.
+		mocks.updater.checkForUpdates.mockImplementationOnce(async () => {
+			emitUpdater("update-not-available", { version: "0.44.0" });
+			return null;
+		});
+		expect(await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, [])).toMatchObject({ state: "downloaded" });
+		// And a failed look keeps it as well.
+		mocks.updater.checkForUpdates.mockRejectedValueOnce(new Error("offline"));
+		expect(await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, [])).toMatchObject({
+			state: "downloaded",
+			version: "0.45.0",
+		});
+	});
+
+	it('"Restart & install" still installs it', async () => {
+		await restartAndInstall();
+		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
+		expect(mocks.updater.autoInstallOnAppQuit).toBe(true);
+		appAutoUpdatePrefChanged();
+	});
+
+	it("a newer release found while it is held is downloaded and replaces it: the scheduler counts down for the newer one", async () => {
+		autoInstallOn = true;
+		appAutoUpdatePrefChanged();
+		expect(mocks.updater.autoDownload).toBe(false);
+		mocks.sent.length = 0;
+		mocks.updater.checkForUpdates.mockImplementationOnce(async () => {
+			emitUpdater("update-available", { version: "0.46.0", files: [{ size: 1 }] });
+			return null;
+		});
+		mocks.updater.downloadUpdate.mockImplementationOnce(async () => {
+			emitUpdater("update-downloaded", { version: "0.46.0", files: [{ size: 113_241_490 }] });
+			return [];
+		});
+		await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, []);
+		await vi.waitFor(() => expect(mocks.sent.at(-1)).toMatchObject({ state: "downloaded", version: "0.46.0" }));
+		expect(mocks.updater.downloadUpdate).toHaveBeenCalledTimes(1);
+		expect(mocks.sent.map(sent => sent.state)).toEqual(["available", "downloaded"]);
+		mocks.runtimeLog.length = 0;
+		appAutoUpdatePrefChanged();
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
+		expect(fs.existsSync(failedFile())).toBe(false);
+		expect(mocks.updater.autoInstallOnAppQuit).toBe(true);
+		expect(mocks.updater.autoDownload).toBe(true);
 	});
 });

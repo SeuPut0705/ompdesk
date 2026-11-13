@@ -45,6 +45,11 @@ export interface AutoInstallFacts {
 	enabled: boolean;
 	/** An update is downloaded and `restartIntoUpdate` can install it (never the manual DMG). */
 	installable: boolean;
+	/**
+	 * The downloaded version failed to start after an earlier automatic install (`update-start-failed.json`): the
+	 * scheduler leaves it alone. A person's "Restart & install" does not read this, and a newer version clears it.
+	 */
+	startFailedBefore?: boolean;
 	/** Continue interrupted work after relaunch is on: a restart loses no running work. */
 	resumes: boolean;
 	/** Some tab runs a turn (or compacts) or an ask is open. */
@@ -143,6 +148,8 @@ export class AutoInstallScheduler {
 	#cardSince: number | undefined;
 	/** The open card gave way (logged `unattended`), until input or a closed card ends that. */
 	#cardGaveWay = false;
+	/** `withdrawn` for a version that failed to start was logged: once, until it is gone or another one comes. */
+	#loggedStartFailed = false;
 
 	constructor(options: AutoInstallOptions) {
 		this.#opts = options;
@@ -159,9 +166,19 @@ export class AutoInstallScheduler {
 		const f = facts();
 		const at = now();
 		if (!f.enabled || !f.installable) {
+			this.#loggedStartFailed = false;
 			this.#reset(f.enabled ? "update not ready" : "pref off");
 			return;
 		}
+		if (f.startFailedBefore) {
+			// The line is `#reset`'s when a notice was showing; otherwise it is written here, once.
+			const shown = this.#restartAt !== undefined;
+			this.#reset("start failed before");
+			if (!shown && !this.#loggedStartFailed) this.#opts.log?.("withdrawn", { reason: "start failed before" });
+			this.#loggedStartFailed = true;
+			return;
+		}
+		this.#loggedStartFailed = false;
 		if (this.#installed) return;
 		this.#waitingSince ??= at;
 		if (f.asking) this.#cardSince ??= at;

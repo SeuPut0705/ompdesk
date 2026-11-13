@@ -1,0 +1,4 @@
+# The repository moves from github.com/SeuPut0705/ompdesk to github.com/seuput-inc/ompdesk (13 Nov 2026).
+# ai-memory derives a project from the origin URL; this keeps the project every computer already has.
+workspace = "default"
+project = "seuput0705-ompdesk"

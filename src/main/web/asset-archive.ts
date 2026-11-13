@@ -20,6 +20,9 @@ export class AssetArchive {
 	readonly #userData: string;
 	readonly #now: () => number;
 	#roots: readonly string[] = [];
+	/** The newest call's number and the newest answer applied: the core runs calls in the order they were made. */
+	#made = 0;
+	#applied = 0;
 
 	constructor(opts: { userData: string; now?: () => number }) {
 		this.#userData = opts.userData;
@@ -37,11 +40,16 @@ export class AssetArchive {
 	 * after another in the core.
 	 */
 	async retain(staticRoot: string): Promise<void> {
+		const mine = ++this.#made;
 		const { result } = await core().call<{ roots: string[] }>("web.assets.retain", {
 			userData: this.#userData,
 			staticRoot,
 			now: this.#now(),
 		});
+		// Answers may come back in any order (the core's wire allows it, and a loaded machine does it): the last call
+		// made holds the archive's last state, so an older call's answer never replaces a newer one's.
+		if (mine < this.#applied) return;
+		this.#applied = mine;
 		this.#roots = result.roots;
 	}
 }

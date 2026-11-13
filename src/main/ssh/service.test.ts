@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SshPrompt, SshToolsState } from "../../shared/ssh-tools";
+import { SshCore } from "./client";
 import { SshTools } from "./service";
 import { writeFakeSsh } from "./test-fake-ssh";
 
@@ -309,6 +310,24 @@ describe("SshTools", () => {
 			await tools.command({ action: "reconnect", id: state.forwards[0]?.id ?? "" });
 			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
 			expect(await forwardCalls()).toBe(2);
+		}, 20_000);
+
+		it("asks again for the local port its own closed ssh may still hold, instead of stopping as taken", async () => {
+			await trustHost();
+			await tools.command({ action: "forward", target, remotePort });
+			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
+			// The port reads taken twice (the closed ssh's listener not yet freed), then free.
+			const real = SshCore.prototype.plan;
+			let taken = 2;
+			vi.spyOn(SshCore.prototype, "plan").mockImplementation(async function (
+				this: SshCore,
+				...args: Parameters<SshCore["plan"]>
+			) {
+				return taken-- > 0 ? args[2] + 1 : real.apply(this, args);
+			});
+			await tools.command({ action: "reconnect", id: state.forwards[0]?.id ?? "" });
+			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
+			expect(taken).toBe(-1);
 		}, 20_000);
 
 		it("leaves no remote loop behind when a watch is toggled on and off at once", async () => {

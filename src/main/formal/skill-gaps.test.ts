@@ -364,6 +364,7 @@ describe("gap 12: covers by function and line range, and the drift line (gap 14)
 		"import x from 'x';", // 1
 		"", // 2
 		"export function sync(a: number) {", // 3
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: source text with a template literal, the parser must skip its brace
 		"	const s = `x ${a} {`;", // 4
 		"	if (a > 1) {", // 5
 		"		return s;", // 6

@@ -111,14 +111,8 @@ impl TabWorktree {
     }
 }
 
-/// The checkout, its branch and the repo it forked from (`WorktreeRef`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeRef {
-    pub path: String,
-    pub branch: String,
-    pub base_cwd: String,
-}
+/// The checkout, its branch and the repo it forked from (`WorktreeRef`): git's one definition.
+pub use crate::git::branches::WorktreeRef;
 
 /// How a tab's last finished turn ended (`IpcTabRunOutcome`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -9,10 +9,9 @@ use serde_json::{Map, Value, json};
 use super::fail::{Fail, R, fail};
 use super::js::{self, cut, head, len16, number, one_line, slice16, tail16, trim, trim_end};
 use super::types::{
-    AgentMessage, AutopilotArgs, AutopilotStart, Block, BranchFacts, ClosedChild, Content,
-    ControlAsk, ControlTab, MergePrediction, MessagesPage, OpenElsewhere, RunStatus, ScheduleRow,
-    ScheduleRun, StoredSession, StoredWork, TabStatus, Tool, UiRequest, WorktreeRef,
-    WorktreeSetupReport,
+    AgentMessage, AutopilotArgs, AutopilotStart, Block, ClosedChild, Content, ControlAsk,
+    ControlTab, MergePrediction, MessagesPage, OpenElsewhere, RunStatus, ScheduleRow, ScheduleRun,
+    StoredSession, StoredWork, TabStatus, Tool, UiRequest, WorktreeSetupReport,
 };
 use super::wrap::{
     AGENT_CARD_PREFIX, AGENT_SCHEDULE_PREFIX, agent_task_title, dispatch_mark, parse_agent_message,
@@ -1481,151 +1480,6 @@ pub fn parse_verdict(text: &str) -> Option<Verdict> {
         return None;
     }
     verdict_of(&serde_json::from_str(&text[start..=end]).ok()?)
-}
-
-// ---- branches.ts --------------------------------------------------------------------------------------------------
-
-/// Why a merge of this branch cannot go ahead (what it would lose or tangle), or None.
-pub fn merge_problem(worktree: &WorktreeRef, facts: &BranchFacts) -> Option<String> {
-    let Some(base) = facts.base_branch.as_deref().filter(|base| !base.is_empty()) else {
-        return Some(format!(
-            "The parent checkout ({}) is on a detached HEAD; check out a branch there first.",
-            worktree.base_cwd
-        ));
-    };
-    if facts.uncommitted > 0 {
-        return Some(format!(
-            "{} has {} uncommitted file(s) in {}; ask that session to commit them first (ompdesk_session_send).",
-            worktree.branch,
-            number(facts.uncommitted as f64),
-            worktree.path
-        ));
-    }
-    if facts.base_uncommitted > 0 {
-        return Some(format!(
-            "{} has {} uncommitted file(s); commit or stash them first so the merge cannot mix with them.",
-            worktree.base_cwd,
-            number(facts.base_uncommitted as f64)
-        ));
-    }
-    if facts.merged || facts.commits_ahead == 0 {
-        return Some(format!(
-            "{} has nothing to merge into {base}.",
-            worktree.branch
-        ));
-    }
-    None
-}
-
-/// The `diff --git` header's path; the header itself when it is quoted or odd.
-fn section_path(section: &str) -> String {
-    let header = match section.find('\n') {
-        Some(at) if at > 0 => &section[..at],
-        _ => section,
-    };
-    if let Some(both) = header.strip_prefix("diff --git a/") {
-        let count = both.chars().count();
-        if count >= 5 && (count - 3) % 2 == 0 {
-            let half = (count - 3) / 2;
-            let middle = both
-                .char_indices()
-                .nth(half)
-                .map_or(both.len(), |(at, _)| at);
-            let (first, rest) = both.split_at(middle);
-            if let Some(second) = rest.strip_prefix(" b/")
-                && first == second
-                && !first.contains(['\n', '\r', '\u{2028}', '\u{2029}'])
-            {
-                return first.to_owned();
-            }
-        }
-    }
-    header
-        .strip_prefix("diff --git ")
-        .unwrap_or(header)
-        .to_owned()
-}
-
-/// Where JavaScript's multiline `^` matches: the start, and after a line terminator.
-fn line_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
-    std::iter::once(0).chain(text.char_indices().filter_map(|(at, c)| {
-        matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}').then_some(at + c.len_utf8())
-    }))
-}
-
-/// `diff.split(/^(?=diff --git )/m)`.
-fn diff_sections(diff: &str) -> Vec<&str> {
-    let mut cuts: Vec<usize> = line_starts(diff)
-        .filter(|at| *at > 0 && diff[*at..].starts_with("diff --git "))
-        .collect();
-    cuts.dedup();
-    let mut sections = Vec::new();
-    let mut from = 0;
-    for at in cuts {
-        sections.push(&diff[from..at]);
-        from = at;
-    }
-    sections.push(&diff[from..]);
-    sections
-}
-
-/// `section.match(/[^\n]*\n|[^\n]+$/g)`: its lines, each with its newline.
-fn section_lines(section: &str) -> Vec<&str> {
-    section.split_inclusive('\n').collect()
-}
-
-/// Cut a unified diff to about `chars` characters, fairly across files: each file gets an equal share, and what a
-/// small file does not use goes to the larger ones. A cut file ends at a line boundary with one line saying how many
-/// lines went. `omitted` counts the characters of the diff left out.
-pub fn bound_diff(diff: &str, chars: usize) -> (String, usize) {
-    if chars == 0 {
-        return (String::new(), len16(diff));
-    }
-    if len16(diff) <= chars {
-        return (diff.to_owned(), 0);
-    }
-    let sections = diff_sections(diff);
-    let mut order: Vec<(usize, usize)> = sections
-        .iter()
-        .enumerate()
-        .map(|(index, section)| (index, len16(section)))
-        .collect();
-    order.sort_by_key(|(_, size)| *size);
-    let mut shares = vec![0usize; sections.len()];
-    let mut remaining = chars;
-    for (rank, (index, size)) in order.iter().enumerate() {
-        let share = remaining / (order.len() - rank);
-        shares[*index] = (*size).min(share);
-        remaining -= shares[*index];
-    }
-    let mut out = String::new();
-    let mut omitted = 0;
-    for (index, section) in sections.iter().enumerate() {
-        let share = shares[index];
-        if len16(section) <= share {
-            out.push_str(section);
-            continue;
-        }
-        let lines = section_lines(section);
-        let path = section_path(section);
-        let marker = |left: usize| {
-            format!(
-                "… {left} more line{} of {path} left out\n",
-                if left == 1 { "" } else { "s" }
-            )
-        };
-        // Reserve the longest the marker can be (every line left out) so the cut file stays within its share.
-        let mut budget = share as i64 - len16(&marker(lines.len())) as i64;
-        let mut kept = 0;
-        while kept < lines.len() && (len16(lines[kept]) as i64) <= budget {
-            budget -= len16(lines[kept]) as i64;
-            out.push_str(lines[kept]);
-            kept += 1;
-        }
-        omitted += lines[kept..].iter().map(|line| len16(line)).sum::<usize>();
-        out.push_str(&marker(lines.len() - kept));
-    }
-    (out, omitted)
 }
 
 /// `response.data` of a successful command, else the refusal as the agent reads it (`responseData`).

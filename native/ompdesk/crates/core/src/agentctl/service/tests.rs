@@ -18,6 +18,7 @@ use super::types::*;
 use super::wrap::*;
 use super::{AgentControl, Files, JournalFile};
 use crate::agentctl::journal::system_clock;
+use crate::git::branches::{bound_diff, merge_problem};
 use crate::ports::Port;
 
 // ---- captured tables ------------------------------------------------------------------------------------------------

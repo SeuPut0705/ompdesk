@@ -40,7 +40,6 @@ interface Outcome {
 }
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const WORKFLOW = "flake-probe.yml";
 
 function usage(message: string): never {
 	console.error(
@@ -266,23 +265,8 @@ function git(...args: string[]): string {
 	return result.stdout.trim();
 }
 
-interface RunRow {
-	databaseId: number;
-	url: string;
-}
-
-function listRuns(branch: string): RunRow[] {
-	const args = ["run", "list", "--workflow", WORKFLOW, "--branch", branch, "--event", "workflow_dispatch"];
-	const listed = spawnSync("gh", [...args, "--limit", "20", "--json", "databaseId,url"], {
-		cwd: ROOT,
-		encoding: "utf8",
-	});
-	if (listed.status !== 0) throw new Error(`gh run list: ${listed.stderr.trim()}`);
-	return JSON.parse(listed.stdout) as RunRow[];
-}
-
-/** Dispatch flake-probe.yml for the pushed head of the current branch and print the new run's URL. */
-async function dispatch(probe: Probe, osChoice: OsChoice): Promise<number> {
+/** Dispatch flake-probe.yml for the pushed head of the current branch through the check queue's front door (scripts/ci-run.ts). */
+function dispatch(probe: Probe, osChoice: OsChoice): number {
 	const branch = git("rev-parse", "--abbrev-ref", "HEAD");
 	if (branch === "HEAD") usage("--ci needs a branch, not a detached HEAD");
 	const head = git("rev-parse", "HEAD");
@@ -291,34 +275,15 @@ async function dispatch(probe: Probe, osChoice: OsChoice): Promise<number> {
 		usage(`origin/${branch} is ${remote ? remote.slice(0, 9) : "missing"}, HEAD is ${head.slice(0, 9)}: push first`);
 	}
 	if (probe.runner === "playwright" && osChoice === "ubuntu") usage("The e2e specs run on macOS and Windows only");
-	const before = new Set(listRuns(branch).map(row => row.databaseId));
 	const fields = { spec: probe.spec, grep: probe.grep ?? "", repeat: String(probe.repeat), os: osChoice };
-	const args = ["workflow", "run", WORKFLOW, "--ref", branch];
+	const args = [path.join(ROOT, "scripts", "ci-run.ts"), "flake-probe", "--ref", branch];
 	for (const [key, value] of Object.entries(fields)) args.push("-f", `${key}=${value}`);
-	const sent = spawnSync("gh", args, { cwd: ROOT, encoding: "utf8" });
-	if (sent.status !== 0) {
-		console.error(sent.stderr.trim());
-		return 1;
-	}
-	// The dispatch answers before the run exists; it shows in the list within seconds.
-	for (let attempt = 0; attempt < 30; attempt++) {
-		const fresh = listRuns(branch).find(row => !before.has(row.databaseId));
-		if (fresh) {
-			console.log(`[flake] ${WORKFLOW} on ${branch} (${head.slice(0, 9)}): ${fresh.url}`);
-			console.log(`[flake] watch: bun scripts/watch-run.ts ${fresh.databaseId} (bash async: true, then wait)`);
-			return 0;
-		}
-		await Bun.sleep(2_000);
-	}
-	console.error(
-		`[flake] dispatched, but no new ${WORKFLOW} run on ${branch} showed within 60 s: gh run list -w ${WORKFLOW}`,
-	);
-	return 1;
+	return spawnSync("bun", args, { cwd: ROOT, stdio: "inherit" }).status ?? 1;
 }
 
 if (import.meta.main) {
 	const { probe, ci, os: osChoice } = parse(process.argv.slice(2));
-	if (ci) process.exit(await dispatch(probe, osChoice));
+	if (ci) process.exit(dispatch(probe, osChoice));
 	const scratch = mkdtempSync(path.join(os.tmpdir(), "ompdesk-flake-"));
 	console.log(`[flake] ${probe.runner}: ${probe.spec}${probe.grep ? ` -g ${probe.grep}` : ""} ×${probe.repeat}`);
 	const outcomes =
