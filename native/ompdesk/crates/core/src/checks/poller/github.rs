@@ -317,7 +317,7 @@ impl GhSource {
             return Ok(());
         }
         // A spent quota already holds the budget until its reset; anything else is a pause GitHub asks for.
-        if answer.retry_after.is_some() || !answer.rate.is_some_and(|rate| rate.remaining == 0) {
+        if answer.retry_after.is_some() || answer.rate.is_none_or(|rate| rate.remaining != 0) {
             let wait = answer
                 .retry_after
                 .map_or(SECONDARY_PAUSE_MS, |seconds| seconds.saturating_mul(1000));
