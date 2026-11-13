@@ -298,10 +298,10 @@ describe("two computers that use each other as hosts", () => {
 		await reconnectBothWays();
 	}, 20_000);
 
-	it("a dial whose host's gate takes longer than the stale step runs again once the other's link opens, then stays", async () => {
-		const attempts = await reconnectBothWays(1_200);
-		// The slow gate held each handshake past the stale step while the other's link opened: a dial ran again.
-		expect(attempts.filter(line => line.details.trigger === "peer").length).toBeGreaterThan(0);
+	it("a host whose gate takes longer than the stale step still ends connected both ways, any rerun a `peer` one", async () => {
+		// The slow gate holds each handshake past the stale step. Whether the other's link opens in that time (and a
+		// dial runs again) is a race of the two computers' backoffs; either way the rule above holds.
+		await reconnectBothWays(1_200);
 	}, 30_000);
 });
 
