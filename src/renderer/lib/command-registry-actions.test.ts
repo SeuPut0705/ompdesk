@@ -37,6 +37,7 @@ const baseCtx: CommandRegistryContext = {
 	openModes: () => {},
 	openAgents: () => {},
 	openInsights: () => {},
+	openChecks: () => {},
 	openImportDialog: () => {},
 	openProviderConfig: () => {},
 	focusDockCard: () => {},

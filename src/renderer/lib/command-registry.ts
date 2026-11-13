@@ -34,7 +34,14 @@ import { useSettingsStore } from "../stores/settings";
 import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
-import { type AgentsTab, type DockCardId, type InsightsStatsScope, type InsightsTab, useUiStore } from "../stores/ui";
+import {
+	type AgentsTab,
+	type ChecksTab,
+	type DockCardId,
+	type InsightsStatsScope,
+	type InsightsTab,
+	useUiStore,
+} from "../stores/ui";
 import { checkForUpdatesInPlace } from "../stores/updater";
 import type { CommandGuard } from "./command-search";
 import { requestComposerAction } from "./composer-actions";
@@ -161,6 +168,8 @@ export interface CommandRegistryContext {
 	openAgents: (tab?: AgentsTab) => void;
 	/** Insights page (Stats with a This session / All sessions scope · Usage). */
 	openInsights: (tab?: InsightsTab, scope?: InsightsStatsScope) => void;
+	/** Checks page (Now · Merge queue · Tests and cost). */
+	openChecks: (tab?: ChecksTab) => void;
 	openImportDialog: () => void;
 	openProviderConfig: () => void;
 	/** Deep-link a center-dock card (todo/plan): expand + flash. */
@@ -1690,6 +1699,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "agents",
 		affordance: { kind: "window", open: () => ctx.openAgents("github") },
 	});
+	add({
+		name: "checks",
+		label: t("cmd.checks"),
+		description: t("cmd.checks.desc"),
+		category: "agents",
+		affordance: { kind: "window", open: () => ctx.openChecks() },
+	});
 
 	// ═══════════════════════════════════════════════════════════════════
 	// NATIVE INTERACTIVE SURFACES
@@ -2117,6 +2133,7 @@ export function createCommandContext(
 		openModes: ui.openModes,
 		openAgents: ui.openAgents,
 		openInsights: ui.openInsights,
+		openChecks: ui.openChecks,
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
 		focusDockCard: ui.focusDockCard,

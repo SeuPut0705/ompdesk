@@ -80,15 +80,17 @@ export function withFileTab(tabs: FileTab[], path: string, keep: boolean): FileT
 
 /**
  * What fills the main area: the open session (transcript + composer) or one
- * of the three destination pages. The sidebar stays visible for all of them.
+ * of the destination pages. The sidebar stays visible for all of them.
  */
-export type Destination = "session" | "agents" | "insights" | "settings";
+export type Destination = "session" | "agents" | "insights" | "checks" | "settings";
 export type PageDestination = Exclude<Destination, "session">;
 export type AgentsTab = "live" | "definitions" | "prs" | "github";
 export type InsightsTab = "stats" | "usage";
 export type InsightsStatsScope = "session" | "all";
+export type ChecksTab = "now" | "queue" | "tests";
 const AGENTS_TABS: readonly string[] = ["live", "definitions", "prs", "github"] satisfies AgentsTab[];
 const INSIGHTS_TABS: readonly string[] = ["stats", "usage"] satisfies InsightsTab[];
+const CHECKS_TABS: readonly string[] = ["now", "queue", "tests"] satisfies ChecksTab[];
 /** Settings section a cold ⌘, lands on (SettingsPage maps legacy ids). */
 const DEFAULT_SETTINGS_TAB = "general";
 /** Documents whose rendered/source choice the Files viewer remembers. */
@@ -178,6 +180,9 @@ interface UiStore {
 	agentsTab: AgentsTab;
 	insightsTab: InsightsTab;
 	insightsStatsScope: InsightsStatsScope;
+	checksTab: ChecksTab;
+	/** The run the Checks page was opened on (the work board's row): its row is shown and marked. Null otherwise. */
+	checksRun: string | null;
 	settingsTab: string;
 	benchmarkOpen: boolean;
 	/** The model setup assistant (Settings › Models, the advisor row, `/advisor on`). */
@@ -299,6 +304,8 @@ interface UiStore {
 	closeDestination: () => void;
 	openAgents: (tab?: AgentsTab) => void;
 	openInsights: (tab?: InsightsTab, scope?: InsightsStatsScope) => void;
+	/** Checks page; `run` opens it on that run's row (Now). Without `tab` a re-open keeps the current one. */
+	openChecks: (tab?: ChecksTab, run?: string) => void;
 	/** Settings page; without `tab` a cold open lands on the default section and a re-open keeps the current one. */
 	openSettings: (tab?: string) => void;
 	/** Switch the Settings page section (SettingsPage navigation; no destination change). */
@@ -466,6 +473,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	agentsTab: "live",
 	insightsTab: "stats",
 	insightsStatsScope: "session",
+	checksTab: "now",
+	checksRun: null,
 	settingsTab: DEFAULT_SETTINGS_TAB,
 	theme: readPrepaintThemeMode(),
 	fontSize: 15,
@@ -586,6 +595,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		if (destination === "settings") get().openSettings(section);
 		else if (destination === "agents")
 			get().openAgents(section && AGENTS_TABS.includes(section) ? (section as AgentsTab) : undefined);
+		else if (destination === "checks")
+			get().openChecks(section && CHECKS_TABS.includes(section) ? (section as ChecksTab) : undefined);
 		else get().openInsights(section && INSIGHTS_TABS.includes(section) ? (section as InsightsTab) : undefined);
 	},
 	closeDestination: () => transitionView(() => set({ destination: "session" })),
@@ -597,6 +608,14 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 				destination: "insights",
 				insightsTab: tab ?? state.insightsTab,
 				insightsStatsScope: scope ?? state.insightsStatsScope,
+			})),
+		),
+	openChecks: (tab, run) =>
+		transitionView(() =>
+			set(state => ({
+				destination: "checks",
+				checksTab: run ? "now" : (tab ?? state.checksTab),
+				checksRun: run ?? null,
 			})),
 		),
 	// Without an explicit target, a page that is already open stays on its
