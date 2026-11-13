@@ -350,14 +350,19 @@ export class CoreProcess {
 				"core_unavailable",
 				`ompdesk-core ended ${MAX_FAILED_STARTS} times in a row before answering; it is not started again for ${FAILED_START_REST_MS / 1000} s`,
 			);
-		// Detached on POSIX: the core leads a process group of its own, which every git it starts joins. It still ends
-		// with stdin's end (main's), and it is never `unref`ed.
+		// Detached: on POSIX the core leads a process group of its own, which every git it starts joins. On Windows
+		// libuv puts every child that is not detached in a job object that kills it the moment this process dies, so a
+		// crashed main took the core, and the omps it runs, down before they could close their sessions (no
+		// `session_exit` in the journal, which a relaunch's restore reads: e2e/interrupted-resume.e2e.ts); detached, the
+		// core sees main's stdin end and stops them as a quit does (the core gives itself a hidden console then, as a
+		// detached process has none: `ensure_console` in crates/core/src/sys.rs). It still ends with stdin's end
+		// (main's), and it is never `unref`ed.
 		this.#hub = hubPlace(++this.#starts);
 		const env = { ...process.env, OMPDESK_HUB: this.#hub.address, OMPDESK_HUB_TOKEN: this.#hub.token };
 		const child = spawn(this.#binary(), [], {
 			stdio: ["pipe", "pipe", "pipe"],
 			windowsHide: true,
-			detached: POSIX,
+			detached: true,
 			env,
 		});
 		this.#child = child;
