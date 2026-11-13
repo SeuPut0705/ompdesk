@@ -6,8 +6,12 @@
 # After a fix, check only the failing files (one shard, ~1 min of setup plus their own time, instead of ~25 min):
 #   gh workflow run e2e-nightly.yml --ref main -f specs="e2e/a.e2e.ts e2e/b.e2e.ts"
 # A targeted run has its own concurrency group, so it never cancels a full run (and a full run never cancels it).
+#
+# The parity sheet of a UI change, on a runner (a machine that must not run it, or one without a second app to pair):
+#   gh workflow run e2e-nightly.yml --ref <branch> -f parity="settings-device-switch"
+#   gh run download <run-id> -n parity   # <dir>/<surface>/{local,remote,phone,sheet}.png and parity.json
 name: e2e-nightly
-run-name: ${{ inputs.specs && format('e2e {0}', inputs.specs) || 'e2e-nightly' }}
+run-name: ${{ inputs.parity && format('parity {0}', inputs.parity) || inputs.specs && format('e2e {0}', inputs.specs) || 'e2e-nightly' }}
 
 on:
   schedule:
@@ -18,12 +22,16 @@ on:
         description: "Space-separated e2e spec files to run alone (empty: the whole suite)"
         type: string
         default: ""
+      parity:
+        description: "Parity surfaces to capture instead of the suite (ids, space or comma separated; sheets uploaded as `parity`)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: e2e-nightly-${{ github.ref }}-${{ inputs.specs && 'specs' || 'full' }}
+  group: e2e-nightly-${{ github.ref }}-${{ inputs.parity && 'parity' || inputs.specs && 'specs' || 'full' }}
   cancel-in-progress: true
 
 jobs:
@@ -47,9 +55,59 @@ jobs:
           retention-days: 1
 
   e2e:
+    if: ${{ inputs.parity == '' }}
     needs: build-out
     permissions:
       contents: read
     uses: ./.github/workflows/e2e-shards.yml
     with:
       specs: ${{ inputs.specs || '' }}
+
+  # The parity sheet (e2e/parity.e2e.ts, what `bun run parity` runs after its own build) of the named surfaces on a
+  # macOS runner, against the bundle build-out made. Uploaded whether it passed or not: the e2e shards keep their
+  # captures of a failed run only.
+  parity:
+    if: ${{ inputs.parity != '' }}
+    needs: build-out
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      SURFACES: ${{ inputs.parity }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install
+      # The fake omp's terminals and search run stock's natives from the installed omp (e2e/remote-harness.ts).
+      - name: Install omp
+        run: |
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      # The phone's page runs in Playwright's own Chromium, which a fresh runner lacks.
+      - name: Playwright browsers
+        run: bunx playwright install chromium webkit
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: out
+          path: out
+      - name: Capture
+        run: |
+          set -euo pipefail
+          read -r -a IDS <<< "${SURFACES//,/ }"
+          test "${#IDS[@]}" -gt 0
+          for id in "${IDS[@]}"; do
+            [[ "$id" =~ ^[a-z0-9-]+$ ]] || { echo "::error::not a surface id: $id"; exit 1; }
+          done
+          ONLY=$(IFS=,; echo "${IDS[*]}")
+          OMP_GUI_PARITY="$PWD/parity-out" OMP_GUI_PARITY_ONLY="$ONLY" \
+            bunx playwright test e2e/parity.e2e.ts --trace off --reporter line --output parity-out/results
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: parity
+          path: parity-out/
+          if-no-files-found: ignore
+          retention-days: 7
