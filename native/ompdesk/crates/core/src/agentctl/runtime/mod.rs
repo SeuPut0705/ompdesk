@@ -442,10 +442,16 @@ fn acknowledge(call: &Call) -> Result<Reply, Fault> {
 }
 
 pub fn register(registry: &mut Registry) {
-    registry.add("agentRuntime.activity", |call| at_once(activity_call(&call)));
+    registry.add("agentRuntime.activity", |call| {
+        at_once(activity_call(&call))
+    });
     registry.add("agentRuntime.afterRun", |call| at_once(after_run(&call)));
-    registry.add("agentRuntime.pushReview", |call| at_once(push_review(&call)));
-    registry.add("agentRuntime.sweepOpeners", |call| at_once(sweep_openers(&call)));
+    registry.add("agentRuntime.pushReview", |call| {
+        at_once(push_review(&call))
+    });
+    registry.add("agentRuntime.sweepOpeners", |call| {
+        at_once(sweep_openers(&call))
+    });
     registry.add("agentRuntime.review", |call| Box::pin(review_call(call)));
     registry.add("agentRuntime.familyEdits", |call| {
         Box::pin(family_edits_call(call))
@@ -453,8 +459,12 @@ pub fn register(registry: &mut Registry) {
     registry.add("agentRuntime.liveReview", |call| {
         Box::pin(live_review_call(call))
     });
-    registry.add("agentRuntime.forgetDeleted", |call| at_once(forget_deleted(&call)));
-    registry.add("agentRuntime.acknowledge", |call| at_once(acknowledge(&call)));
+    registry.add("agentRuntime.forgetDeleted", |call| {
+        at_once(forget_deleted(&call))
+    });
+    registry.add("agentRuntime.acknowledge", |call| {
+        at_once(acknowledge(&call))
+    });
     wake::register(registry);
 }
 

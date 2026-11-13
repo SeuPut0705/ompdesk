@@ -313,5 +313,7 @@ fn wake_stop_call(call: &Call) -> Result<Reply, Fault> {
 
 pub fn register(registry: &mut Registry) {
     registry.add("agentRuntime.wake", |call| Box::pin(wake_call(call)));
-    registry.add("agentRuntime.wakeStop", |call| at_once(wake_stop_call(&call)));
+    registry.add("agentRuntime.wakeStop", |call| {
+        at_once(wake_stop_call(&call))
+    });
 }
