@@ -23,6 +23,13 @@ name = "ompdesk-shell"
 path = "src/main.rs"
 test = false
 
+# The macOS bundle's CFBundleExecutable (`Contents/MacOS/OMPdesk`): no CEF, only std and what the library needs. It execs
+# `ompdesk-shell` and watches the first start of a freshly installed version (launcher.rs). Windows builds a stub.
+[[bin]]
+name = "ompdesk-launcher"
+path = "src/launcher_main.rs"
+test = false
+
 [build-dependencies]
 # Windows: the embedded manifest (supportedOS + PerMonitorV2 + long paths; without it CEF's GPU process crash-loops) and the icon.
 embed-resource = "3"

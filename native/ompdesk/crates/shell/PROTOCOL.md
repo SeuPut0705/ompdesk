@@ -438,6 +438,22 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **`OMP_GUI_TEST_SHELL_FAIL_START=1`** (test seam): the shell exits 1 right after CEF initialised, before `app.init` is
   answered, so the installer's swap-back path can be exercised. The "app started" mark (`<userData>/app-started.json`) is
   written by the app's main script, not by the shell.
+- **macOS launcher** (`ompdesk-launcher`, `launcher.rs`, `launcher_main.rs`): the bundle's `CFBundleExecutable`
+  (`Contents/MacOS/OMPdesk`); the shell is `Contents/MacOS/ompdesk-shell`, which the launcher `exec`s with the same argv (the
+  app's pid stays the shell's). Armed only when `<userData>/update-install.json` has `to` == the bundle's
+  `CFBundleShortVersionString` and `<userData>/app-started.json` does not hold that version: it then leaves a detached copy
+  of itself (`--ompdesk-launcher-watch`, stdio to `<userData>/updates/swap.log`) that waits up to 120 s (also: the shell's pid
+  gone for 10 s) for the mark. Not seen: `<bundle>.previous` present → the old app's swap script owns the rollback
+  (`start failed; the swap restores`); else the shell and every process under `<bundle>/Contents/` are ended and the last
+  Electron release (`last-electron.json` → compile-time `OMPDESK_LAST_ELECTRON_TAG`) is fetched with `/usr/bin/curl`
+  (`GET <api>/repos/SeuPut0705/ompdesk/releases/tags/<tag>`, its `<!-- ompdesk-update … -->` comment, the `ompdesk-mac-arm64.dmg`
+  asset by its API `url` with `Accept: application/octet-stream`), SHA-512 and size checked, mounted read-only, copied out,
+  `codesign --verify --deep --strict`, bundle id and version checked, swapped in (`<bundle>.failed` aside, the S bundle put
+  back on any failure) and opened with `open -n`. swap.log lines: `swap <date>: start check <bundle> -> <bundle>`, then
+  `started` | `start failed; the swap restores` | `rollback: ending <pids>`, `fetching <tag>`, `download ok <bytes>`,
+  `sha512 ok`, `staged <path>`, `verified`, `swapped`, `opened`, and `start failed; previous app restored` or
+  `start failed; restore failed: <why>`. Test seams (only beside `OMP_GUI_TEST_USER_DATA_DIR`):
+  `OMPDESK_LAUNCHER_RELEASE_URL` (the API base) and `OMPDESK_LAUNCHER_START_WAIT_S`. Compiled on macOS by CI only.
 - **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs every host request (`host.request`); a Rust panic writes
   `%TEMP%/ompdesk-shell-panic.log`.
 - **`menu.popup`** answers `null` when another popup is open; popup choices never emit `menu.click`.

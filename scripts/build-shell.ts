@@ -58,6 +58,8 @@ export interface ShellBuildRecord {
 	platform: string;
 	arch: string;
 	binary: string;
+	/** macOS only: the bundle's `CFBundleExecutable`, which execs `binary` (`ompdesk-launcher`, a file of `files` like the binary). */
+	launcher?: string;
 	/** Every staged regular file but the record, by relative path with `/`, to its SHA-256. */
 	files: Record<string, string>;
 	sourceSha256: string;
@@ -82,6 +84,10 @@ export function cefPlatform(platform: string = process.platform, arch: string = 
 
 export const binaryName = (platform: string = process.platform): string =>
 	platform === "win32" ? "ompdesk-shell.exe" : "ompdesk-shell";
+
+/** The macOS bundle's `CFBundleExecutable` (it execs the shell and restores the last Electron when a new version never starts). */
+export const launcherName = (platform: string = process.platform): string | undefined =>
+	platform === "darwin" ? "ompdesk-launcher" : undefined;
 
 /** Where this machine's build is staged. */
 export const stagedDir = (): string => path.join(SHELL_ROOT, `${process.platform}-${process.arch}`);
@@ -163,6 +169,9 @@ export function checkShell(target: string = stagedDir()): ShellBuildRecord {
 	}
 	if (!(record.binary in record.files))
 		throw new BuildError(`the record's binary ${record.binary} is not among its files.`);
+	const launcher = launcherName();
+	if (launcher && (record.launcher !== launcher || !(launcher in record.files)))
+		throw new BuildError(`the record names no staged ${launcher}.`);
 	return record;
 }
 
@@ -458,6 +467,8 @@ function stageFiles(target: string, built: string): void {
 		return;
 	}
 	copyIfChanged(built, path.join(target, binaryName()));
+	const launcher = launcherName() as string;
+	copyIfChanged(path.join(path.dirname(built), launcher), path.join(target, launcher));
 	const framework = path.join(cef, "Chromium Embedded Framework.framework");
 	if (!fs.existsSync(framework)) throw new BuildError(`${framework} is missing from the CEF archive.`);
 	const staged = path.join(target, "Chromium Embedded Framework.framework");
@@ -476,6 +487,9 @@ export async function buildShell(options: { quiet?: boolean } = {}): Promise<str
 	await cargoInShell(["build", "--locked", "--release"], options);
 	const built = path.join(SHELL_DIR, "target", "release", binaryName());
 	if (!fs.existsSync(built)) throw new BuildError(`${built} was not produced.`);
+	const launcher = launcherName();
+	if (launcher && !fs.existsSync(path.join(path.dirname(built), launcher)))
+		throw new BuildError(`${launcher} was not produced.`);
 	const target = stagedDir();
 	fs.mkdirSync(target, { recursive: true });
 	stageFiles(target, built);
@@ -490,6 +504,7 @@ export async function buildShell(options: { quiet?: boolean } = {}): Promise<str
 		platform: process.platform,
 		arch: process.arch,
 		binary: binaryName(),
+		...(launcher ? { launcher } : {}),
 		files,
 		sourceSha256: sourceSha256(),
 		cef: { version: pin.cefVersion, archiveSha256: pin.platforms[cefPlatform()].sha256 },

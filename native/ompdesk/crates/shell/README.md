@@ -121,6 +121,9 @@ file name).
   `clearStorageData` do nothing for them; creating the two Preview contexts logs a non-fatal Chromium `NOTREACHED` line.
 - **`OMP_GUI_TEST_SHELL_FAIL_START=1`** (test seam) makes the shell exit 1 right after CEF initialised. The "app started"
   mark is written by the app's main script (`<userData>/app-started.json`), not by the shell.
+- **macOS launcher**: the bundle's `Contents/MacOS/OMPdesk` is `ompdesk-launcher`, which execs `ompdesk-shell` and, for the
+  first launch of a version an update installed, restores the last Electron release if the new app never writes
+  `app-started.json` (PROTOCOL.md §14 has the rules and the `swap.log` lines). `last-electron.json` names that release.
 - **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs each host request; a Rust panic writes `%TEMP%/ompdesk-shell-panic.log`.
 - **Dialogs** run on a thread of their own so their modal loop does not block CEF's UI thread; macOS `messageBox` is
   an app-modal alert, not a sheet.

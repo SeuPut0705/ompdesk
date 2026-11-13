@@ -7,6 +7,23 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rerun-if-changed=app.manifest");
     println!("cargo:rerun-if-env-changed=OMPDESK_ICON");
+    println!("cargo:rerun-if-changed=last-electron.json");
+    // The last Electron release, the app the macOS launcher puts back when a new version never starts: a compile-time
+    // constant of `ompdesk-launcher` from `last-electron.json` (`{"tag": "v0.127.0"}`; the release workflow writes it).
+    let tag = std::fs::read_to_string("last-electron.json")
+        .ok()
+        .and_then(|text| {
+            let after = text.split_once("\"tag\"")?.1;
+            let value = after.split_once('"')?.1;
+            Some(value.split_once('"')?.0.trim().to_string())
+        })
+        .unwrap_or_default();
+    if tag.is_empty() && std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        panic!(
+            "last-electron.json has no \"tag\": the macOS launcher needs the last Electron release to restore"
+        );
+    }
+    println!("cargo:rustc-env=OMPDESK_LAST_ELECTRON_TAG={tag}");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
