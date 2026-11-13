@@ -308,6 +308,8 @@ The owner's call: the units above move in batches, one session per batch, checke
 
 Eleven batches. From 12 Nov 2026 23:0x (the owner: "병렬로 작업을 다 해야하는데 왜 놀고있는거야"), every batch whose predecessor is on a pushed branch is built at once on a branch stacked on it (W1 on B2, H2 on H1, H3 and H4a on H2, W2's Rust side on B2); they still land in the order of this table, each after its own batch gate, rebased on what landed before.
 
+H3 and H4a landed before H2 on 13 Nov 2026 (`e14eb3c3..215c5333`), against this table's order, by the session's mistake; it was safe because they were rebased on `main` without H2 and gated there (run 43360630335 green, web-close-reports and repo-lock-core run with their mutations and stamped on that commit): nothing of theirs uses H2's code. H2 rebases over them; H4b still lands after H2.
+
 ## 4. What cannot move until the shell is swapped
 
 | File | Lines | Reason |
