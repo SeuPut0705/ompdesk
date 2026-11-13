@@ -1,0 +1,25 @@
+HTTP/2.0 200 OK
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Date: Fri, 13 Nov 2026 19:03:59 GMT
+Etag: W/"570172cbb95aa4ff769a3bddb58ed699e3652b2b8164bf9fe8453b8e5d0b950d"
+Referrer-Policy: origin-when-cross-origin, strict-origin-when-cross-origin
+Server: github.com
+Strict-Transport-Security: max-age=31536000; includeSubdomains; preload
+Vary: Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With
+X-Content-Type-Options: nosniff
+X-Frame-Options: deny
+X-Github-Api-Version-Selected: 2022-11-28
+X-Github-Edge-Region: koreacentral
+X-Github-Media-Type: github.v3; format=json
+X-Ratelimit-Limit: 5000
+X-Ratelimit-Remaining: 3779
+X-Ratelimit-Reset: 1794598857
+X-Ratelimit-Resource: core
+X-Ratelimit-Used: 1221
+X-Xss-Protection: 0
+
+{"jobs":[{"completed_at":"2026-11-13T18:46:12Z","conclusion":"success","created_at":"2026-11-13T18:45:29Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485704044/job/132093447695","id":132093447695,"labels":["ubuntu-latest"],"name":"formal","run_attempt":1,"run_id":43485704044,"runner_group_name":"GitHub Actions","runner_id":1000035900,"runner_name":"GitHub Actions 1000035900","started_at":"2026-11-13T18:45:31Z","status":"completed"},{"completed_at":"2026-11-13T18:46:29Z","conclusion":"success","created_at":"2026-11-13T18:46:12Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485704044/job/132093859606","id":132093859606,"labels":["ubuntu-latest"],"name":"publish","run_attempt":1,"run_id":43485704044,"runner_group_name":"GitHub Actions","runner_id":1000035919,"runner_name":"GitHub Actions 1000035919","started_at":"2026-11-13T18:46:14Z","status":"completed"}],"total_count":2}
