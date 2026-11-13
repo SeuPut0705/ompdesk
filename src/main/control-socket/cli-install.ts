@@ -25,13 +25,62 @@ export interface CliInstallOptions {
 
 const shQuote = (text: string): string => `'${text.replace(/'/g, "'\\''")}'`;
 
+function posixLauncher(binary: string): string {
+	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\nexec ${shQuote(binary)} "$@"\n`;
+}
+
 /**
- * Also Git Bash's launcher on Windows, where the path is written with forward slashes: Git Bash and MSYS resolve
- * `C:/…` and `C:\…` alike, omp's own bash (every agent's `ompdesk check`) only the former.
+ * The sh launcher on Windows, run by Git Bash, MSYS, omp's own bash and WSL. The path is written with forward slashes:
+ * Git Bash and MSYS resolve `C:/…` and `C:\…` alike, omp's bash (every agent's `ompdesk check`) only the former. Under
+ * WSL the path is mapped with `wslpath`, and `run --heavy` takes the slot through the Windows CLI's `heavy hold` and
+ * runs the command itself, as a Linux process (the CLI's own `run` would start it as a Windows one). The hold ends when
+ * this shell does (its stdin, fd 3 here, closes), killed included; the command does not inherit it. `heavy hold`
+ * answers `held <slots> pid <its Windows pid>` (with a CR from Windows), which the command gets as `OMPDESK_HEAVY_HELD`
+ * so heavy work nested in it reuses the slot, or `held reused` when an ancestor's hold already covers this run.
+ * `WSLENV` carries that variable into the Windows CLI, which checks the pid.
  */
-function posixLauncher(binary: string, platform: SetupPlatform): string {
-	const path = platform === "win32" ? binary.replaceAll("\\", "/") : binary;
-	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\nexec ${shQuote(path)} "$@"\n`;
+function windowsShLauncher(binary: string): string {
+	return String.raw`#!/bin/sh
+# ${LAUNCHER_MARKER}
+exe=${shQuote(binary.replaceAll("\\", "/"))}
+if [ -z "$WSL_DISTRO_NAME" ] || ! command -v wslpath >/dev/null 2>&1; then
+	exec "$exe" "$@"
+fi
+exe=$(wslpath -u "$exe") || exit 1
+case ":$WSLENV:" in
+*:OMPDESK_HEAVY_HELD:*) ;;
+::) WSLENV=OMPDESK_HEAVY_HELD ;;
+*) WSLENV="$WSLENV:OMPDESK_HEAVY_HELD" ;;
+esac
+export WSLENV
+if [ "$1" != run ] || [ "$2" != --heavy ]; then
+	exec "$exe" "$@"
+fi
+shift 2
+all=
+if [ "$1" = --all ]; then all=--all; shift; fi
+if [ "$1" = -- ]; then shift; fi
+if [ $# -eq 0 ]; then exec "$exe" run --heavy $all; fi
+fifos=$(mktemp -d) || exit 1
+mkfifo "$fifos/in" "$fifos/out" || exit 1
+"$exe" heavy hold $all <"$fifos/in" >"$fifos/out" &
+hold=$!
+exec 3>"$fifos/in" 4<"$fifos/out"
+rm -rf "$fifos"
+held=
+read -r held <&4
+held=$(printf '%s' "$held" | tr -d '\r')
+case $held in
+"held reused") ;;
+"held "*" pid "*) OMPDESK_HEAVY_HELD=$(printf '%s' "$held" | sed 's/.* pid //'); export OMPDESK_HEAVY_HELD ;;
+*) exec 3>&-; wait "$hold"; code=$?; [ $code -eq 0 ] && code=1; exit $code ;;
+esac
+"$@" 3>&- 4<&-
+code=$?
+exec 3>&- 4<&-
+wait "$hold"
+exit $code
+`;
 }
 
 /** The executable by its absolute path: cmd.exe looks in the current folder before PATH. */
@@ -65,7 +114,8 @@ export function installCliLaunchers(options: CliInstallOptions): string[] {
 	const appBin = join(userData, "bin");
 
 	const files = (dir: string, foreignWins: boolean): boolean => {
-		const ok = [place(join(dir, "ompdesk"), posixLauncher(binary, platform), foreignWins)];
+		const sh = platform === "win32" ? windowsShLauncher(binary) : posixLauncher(binary);
+		const ok = [place(join(dir, "ompdesk"), sh, foreignWins)];
 		if (platform === "win32") ok.push(place(join(dir, "ompdesk.cmd"), cmdLauncher(binary), foreignWins));
 		return ok.every(Boolean);
 	};
