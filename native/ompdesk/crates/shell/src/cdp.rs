@@ -190,6 +190,9 @@ pub fn attach(wc_id: u64) {
                 None
             } else {
                 e.cdp_session = session.clone();
+                // No session: the debugger is not attached after all, so a later command fails at once and a new
+                // attach is not refused.
+                e.cdp_attached = session.is_some();
                 Some(std::mem::take(&mut e.cdp_waiting))
             }
         };
@@ -207,11 +210,15 @@ pub fn attach(wc_id: u64) {
             }
             return;
         };
-        if session.is_none() {
-            crate::log::log("wc.debugger_session_failed", json!({ "wcId": wc_id }));
-        }
         for run in waiting {
             run(session.clone());
+        }
+        if session.is_none() {
+            crate::log::log("wc.debugger_session_failed", json!({ "wcId": wc_id }));
+            host::event(
+                "wc.cdp.detached",
+                json!({ "wcId": wc_id, "reason": "target closed" }),
+            );
         }
     };
     crate::wc::with_browser(wc_id, move |_| {
