@@ -202,6 +202,8 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
+import { shellHost } from "./shell-host/modules/client";
+import { serveCoreRelay } from "./shell-host/modules/core-relay";
 import {
 	accessibilityTrusted,
 	defaultSessionCachePath,
@@ -807,6 +809,9 @@ function spawnWindow(
 	}
 	return win;
 }
+
+// Modules moved into the shell reach the core through main until the core moves under the shell (PROTOCOL.md §15.2).
+serveCoreRelay(shellHost(), core);
 
 app.whenReady().then(async () => {
 	installMainRuntimeLogging();

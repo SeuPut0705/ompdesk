@@ -1,4 +1,5 @@
-//! Routes Node's requests and events to the module that owns the namespace.
+//! Routes Node's requests and events to the module that owns the namespace: the Electron shim's namespaces here, a
+//! moved subsystem's through `modules` (PROTOCOL.md §15).
 
 use serde_json::Value;
 
@@ -40,7 +41,7 @@ pub fn request(call: Call) {
         m if m.starts_with("shortcut.") => crate::shortcut::handle(call),
         m if m.starts_with("net.") => crate::net::handle(call),
         m if m.starts_with("system.") => crate::system::handle(call),
-        _ => call.unsupported(),
+        _ => crate::modules::request(call),
     }
 }
 
@@ -69,6 +70,6 @@ pub fn event(name: &str, data: Value, bin: Option<Vec<u8>>) {
             }
         }
         "net.cancel" => crate::net::cancel(data),
-        other => crate::log::log("host.event_ignored", serde_json::json!({ "event": other })),
+        other => crate::modules::event(other, data, bin),
     }
 }

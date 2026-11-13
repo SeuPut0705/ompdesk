@@ -11,10 +11,12 @@ use std::sync::{Mutex, OnceLock};
 use cef::*;
 use serde_json::{Value, json};
 
-/// Ids Node sees (PROTOCOL.md §0): one counter each, from 1, never reused in a run.
-static WIN_IDS: AtomicU64 = AtomicU64::new(1);
-static WC_IDS: AtomicU64 = AtomicU64::new(1);
-static VIEW_IDS: AtomicU64 = AtomicU64::new(1);
+/// Ids Node sees (PROTOCOL.md §0). Node assigns its own from 1; the ones the shell makes (a create that omits them, a
+/// window or page a moved module opens, §15) start at 2^32, so the two never meet. Never reused in a run.
+const SHELL_IDS_BASE: u64 = 1 << 32;
+static WIN_IDS: AtomicU64 = AtomicU64::new(SHELL_IDS_BASE);
+static WC_IDS: AtomicU64 = AtomicU64::new(SHELL_IDS_BASE);
+static VIEW_IDS: AtomicU64 = AtomicU64::new(SHELL_IDS_BASE);
 
 pub fn next_win_id() -> u64 {
     WIN_IDS.fetch_add(1, Ordering::Relaxed)

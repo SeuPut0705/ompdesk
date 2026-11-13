@@ -16,6 +16,7 @@ mod log;
 #[cfg(target_os = "macos")]
 mod macos;
 mod menu;
+mod modules;
 mod net;
 mod node;
 mod notification;

@@ -61,6 +61,7 @@ export const {
 	net,
 	nativeImage,
 	safeStorage,
+	shellHost,
 } = electron;
 
 export default electron;

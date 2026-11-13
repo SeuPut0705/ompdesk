@@ -141,6 +141,9 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 			warn: message => host.warn(message),
 			fetchKey: keychainFetcher(facts.exe, facts.paths.userData),
 		}),
+		/** Not an Electron member: the shim's connection, gated on `app.ready` like the shim's own requests. Each moved
+		 * module's typed client (`shell-host/modules/client.ts`) speaks through it. */
+		shellHost: host.client,
 	};
 }
 

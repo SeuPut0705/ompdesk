@@ -77,6 +77,7 @@ pub fn request_exit(code: i32) {
     }
     crate::ui::post(|| {
         ui_state(|u| u.exiting = true);
+        crate::modules::shutdown();
         crate::window::close_all_for_exit();
         if ui_state(|u| u.browsers) == 0 {
             cef::quit_message_loop();

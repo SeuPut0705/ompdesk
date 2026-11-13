@@ -15,6 +15,7 @@ pub mod input_watch;
 pub mod launcher;
 pub mod menu_model;
 pub mod migrate;
+pub mod namespaces;
 pub mod native_ui;
 pub mod netmap;
 pub mod notify_spec;

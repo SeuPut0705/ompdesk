@@ -1,10 +1,11 @@
 # Host protocol: Node main ⇄ ompdesk-shell
 
 Author of the method table: NodeShim (`src/main/shell-host/`). Implementer of the Rust side: ShellCrate, who records
-deviations in the last section. The shim (`src/main/shell-host/electron/`) is the only Node-side speaker; every
+deviations in §14. The shim (`src/main/shell-host/electron/`) is the only Node-side speaker of §1–13; every
 Electron call `src/main` makes (found statically, see the inventory in `src/main/shell-host/INVENTORY.md`) maps to
 one entry below. Nothing here is a general Electron emulation: a method the app never calls is not listed, and a
-`win.op`/`wc.op` name the shell does not know answers `{code: "unsupported"}` (never silently ignored).
+`win.op`/`wc.op` name the shell does not know answers `{code: "unsupported"}` (never silently ignored). §15 is the
+other kind of namespace: a subsystem of main moved into the shell (batch SX), spoken by its typed client.
 
 ## 0. Wire
 
@@ -529,3 +530,139 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **macOS**: `facts.safeStorage` is `{kind: "mac-v10-lazy"}` (the key is fetched with `--keychain-key <userData>`, never at
   launch); every CEF process runs with `--use-mock-keychain`; Cmd-Q sends `app.quitRequested`. All macOS code is
   unverified on a Mac.
+
+## 15. Moved subsystems (batch SX: the shell port)
+
+What `docs/rust-remaining-units.md` §4 lists (about 13 300 lines of `src/main` that need Electron) moves out of the
+Node child into the shell, one **module** per subsystem. A module owns one namespace: every method, event and ask of
+it is `<namespace>.<name>`. The ledger line is `.omp/rules/native-rust.md` › Ledger › SX.
+
+### 15.0 The contract every slice keeps
+
+**Rust side** (`crates/shell/src/modules/mod.rs`):
+
+- A module is a unit struct implementing `modules::Module` (`namespace`, `request`, and optionally `event`, `ready`,
+  `shutdown`) and one line of `MODULES`. Its CEF-bound code is `src/modules/<namespace>/` (`mod <namespace>;` in
+  `modules/mod.rs`); its pure rules are `src/<namespace>_core/` in the library (`pub mod <namespace>_core;` in `lib.rs`),
+  where `cargo test` runs them without CEF. State lives in the module's own statics; CEF objects only on the UI thread.
+- Namespaces are one lowercase word, never one of `shell_core::namespaces::SHIM_NAMESPACES` (`app`, `win`, `wc`,
+  `tray`, `menu`, … and `core`), never twice; the registry asserts it when it is built (the core's `Registry` rule).
+  Hence `chrome.*`, not `app.windows.*`: `app.*` is the one namespace Node sends before `app.ready`.
+- `dispatch.rs` keeps the shim's namespaces and hands every other name to `modules::request` / `modules::event`; a
+  name no module owns answers `unsupported` (an event is logged and dropped).
+- `request` and `event` run on the host's reader thread and never block it: CEF work goes to `crate::ui::post`,
+  anything slow to a thread of its own. A module answers each `Call` exactly once (dropping it answers `failed`).
+- `ready` runs on the UI thread in `on_context_initialized`, before `app.ready` goes to Node, in list order; `shutdown`
+  runs on the UI thread when `app.exit` arrives, before the windows close, in reverse order. A Node that died gets no
+  `shutdown` (the shell exits at once).
+- A module reaches CEF through the crate's existing modules (`window`, `wc`, `view`, `session`, `tray`, `menu`,
+  `dialog`, `notification`, `net`, …), never a second copy of them; Node through its `Ctx` (`emit`, `emit_bin`, `ask`,
+  every name prefixed with its namespace); the core through `Ctx::core` (§15.2).
+- Ids a module makes for shim-level objects (a window, a page, a view) come from `state.rs`'s counters, which start at
+  2^32; Node's own ids count from 1, so the two never meet. Node's shim does not know an id at or past 2^32: the module
+  that made the object tells Node what it needs through its own events.
+
+**Node side** (`src/main/shell-host/modules/`):
+
+- One client file per namespace, `modules/<namespace>.ts`: it declares the namespace's `ModuleSpec` (`calls` Node →
+  shell requests, `posts` Node → shell events, `events` shell → Node, `asks` shell → Node requests, each name without
+  the namespace), makes `shellModule<Spec>("<namespace>")` (`modules/client.ts`) and exports the functions the rest of
+  main calls. Nothing else speaks the namespace. Requests wait for `app.ready` as the shim's do.
+- **Clean cutover**: the commits that add a module delete the TypeScript that did the work and move every caller to
+  the client in the same commits; no flag, no fallback to the TypeScript, no copy left beside it. A synchronous API
+  becomes asynchronous at its call sites (as INVENTORY.md › Made different), or Node keeps a mirror written only from
+  the module's events (9c's mirror pattern) when a caller must read it synchronously.
+- An ask the module makes is served (`client.serve`) before the first call that could cause it; an ask nobody serves
+  answers `unsupported` and the module treats that as a failure it logs.
+- Errors are the wire's codes (§0); a module may add its own `error.code`s, listed in its table.
+
+### 15.1 Slices
+
+Five slices, each on its own branch stacked on `omp/agent/shell-port-base` (this contract), each one session. Every
+file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `index.ts`, the parts named).
+
+| Slice | Namespace | Moves | Rust |
+|---|---|---|---|
+| SX1 chrome | `chrome.*` | `window.ts`, `menu.ts`, `tray.ts`, `app-quit.ts`, `deep-link.ts`, `gpu-fallback.ts`, `hang-watchdog.ts`, `app-icon.ts` | `modules/chrome/`, `chrome_core/` |
+| SX2 preview | `preview.*` | `preview/host.ts`, `agent-relay.ts`, `visuals.ts`, `page-scripts.ts`, `preview-check.ts`, `layout.ts`, `relay-socket.ts`, `visual-navigation.ts`; `web/preview-stream.ts`, `preview-input.ts`, `preview-dialog.ts`, `preview-pacer.ts` | `modules/preview/`, `preview_core/` |
+| SX3 services | `services.*` | the Electron services of `ipc.ts` (clipboard, dialog, screen, shell, `Notification`, window lookups), `web/ipc-registry.ts`, `ssh/ipc.ts`, `runtime-log.ts` | `modules/services/`, `services_core/` |
+| SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `updater-state.ts` | `modules/updater/`, `updater_core/` |
+| SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `i18n.ts`, `i18n-text.ts`, `sidecar-factory.ts`'s paths | `modules/boot/`, `boot_core/` |
+
+- **Where a module lives**: in the shell when it needs CEF or the OS objects the shell holds (windows, tray, menus,
+  Chromium's network stack with its proxy and certificate store, the `safeStorage` key). A slice whose rules need none
+  of that puts them in the core instead (`crates/core/src/<namespace>/`, the core's `register` and `CoreProcess`
+  client), with its row here naming that; the updater's network stays in the shell (§4's reason: Chromium's proxy and
+  certificates).
+- **Files a slice touches**: its moved files and their callers' call sites; its `modules/<namespace>/`,
+  `<namespace>_core/` and `src/main/shell-host/modules/<namespace>.ts`; its row and §15.x tables here; its ledger line.
+  Shared, one line each (a rebase resolves them): `MODULES` and the `mod` lines in `modules/mod.rs`, `lib.rs`,
+  `Cargo.toml`/`Cargo.lock` (a new crate also regenerates `LICENSES/ompdesk-native-dependencies.txt`).
+  `Ctx`'s `#[expect(dead_code)]` goes with the commit that makes its last method live.
+- **Between slices**: a module calls another module's Rust (`pub` functions of `modules/<other>/`), never the wire;
+  until the other slice landed it goes through the shim namespaces as today (chrome owns the windows: preview and
+  services keep using `win.*` ids Node assigns until SX1 lands, then take SX1's functions).
+
+### 15.2 `core.call` (shell → Node, the relay to `ompdesk-core`)
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `core.call` | shell→Node | `{method, params, timeoutMs?}` + `bin` | the core's answer to `method` (its `bin` too). A fault keeps the core's `code` and message; `{cancel: id}` cancels the request in the core. Served by `shell-host/modules/core-relay.ts` (registered in `index.ts`), used through `Ctx::core`. When the core moves under the shell only `Ctx::core`'s body changes. |
+
+### 15.3 Parity proof, per slice
+
+The TypeScript that moves is the specification (native-rust › A port keeps behaviour). Each slice proves its module
+the same way, and runs nothing heavy locally (the owner's rule: `cargo check` of the shell crate only; every test,
+clippy, the e2e and CEF behaviour on GitHub runners).
+
+1. **Capture before deletion.** In the slice's first commit, while the TypeScript still exists, a capture script
+   (`scripts/shell-port/capture-<namespace>.ts`) drives the moved code through its public functions over a fake shell
+   (the `HostClient` fake of `electron/create.test.ts`) and records each step: the input, the shim frames the
+   TypeScript sent (method, params) and what it returned or emitted. Written to
+   `crates/shell/src/<namespace>_core/captured.json`, headed by the commit it was captured from. Run under bun, not a
+   heavy check.
+2. **The frames are the spec.** The module's pure part returns its decisions as data equal to those frames (a list of
+   window, tray, menu or view operations, a request to make, an event to send); the CEF part only carries them out.
+   `cargo test` replays `captured.json` against `<namespace>_core` and fails on the first step that differs.
+3. **Tests that stay.** Unit tests whose subject moved become Rust tests of the same cases. Tests of callers stay and run
+   against the typed client over a fake host (`shellModule(ns, () => fake)`). The e2e specs that cover the surface
+   stay unchanged and run against the built shell. CEF behaviour (windows, tray, menus, capture, network) is checked
+   only on GitHub's Windows and macOS runners: `shell-check` (fmt, clippy `-D warnings`, `cargo test`) and the batch
+   run `gh workflow run ci.yml --ref <branch> -f batch=true`; a slice adds its specs to that run's selection.
+4. **Ledger line** in the format of the others: what moved, kept exactly (the captured step count), differences, what
+   stays TypeScript and why, CI coverage.
+
+### 15.4 `chrome.*` (SX1)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+
+Deviations:
+
+### 15.5 `preview.*` (SX2)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+
+Deviations:
+
+### 15.6 `services.*` (SX3)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+
+Deviations:
+
+### 15.7 `updater.*` (SX4)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+
+Deviations:
+
+### 15.8 `boot.*` (SX5)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+
+Deviations:

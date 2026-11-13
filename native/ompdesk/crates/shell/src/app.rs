@@ -127,6 +127,7 @@ wrap_browser_process_handler! {
             crate::scheme::register();
             crate::system::init();
             log("cef.ready", json!({ "version": shell_core::facts::CEF_VERSION }));
+            crate::modules::ready();
             host::event("app.ready", json!({}));
             #[cfg(target_os = "macos")]
             crate::macos::flush_pending();
