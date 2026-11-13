@@ -9,6 +9,18 @@ import type { Host } from "./host";
 
 const NULL_BODY_STATUS = new Set([101, 204, 205, 304]);
 
+/** What the shell reports of an HTTP authentication challenge: Electron's `authInfo`. */
+interface AuthInfo {
+	isProxy: boolean;
+	scheme: string;
+	host: string;
+	port: number;
+	realm: string;
+}
+
+/** The credentials a `login` listener gave, or null: no listener, or `callback()` with none (the challenge stands). */
+type LoginAnswer = (info: AuthInfo) => Promise<{ username: string; password: string } | null>;
+
 interface FetchHead {
 	status: number;
 	statusText: string;
@@ -22,6 +34,8 @@ export function createNet(host: Host) {
 	const streams = new Map<number, ReadableStreamDefaultController<Uint8Array>>();
 	let nextRequest = 1;
 	let online = host.facts.system.online;
+	/** The `login` answerers of the requests in flight, by request id; a request is over when its stream is. */
+	const logins = new Map<number, LoginAnswer>();
 	client.on("net.chunk", ({ reqId }: { reqId: number }, bin?: Buffer) => {
 		if (bin) streams.get(reqId)?.enqueue(new Uint8Array(bin));
 	});
@@ -29,8 +43,14 @@ export function createNet(host: Host) {
 		const controller = streams.get(reqId);
 		if (!controller) return;
 		streams.delete(reqId);
+		logins.delete(reqId);
 		if (error) controller.error(new TypeError(error));
 		else controller.close();
+	});
+	// An HTTP authentication challenge (server or proxy) of a request in flight (PROTOCOL.md §10): Electron's `login`.
+	client.handle("net.login", async ({ reqId, ...info }: { reqId: number } & AuthInfo) => {
+		const credentials = await logins.get(reqId)?.(info);
+		return credentials ?? { cancel: true };
 	});
 	client.on("net.online", (data: { online: boolean }) => {
 		online = data.online;
@@ -38,7 +58,7 @@ export function createNet(host: Host) {
 
 	async function fetchViaShell(
 		input: string | URL | Request,
-		init: RequestInit & { bypassCustomProtocolHandlers?: boolean } = {},
+		init: RequestInit & { bypassCustomProtocolHandlers?: boolean; partition?: string; login?: LoginAnswer } = {},
 	): Promise<Response> {
 		const request = new Request(input, init);
 		const hasBody = request.method !== "GET" && request.method !== "HEAD" && request.body !== null;
@@ -50,10 +70,12 @@ export function createNet(host: Host) {
 				controller = c;
 			},
 			cancel: () => {
+				logins.delete(reqId);
 				if (streams.delete(reqId)) void client.event("net.cancel", { reqId });
 			},
 		});
 		streams.set(reqId, controller);
+		if (init.login) logins.set(reqId, init.login);
 		let head: FetchHead;
 		try {
 			head = (
@@ -68,6 +90,7 @@ export function createNet(host: Host) {
 						redirect: request.redirect,
 						credentials: request.credentials,
 						cache: request.cache,
+						...(init.partition ? { partition: init.partition } : {}),
 						...(init.bypassCustomProtocolHandlers ? { bypassCustomProtocolHandlers: true } : {}),
 					},
 					{ ...(body ? { bin: body } : {}), signal: request.signal },
@@ -75,6 +98,7 @@ export function createNet(host: Host) {
 			).result;
 		} catch (error) {
 			streams.delete(reqId);
+			logins.delete(reqId);
 			if (request.signal.aborted)
 				throw request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 			throw new TypeError(error instanceof Error ? error.message : String(error));
@@ -83,6 +107,7 @@ export function createNet(host: Host) {
 			"abort",
 			() => {
 				if (!streams.delete(reqId)) return;
+				logins.delete(reqId);
 				void client.event("net.cancel", { reqId });
 				controller.error(request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
 			},
@@ -110,7 +135,8 @@ export function createNet(host: Host) {
 		path?: string;
 		redirect?: "follow" | "manual" | "error";
 		headers?: Record<string, string | string[]>;
-		session?: unknown;
+		/** The session whose network context carries the request (`session.fromPartition(…)`); the default one if none. */
+		session?: { partition?: string };
 	}
 
 	class ClientResponse extends Readable {
@@ -204,6 +230,16 @@ export function createNet(host: Host) {
 			return `${protocol}//${host}${port}${options.path ?? "/"}`;
 		}
 
+		/** Electron's `login`: `callback(username, password)` answers the challenge, `callback()` leaves it as it is. */
+		#login(info: AuthInfo): Promise<{ username: string; password: string } | null> {
+			const { promise, resolve } = Promise.withResolvers<{ username: string; password: string } | null>();
+			const answered = this.emit("login", info, (username?: string, password?: string) =>
+				resolve(username === undefined ? null : { username, password: password ?? "" }),
+			);
+			if (!answered) resolve(null);
+			return promise;
+		}
+
 		async #run(): Promise<void> {
 			const method = (this.#options.method ?? "GET").toUpperCase();
 			const redirect = this.#options.redirect ?? "follow";
@@ -213,6 +249,8 @@ export function createNet(host: Host) {
 					headers: Object.fromEntries(this.#headers),
 					redirect,
 					signal: this.#controller.signal,
+					...(this.#options.session?.partition ? { partition: this.#options.session.partition } : {}),
+					login: info => this.#login(info),
 					...(this.#chunks.length > 0 && method !== "GET" && method !== "HEAD"
 						? { body: Buffer.concat(this.#chunks) }
 						: {}),

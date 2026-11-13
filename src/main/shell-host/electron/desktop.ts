@@ -110,17 +110,29 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 			host.post("notification.show", { ...this.#options, id: this.#id, title: this.title, body: this.body });
 		}
 
+		/**
+		 * Takes the toast down. The entry stays until the `close` event, which Electron emits for this too (a holder
+		 * such as main's `liveNotifications` releases on it): the shell's when it sends one (Windows' dismissal),
+		 * else this one once the shell has answered (macOS removes a notification silently).
+		 */
 		close(): void {
-			host.post("notification.close", { id: this.#id });
-			notifications.delete(this.#id);
+			const id = this.#id;
+			const settle = (): void => settleNotification(id, "close");
+			client.call("notification.close", { id }).then(settle, (error: unknown) => {
+				host.warn(`notification.close: ${error instanceof Error ? error.message : String(error)}`);
+				settle();
+			});
 		}
 	}
-	client.on("notification.event", ({ id, name, reason }: { id: number; name: string; reason?: string }) => {
+	function settleNotification(id: number, name: string, reason?: string): void {
 		const notification = notifications.get(id);
 		if (!notification) return;
 		if (name === "close" || name === "failed") notifications.delete(id);
 		notification.emit(name, makeEvent(), reason);
-	});
+	}
+	client.on("notification.event", ({ id, name, reason }: { id: number; name: string; reason?: string }) =>
+		settleNotification(id, name, reason),
+	);
 
 	// --- screen ---
 	let displays = facts.displays;

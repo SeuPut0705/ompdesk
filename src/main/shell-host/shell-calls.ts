@@ -27,6 +27,15 @@ export function safeStorageUnavailableReason(): string | null {
 	return storage.getUnavailableReason?.() ?? null;
 }
 
+/**
+ * The folder of the default session's HTTP cache, as the shell keeps it (`<userData>/shell-webview/Default/Cache`); null
+ * when it is not told (Electron has no such call: its cache is `<userData>/Cache`).
+ */
+export function defaultSessionCachePath(): string | null {
+	const session = electron.session.defaultSession as unknown as { getCachePath?: () => string | null };
+	return session.getCachePath?.() ?? null;
+}
+
 /** `clipboard.readText()`. */
 export function readClipboardText(): Promise<string> {
 	return shim().clipboard.readTextAsync();

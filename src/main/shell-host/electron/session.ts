@@ -35,6 +35,8 @@ interface SessionCreated {
 	acceptLanguages: string;
 	spellCheckerLanguages: string[];
 	availableSpellCheckerLanguages: string[];
+	/** The folder of the partition's HTTP cache; null: it has none on disk (an in-memory partition). */
+	cachePath: string | null;
 }
 
 export class Protocol {
@@ -85,6 +87,7 @@ export class Session extends EventEmitter {
 	#acceptLanguages = "";
 	#spellChecker: string[] = [];
 	#availableSpellChecker: string[] = [];
+	#cachePath: string | null = null;
 	readonly ready: Promise<void>;
 
 	constructor(host: Host, partition: string, options: { cache?: boolean } = {}) {
@@ -98,6 +101,7 @@ export class Session extends EventEmitter {
 				this.#acceptLanguages = created.acceptLanguages;
 				this.#spellChecker = created.spellCheckerLanguages;
 				this.#availableSpellChecker = created.availableSpellCheckerLanguages;
+				this.#cachePath = created.cachePath ?? null;
 			},
 			(error: unknown) => {
 				host.warn(`session.create ${partition}: ${error instanceof Error ? error.message : String(error)}`);
@@ -110,6 +114,11 @@ export class Session extends EventEmitter {
 
 	#op<T = unknown>(op: string, args: unknown = {}): Promise<T> {
 		return this.ready.then(() => this.#host.client.call<T>("session.op", { partition: this.partition, op, args }));
+	}
+
+	/** The folder of this session's HTTP cache (known once `ready`); null for an in-memory partition. */
+	getCachePath(): string | null {
+		return this.#cachePath;
 	}
 
 	getUserAgent(): string {

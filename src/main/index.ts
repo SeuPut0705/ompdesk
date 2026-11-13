@@ -204,6 +204,7 @@ import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import {
 	accessibilityTrusted,
+	defaultSessionCachePath,
 	readClipboardText,
 	safeStorageUnavailableReason,
 	screenRecordingGranted,
@@ -2287,6 +2288,7 @@ app.whenReady().then(async () => {
 		userData: app.getPath("userData"),
 		saved: savedWorktrees,
 		clearHttpCache: () => session.defaultSession.clearCache(),
+		httpCachePath: () => defaultSessionCachePath() ?? join(app.getPath("userData"), "Cache"),
 		cacheTools: systemCacheTools(),
 		scratch: scratchCare,
 		automatic: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",

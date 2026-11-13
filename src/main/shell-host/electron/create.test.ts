@@ -5,6 +5,8 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { NsisUpdater } from "electron-updater";
+import { ElectronAppAdapter } from "electron-updater/out/ElectronAppAdapter";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IpcRegistry } from "../../web/ipc-registry";
 import { Answered, ShellClient } from "../client";
@@ -307,6 +309,59 @@ describe("the quit sequence", () => {
 		expect(order).toEqual(["before-quit", "close", "will-quit", "quit"]);
 		expect(fake.eventsOf("app.exit")[0].data).toEqual({ code: 0 });
 		expect(exited).toEqual([0]);
+	});
+
+	it("exit() emits quit once with its code, without before-quit or will-quit, then ends the process", async () => {
+		const { app } = electron;
+		const order: string[] = [];
+		app.on("before-quit", () => order.push("before-quit"));
+		app.on("will-quit", () => order.push("will-quit"));
+		app.on("quit", (_event, code) => {
+			order.push(`quit:${String(code)}`);
+			expect(exited).toEqual([]);
+		});
+		app.exit(5);
+		app.exit(5);
+		await settle();
+		expect(order).toEqual(["quit:5"]);
+		expect(fake.eventsOf("app.exit")[0].data).toEqual({ code: 5 });
+		expect(exited[0]).toBe(5);
+	});
+
+	it("exit() still ends the process when a quit listener throws", async () => {
+		electron.app.on("quit", () => {
+			throw new Error("listener");
+		});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		electron.app.exit(0);
+		await settle();
+		expect(exited).toEqual([0]);
+	});
+
+	// electron-updater installs a downloaded update on the app's `quit`, code 0 only (BaseUpdater.addQuitHandler).
+	it.each([
+		["an approved quit", (app: ElectronShim["app"]) => app.quit(), 1],
+		["a forced exit(0)", (app: ElectronShim["app"]) => app.exit(0), 1],
+		["an exit with a failure code", (app: ElectronShim["app"]) => app.exit(1), 0],
+	])("a downloaded update installs on %s (installs: %j)", async (_name, end, installs) => {
+		const updater = new NsisUpdater(
+			{ provider: "generic", url: "https://updates.invalid/" },
+			new ElectronAppAdapter(electron.app as never),
+		);
+		const doInstall = vi.fn(() => true);
+		Object.assign(updater, {
+			doInstall,
+			autoInstallOnAppQuit: true,
+			downloadedUpdateHelper: {
+				file: "C:/tmp/OMPdesk-Setup.exe",
+				downloadedFileInfo: { isAdminRightsRequired: false },
+			},
+		});
+		(updater as unknown as { addQuitHandler(): void }).addQuitHandler();
+		end(electron.app);
+		await settle();
+		expect(doInstall).toHaveBeenCalledTimes(installs);
+		if (installs) expect(doInstall).toHaveBeenCalledWith(expect.objectContaining({ isSilent: true }));
 	});
 
 	it("runs the quit sequence when the shell reports a macOS Cmd-Q", async () => {
@@ -927,10 +982,12 @@ describe("session and protocol", () => {
 			acceptLanguages: "ko",
 			spellCheckerLanguages: ["en-US"],
 			availableSpellCheckerLanguages: ["en-US", "ko"],
+			cachePath: "C:/data/ompdesk/shell-webview/Default/Cache",
 		}));
 		const ses = electron.session.fromPartition("preview-2");
 		await ses.ready;
 		expect(ses.getUserAgent()).toBe("UA");
+		expect(ses.getCachePath()).toBe("C:/data/ompdesk/shell-webview/Default/Cache");
 		expect(ses.availableSpellCheckerLanguages).toEqual(["en-US", "ko"]);
 		const downloads: string[] = [];
 		ses.on("will-download", (_event, item: { getURL(): string; getFilename(): string }) =>
@@ -1064,6 +1121,40 @@ describe("net", () => {
 		);
 		expect(body).toEqual({ status: 200, headers: { "content-length": "4" }, text: "file" });
 		expect(fake.callsOf("net.fetch").at(-1)?.params.url).toBe("https://cdn/f");
+	});
+
+	it("net.request carries the session's partition and answers a challenge through its login listener", async () => {
+		const challenge = { isProxy: true, scheme: "basic", host: "proxy.corp", port: 3128, realm: "corp" };
+		const answers: unknown[] = [];
+		fake.answers.set("net.fetch", async params => {
+			answers.push(await shell.call("net.login", { reqId: params.reqId, ...challenge }));
+			setImmediate(() => void shell.event("net.end", { reqId: params.reqId }));
+			return { status: 200, statusText: "OK", url: String(params.url), redirected: false, headers: [] };
+		});
+		const run = (options: Record<string, unknown>, onLogin?: (...args: unknown[]) => void) =>
+			new Promise<void>((resolve, reject) => {
+				const request = electron.net.request({ url: "https://cdn/f", ...options });
+				if (onLogin) request.on("login", onLogin);
+				request.on("response", (response: NodeJS.ReadableStream) => {
+					response.on("data", () => undefined);
+					response.on("end", resolve);
+				});
+				request.on("error", reject);
+				request.end();
+			});
+		const updaterSession = electron.session.fromPartition("electron-updater", { cache: false });
+		await run({ session: updaterSession }, (info, callback) => {
+			expect(info).toEqual(challenge);
+			(callback as (username?: string, password?: string) => void)("user", "secret");
+		});
+		await run({}, (_info, callback) => (callback as () => void)());
+		await run({});
+		expect(answers).toEqual([{ username: "user", password: "secret" }, { cancel: true }, { cancel: true }]);
+		expect(fake.callsOf("net.fetch").map(call => call.params.partition)).toEqual([
+			"electron-updater",
+			undefined,
+			undefined,
+		]);
 	});
 
 	it("answers isOnline from the facts and net.online, and resolves hosts through the shell", async () => {
@@ -1240,6 +1331,31 @@ describe("menus, dialogs and the small modules", () => {
 		expect(fake.callsOf("notification.show")[0].params).toMatchObject({ id: 1, title: "T", body: "B" });
 		await shell.event("notification.event", { id: 1, name: "click" });
 		expect(clicks).toEqual([1]);
+	});
+
+	it("keeps a closed notification until its close event, once, whoever sends it", async () => {
+		const { Notification } = electron;
+		const closes: Array<string | undefined> = [];
+		const silent = new Notification({ title: "S" });
+		silent.on("close", (_event, reason) => closes.push(`silent:${String(reason)}`));
+		silent.show();
+		silent.close();
+		await settle();
+		// The shell answered and sent no event (macOS): the shim ends it.
+		expect(closes).toEqual(["silent:undefined"]);
+		await shell.event("notification.event", { id: 1, name: "close", reason: "late" });
+		expect(closes).toEqual(["silent:undefined"]);
+
+		const toast = new Notification({ title: "T" });
+		toast.on("close", (_event, reason) => closes.push(`toast:${String(reason)}`));
+		toast.show();
+		fake.answers.set("notification.close", () => new Promise(() => undefined));
+		toast.close();
+		await settle();
+		// Windows: the shell's dismissal arrives while the close call is still open; it is the one close.
+		expect(closes).toHaveLength(1);
+		await shell.event("notification.event", { id: 2, name: "close", reason: "applicationHidden" });
+		expect(closes).toEqual(["silent:undefined", "toast:applicationHidden"]);
 	});
 
 	it("builds images from a data URL and refuses a conversion it cannot make", () => {

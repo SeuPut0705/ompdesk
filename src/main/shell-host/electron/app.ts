@@ -83,6 +83,7 @@ export class App extends EventEmitter {
 	#aboutPanel: Record<string, unknown> | undefined;
 	#quitting = false;
 	#quitRunning = false;
+	#quitEmitted = false;
 	#gpuFeatures: Record<string, string> = {};
 	#initSent = false;
 
@@ -286,8 +287,20 @@ export class App extends EventEmitter {
 		void this.#host.client.event("app.relaunch", { args: options?.args ?? null });
 	}
 
-	/** Ends the process without asking (no `before-quit`, no `will-quit`, windows closed by the shell). */
+	/**
+	 * Ends the process without asking (no `before-quit`, no `will-quit`, windows closed by the shell). `quit` is
+	 * emitted, once, with the exit code, as Electron's `Browser::Shutdown` does for `exit()` and for a quit that ran
+	 * its course alike: electron-updater installs a downloaded update on it (`autoInstallOnAppQuit`, code 0 only).
+	 */
 	exit(code = 0): void {
+		if (!this.#quitEmitted) {
+			this.#quitEmitted = true;
+			try {
+				this.emit("quit", makeEvent(), code);
+			} catch (error) {
+				this.#host.warn(`app quit listener: ${String(error)}`);
+			}
+		}
 		void this.#host.client.event("app.exit", { code });
 		const exit = this.#deps.exitProcess ?? ((status: number) => process.exit(status));
 		this.#host.client.flush().then(
@@ -308,7 +321,6 @@ export class App extends EventEmitter {
 			this.#quitting = true;
 			if (!(await this.#deps.closeWindows())) return;
 			if (!emitPreventable(this, "will-quit")) return;
-			this.emit("quit", makeEvent(), 0);
 			this.exit(0);
 		} finally {
 			this.#quitting = false;

@@ -82,6 +82,8 @@ export interface DiskCareDeps extends OrphanDeps {
 	userData: string;
 	saved: SavedWorktreeStore;
 	clearHttpCache(): Promise<void>;
+	/** The folder holding the HTTP cache `clearHttpCache` clears (`session.getCachePath()`), read when the step runs. */
+	httpCachePath(): string;
 	/** The sessions' scratch folders; absent: none kept (tests of the other steps). */
 	scratch?: Pick<ScratchCare, "root" | "sweep">;
 	/** How the cache step finds, asks and runs the tools whose caches it bounds. */
@@ -443,7 +445,7 @@ export class DiskCare {
 
 	async #httpCache(sizes: TreeSizes, tally: RunTally): Promise<void> {
 		// Chromium rewrites its cache index in place: read in full (it is inside userData, which is too).
-		const bytes = await sizes.bytes(path.join(this.#deps.userData, "Cache"), { reuse: false });
+		const bytes = await sizes.bytes(this.#deps.httpCachePath(), { reuse: false });
 		if (bytes <= HTTP_CACHE_MAX_BYTES) return;
 		await this.#deps.clearHttpCache();
 		tally.add("http-cache", bytes);

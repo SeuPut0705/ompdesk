@@ -48,6 +48,7 @@ frames; `electron/*.ts` has the shim. `electron-log` is a dependency nothing imp
 | `autoUpdater` (Squirrel) | not in the shell | emitter only; its methods throw. macOS "relaunch"/"manual" modes never call them |
 | `globalShortcut.register()` | returns synchronously | returns `true`; a refusal by the OS is logged and the shortcut forgotten |
 | `app.setAsDefaultProtocolClient()` | returns synchronously | returns `true`; a refusal is logged |
+| HTTP cache folder (`<userData>/Cache`, disk care) | CEF keeps it under `<userData>/shell-webview` | `shell-calls.ts` `defaultSessionCachePath()` (the shim `Session.getCachePath()`, from `session.create`'s `cachePath`) feeds `DiskCare`'s `httpCachePath`; null → the Electron path |
 
 ## Deleted
 
