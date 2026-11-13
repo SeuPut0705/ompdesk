@@ -1,0 +1,215 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"timeoutSec": 600
+	},
+	"properties": [
+		"TypeOK",
+		"WithinPoolLimits",
+		"AdmittedOnce",
+		"HigherLaneFirst",
+		"FifoWithinLane",
+		"CancelsOnlySuperseded",
+		"ReusesOnlyGreen",
+		"PausedStartsNothing",
+		"LapsedLeaseIsFinal",
+		"FirstInLineCanStart",
+		"ReleaseEventuallyAdmitted",
+		"LapsedLeaves"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property below it."
+	},
+	"mutations": [
+		{
+			"name": "count-own-jobs-only",
+			"why": "Admission counts only the places its own jobs hold: a person's run, another repo's or another program's heavy command already fills the pool and the hub admits on top of it.",
+			"search": "Places(p) == {j \\in Jobs : PoolOf(j) = p /\\ Counted(j)}",
+			"replace": "Places(p) == {j \\in Governed : PoolOf(j) = p /\\ Counted(j)}",
+			"breaks": "WithinPoolLimits"
+		},
+		{
+			"name": "count-from-the-poll-only",
+			"why": "Admission reads the pool's running count from the poller's snapshot instead of its own ledger: a job it dispatched that GitHub does not list yet is not counted, and the next pump admits another into the same place.",
+			"search": "    \\/ state[j] = \"dispatching\"",
+			"replace": "    \\/ FALSE",
+			"breaks": "WithinPoolLimits"
+		},
+		{
+			"name": "free-the-place-at-the-cancel",
+			"why": "A superseded run's place is given back when the hub asks GitHub to cancel it, not when GitHub shows it ended: the next job is admitted while the cancelled one still runs.",
+			"search": "    \\/ state[j] = \"cancelling\"",
+			"replace": "    \\/ FALSE",
+			"breaks": "WithinPoolLimits",
+			"config": "MC_supersede.cfg"
+		},
+		{
+			"name": "ignore-the-account-limit",
+			"why": "Admission checks the job's own pool and not the account's limit on all hosted jobs: Linux jobs fill the account while macOS jobs run.",
+			"search": "    /\\ (PoolOf(j) \\in Account => Cardinality(Places(\"mac\")) + Cardinality(Places(\"hosted\")) < HostedCap)",
+			"replace": "    /\\ TRUE",
+			"breaks": "WithinPoolLimits",
+			"config": "MC_account.cfg"
+		},
+		{
+			"name": "requeue-a-failed-dispatch",
+			"why": "A dispatch that failed or timed out puts its entry back in the queue: it is admitted and dispatched a second time, although the first dispatch may have started the run.",
+			"search": "    /\\ state' = [state EXCEPT ![j] = \"failed\"]",
+			"replace": "    /\\ state' = [state EXCEPT ![j] = \"held\"]",
+			"breaks": "AdmittedOnce"
+		},
+		{
+			"name": "order-ignores-the-lane",
+			"why": "The pump takes the oldest entry whatever its lane: a branch job that arrived first takes the free place a release job waits for.",
+			"search": "Ahead(r, j) /\\ Room(r)",
+			"replace": "seq[r] < seq[j] /\\ Room(r)",
+			"breaks": "HigherLaneFirst",
+			"isolate": true
+		},
+		{
+			"name": "order-ignores-the-arrival",
+			"why": "The pump orders by lane only: of two branch jobs the later one takes the free place the earlier one waits for.",
+			"search": "Ahead(r, j) /\\ Room(r)",
+			"replace": "Rank(r) < Rank(j) /\\ Room(r)",
+			"breaks": "FifoWithinLane",
+			"isolate": true
+		},
+		{
+			"name": "supersede-a-release-run",
+			"why": "The supersede rule forgets the release lane: a newer run of the same repo, ref and workflow cancels a release run.",
+			"search": "        /\\ LaneOf(x) # \"release\"",
+			"replace": "        /\\ TRUE",
+			"breaks": "CancelsOnlySuperseded",
+			"config": "MC_supersede.cfg"
+		},
+		{
+			"name": "supersede-a-merge-queue-run",
+			"why": "The supersede rule forgets the merge queue's lane: a newer run of the same repo, ref and workflow cancels a queue run.",
+			"search": "        /\\ LaneOf(x) # \"land\"",
+			"replace": "        /\\ TRUE",
+			"breaks": "CancelsOnlySuperseded",
+			"config": "MC_supersede.cfg"
+		},
+		{
+			"name": "supersede-a-run-the-hub-does-not-govern",
+			"why": "The supersede rule cancels every older run GitHub lists for the key, a person's among them.",
+			"search": "        /\\ SameKeyAs(x, j)\n        /\\ x \\in Governed",
+			"replace": "        /\\ SameKeyAs(x, j)",
+			"breaks": "CancelsOnlySuperseded",
+			"config": "MC_supersede.cfg"
+		},
+		{
+			"name": "supersede-another-key",
+			"why": "The supersede rule does not compare repo, ref and workflow: a start cancels a run of another ref.",
+			"search": "        /\\ SameKeyAs(x, j)\n        /\\ x \\in Governed",
+			"replace": "        /\\ x # j\n        /\\ x \\in Governed",
+			"breaks": "CancelsOnlySuperseded"
+		},
+		{
+			"name": "supersede-before-the-pause-check",
+			"why": "A start cancels the older runs of its key before it finds admission paused: the old run is cancelled and nothing replaces it.",
+			"search": "out == IF decision = \"held\" THEN Superseded(j) ELSE {}",
+			"replace": "out == IF decision # \"reused\" THEN Superseded(j) ELSE {}",
+			"breaks": "CancelsOnlySuperseded",
+			"config": "MC_supersede.cfg"
+		},
+		{
+			"name": "supersede-on-a-reused-answer",
+			"why": "A start that is answered from a green run, and so starts no run of its own, still cancels the older runs of its key.",
+			"search": "out == IF decision = \"held\" THEN Superseded(j) ELSE {}",
+			"replace": "out == IF decision # \"refused\" THEN Superseded(j) ELSE {}",
+			"breaks": "CancelsOnlySuperseded",
+			"config": "MC_reuse.cfg"
+		},
+		{
+			"name": "reuse-any-finished-run",
+			"why": "Reuse looks for a finished run of the digest, not a green one: a start is answered `reused` from a red run.",
+			"search": "ReuseSources(j) == {g \\in Jobs : SameDigestAs(g, j) /\\ state[g] = \"green\"}",
+			"replace": "ReuseSources(j) == {g \\in Jobs : SameDigestAs(g, j) /\\ state[g] \\in {\"green\", \"red\"}}",
+			"breaks": "ReusesOnlyGreen",
+			"config": "MC_reuse.cfg"
+		},
+		{
+			"name": "reuse-by-ref-not-digest",
+			"why": "Reuse is keyed on the repo, ref and workflow instead of the input digest: a start is answered from a green run of other inputs.",
+			"search": "ReuseSources(j) == {g \\in Jobs : SameDigestAs(g, j) /\\ state[g] = \"green\"}",
+			"replace": "ReuseSources(j) == {g \\in Jobs : SameKeyAs(g, j) /\\ state[g] = \"green\"}",
+			"breaks": "ReusesOnlyGreen",
+			"config": "MC_reuse.cfg"
+		},
+		{
+			"name": "pump-ignores-the-pause",
+			"why": "Pause refuses new starts but the pump keeps admitting what already waits: a job starts while the owner paused admission.",
+			"search": "    /\\ ~paused\n    /\\ Room(j)",
+			"replace": "    /\\ Room(j)",
+			"breaks": "PausedStartsNothing"
+		},
+		{
+			"name": "start-ignores-the-pause",
+			"why": "`start` does not read the owner's pause: a start made while paused is queued instead of refused.",
+			"search": "decision == IF paused THEN \"refused\" ELSE IF",
+			"replace": "decision == IF FALSE THEN \"refused\" ELSE IF",
+			"breaks": "PausedStartsNothing"
+		},
+		{
+			"name": "admit-a-lapsed-entry",
+			"why": "The pump does not read the lease: it starts the job of a session that died while it waited.",
+			"search": "    /\\ j \\notin lapsed\n    /\\ ~paused",
+			"replace": "    /\\ ~paused",
+			"breaks": "LapsedLeaseIsFinal"
+		},
+		{
+			"name": "late-heartbeat-renews-the-lease",
+			"why": "The heartbeat handler sets a new deadline without reading the old one: an entry whose lease lapsed, and that others were admitted past, is live again.",
+			"search": "LateHeartbeatRenews == FALSE",
+			"replace": "LateHeartbeatRenews == TRUE",
+			"breaks": "LapsedLeaseIsFinal"
+		},
+		{
+			"name": "a-lapsed-entry-blocks-the-queue",
+			"why": "The pump's order counts every held entry, lapsed ones too: a dead session's entry at the head keeps a live one from a free place until the sweep removes it.",
+			"search": "\\E r \\in Jobs : Waiting(r) /\\ Competes(r, j) /\\ Ahead(r, j) /\\ Room(r)",
+			"replace": "\\E r \\in Jobs : state[r] = \"held\" /\\ Competes(r, j) /\\ Ahead(r, j) /\\ Room(r)",
+			"breaks": "FirstInLineCanStart"
+		},
+		{
+			"name": "strict-head-of-line",
+			"why": "The pump waits for the first entry in line even when that entry cannot start: a release macOS job that waits for a macOS runner keeps every Linux job out of free places.",
+			"search": "Ahead(r, j) /\\ Room(r))",
+			"replace": "Ahead(r, j))",
+			"breaks": "FirstInLineCanStart",
+			"config": "MC_account.cfg"
+		},
+		{
+			"name": "no-lease-sweep",
+			"why": "Nothing removes an entry whose lease lapsed: a dead session's entry stays in the queue for good.",
+			"search": "    /\\ j \\in lapsed /\\ state[j] = \"held\"\n    /\\ state' = [state EXCEPT ![j] = \"expired\"]",
+			"replace": "    /\\ FALSE\n    /\\ state' = [state EXCEPT ![j] = \"expired\"]",
+			"breaks": "LapsedLeaves",
+			"config": "MC_live.cfg",
+			"isolate": true,
+			"deadlock": false
+		},
+		{
+			"name": "pump-not-run-when-a-place-frees",
+			"why": "Nothing runs the pump when a place frees (a run ends and no start arrives): the release job that waits is never admitted.",
+			"search": "    /\\ WF_vars(\\E j \\in Jobs : Admit(j))",
+			"replace": "    /\\ TRUE",
+			"breaks": "ReleaseEventuallyAdmitted",
+			"config": "MC_live.cfg",
+			"isolate": true,
+			"deadlock": false
+		},
+		{
+			"name": "a-failed-dispatch-keeps-its-place",
+			"why": "A dispatch that failed never gives its place back: the pool stays full of entries that run nothing and the release job waits for good.",
+			"search": "    \\/ state[j] = \"cancelling\"",
+			"replace": "    \\/ state[j] \\in {\"cancelling\", \"failed\"}",
+			"breaks": "ReleaseEventuallyAdmitted",
+			"config": "MC_live.cfg",
+			"isolate": true,
+			"deadlock": false
+		}
+	]
+}

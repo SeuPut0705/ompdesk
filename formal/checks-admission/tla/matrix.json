@@ -1,0 +1,98 @@
+{
+	"runs": [
+		{
+			"name": "one-pool-lanes-fifo-leases-pause",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "one-pool-two-places",
+			"config": "MC.cfg",
+			"constants": {
+				"DeviceLimit": "2"
+			},
+			"expect": "pass"
+		},
+		{
+			"name": "macos-and-hosted-under-the-account-limit",
+			"config": "MC_account.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "supersede-within-one-key",
+			"config": "MC_supersede.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "reuse-a-green-digest",
+			"config": "MC_reuse.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "liveness-release-admitted-lapsed-leaves",
+			"config": "MC_live.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "one-pool-two-release-jobs-five-jobs",
+			"config": "MC.cfg",
+			"constants": {
+				"Jobs": "{\"rel\", \"rel2\", \"br1\", \"br2\", \"out\"}",
+				"Release": "{\"rel\", \"rel2\"}",
+				"Device": "{\"rel\", \"rel2\", \"br1\", \"br2\", \"out\"}",
+				"DeviceLimit": "2"
+			},
+			"expect": "pass",
+			"tier": "deep",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "known-limit-a-lower-lane-takes-the-account-s-last-place",
+			"config": "MC_limit_KeepsLastAccountPlace.cfg",
+			"expect": "action",
+			"property": "KeepsLastAccountPlace"
+		},
+		{
+			"name": "an-admission-is-reachable",
+			"config": "MC_sanity_NeverAdmits.cfg",
+			"expect": "invariant",
+			"property": "NeverAdmits"
+		},
+		{
+			"name": "a-wait-for-a-place-is-reachable",
+			"config": "MC_sanity_NeverWaitsForAPlace.cfg",
+			"expect": "invariant",
+			"property": "NeverWaitsForAPlace"
+		},
+		{
+			"name": "an-expired-entry-is-reachable",
+			"config": "MC_sanity_NeverExpires.cfg",
+			"expect": "invariant",
+			"property": "NeverExpires"
+		},
+		{
+			"name": "a-refusal-is-reachable",
+			"config": "MC_sanity_NeverRefuses.cfg",
+			"expect": "invariant",
+			"property": "NeverRefuses"
+		},
+		{
+			"name": "a-reuse-is-reachable",
+			"config": "MC_sanity_NeverReuses.cfg",
+			"expect": "invariant",
+			"property": "NeverReuses"
+		},
+		{
+			"name": "a-cancel-of-a-running-job-is-reachable",
+			"config": "MC_sanity_NeverCancelsARunningJob.cfg",
+			"expect": "invariant",
+			"property": "NeverCancelsARunningJob"
+		},
+		{
+			"name": "a-full-account-is-reachable",
+			"config": "MC_sanity_NeverFillsTheAccount.cfg",
+			"expect": "invariant",
+			"property": "NeverFillsTheAccount"
+		}
+	]
+}
