@@ -238,8 +238,10 @@ describe("the queue gate's steps, run as the runner runs them", () => {
 
 	function admit(env: Record<string, string>): { status: number | null; macOk: string } {
 		const output = path.join(scratch, `output-${Math.random().toString(36).slice(2)}`);
+		// The runner sets every key of the step's `env`, an expression with no value as "" (the step runs `set -u`).
+		const unset = Object.fromEntries(Object.keys(step("admit").env ?? {}).map(key => [key, ""]));
 		const result = spawnSync("bash", ["-c", step("admit").run ?? ""], {
-			env: { PATH: process.env.PATH ?? "", GITHUB_OUTPUT: output, ...env },
+			env: { ...unset, PATH: process.env.PATH ?? "", GITHUB_OUTPUT: output, ...env },
 			encoding: "utf8",
 		});
 		return { status: result.status, macOk: fs.readFileSync(output, "utf8").trim() };
