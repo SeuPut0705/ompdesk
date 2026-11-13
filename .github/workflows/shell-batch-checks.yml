@@ -40,6 +40,9 @@ on:
       - scripts/package-mac.ts
       - scripts/build-shell.ts
       - scripts/shell-drag-check.ts
+      - resources/installer.nsh
+      - electron-builder.win.yml
+      - scripts/after-pack.cjs
       - native/ompdesk/crates/shell/**
 
 # A run in progress finishes (the hour a macOS run takes is lost to every push otherwise); the newest push waits its turn.
