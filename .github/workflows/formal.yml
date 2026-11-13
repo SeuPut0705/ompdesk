@@ -4,8 +4,9 @@
 #   gh run watch <run-id> --interval 120
 # The run is split so its time is the longest single check, not their sum:
 #   plan     lists the checks (every matrix run, the mutation baselines, every mutation) with shard.ts,
-#   run      one job per check (a strategy matrix, dealt over fewer jobs past 256), each with a runner of its own, writes
-#            a verdict file and uploads it; a check whose input digest was seen before takes the verdict from the cache,
+#   run      a strategy matrix of jobs (a long check has a runner to itself, short ones share, at most 256 jobs), each
+#            writes the verdict files of its checks and uploads them; a check whose input digest was seen before takes
+#            its verdict from the cache,
 #   collect  prints the report verify-all prints, from the verdicts (the `@code` tags, the drift check and the stamp
 #            run there as before),
 #   publish  as before, serial per ref.

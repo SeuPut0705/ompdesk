@@ -26,7 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { overrideConstants } from "./lib/cfg";
 import { checkerRoot, makeChecker, tlcCheckInputs } from "./lib/checkers";
-import { readJson } from "./lib/json";
+import { isRecord, readJson } from "./lib/json";
 import { type ModelEntry, parseManifest } from "./lib/manifest";
 import { judge, type MatrixRun, parseMatrix } from "./lib/matrix";
 import {
@@ -46,12 +46,13 @@ import {
 	cacheGet,
 	cachePut,
 	checkDigest,
-	chunkUnits,
 	MATRIX_LIMIT,
 	modulesDigest,
 	type PlannedUnit,
+	packUnits,
 	parseUnitRef,
 	type RowVerdict,
+	readVerdict,
 	rowUnitId,
 	safetyOnly,
 	storedRun,
@@ -75,6 +76,7 @@ import {
 const USAGE = [
 	"usage: bun shard.ts plan <formal dir> [--tier fast|deep] [--only id] [--skip-mutations] [--github-output] [--limit N]",
 	'       bun shard.ts run <formal dir> --units "<model>/<unit> ..." --out <folder> [--cache <folder>] [plan flags]',
+	"       bun shard.ts costs <verdicts folder> --into <formal dir>/shard-costs.json",
 ].join("\n");
 
 type TlcChecker = Extract<CheckerSpec, { kind: "tlc" }>;
@@ -255,53 +257,74 @@ async function checkPlan(
 	return { key, workers };
 }
 
-/** Heaviest first: a matrix run that must pass, the baselines, the mutations, then the runs that must fail. */
-function rankOf(unit: PlannedUnit, expectPass: boolean): number {
-	if (unit.kind === "row") return expectPass ? 0 : 4;
-	return unit.kind === "baseline" ? 1 : unit.kind === "config-baseline" ? 2 : 3;
+/** The file `shard.ts costs` writes beside the manifest: seconds a unit took, by `<model>/<unit>`. */
+export const COSTS_FILE = "shard-costs.json";
+
+/** The recorded costs of a formal folder (none when no run recorded any). */
+export function loadCosts(formalDir: string): Map<string, number> {
+	const file = path.join(formalDir, COSTS_FILE);
+	if (!fs.existsSync(file)) return new Map();
+	const parsed = readJson(file);
+	if (!isRecord(parsed) || parsed.version !== 1 || !isRecord(parsed.seconds))
+		throw new UsageError(`${file}: expected {"version": 1, "seconds": {"<model>/<unit>": seconds}}`);
+	const costs = new Map<string, number>();
+	for (const [ref, seconds] of Object.entries(parsed.seconds)) {
+		if (typeof seconds !== "number" || !(seconds > 0))
+			throw new UsageError(`${file}: ${ref} needs a positive number`);
+		costs.set(ref, seconds);
+	}
+	return costs;
 }
 
-export async function planUnits(all: ModelUnits[], tools: string): Promise<PlannedUnit[]> {
-	const ranked: { unit: PlannedUnit; rank: number }[] = [];
-	for (const units of all) {
-		const id = units.model.id;
-		for (const row of units.rows) {
-			const plan = rowPlan(units, row, tools);
-			const unit: PlannedUnit = {
+/**
+ * The units of a plan with their expected times: what a run recorded, else a guess by kind (a run that must pass and
+ * a baseline explore the whole state space; a mutation usually fails early, unless it is declared equivalent).
+ */
+export async function planUnits(
+	all: ModelUnits[],
+	tools: string,
+	costs: ReadonlyMap<string, number> = new Map(),
+): Promise<PlannedUnit[]> {
+	const units: PlannedUnit[] = [];
+	for (const model of all) {
+		const id = model.model.id;
+		for (const row of model.rows) {
+			const plan = rowPlan(model, row, tools);
+			units.push({
 				model: id,
 				unit: row.unit,
 				kind: "row",
 				label: `${id}: ${row.run.name}`,
 				timeoutSec: plan.timeoutSec,
+				estimateSec: costs.get(unitRef(id, row.unit)) ?? (row.run.expect === "pass" ? 60 : 15),
 				workers: plan.workers,
 				key: plan.key,
-			};
-			ranked.push({ unit, rank: rankOf(unit, row.run.expect === "pass") });
+			});
 		}
-		const part = units.mutation;
+		const part = model.mutation;
 		if (!part) continue;
 		for (const check of part.plan.units) {
-			const plan = await checkPlan(units, check, tools);
+			const plan = await checkPlan(model, check, tools);
 			const title =
 				check.kind === "baseline"
 					? "baseline"
 					: check.kind === "config-baseline"
 						? `baseline under ${check.mutation.config}`
 						: `mutation ${check.mutation.name}`;
-			const unit: PlannedUnit = {
+			const whole = check.kind !== "mutation" || check.mutation.equivalent !== undefined;
+			units.push({
 				model: id,
 				unit: check.id,
 				kind: check.kind,
 				label: `${id}: ${title}`,
 				timeoutSec: part.checker.timeoutSec ?? CHECK_TIMEOUT_SEC,
+				estimateSec: costs.get(unitRef(id, check.id)) ?? (whole ? 120 : 30),
 				workers: plan.workers,
 				key: plan.key,
-			};
-			ranked.push({ unit, rank: rankOf(unit, false) });
+			});
 		}
 	}
-	// Longest limit first inside a rank; a stable sort keeps the file order otherwise.
-	return ranked.sort((a, b) => a.rank - b.rank || b.unit.timeoutSec - a.unit.timeoutSec).map(entry => entry.unit);
+	return units;
 }
 
 interface Flags {
@@ -372,8 +395,8 @@ async function planCommand(flags: Flags): Promise<number> {
 	const all = modelsOf(flags);
 	const prepared = await prepare();
 	if (!prepared) return EXIT.unavailable;
-	const units = await planUnits(all, prepared.tools.id);
-	const jobs = chunkUnits(units, flags.limit);
+	const units = await planUnits(all, prepared.tools.id, loadCosts(path.resolve(flags.verify.dir)));
+	const jobs = packUnits(units, { limit: flags.limit });
 	const matrix = {
 		include: jobs.map(job => ({
 			id: job.id,
@@ -563,9 +586,35 @@ async function runCommand(flags: Flags): Promise<number> {
 	return EXIT.ok;
 }
 
+/**
+ * `costs <verdicts folder> --into <formal dir>/shard-costs.json`: records how long each unit of a run took (its TLC
+ * time, from the verdict files that `gh run download <id> -p "formal-verdict-*" -D verdicts` brings), so the next
+ * plan puts the short units together and gives the long ones a runner each.
+ */
+function costsCommand(argv: string[]): number {
+	const [folder, flag, into] = argv;
+	if (!folder || flag !== "--into" || !into) throw new UsageError(USAGE);
+	const costs = loadCosts(path.dirname(path.resolve(into)));
+	for (const model of fs.readdirSync(folder)) {
+		const dir = path.join(folder, model);
+		if (!fs.statSync(dir).isDirectory()) continue;
+		for (const file of fs.readdirSync(dir).filter(name => name.endsWith(".json"))) {
+			const verdict = readVerdict(folder, model, file.slice(0, -".json".length));
+			if (!verdict) continue;
+			const ms = verdict.kind === "row" ? verdict.run.durationMs : verdict.durationMs;
+			costs.set(unitRef(model, verdict.unit), Math.max(1, Math.round(ms / 1000)));
+		}
+	}
+	const seconds = Object.fromEntries([...costs].sort(([a], [b]) => a.localeCompare(b)));
+	fs.writeFileSync(path.resolve(into), `${JSON.stringify({ version: 1, seconds }, null, "\t")}\n`);
+	console.log(`${costs.size} units' costs written to ${into}`);
+	return EXIT.ok;
+}
+
 export async function main(argv: string[]): Promise<number> {
 	const [command, ...rest] = argv;
 	try {
+		if (command === "costs") return costsCommand(rest);
 		if (command !== "plan" && command !== "run") throw new UsageError(USAGE);
 		const flags = parseFlags(rest);
 		return command === "plan" ? await planCommand(flags) : await runCommand(flags);

@@ -23,10 +23,10 @@ import {
 	cacheGet,
 	cachePut,
 	checkDigest,
-	chunkUnits,
 	modulesDigest,
 	normalizeTla,
 	type PlannedUnit,
+	packUnits,
 	parseUnitRef,
 	type RowVerdict,
 	readVerdict,
@@ -37,8 +37,10 @@ import {
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/shard";
 import type { TlcResult } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/tlc-parse";
 import {
+	loadCosts,
 	modelUnits,
 	planUnits,
+	main as shardMain,
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/shard";
 import {
 	parseArgs,
@@ -133,33 +135,48 @@ describe("unit refs and jobs", () => {
 		expect(rowUnitId(2, "a run: with/odd chars")).toBe("r2-a_run_with_odd_chars");
 	});
 
-	const unit = (index: number, timeoutSec = 60): PlannedUnit => ({
+	const unit = (index: number, estimateSec: number, timeoutSec = 60): PlannedUnit => ({
 		model: "m",
 		unit: `u${index}`,
 		kind: "mutation",
 		label: `m: u${index}`,
 		timeoutSec,
+		estimateSec,
 		workers: "1",
 		key: `key${index}`,
 	});
 
-	it("gives every unit its own job while they fit in a matrix", () => {
-		const jobs = chunkUnits([unit(0, 600), unit(1, 180)], 256);
+	it("gives a unit expected to run long a job of its own, heaviest first, with its digest as the cache key", () => {
+		const jobs = packUnits([unit(0, 130, 600), unit(1, 900, 180), unit(2, 100)]);
 		expect(jobs.map(job => [job.id, job.units, job.key])).toEqual([
-			["m--u0", ["m/u0"], "key0"],
 			["m--u1", ["m/u1"], "key1"],
+			["m--u0", ["m/u0"], "key0"],
+			["m--u2", ["m/u2"], "key2"],
 		]);
-		expect(jobs[0]?.timeoutMin).toBe(22);
+		expect(jobs[1]?.timeoutMin).toBe(22);
 	});
 
-	it("deals the units over `limit` jobs past it, each unit once, the first ones apart", () => {
-		const units = Array.from({ length: 10 }, (_, index) => unit(index));
-		const jobs = chunkUnits(units, 4);
+	it("shares jobs among the short units, longest first to the least loaded, each unit once", () => {
+		const short = Array.from({ length: 12 }, (_, index) => unit(index, 30));
+		const jobs = packUnits([unit(99, 500), ...short], { targetSec: 120 });
+		// 12 units of 30 s + 8 s each: 456 s over jobs of about 120 s is four of them.
+		expect(jobs.map(job => job.id)).toEqual(["m--u99", "short-1", "short-2", "short-3", "short-4"]);
+		expect(jobs.slice(1).map(job => job.units.length)).toEqual([3, 3, 3, 3]);
+		expect(jobs.flatMap(job => job.units).sort()).toEqual(
+			[unit(99, 0), ...short].map(item => `m/${item.unit}`).sort(),
+		);
+		// a job of several units is keyed by all their digests, so a changed unit misses and the others still hit
+		expect(jobs[1]?.key).not.toBe("key0");
+		expect(new Set(jobs.map(job => job.key)).size).toBe(jobs.length);
+		expect(packUnits(short, { targetSec: 120 })[0]?.label).toBe("3 short checks (m)");
+	});
+
+	it("deals everything over `limit` jobs when there are more jobs than a matrix holds", () => {
+		const units = Array.from({ length: 10 }, (_, index) => unit(index, 500));
+		const jobs = packUnits(units, { limit: 4 });
 		expect(jobs).toHaveLength(4);
 		expect(jobs.flatMap(job => job.units).sort()).toEqual(units.map(item => `m/${item.unit}`).sort());
-		expect(jobs.map(job => job.units[0])).toEqual(["m/u0", "m/u1", "m/u2", "m/u3"]);
-		expect(new Set(jobs.map(job => job.key)).size).toBe(4);
-		expect(chunkUnits(units, 256)).toHaveLength(10);
+		expect(packUnits(units, { limit: 256 })).toHaveLength(10);
 	});
 });
 
@@ -369,21 +386,28 @@ describe("the plan", () => {
 		const formal = writeModel(root);
 		const args = { ...flags(), dir: formal };
 		const units = modelUnits(parseManifestOf(formal), formal, args);
-		const planned = await planUnits([units], "tools");
+		const planned = await planUnits([units], "tools", new Map([["a/r1-liveness", 400]]));
 		const byUnit = new Map(planned.map(unit => [unit.unit, unit]));
+		// the matrix runs in order, then the unmutated model under each config, then every mutation
 		expect(planned.map(unit => unit.unit)).toEqual([
-			// a run that must pass first, longest limit first; then the baselines; then the mutations; the bug-mode run last
 			"r0-all-invariants",
 			"r1-liveness",
 			"r2-safe-action-property",
 			"r3-pinned-workers",
+			"r4-bug-mode",
 			"baseline",
 			"base1",
 			"m0-weaker-guard",
 			"m1-live-one",
 			"m2-nothing-here",
-			"r4-bug-mode",
 		]);
+		// a recorded cost wins over the guess by kind: a run that must pass 60 s, one that must fail 15, a baseline 120,
+		// a mutation 30
+		expect(byUnit.get("r1-liveness")?.estimateSec).toBe(400);
+		expect(byUnit.get("r0-all-invariants")?.estimateSec).toBe(60);
+		expect(byUnit.get("r4-bug-mode")?.estimateSec).toBe(15);
+		expect(byUnit.get("baseline")?.estimateSec).toBe(120);
+		expect(byUnit.get("m0-weaker-guard")?.estimateSec).toBe(30);
 		// the fast tier leaves the deep run out
 		expect(byUnit.has("r5-deep-run")).toBe(false);
 		expect(byUnit.get("r0-all-invariants")).toMatchObject({ kind: "row", workers: "auto", timeoutSec: 600 });
@@ -474,6 +498,54 @@ describe("the plan", () => {
 	});
 });
 
+describe("recorded costs", () => {
+	it("`costs` writes how long each unit took and the next plan reads it", async () => {
+		const root = fs.mkdtempSync(path.join(temp, "costs-"));
+		const verdicts = path.join(root, "verdicts");
+		const tools = { tlaVersion: "1.8.0", javaMajor: 17, javaSource: "system" };
+		writeVerdict(verdicts, {
+			version: VERDICT_VERSION,
+			kind: "row",
+			model: "a",
+			unit: "r0-x",
+			name: "x",
+			key: "k",
+			cached: false,
+			workers: "1",
+			tools,
+			run: {
+				code: 0,
+				result: { outcome: "pass", stats: {}, trace: [], errors: [], warnings: [] },
+				text: "",
+				configUsed: "A.cfg",
+				durationMs: 301_400,
+			},
+		});
+		writeVerdict(verdicts, {
+			version: VERDICT_VERSION,
+			kind: "mutation",
+			model: "a",
+			unit: "m0-y",
+			name: "y",
+			key: "k2",
+			cached: false,
+			workers: "1",
+			tools,
+			durationMs: 120,
+			result: { outcome: { status: "fail", violated: ["P"], detail: "" } },
+		});
+		const into = path.join(root, "formal", "shard-costs.json");
+		fs.mkdirSync(path.dirname(into));
+		vi.spyOn(console, "log").mockImplementation(() => {});
+		expect(await shardMain(["costs", verdicts, "--into", into])).toBe(0);
+		expect([...loadCosts(path.dirname(into))]).toEqual([
+			["a/m0-y", 1],
+			["a/r0-x", 301],
+		]);
+		fs.writeFileSync(into, JSON.stringify({ version: 1, seconds: { "a/r0-x": -3 } }));
+		expect(() => loadCosts(path.dirname(into))).toThrow(/positive number/);
+	});
+});
 function parseManifestOf(formal: string) {
 	const raw = JSON.parse(fs.readFileSync(path.join(formal, "manifest.json"), "utf8"));
 	return { ...raw.models[0], syncCommit: null };

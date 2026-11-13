@@ -269,6 +269,8 @@ export interface PlannedUnit {
 	label: string;
 	/** What the unit may run for, in seconds. */
 	timeoutSec: number;
+	/** What the unit is expected to take, in seconds: measured (`shard-costs.json`) or a guess by kind. */
+	estimateSec: number;
 	workers: string;
 	/** The digest of the unit's input. */
 	key: string;
@@ -296,27 +298,60 @@ function minutesFor(units: PlannedUnit[]): number {
 	return Math.min(JOB_MINUTES.max, Math.ceil(seconds / 60) + JOB_MINUTES.setup);
 }
 
+/** What a unit costs beyond its TLC time: the JVM's start and the files it reads and writes. */
+const UNIT_OVERHEAD_SEC = 8;
+
+export interface PackOptions {
+	/** A unit expected to take at least this long gets a job of its own (and its own cache entry). */
+	heavySec: number;
+	/** The shorter units share jobs of about this many seconds. */
+	targetSec: number;
+	limit: number;
+}
+
+export const PACK_DEFAULTS: PackOptions = { heavySec: 100, targetSec: 240, limit: MATRIX_LIMIT };
+
+function jobOf(units: PlannedUnit[], id: string, label: string): PlanJob {
+	return {
+		id,
+		label,
+		units: units.map(unit => unitRef(unit.model, unit.unit)),
+		key: jobKey(units.map(unit => unit.key)),
+		timeoutMin: minutesFor(units),
+	};
+}
+
 /**
- * One job per unit while they fit in a matrix; past `limit`, units are dealt to `limit` jobs in the order given
- * (the caller puts the heaviest first, so each of those gets a job of its own and the light ones share).
+ * The jobs of a plan. A runner is the scarce thing (a few dozen at a time for the whole account, each starting
+ * seconds after the last), so a job per unit would leave the long ones waiting behind the short ones: units expected
+ * to take `heavySec` or more get a job each, heaviest first; the rest are dealt, longest first, to the least loaded of
+ * as many jobs as `targetSec` asks for. Past `limit` jobs (a matrix's 256) everything is dealt over `limit`.
  */
-export function chunkUnits(units: PlannedUnit[], limit: number = MATRIX_LIMIT): PlanJob[] {
-	if (units.length <= limit) {
-		return units.map(unit => ({
-			id: slug(`${unit.model}--${unit.unit}`, 90),
-			label: unit.label,
-			units: [unitRef(unit.model, unit.unit)],
-			key: unit.key,
-			timeoutMin: minutesFor([unit]),
-		}));
+export function packUnits(units: PlannedUnit[], options: Partial<PackOptions> = {}): PlanJob[] {
+	const { heavySec, targetSec, limit } = { ...PACK_DEFAULTS, ...options };
+	const byCost = [...units].sort((a, b) => b.estimateSec - a.estimateSec);
+	const heavy = byCost.filter(unit => unit.estimateSec >= heavySec);
+	const light = byCost.filter(unit => unit.estimateSec < heavySec);
+	const jobs: PlanJob[] = heavy.map(unit => jobOf([unit], slug(`${unit.model}--${unit.unit}`, 90), unit.label));
+	if (light.length > 0) {
+		const total = light.reduce((sum, unit) => sum + unit.estimateSec + UNIT_OVERHEAD_SEC, 0);
+		const bins: PlannedUnit[][] = Array.from({ length: Math.max(1, Math.ceil(total / targetSec)) }, () => []);
+		const load = bins.map(() => 0);
+		for (const unit of light) {
+			const lightest = load.indexOf(Math.min(...load));
+			bins[lightest]?.push(unit);
+			load[lightest] = (load[lightest] ?? 0) + unit.estimateSec + UNIT_OVERHEAD_SEC;
+		}
+		for (const [index, bin] of bins.entries()) {
+			const models = [...new Set(bin.map(unit => unit.model))].join(", ");
+			jobs.push(jobOf(bin, `short-${index + 1}`, `${bin.length} short checks (${models})`));
+		}
 	}
+	if (jobs.length <= limit) return jobs;
+	const every = [...heavy, ...light];
 	const groups: PlannedUnit[][] = Array.from({ length: limit }, () => []);
-	for (const [index, unit] of units.entries()) groups[index % limit]?.push(unit);
-	return groups.map((group, index) => ({
-		id: `chunk-${index + 1}`,
-		label: `${group.length} checks (${group[0]?.label}, ...)`,
-		units: group.map(unit => unitRef(unit.model, unit.unit)),
-		key: jobKey(group.map(unit => unit.key)),
-		timeoutMin: minutesFor(group),
-	}));
+	for (const [index, unit] of every.entries()) groups[index % limit]?.push(unit);
+	return groups.map((group, index) =>
+		jobOf(group, `chunk-${index + 1}`, `${group.length} checks (${group[0]?.label}, ...)`),
+	);
 }
