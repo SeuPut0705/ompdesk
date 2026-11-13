@@ -182,20 +182,30 @@ function readLane(replacing: { workflow: string; branch: string }): Lane {
 	return laneOf(runs, replacing);
 }
 
-/** Repos whose jobs share this account's runner caps (40 jobs at once, 5 of them macOS); the owner's other repos that use Actions. */
-const ACCOUNT_SIBLINGS = (process.env.OMPDESK_CI_SIBLINGS ?? "SeuPut0705/seuoffice").split(",").filter(Boolean);
+/**
+ * The runner caps every workflow of this repo shares, in one place (the docs say "this account's caps" and point here):
+ * the personal account's 40 jobs and 5 macOS at once. seuoffice moved to the org seuput-inc, so today this repo is the
+ * only user; `siblings` (OMPDESK_CI_SIBLINGS, comma separated) names another repo of the account if one lands here later
+ * (read-only: no policy of this repo can reserve slots against it).
+ */
+export const RUNNER_LIMITS = {
+	owner: "SeuPut0705",
+	jobs: 40,
+	macos: 5,
+	siblings: (process.env.OMPDESK_CI_SIBLINGS ?? "").split(",").filter(Boolean),
+};
 
-/** Open runs of this repo and its siblings, read-only: the cap is the account's, no policy of this repo can reserve slots against a sibling. */
+/** Open runs of this repo and its siblings, for the wait to be expected, not a mystery. */
 function accountLoad(): string {
 	const count = (repo: string, status: string) => {
 		const counted = gh(["api", `repos/${repo}/actions/runs?status=${status}&per_page=1`, "--jq", ".total_count"]);
 		return counted.ok ? counted.out.trim() : "?";
 	};
 	const here = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).out.trim();
-	const parts = [here, ...ACCOUNT_SIBLINGS]
+	const parts = [here, ...RUNNER_LIMITS.siblings]
 		.filter(Boolean)
 		.map(repo => `${repo} ${count(repo, "in_progress")} running, ${count(repo, "queued")} queued runs`);
-	return `account (40 jobs and 5 macOS at once, shared by these repos): ${parts.join("; ")}`;
+	return `${RUNNER_LIMITS.owner} (${RUNNER_LIMITS.jobs} jobs and ${RUNNER_LIMITS.macos} macOS at once, shared by this account's repos): ${parts.join("; ")}`;
 }
 
 async function main(argv: string[]): Promise<number> {
