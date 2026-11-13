@@ -240,6 +240,7 @@ export const FALLBACK_PROVIDER_IDS: readonly string[] = [
 	"local",
 	"modular",
 	"muse-code",
+	"nace",
 	"nanogpt",
 	"otari",
 	"parallel",

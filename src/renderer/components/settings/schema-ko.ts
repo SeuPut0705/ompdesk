@@ -18,6 +18,7 @@ export const KO_GROUP_TITLES: Record<string, string> = {
 	Thinking: "사고",
 	Sampling: "샘플링",
 	Prompt: "프롬프트",
+	Find: "Find",
 	"Retry & Fallback": "재시도 및 대체 모델",
 	Advisor: "어드바이저",
 	Prewalk: "사전 탐색",
@@ -440,6 +441,10 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "프로젝트 트리 포함",
 		description:
 			"시스템 프롬프트에 프로젝트 폴더 트리를 렌더링해요. 경고: 파일이 바뀌면 세션 간 프롬프트 캐시가 깨질 수 있어요.",
+	},
+	encourageEdits: {
+		label: "edit 도구 사용 강제",
+		description: "파일 수정에 edit 도구를 쓰게 하고 sed/perl/python으로 고치는 것을 막아요",
 	},
 	skillful: {
 		label: "프롬프트에 스킬 나열",
@@ -1784,6 +1789,12 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"시맨틱 프로젝트 검색 도구를 활성화해 에이전트가 자연어로 동작과 심볼을 찾게 해요. 동작 관련 검색은 grep/glob보다 우선해요.",
 	},
+	"find.verifyModel": {
+		label: "Find 검증 모델",
+		description:
+			"find의 구절 검증에 judge 역할보다 먼저 시도할 모델 선택자예요(예: openrouter/liquid/d1-ultra). 파일 이름과 스케치 순위는 계속 judge 역할이 맡아요. 비워 두면 judge 역할이 검증도 해요",
+	},
+	"find.hitThreshold": { label: "Find 적중 임계값" },
 	"loop.conditionTimeoutMs": {
 		label: "루프 조건 타임아웃(밀리초)",
 		description: "loop 조건 평가 타임아웃이에요. 0이면 시간 제한이 없어요.",

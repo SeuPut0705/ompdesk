@@ -74,6 +74,7 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"modular",
 	"moonshot",
 	"muse-code",
+	"nace",
 	"nanogpt",
 	"novita",
 	"nvidia",
