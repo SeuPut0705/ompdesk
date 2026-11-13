@@ -87,6 +87,28 @@ pub fn hub(id: u64) -> Option<Arc<dyn ChecksHub>> {
     locked(&HUBS).get(&id).map(|entry| Arc::clone(&entry.hub))
 }
 
+/// A fake hub opened as `id`, for a test of code that asks `hub(id)` in-process; `close_fake` it at the test's end.
+#[cfg(test)]
+pub(crate) fn open_fake(id: u64) -> Arc<FakeHub> {
+    let fake = Arc::new(FakeHub::default());
+    let (events, frames, _) = Events::capture();
+    std::mem::forget(frames);
+    let entry = Arc::new(Entry {
+        hub: fake.clone(),
+        fake: Some(fake.clone()),
+        events,
+        results: tokio::spawn(async {}).abort_handle(),
+        watching: Mutex::new(None),
+    });
+    locked(&HUBS).insert(id, entry);
+    fake
+}
+
+#[cfg(test)]
+pub(crate) fn close_fake(id: u64) {
+    locked(&HUBS).remove(&id);
+}
+
 /// Closes every hub whose events go to `events`' output, or to none any more (`serve` calls it when its input ended).
 pub fn close_all(events: &Events) {
     locked(&HUBS).retain(|_, entry| entry.events.reaches_another(events));
