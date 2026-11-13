@@ -186,6 +186,18 @@
 			],
 			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/stock-lane-verify/SKILL.md"
+		},
+		{
+			"id": "checks-admission",
+			"title": "Check control admission: pools never over their limits, one admission per job, release first, FIFO in a lane, cancel only the superseded, reuse only a green digest, pause, leases",
+			"kind": "tla",
+			"dir": "checks-admission/tla",
+			"spec": "ChecksAdmission.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [],
+			"syncCommit": null,
+			"verifySkill": ".omp/skills/checks-admission-verify/SKILL.md"
 		}
 	]
 }

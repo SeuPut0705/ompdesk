@@ -1,0 +1,66 @@
+
+== checks-admission: Check control admission: pools never over their limits, one admission per job, release first, FIFO in a lane, cancel only the superseded, reuse only a green digest, pause, leases (tla)
+downloading tla2tools.jar 1.8.0 (4 MB) from https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+downloading CommunityModules 202610131629 (5 MB) from https://github.com/tlaplus/CommunityModules/releases/download/202610131629/CommunityModules-deps.jar
+TLC (tla2tools release 1.8.0)  java 17 (system)  spec ChecksAdmission.tla
+  TLC reports itself as version 2026.11.06.222357
+ok    one-pool-lanes-fifo-leases-pause: no violation  (17952 distinct states, 54689 generated, depth 16, 4.4s)
+ok    one-pool-two-places: no violation  (24932 distinct states, 90134 generated, depth 16, 4.8s)
+ok    macos-and-hosted-under-the-account-limit: no violation  (8738 distinct states, 25019 generated, depth 15, 1.6s)
+ok    supersede-within-one-key: no violation  (290724 distinct states, 940368 generated, depth 20, 13.2s)
+ok    reuse-a-green-digest: no violation  (1267 distinct states, 2515 generated, depth 13, 1.2s)
+ok    liveness-release-admitted-lapsed-leaves: no violation  (5763 distinct states, 13122 generated, depth 15, 2.7s)
+ok    one-pool-two-release-jobs-five-jobs: no violation  (780342 distinct states, 3157475 generated, depth 20, 29.1s)
+ok    known-limit-a-lower-lane-takes-the-account-s-last-place: action KeepsLastAccountPlace (as expected)  (102 distinct states, 143 generated, depth 5, 0.7s)
+ok    an-admission-is-reachable: invariant NeverAdmits (as expected)  (7 distinct states, 7 generated, depth 3, 0.6s)
+ok    a-wait-for-a-place-is-reachable: invariant NeverWaitsForAPlace (as expected)  (11 distinct states, 11 generated, depth 3, 0.6s)
+ok    an-expired-entry-is-reachable: invariant NeverExpires (as expected)  (35 distinct states, 40 generated, depth 4, 0.6s)
+ok    a-refusal-is-reachable: invariant NeverRefuses (as expected)  (27 distinct states, 30 generated, depth 3, 0.6s)
+ok    a-reuse-is-reachable: invariant NeverReuses (as expected)  (72 distinct states, 90 generated, depth 6, 0.6s)
+ok    a-cancel-of-a-running-job-is-reachable: invariant NeverCancelsARunningJob (as expected)  (97 distinct states, 120 generated, depth 4, 0.7s)
+ok    a-full-account-is-reachable: invariant NeverFillsTheAccount (as expected)  (46 distinct states, 56 generated, depth 4, 0.6s)
+PASS  matrix: all 15 runs ended as expected
+ok    checks-admission: TLC matrix
+baseline: pass
+DETECTED count-own-jobs-only: failed on WithinPoolLimits
+DETECTED count-from-the-poll-only: failed on WithinPoolLimits
+DETECTED free-the-place-at-the-cancel: failed on WithinPoolLimits
+DETECTED ignore-the-account-limit: failed on WithinPoolLimits
+DETECTED requeue-a-failed-dispatch: failed on AdmittedOnce
+DETECTED order-ignores-the-lane: failed on HigherLaneFirst
+DETECTED order-ignores-the-arrival: failed on FifoWithinLane
+DETECTED supersede-a-release-run: failed on CancelsOnlySuperseded
+DETECTED supersede-a-merge-queue-run: failed on CancelsOnlySuperseded
+DETECTED supersede-a-run-the-hub-does-not-govern: failed on CancelsOnlySuperseded
+DETECTED supersede-another-key: failed on CancelsOnlySuperseded
+DETECTED supersede-before-the-pause-check: failed on CancelsOnlySuperseded
+DETECTED supersede-on-a-reused-answer: failed on CancelsOnlySuperseded
+DETECTED reuse-any-finished-run: failed on ReusesOnlyGreen
+DETECTED reuse-by-ref-not-digest: failed on ReusesOnlyGreen
+DETECTED pump-ignores-the-pause: failed on PausedStartsNothing
+DETECTED start-ignores-the-pause: failed on PausedStartsNothing
+DETECTED admit-a-lapsed-entry: failed on LapsedLeaseIsFinal
+DETECTED late-heartbeat-renews-the-lease: failed on LapsedLeaseIsFinal
+DETECTED a-lapsed-entry-blocks-the-queue: failed on FirstInLineCanStart
+DETECTED strict-head-of-line: failed on FirstInLineCanStart
+DETECTED no-lease-sweep: failed on LapsedLeaves
+DETECTED pump-not-run-when-a-place-frees: failed on ReleaseEventuallyAdmitted
+DETECTED a-failed-dispatch-keeps-its-place: failed on ReleaseEventuallyAdmitted
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property below it.
+covered  WithinPoolLimits (by count-own-jobs-only, count-from-the-poll-only, free-the-place-at-the-cancel, ignore-the-account-limit)
+covered  AdmittedOnce (by requeue-a-failed-dispatch)
+covered  HigherLaneFirst (by order-ignores-the-lane)
+covered  FifoWithinLane (by order-ignores-the-arrival)
+covered  CancelsOnlySuperseded (by supersede-a-release-run, supersede-a-merge-queue-run, supersede-a-run-the-hub-does-not-govern, supersede-another-key, supersede-before-the-pause-check, supersede-on-a-reused-answer)
+covered  ReusesOnlyGreen (by reuse-any-finished-run, reuse-by-ref-not-digest)
+covered  PausedStartsNothing (by pump-ignores-the-pause, start-ignores-the-pause)
+covered  LapsedLeaseIsFinal (by admit-a-lapsed-entry, late-heartbeat-renews-the-lease)
+covered  FirstInLineCanStart (by a-lapsed-entry-blocks-the-queue, strict-head-of-line)
+covered  ReleaseEventuallyAdmitted (by pump-not-run-when-a-place-frees, a-failed-dispatch-keeps-its-place)
+covered  LapsedLeaves (by no-lease-sweep)
+24 of 24 mutations detected
+ok    checks-admission: mutations
+ok    checks-admission: @code tags resolve
+skip  checks-admission: drift - no covered files listed
+
+PASS  checks-admission: 3 of 4 ok, 1 skipped
