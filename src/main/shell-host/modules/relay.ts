@@ -4,6 +4,7 @@
  *   is the core's (its bytes too); a fault keeps the core's `code`; the shell's `{cancel: id}` cancels it in the core.
  * - `log.runtime`: a line of `gui-runtime.jsonl`, written by `writeRuntimeLog` (Node is the file's one writer).
  * - `i18n.labels`: Node's label table for the shell, pushed now and on every language change (`publishLabels`).
+ *   Transitional: SX5 moves i18n into the shell and deletes it (PROTOCOL.md §15.4 rule 2).
  */
 import { CoreError, type CoreProcess } from "../../core/process";
 import { getMainLanguage, type MainLanguage } from "../../i18n";

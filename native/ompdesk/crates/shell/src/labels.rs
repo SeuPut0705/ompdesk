@@ -1,7 +1,7 @@
-//! The text the shell shows itself (menus, tray, dialogs a moved module opens), in the UI language. Node owns the
-//! strings (`src/main/i18n-text.ts` `MAIN_TEXT`, `src/main/tray-labels.ts` `TRAY_LABELS` as `tray.<key>`) and pushes
-//! the whole table for the current language with the event `i18n.labels {language, text}` once at start and again on
-//! every language change (PROTOCOL.md §15.2). A module reads it here; it never holds strings of its own.
+//! The text the shell shows itself (menus, tray, dialogs a moved module opens), in the UI language, read by every
+//! module through `label` (PROTOCOL.md §15.4 rule 2). Transitional source until SX5 moves i18n into the shell: Node
+//! pushes the whole table (`MAIN_TEXT`, and `TRAY_LABELS` as `tray.<key>`) for the current language with the event
+//! `i18n.labels {language, text}` at start and on every language change (§15.2). SX5 then fills it from `boot_core`.
 
 use std::collections::HashMap;
 use std::sync::RwLock;

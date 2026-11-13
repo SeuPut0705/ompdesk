@@ -500,6 +500,6 @@ globs:
   - **SX2 preview** (`preview.*`; `preview/**` of §4 and `web/preview-{stream,input,dialog,pacer}.ts`): not started.
   - **SX3 services** (`services.*`; the Electron services of `ipc.ts` and `ssh/ipc.ts`, their IPC handlers staying in Node's `IpcRegistry`): not started.
   - **SX4 updater** (`updater.*`; `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `updater-state.ts`): not started.
-  - **SX5 boot** (`boot.*`; `index.ts`'s Electron wiring, `power/**`, `sidecar-factory.ts`'s paths): not started.
-  - Stay in Node for the batch (PROTOCOL.md §15.4): `gui-runtime.jsonl`'s writer (`runtime-log.ts`, reached from Rust by `log.runtime`), the label tables (`i18n-text.ts`, `tray-labels.ts`, pushed as `i18n.labels`), page IPC's dispatch (`web/ipc-registry.ts`, `IPC_POLICY`). Parity suites run against the real shell (`shell-host/modules/test-shell.ts`, CI's `shell-parity` job).
+  - **SX5 boot** (`boot.*`; `index.ts`'s Electron wiring, `power/**`, `i18n.ts`, `i18n-text.ts` and `tray-labels.ts`'s tables, `sidecar-factory.ts`'s paths): not started.
+  - Stay in Node for the batch (PROTOCOL.md §15.4): `gui-runtime.jsonl`'s writer (`runtime-log.ts`, reached from Rust by `log.runtime`) and page IPC's dispatch (`web/ipc-registry.ts`, `IPC_POLICY`). The label table reaches the shell from Node (`i18n.labels`) only until SX5 moves i18n into the shell; modules read it through `shell_core::labels` before and after. Parity suites run against the real shell (`shell-host/modules/test-shell.ts`, CI's `shell-parity` job).
   - When all five landed, Node runs only the §2.7 repair path and the typed clients; deleting Node and the shim is S's last step (the S entry above).

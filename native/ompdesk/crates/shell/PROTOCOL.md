@@ -586,7 +586,7 @@ file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `i
 | SX2 preview | `preview.*` | `preview/host.ts`, `agent-relay.ts`, `visuals.ts`, `page-scripts.ts`, `preview-check.ts`, `layout.ts`, `relay-socket.ts`, `visual-navigation.ts`; `web/preview-stream.ts`, `preview-input.ts`, `preview-dialog.ts`, `preview-pacer.ts` | `modules/preview/`, `preview_core/` |
 | SX3 services | `services.*` | the Electron services of `ipc.ts` and `ssh/ipc.ts` (clipboard, dialog, screen, shell, `Notification`, window lookups); their IPC handlers stay registered in Node (§15.4 rule 5) and call the client. `web/ipc-registry.ts` and `runtime-log.ts` stay in Node (rules 5 and 1) | `modules/services/`, `services_core/` |
 | SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `updater-state.ts` | `modules/updater/`, `updater_core/` |
-| SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `sidecar-factory.ts`'s paths. `i18n.ts`, `i18n-text.ts` and `tray-labels.ts`'s tables stay in Node (rule 2) | `modules/boot/`, `boot_core/` |
+| SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `i18n.ts`, `i18n-text.ts` and `tray-labels.ts`'s tables (rule 2), `sidecar-factory.ts`'s paths | `modules/boot/`, `boot_core/` |
 
 - **Where a module lives**: in the shell when it needs CEF or the OS objects the shell holds (windows, tray, menus,
   Chromium's network stack with its proxy and certificate store, the `safeStorage` key). A slice whose rules need none
@@ -611,7 +611,7 @@ Served by `src/main/shell-host/modules/relay.ts` (`serveShellRelays`, `publishLa
 |---|---|---|---|
 | `core.call` | shell→Node | `{method, params, timeoutMs?}` + `bin` | the core's answer to `method` (its `bin` too). A fault keeps the core's `code` and message; `{cancel: id}` cancels the request in the core. Used through `Ctx::core`. When the core moves under the shell only `Ctx::core`'s body changes. |
 | `log.runtime` (event) | shell→Node | `{report: RuntimeLogReport, windowId?}` | one line of `<userData>/logs/gui-runtime.jsonl`, written by Node's `writeRuntimeLog` (`runtime-log-core.ts`: rotation, normalising, context). Used through `Ctx::runtime_log`. |
-| `i18n.labels` (event) | Node | `{language: "en"\|"ko", text: {[key]: string}}` | the whole label table for the UI language: every `MAIN_TEXT` key as is, every `TRAY_LABELS` key as `tray.<key>`, placeholders unfilled. Sent before `whenReady` and after every language change; each replaces the last. Read with `shell_core::labels::label(key, params)` (`fillText`'s rule; `None` before the first table or for an unknown key). |
+| `i18n.labels` (event) | Node | `{language: "en"\|"ko", text: {[key]: string}}` | **transitional, deleted by SX5** (§15.4 rule 2): the whole label table for the UI language: every `MAIN_TEXT` key as is, every `TRAY_LABELS` key as `tray.<key>`, placeholders unfilled. Sent before `whenReady` and after every language change; each replaces the last. Read with `shell_core::labels::label(key, params)` (`fillText`'s rule; `None` before the first table or for an unknown key), the API that stays after SX5. |
 
 ### 15.3 Parity proof, per slice
 
@@ -650,11 +650,19 @@ on GitHub's runners.
    batch; a module writes a line with `Ctx::runtime_log` (`log.runtime`, §15.2). The shell's own diagnostic log
    (`log.rs`, `OMPDESK_SHELL_TRACE`) stays the shell's and is not that file. When Node goes (S's last step) the writer
    moves once, with its rotation rule.
-2. **Strings stay in Node; the shell reads one pushed table.** `MAIN_TEXT`, `TRAY_LABELS` and `mainT` stay
-   TypeScript; the shell holds no string of its own. A module that shows text (a menu, the tray, a dialog it opens)
-   reads it from `shell_core::labels` (`i18n.labels`, §15.2), keyed as in the TypeScript. A new string is added to
-   `i18n-text.ts` (English and Korean) by the slice that needs it, never as a Rust literal. Text Node already sends in
-   a request (menu templates, dialog options) stays in that request.
+2. **One label API for modules; SX5 moves the strings.** A module that shows text (a menu, the tray, a dialog it
+   opens) reads it only through `shell_core::labels::label(key, params)`, keyed as `MAIN_TEXT` and `tray.<key>` are
+   today; it never holds a Rust literal. Who fills that table changes once, inside SX5, and no other slice notices:
+   - **Until SX5's i18n commit (transitional):** Node pushes the table (`i18n.labels`, §15.2) from `i18n-text.ts` and
+     `tray-labels.ts`. A slice that needs a new string adds it there (English and Korean).
+   - **SX5 moves i18n into the shell:** `MAIN_TEXT`, `TRAY_LABELS`, the language choice (`getMainLanguage`: the
+     `language` pref, else the locale from `facts`) and `fillText`'s rule become `boot_core`'s, and `labels` reads them
+     there. Node's remaining `mainT` callers read a mirror the shell pushes (`boot.labels`, 9c's mirror pattern) or
+     ask it, as SX5 decides and records in §15.9. In the same commits SX5 deletes `i18n.labels`, `publishLabels` and
+     `labelTable` (`relay.ts`), `i18n.ts`, `i18n-text.ts` and the tables of `tray-labels.ts`, and moves the strings any
+     slice added meanwhile.
+
+   Text Node already sends in a request (menu templates, dialog options) stays in that request.
 3. **Parity suites reach Rust through the real shell over the wire**, never through a second test binary or an FFI
    (§15.3 step 1). Pure Rust tests and `captured.json` are added coverage.
 4. **App windows: the shell creates them once SX1 lands, and Node adopts them.** The shell's `chrome` module makes
