@@ -1,17 +1,17 @@
 // bun cdp-seed-mac.ts <port> [read]: in the released app's own page, save a stand-in update token through its own IPC
 // (main encrypts it with safeStorage) and write file:// Local Storage keys. Prints one JSON line.
-import { chromium } from "playwright";
+import { type Browser, chromium, type Page } from "playwright";
 
 const mode = process.argv[3] ?? "seed";
 const port = process.argv[2];
 const token = process.env.STAND_IN_TOKEN ?? "ghp_STANDIN_not_a_real_token_0123456789";
-let browser;
+let browser: Browser | undefined;
 for (let i = 0; i < 120 && !browser; i++) {
 	browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 5_000 }).catch(() => undefined);
 	if (!browser) await new Promise(r => setTimeout(r, 500));
 }
 if (!browser) throw new Error("no CDP endpoint");
-let page;
+let page: Page | undefined;
 for (let i = 0; i < 60 && !page; i++) {
 	page = browser
 		.contexts()
