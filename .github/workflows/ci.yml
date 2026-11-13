@@ -43,7 +43,11 @@ on:
   workflow_dispatch:
     inputs:
       batch:
-        description: "Run every job a push to main runs, on this ref (a Rust batch's gate before it lands)"
+        description: "Run every Linux and Windows job a push to main runs, on this ref (a branch's verdict while it is worked on)"
+        type: boolean
+        default: false
+      mac:
+        description: "Also run the macOS jobs a push to main runs (mac-smoke, mac-native, memory, native macOS): with batch, the gate right before landing"
         type: boolean
         default: false
       e2e:
@@ -220,7 +224,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON((github.event_name == 'push' || inputs.batch) && '[{"os":"ubuntu-latest","name":"linux"},{"os":"windows-latest","name":"windows"},{"os":"macos-latest","name":"macos arm64"}]' || '[{"os":"ubuntu-latest","name":"linux"}]') }}
+        include: ${{ fromJSON(format('[{0}{1}{2}]', '{"os":"ubuntu-latest","name":"linux"}', (github.event_name == 'push' || inputs.batch) && ',{"os":"windows-latest","name":"windows"}' || '', (github.event_name == 'push' || inputs.mac) && ',{"os":"macos-latest","name":"macos arm64"}' || '')) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/native-check
@@ -278,9 +282,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # release.yml's `mac` pre-flight half: the @smoke specs on the fake omp, on
-  # the built app (out/), on macOS. Pushes to main and batch runs only.
+  # the built app (out/), on macOS. Pushes to main and runs dispatched with `mac` only:
+  # macOS runners are the account's scarcest (5 at once), so a branch takes them once, at its landing gate.
   mac-smoke:
-    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.batch)"
+    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.mac)"
     runs-on: macos-latest
     timeout-minutes: 20
     permissions:
@@ -311,9 +316,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # The vitest files that drive the real ompdesk-core binary, on macOS, as
-  # release.yml's `mac-native`. Pushes to main and batch runs only.
+  # release.yml's `mac-native`. Pushes to main and runs dispatched with `mac` only.
   mac-native:
-    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.batch)"
+    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.mac)"
     runs-on: macos-latest
     timeout-minutes: 10
     permissions:
@@ -580,7 +585,7 @@ jobs:
   # It saves the binary under release.yml's cache key, so a release after a main push that changed the source finds it
   # built; a hit (that source was built before) only runs `--check`.
   memory:
-    if: "(github.event_name != 'workflow_dispatch' || inputs.batch) && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
+    if: "(github.event_name != 'workflow_dispatch' || inputs.mac) && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
     runs-on: macos-latest
     timeout-minutes: 40
     permissions:
