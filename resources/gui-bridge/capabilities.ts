@@ -88,6 +88,8 @@ export const FEATURES = {
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
 	todoReminder: "A refused todo call's reminder reaches its own turn, and the turn then reads finished",
+	todoWait:
+		"A session waiting on another session's reply, or whose open todo items are all written as waiting, is not woken by stock's todo reminder",
 	todoStale: "A todo list left from earlier work is named to the agent when a new request starts a turn",
 	todoCompact: "A todo list grown long by appends is asked to fold its finished items",
 	wasteGuards:
@@ -582,6 +584,17 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	/** todo-reminder.ts: wraps the session's `sendCustomMessage` for stock's `todo-error-reminder`. Imports nothing from omp. */
 	todoReminder: {
 		session: ["sendCustomMessage()", "isStreaming"],
+	},
+	/**
+	 * todo-wait.ts: wraps stock's `TodoTracker.prototype.checkCompletion` (marks the synchronous start of the check) and
+	 * the session's `getActiveToolNames()` (answers without `todo` in that window when the session waits, stock's own
+	 * "todo is off" path). Without either, stock's reminder stays as it is.
+	 */
+	todoWait: {
+		session: ["getActiveToolNames()", "getTodoPhases()"],
+		modules: {
+			[`${AGENT}/session/todo-tracker`]: ["TodoTracker.prototype.checkCompletion()"],
+		},
 	},
 	/** todo-stale.ts: stock's journal todo readers, the session's active tools and plan state, at each turn's start. */
 	todoStale: {

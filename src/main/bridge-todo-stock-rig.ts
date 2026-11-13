@@ -161,6 +161,8 @@ export async function startOmp(options: {
 	isolated: string;
 	model: string;
 	bridge: string;
+	/** Host tools to register once ready (`set_host_tools`), each answered with its text as it is called. */
+	hostTools?: Record<string, { description: string; parameters: Record<string, unknown>; answer: string }>;
 }): Promise<Omp> {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "ompdesk-todo-stock-repo-")));
 	execFileSync("git", ["init", "--quiet"], { cwd: root });
@@ -216,7 +218,14 @@ export async function startOmp(options: {
 		try {
 			const frame = JSON.parse(line) as Frame;
 			if (frame.type === "response" && frame.id && responses.has(frame.id)) responses.get(frame.id)?.(frame);
-			else frames.push(frame);
+			else {
+				frames.push(frame);
+				const tool = frame.type === "host_tool_call" ? options.hostTools?.[String(frame.toolName)] : undefined;
+				if (tool)
+					child.stdin.write(
+						`${JSON.stringify({ type: "host_tool_result", id: frame.id, result: { content: [{ type: "text", text: tool.answer }] } })}\n`,
+					);
+			}
 		} catch {
 			// not a frame
 		}
@@ -225,6 +234,12 @@ export async function startOmp(options: {
 		.poll(() => frames.some(frame => frame.type === "ready"), { timeout: 60_000, message: stderr })
 		.toBe(true);
 	let counter = 0;
+	const registered = Object.entries(options.hostTools ?? {}).map(([name, tool]) => ({
+		name,
+		description: tool.description,
+		parameters: tool.parameters,
+		loadMode: "essential",
+	}));
 	const send = (command: Record<string, unknown>) => {
 		const answered = Promise.withResolvers<Frame>();
 		const id = `c${++counter}`;
@@ -232,6 +247,7 @@ export async function startOmp(options: {
 		child.stdin.write(`${JSON.stringify({ id, ...command })}\n`);
 		return answered.promise;
 	};
+	if (registered.length > 0) await send({ type: "set_host_tools", tools: registered });
 	const turn = async (message: string) => {
 		const from = frames.length;
 		await send({ type: "prompt", message });
