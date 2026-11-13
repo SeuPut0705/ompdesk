@@ -338,8 +338,7 @@ export class SshTools {
 			for (let ask = 0; !free && ask <= (afterOwnSsh ? OWN_PORT_RELEASE_ASKS : 0); ask++) {
 				if (ask > 0) await new Promise(done => setTimeout(done, OWN_PORT_RELEASE_MS));
 				if (stale()) return;
-				free =
-					(await this.#core.plan(forward.target, forward.remotePort, forward.localPort)) === forward.localPort;
+				free = (await this.#core.plan(forward.target, forward.remotePort, forward.localPort)) === forward.localPort;
 			}
 			if (stale()) return;
 			if (!free) {

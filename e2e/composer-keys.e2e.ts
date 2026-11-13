@@ -257,11 +257,11 @@ test("typing is one undo step, Hangul composes after @ and /, Enter right after 
 				),
 			);
 			expect((await recordsOfType(record, "prompt")).length).toBe(0);
-			await expect(input).toHaveValue(trigger + "한");
+			await expect(input).toHaveValue(`${trigger}한`);
 			// The commit; an Enter after it (60 ms later: a person's, not the IME's) acts once.
 			await cdp.send("Input.insertText", { text: "한" });
 			await page.waitForTimeout(60);
-			await expect(input).toHaveValue(trigger + "한");
+			await expect(input).toHaveValue(`${trigger}한`);
 			expect((await recordsOfType(record, "prompt")).length).toBe(0);
 		}
 		await input.fill("");
