@@ -1825,7 +1825,9 @@ mod tests {
         let mut run = earlier_run(&store, "0001", "passed", "same");
         run.state = State::Passed;
         store.write(&run).unwrap();
-        store.append("0001", "log", "ompdesk check: running").unwrap();
+        store
+            .append("0001", "log", "ompdesk check: running")
+            .unwrap();
         let alive = fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -1852,7 +1854,11 @@ mod tests {
                 "the caller returned while the runner still held alive"
             );
             store
-                .append("0001", "log", "ompdesk check: 0001: passed — verdict /x/verdict.txt")
+                .append(
+                    "0001",
+                    "log",
+                    "ompdesk check: 0001: passed — verdict /x/verdict.txt",
+                )
                 .unwrap();
             drop(alive);
             finished.recv().unwrap()
