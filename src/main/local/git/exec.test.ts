@@ -64,6 +64,24 @@ describe("execBin", () => {
 			`working folder ${gone} does not exist`,
 		);
 	});
+
+	// A cwd beneath a regular file stats as absent (Node's `throwIfNoEntry` covers ENOTDIR too); a folder that cannot
+	// be read throws EACCES from that stat, which once escaped the spawn's error handler as an uncaught exception.
+	it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+		"keeps the spawn's own error for a working folder it may not enter, and still rejects",
+		async () => {
+			const locked = path.join(await tempDir("omp-exec-cwd-"), "locked");
+			await fs.mkdir(path.join(locked, "inner"), { recursive: true });
+			await fs.chmod(locked, 0o000);
+			try {
+				await expect(
+					execBin(process.execPath, ["--version"], { cwd: path.join(locked, "inner") }),
+				).rejects.toMatchObject({ code: "EACCES" });
+			} finally {
+				await fs.chmod(locked, 0o700);
+			}
+		},
+	);
 });
 
 describe("the git GUI git calls run", () => {
