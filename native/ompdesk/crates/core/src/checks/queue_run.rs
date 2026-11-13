@@ -45,8 +45,6 @@ use crate::server::{Fault, Scope};
 /// The first wait before a step that failed for a while is tried again, and the longest.
 pub const RETRY_FIRST_MS: u64 = 5_000;
 pub const RETRY_MAX_MS: u64 = 5 * 60_000;
-/// How long a run that answered `unknown` is left before it is asked again.
-pub const UNKNOWN_AGAIN_MS: u64 = 30_000;
 
 /// How a push of the queue to the base went.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -498,31 +496,45 @@ impl Lane {
                 let scope = self.scope_for(&candidate);
                 let git_ref = format!("{QUEUE_BRANCH_PREFIX}{candidate}");
                 tokio::spawn(async move {
+                    // A start that reached admission is never sent again: a refused or failed one may have started a
+                    // run, so it ends the trial as a failed check with the hub's reason. Only a start the owner's
+                    // pause refused (nothing ran) or that never reached the hub is tried again.
                     let mut retry = RETRY_FIRST_MS;
-                    let run = loop {
-                        let started = shared.host.start_batch(&repo, &git_ref, &commit).await;
-                        match started {
+                    let started = loop {
+                        match shared.host.start_batch(&repo, &git_ref, &commit).await {
                             Ok(StartReply {
-                                run_id: Some(run),
-                                decision:
-                                    StartDecision::Started | StartDecision::Held | StartDecision::Reused,
+                                run_id: None,
+                                decision: StartDecision::Refused,
                                 ..
-                            }) => break run,
-                            _ if pause(&scope, &mut retry).await => {}
-                            _ => return,
-                        }
-                    };
-                    let answer = loop {
-                        match shared.host.batch_answer(run.clone(), scope.clone()).await {
-                            Ok(answer) if answer.verdict != AnswerVerdict::Unknown => break answer,
-                            Ok(_) => {
-                                let mut wait = UNKNOWN_AGAIN_MS;
-                                if !pause(&scope, &mut wait).await {
-                                    return;
-                                }
-                            }
+                            }) if shared.host.paused() && pause(&scope, &mut retry).await => {}
+                            Ok(reply) => break reply,
                             Err(_) if pause(&scope, &mut retry).await => {}
                             Err(_) => return,
+                        }
+                    };
+                    let answer = match started {
+                        StartReply {
+                            run_id: Some(run),
+                            decision:
+                                StartDecision::Started | StartDecision::Held | StartDecision::Reused,
+                            ..
+                        } => loop {
+                            match shared.host.batch_answer(run.clone(), scope.clone()).await {
+                                Ok(answer) => break answer,
+                                Err(_) if pause(&scope, &mut retry).await => {}
+                                Err(_) => return,
+                            }
+                        },
+                        refused => {
+                            let mut answer = blank_answer(
+                                refused.run_id.unwrap_or_default(),
+                                AnswerVerdict::Unknown,
+                                Next::Fix,
+                            );
+                            answer
+                                .notes
+                                .push(format!("the check could not run: {}", refused.reason));
+                            answer
                         }
                     };
                     if !scope.cancelled() {

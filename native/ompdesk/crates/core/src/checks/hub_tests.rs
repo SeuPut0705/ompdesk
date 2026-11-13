@@ -502,6 +502,48 @@ async fn a_wait_ends_with_the_judgment_and_every_subscriber_hears_it_once() {
 }
 
 #[tokio::test]
+async fn a_batch_held_longer_than_a_lease_keeps_its_place_while_the_queue_waits_for_it() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI);
+    let hub = hub(&github);
+    // The account is full: the batch waits in OMPdesk's queue.
+    locked(&hub.admission).set_pools(
+        BTreeMap::from([(
+            policy::HOSTED_POOL.to_owned(),
+            admission::Limit {
+                places: 0,
+                hosted: true,
+            },
+        )]),
+        40,
+        BTreeMap::new(),
+    );
+    let host = hub.queue_host();
+    let batch = host.start_batch(REPO, "feat", SHA).await.unwrap();
+    assert_eq!(batch.decision, StartDecision::Held, "{}", batch.reason);
+    let run = batch.run_id.unwrap();
+    let waited = host.batch_answer(run.clone(), Scope::detached());
+    tokio::pin!(waited);
+    // Forty minutes, more than a lease, with the queue waiting on the batch all along.
+    for _ in 0..40 {
+        tokio::select! {
+            biased;
+            answer = &mut waited => panic!("answered while held: {answer:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+        clock::advance(60_000).await;
+    }
+    let gone = locked(&hub.admission).reap(clock::now_ms());
+    assert!(gone.is_empty(), "reaped {gone:?}");
+    assert_eq!(
+        locked(&hub.admission).entry(&run).unwrap().stage,
+        admission::Stage::Held
+    );
+    clock::set_real();
+}
+
+#[tokio::test]
 async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_through_the_hub() {
     let github = github(CI);
     let hub = hub(&github);

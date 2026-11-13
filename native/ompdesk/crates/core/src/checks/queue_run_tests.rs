@@ -130,6 +130,8 @@ struct Host {
     starts: Mutex<Vec<(String, String)>>,
     answers: Mutex<HashMap<String, Answer>>,
     push_before_first_run: Mutex<Option<String>>,
+    /// While set, every start reaches admission and fails with these words (a dispatch that failed).
+    refuse: Mutex<Option<String>>,
     told: mpsc::UnboundedSender<RunResult>,
 }
 
@@ -161,6 +163,15 @@ impl QueueHost for Host {
             let mut starts = self.starts.lock().unwrap();
             starts.push((git_ref.to_owned(), sha.to_owned()));
             let run = format!("run{}", starts.len());
+            if let Some(why) = self.refuse.lock().unwrap().clone() {
+                return Ok(StartReply {
+                    run_id: Some(run),
+                    decision: StartDecision::Refused,
+                    placement: None,
+                    expected_start_min: None,
+                    reason: why,
+                });
+            }
             let mut answer = blank_answer(
                 run.clone(),
                 if red {
@@ -194,6 +205,10 @@ impl QueueHost for Host {
 
     fn batch_answer(&self, run: String, _scope: Scope) -> Fut<'_, Result<Answer, Fault>> {
         Box::pin(async move { Ok(self.answers.lock().unwrap()[&run].clone()) })
+    }
+
+    fn paused(&self) -> bool {
+        false
     }
 
     fn finished(&self, result: RunResult) {
@@ -286,6 +301,7 @@ fn start(batch_size: usize, push_before_first_run: Option<&str>) -> Run {
         starts: Mutex::default(),
         answers: Mutex::default(),
         push_before_first_run: Mutex::new(push_before_first_run.map(str::to_owned)),
+        refuse: Mutex::default(),
         told: told_tx,
     });
     let remote = fixture.remote.to_string_lossy().into_owned();
@@ -414,6 +430,27 @@ async fn a_batch_of_two_lands_on_main_as_the_commit_its_one_run_passed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_batch_whose_run_could_not_start_fails_with_the_reason_and_is_never_sent_again() {
+    let mut run = start(1, None);
+    *run.host.refuse.lock().unwrap() = Some("its dispatch failed: HTTP 502".into());
+    let one = run.fixture.branch("b1", "one.txt", "1\n");
+    let id = run.enqueue("b1", &one).await;
+    let results = run.results(1).await;
+    let failed = &results[&id].answer;
+    assert_ne!(failed.verdict, AnswerVerdict::Green, "{failed:?}");
+    assert!(
+        failed
+            .notes
+            .iter()
+            .any(|note| note.contains("its dispatch failed: HTTP 502")),
+        "{failed:?}"
+    );
+    // A dispatch that failed may have started its run: the same start is never sent again.
+    assert_eq!(run.starts(), 1);
+    run.no_candidates_left().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_red_batch_lands_the_good_branch_and_fails_the_bad_one_with_its_own_run() {
     let mut run = start(2, None);
     let good = run.fixture.branch("good", "one.txt", "1\n");
@@ -508,6 +545,7 @@ async fn a_queue_opened_again_shows_what_it_had_and_a_build_is_the_same_commit()
         starts: Mutex::default(),
         answers: Mutex::default(),
         push_before_first_run: Mutex::default(),
+        refuse: Mutex::default(),
         told,
     });
     let remote = run.fixture.remote.to_string_lossy().into_owned();
@@ -616,6 +654,7 @@ async fn a_dropped_queue_ends_its_lanes_and_their_work_and_one_opened_again_is_t
         starts: Mutex::default(),
         answers: Mutex::default(),
         push_before_first_run: Mutex::default(),
+        refuse: Mutex::default(),
         told,
     });
     let tuning = Tuning {

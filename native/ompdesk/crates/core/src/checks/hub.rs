@@ -124,8 +124,13 @@ pub(crate) trait QueueHost: Send + Sync {
         sha: &'a str,
     ) -> Fut<'a, Result<StartReply, Fault>>;
 
-    /// Ends with the batch run's answer (no timeout of its own; `scope` cancels it).
+    /// Ends with the batch run's kept answer (no timeout of its own; `scope` cancels it). An `unknown` answer is
+    /// final: the run never reached GitHub, or its result could not be read in `JUDGE_TRIES`. Waiting renews the held
+    /// entry's lease.
     fn batch_answer(&self, run: RunId, scope: Scope) -> Fut<'_, Result<Answer, Fault>>;
+
+    /// The owner paused admission: a refused batch start is tried again once it resumes.
+    fn paused(&self) -> bool;
 
     /// An entry's result (`result.run_id` is the id `enqueue` answered): its waits end and its session is woken.
     fn finished(&self, result: RunResult);
@@ -762,7 +767,9 @@ impl Core {
         }
     }
 
-    /// Ends with the run's answer, however long that takes; the caller bounds it.
+    /// Ends with the run's kept answer, however long that takes; the caller bounds it. The caller is the run's owner
+    /// asking, so a held entry's lease is renewed every `HEARTBEAT_EVERY` meanwhile. An answer that cannot be read yet
+    /// is not returned: the hub's pass judges the run again and keeps the answer (`JUDGE_TRIES`).
     async fn answer_of(&self, id: &str) -> Answer {
         loop {
             if let Some(answer) = self.answered(id) {
@@ -774,9 +781,21 @@ impl Core {
                 continue;
             }
             let done = self.done.notified();
+            tokio::pin!(done);
             tokio::select! {
-                run = self.poller.ended(id) => return self.judge(id, &run).await,
-                () = done => {}
+                run = self.poller.ended(id) => {
+                    self.judge(id, &run).await;
+                    if self.answered(id).is_none() {
+                        tokio::select! {
+                            () = &mut done => {}
+                            () = clock::sleep(SETTLE_EVERY) => {}
+                        }
+                    }
+                }
+                () = &mut done => {}
+                () = clock::sleep(HEARTBEAT_EVERY) => {
+                    locked(&self.admission).heartbeat(id, clock::now_ms());
+                }
             }
         }
     }
@@ -1182,20 +1201,11 @@ impl Core {
                 timed_out("the run changed, or the time ran out: status shows it, wait again for the result".into())
             }));
         }
-        let answer = self.answer_of(&id);
-        tokio::pin!(answer);
-        loop {
-            tokio::select! {
-                answer = &mut answer => return Ok(answer),
-                () = &mut deadline => {
-                    return Ok(timed_out(format!("no result within {seconds} s: wait again")));
-                }
-                () = scope.on_cancel() => return Err(Fault::new("cancelled", "the wait was cancelled")),
-                () = clock::sleep(HEARTBEAT_EVERY) => {
-                    // The owner is still asking: a held entry keeps its place in line.
-                    locked(&self.admission).heartbeat(&id, clock::now_ms());
-                }
-            }
+        // `answer_of` renews a held entry's lease while it waits: the owner is still asking.
+        tokio::select! {
+            answer = self.answer_of(&id) => Ok(answer),
+            () = &mut deadline => Ok(timed_out(format!("no result within {seconds} s: wait again"))),
+            () = scope.on_cancel() => Err(Fault::new("cancelled", "the wait was cancelled")),
         }
     }
 
@@ -1319,6 +1329,12 @@ impl QueueHost for Host {
                 () = scope.on_cancel() => Err(Fault::new("cancelled", "the batch's wait was cancelled")),
             }
         })
+    }
+
+    fn paused(&self) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|core| locked(&core.admission).paused())
     }
 
     fn finished(&self, result: RunResult) {
