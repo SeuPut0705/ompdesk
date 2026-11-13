@@ -1,9 +1,10 @@
 /**
- * `electron-store` for the files main writes from events (the prefs, the window geometry): a `set` on a full disk
- * never throws into the caller. conf keeps nothing in memory (every read parses the file), so the value that could not
- * be written is kept here, per file and shared by every store on it (the prefs file has three), and answers reads until
- * it is saved. The save is tried again on the backoff of `atomic-file.ts` and the file joins the one disk-full notice
- * (`disk-full.ts`); a newer `set` replaces what waits. Any other write failure still throws, as it did.
+ * `electron-store` for the files main writes from events (the prefs; the shell keeps the window geometry by the same
+ * rule, `shell_core::atomic::KeptFile`): a `set` on a full disk never throws into the caller. conf keeps nothing in
+ * memory (every read parses the file), so the value that could not be written is kept here, per file and shared by
+ * every store on it (the prefs file has three), and answers reads until it is saved. The save is tried again on the
+ * backoff of `atomic-file.ts` and the file joins the one disk-full notice (`disk-full.ts`); a newer `set` replaces
+ * what waits. Any other write failure still throws, as it did.
  *
  * Only the public `store` accessor is wrapped, which every `get`, `set`, `delete` and `has` of conf goes through.
  */

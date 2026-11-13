@@ -99,6 +99,107 @@ impl Ordered {
     }
 }
 
+/// Waits between tries while the disk stays full; the last one repeats (`DISK_FULL_RETRY_MS` in
+/// `src/main/atomic-file.ts`, `RETRY_MS` in the core's `disk/saves.rs`).
+pub const DISK_FULL_RETRY_MS: [i64; 5] = [5_000, 10_000, 20_000, 40_000, 60_000];
+
+/// What a save asks its owner to do.
+#[derive(Debug)]
+pub enum Outcome {
+    /// Written; `cleared` when it ended a wait for space (tell main the file was saved).
+    Saved { cleared: bool },
+    /// The disk is full (`ENOSPC`, or the quota: `EDQUOT`): the content waits here. `first` when the file just started waiting (tell main, and
+    /// schedule `retry` after `next_delay`); a retry that finds the disk still full schedules the next one.
+    Kept { first: bool },
+    /// Another failure: nothing waits any more (`cleared` when something did).
+    Failed {
+        cleared: bool,
+        error: std::io::Error,
+    },
+}
+
+/// One file a store saves whole, which a full disk does not lose: the content that could not be written waits here,
+/// answers reads, and is tried again until it lands or a newer save replaces it (`src/main/safe-store.ts`'s rule for
+/// electron-store files). The owner times the retries and tells main.
+pub struct KeptFile {
+    path: PathBuf,
+    kept: Option<Vec<u8>>,
+    tries: usize,
+}
+
+impl KeptFile {
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            kept: None,
+            tries: 0,
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// What the file holds for a reader: what waits for space, else the file.
+    pub fn read(&self) -> Option<String> {
+        match &self.kept {
+            Some(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+            None => std::fs::read_to_string(&self.path).ok(),
+        }
+    }
+
+    pub fn save(
+        &mut self,
+        bytes: Vec<u8>,
+        write: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+    ) -> Outcome {
+        match write(&self.path, &bytes) {
+            Ok(()) => Outcome::Saved {
+                cleared: self.settle(),
+            },
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded
+                ) =>
+            {
+                let first = self.kept.replace(bytes).is_none();
+                if first {
+                    self.tries = 0;
+                }
+                Outcome::Kept { first }
+            }
+            Err(error) => Outcome::Failed {
+                cleared: self.settle(),
+                error,
+            },
+        }
+    }
+
+    /// Tries what waits again; `None` when nothing waits (a newer save landed meanwhile).
+    pub fn retry(
+        &mut self,
+        write: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+    ) -> Option<Outcome> {
+        let bytes = self.kept.clone()?;
+        Some(match self.save(bytes, write) {
+            Outcome::Kept { .. } => Outcome::Kept { first: false },
+            other => other,
+        })
+    }
+
+    /// The wait before the next retry.
+    pub fn next_delay(&mut self) -> i64 {
+        let delay = DISK_FULL_RETRY_MS[self.tries.min(DISK_FULL_RETRY_MS.len() - 1)];
+        self.tries += 1;
+        delay
+    }
+
+    fn settle(&mut self) -> bool {
+        self.kept.take().is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -182,6 +283,80 @@ mod tests {
         second_submitted.wait();
         writer.flush();
         assert_eq!(std::fs::read(&path).unwrap(), b"newer");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The disk fills, a newer save comes while the first waits, the disk frees: the newest content lands once, reads
+    /// saw it all along, and main is told the file waits once and is saved once.
+    #[test]
+    fn a_full_disk_keeps_the_newest_save_and_retries_it_until_it_lands() {
+        use super::{KeptFile, Outcome};
+        use std::cell::{Cell, RefCell};
+        let dir = scratch("kept");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("window-state.json");
+        std::fs::write(&path, "old").unwrap();
+        let full = Cell::new(true);
+        let written = RefCell::new(Vec::<String>::new());
+        let write = |p: &std::path::Path, bytes: &[u8]| {
+            if full.get() {
+                return Err(std::io::Error::from(std::io::ErrorKind::StorageFull));
+            }
+            written
+                .borrow_mut()
+                .push(String::from_utf8_lossy(bytes).into_owned());
+            super::write(p, bytes)
+        };
+        let mut file = KeptFile::new(path.clone());
+
+        assert!(matches!(
+            file.save(b"one".to_vec(), write),
+            Outcome::Kept { first: true }
+        ));
+        assert_eq!(
+            file.read().as_deref(),
+            Some("one"),
+            "a reader sees what waits, not the old file"
+        );
+        assert_eq!(file.next_delay(), 5_000);
+        assert!(matches!(
+            file.save(b"two".to_vec(), write),
+            Outcome::Kept { first: false }
+        ));
+        assert!(matches!(
+            file.retry(write),
+            Some(Outcome::Kept { first: false })
+        ));
+        assert_eq!(file.next_delay(), 10_000);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old");
+
+        full.set(false);
+        assert!(matches!(
+            file.retry(write),
+            Some(Outcome::Saved { cleared: true })
+        ));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
+        assert!(file.retry(write).is_none(), "nothing waits once it landed");
+        assert!(matches!(
+            file.save(b"three".to_vec(), write),
+            Outcome::Saved { cleared: false }
+        ));
+        assert_eq!(*written.borrow(), ["two", "three"]);
+
+        // Another failure ends the wait (the notice clears) instead of retrying forever.
+        full.set(true);
+        assert!(matches!(
+            file.save(b"four".to_vec(), write),
+            Outcome::Kept { first: true }
+        ));
+        let denied = |_: &std::path::Path, _: &[u8]| {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        };
+        assert!(matches!(
+            file.retry(denied),
+            Some(Outcome::Failed { cleared: true, .. })
+        ));
+        assert_eq!(file.read().as_deref(), Some("three"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

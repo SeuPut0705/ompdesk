@@ -6,6 +6,7 @@
  */
 import { BrowserWindow } from "electron";
 import type { RunProgressState, SessionKind } from "../../../shared/ipc-types";
+import type { DiskFullWatch } from "../../disk-full";
 import type { WindowPresence } from "../../update-log-core";
 import type { ClientWindow } from "../../web/client-window";
 import { HostError } from "../client";
@@ -25,6 +26,9 @@ export interface WindowSpec {
 	};
 	events: {
 		hiddenToTray: { winId: number };
+		/** `window-state.json` waits for space (the shell keeps it and retries) or landed again. */
+		stateSaveFailed: { file: string };
+		stateSaved: { file: string };
 	};
 	asks: {
 		spawn: { params: { cwd?: string }; result: { winId: number | null } };
@@ -165,6 +169,17 @@ export function setCloseToTray(on: boolean): void {
 /** The last shown window hid instead of closing (the one-time "keeps running in the tray" notice). */
 export function onHiddenToTray(listener: (winId: number) => void): () => void {
 	return chrome().on("hiddenToTray", ({ winId }) => listener(winId));
+}
+
+/** The window state the shell keeps on a full disk joins the one disk-full notice, as the core's stores do. */
+export function routeWindowStateSaves(watch: DiskFullWatch): () => void {
+	const stops = [
+		chrome().on("stateSaveFailed", ({ file }) => watch.report(file)),
+		chrome().on("stateSaved", ({ file }) => watch.clear(file)),
+	];
+	return () => {
+		for (const stop of stops) stop();
+	};
 }
 
 /** The shell asks main for a window with its tab (menu, tray, deep links, a Dock click with none open). */

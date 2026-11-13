@@ -200,7 +200,13 @@ import {
 	setQuitResumes,
 } from "./shell-host/modules/chrome-quit";
 import { watchTrayUpdates } from "./shell-host/modules/chrome-tray";
-import { onHiddenToTray, serveSpawn, setCloseToTray, WindowManager } from "./shell-host/modules/chrome-window";
+import {
+	onHiddenToTray,
+	routeWindowStateSaves,
+	serveSpawn,
+	setCloseToTray,
+	WindowManager,
+} from "./shell-host/modules/chrome-window";
 import { shellHost } from "./shell-host/modules/client";
 import { publishLabels, serveShellRelays } from "./shell-host/modules/relay";
 import {
@@ -824,8 +830,9 @@ app.whenReady().then(async () => {
 	});
 	// The same notice as a toast in every window and on the paired phone's page, closed when the files are saved.
 	bindDiskFullPush(diskFull, () => [...BrowserWindow.getAllWindows(), ...(webHost?.windows.all() ?? [])]);
-	// The core's stores (web devices, paired computers, schedules, journals) join it.
+	// The core's stores (web devices, paired computers, schedules, journals) and the shell's window state join it.
 	routeCoreSaves(core(), diskFull);
+	routeWindowStateSaves(diskFull);
 	markStartup("app-ready");
 	// A second instance quits at once: it must not take the running one's marker, nor watch anything.
 	if (gotLock) {

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
+use shell_core::atomic::{self, KeptFile, Outcome};
 use shell_core::chrome_core::window::{
     self as rules, Failure, Identity, LastClose, OpenFacts, Platform, Rect,
 };
@@ -628,8 +629,18 @@ fn offer_crash_recovery(win_id: u64) {
 
 // ------------------------------------------------------------------ making a window
 
-fn store_path() -> std::path::PathBuf {
-    state::paths().user_data.join("window-state.json")
+thread_local! {
+    /// `<userData>/window-state.json`; a full disk keeps the geometry here until it lands (`atomic::KeptFile`).
+    static STORE: RefCell<Option<KeptFile>> = const { RefCell::new(None) };
+}
+
+fn with_store<T>(f: impl FnOnce(&mut KeptFile) -> T) -> T {
+    STORE.with(|s| {
+        let mut s = s.borrow_mut();
+        f(s.get_or_insert_with(|| {
+            KeptFile::new(state::paths().user_data.join("window-state.json"))
+        }))
+    })
 }
 
 fn persist(win_id: u64) {
@@ -644,14 +655,46 @@ fn persist(win_id: u64) {
         height: f64::from(bounds.height),
         is_maximized: Some(window.is_maximized() != 0),
     };
-    let path = store_path();
-    let previous = std::fs::read_to_string(&path).ok();
-    let text = rules::store_text(previous.as_deref(), &saved);
-    if let Err(error) = shell_core::atomic::write(&path, text.as_bytes()) {
-        crate::log::log(
-            "chrome.window_state_failed",
-            json!({ "error": error.to_string() }),
-        );
+    let outcome = with_store(|store| {
+        let text = rules::store_text(store.read().as_deref(), &saved);
+        store.save(text.into_bytes(), atomic::write)
+    });
+    settle_store(outcome, false);
+}
+
+/// Tells main what a save of the window state did (`stateSaveFailed`/`stateSaved`, as the core's `store.saveFailed`/`store.saved`, joined to the
+/// disk-full notice by `chrome-window.ts`), and keeps one retry chain going while the disk stays full: a save that
+/// finds the file already waiting only replaces what waits.
+fn settle_store(outcome: Outcome, retrying: bool) {
+    let file = || json!({ "file": with_store(|s| s.path().display().to_string()) });
+    match outcome {
+        Outcome::Saved { cleared } => {
+            if cleared && let Some(ctx) = ctx() {
+                ctx.emit("stateSaved", file());
+            }
+        }
+        Outcome::Kept { first } => {
+            if first && let Some(ctx) = ctx() {
+                ctx.emit("stateSaveFailed", file());
+            }
+            if first || retrying {
+                let delay = with_store(KeptFile::next_delay);
+                crate::ui::post_delayed(delay, || {
+                    if let Some(outcome) = with_store(|s| s.retry(atomic::write)) {
+                        settle_store(outcome, true);
+                    }
+                });
+            }
+        }
+        Outcome::Failed { cleared, error } => {
+            crate::log::log(
+                "chrome.window_state_failed",
+                json!({ "error": error.to_string() }),
+            );
+            if cleared && let Some(ctx) = ctx() {
+                ctx.emit("stateSaved", file());
+            }
+        }
     }
 }
 
@@ -718,7 +761,7 @@ fn open(ctx: Ctx, call: Call) {
     }
     let cwd = call.str("cwd").unwrap_or_default();
     let presence = call.str("presence");
-    let saved = rules::parse_saved(std::fs::read_to_string(store_path()).ok().as_deref());
+    let saved = rules::parse_saved(with_store(|s| s.read()).as_deref());
     let areas = work_areas();
     let icon = icon_path();
     let opening = rules::opening(&OpenFacts {
