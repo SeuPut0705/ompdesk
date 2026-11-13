@@ -57,7 +57,7 @@ limit 60 "$SHELL_APP/Contents/MacOS/OMPdesk" --keychain-key "$UD" 2>/dev/null > 
 evidence "A --keychain-key answered in $(( $(date +%s) - START )) s: $(sed 's/"password":"[^"]*"/"password":"<hidden>"/' "$W/key-a.json")"
 grep -q '"kind":"mac-v10"' "$W/key-a.json"; check $? "A: the shell's --keychain-key answered a mac-v10 key, no dialog"
 OMP_GUI_TEST_USER_DATA_DIR=$UD "$SHELL_APP/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=19223 >"$W/shell-a.out" 2>&1 &
-sleep 10; evidence "A: helper processes (which name CEF started): $(ps -axo command | grep 'Frameworks/.*Helper' | grep -v grep | sed 's/ --.*//' | sort -u | cut -c1-220 | tr '\n' '|')"
+sleep 10; evidence "A: helper processes (which name CEF started): $(ps -axo command | grep 'OMPdesk.app/Contents/Frameworks/.*Helper' | grep -v grep | sed 's/ --.*//' | sort -u | cut -c1-220 | tr '\n' '|')"
 (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts 19223 read) | tee "$W/read-a.json"; check ${PIPESTATUS[0]} "A: the shell's page answered"
 kill_apps "$SHELL_APP/Contents/MacOS"
 grep -q '"draft":"a draft typed in Electron"' "$W/read-a.json" && grep -q '"large":200000' "$W/read-a.json"; check $? "A: Local Storage came over (draft, Korean, 200 000 characters)"
