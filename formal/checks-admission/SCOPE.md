@@ -53,6 +53,7 @@ The frozen set is `Properties.md`.
 | `FirstInLineCanStart` | invariant | brief; design §5 |
 | `ReleaseEventuallyAdmitted` | liveness | brief |
 | `LapsedLeaves` | liveness | brief |
+| `ReleaseKeepsItsAccountPlace` | invariant | Main's F1 decision (d6) |
 
 ## Bounds
 
@@ -60,19 +61,22 @@ The frozen set is `Properties.md`.
 |---|---|
 | `MC.cfg` | one heavy pool of 1 slot; a release job, two branch jobs, one outside job; pause and lapses on |
 | `MC.cfg` + `DeviceLimit = 2` | the same with 2 slots |
-| `MC_account.cfg` | macOS limit 1, account limit 2; a release macOS job, a land and a local Linux job, an outside macOS job; lapses on |
+| `MC_account.cfg` | macOS limit 1, account limit 2; a release macOS job, a land and a local Linux job, an outside macOS job and an outside Linux job; lapses on |
+| `MC_account.cfg` + 3 places | account limit 3; release macOS, land Linux, an outside macOS job and two outside Linux jobs |
 | `MC_supersede.cfg` | hosted pool of 2; release, land, two branch jobs and an outside job, all one repo, ref and workflow; pause on |
 | `MC_reuse.cfg` | hosted pool of 2; three branch jobs, two of one digest and two of one key |
-| `MC_live.cfg` | as `MC.cfg`, no pause, under `Fairness`: the two liveness properties |
+| `MC_live.cfg`, `MC_live_account.cfg` | as `MC.cfg` (no pause) and `MC_account.cfg`, under `Fairness`: the two liveness properties |
 | deep | one heavy pool of 2 slots, two release jobs, two branch jobs, one outside job |
 
 The real limits (5 and 40) are larger. The properties compare counts with limits and order entries by lane and arrival; nothing in them depends on the limit's size beyond "full" and "not full", which a limit of 1 or 2 reaches. States, depth and times are in `evidence/` and in the report.
 
-## Finding F1 (design question, not a code bug): a lower lane can take the account's last place
+## Finding F1 (design question, decided 14 Nov 2026): a release macOS job and the account's last places
 
-`KeepsLastAccountPlace` must fail, and does (`MC_limit_KeepsLastAccountPlace.cfg`). A release macOS job waits for a macOS runner. Meanwhile a land or branch Linux job, admitted after the release job arrived, takes the account's last hosted place (40 of 40). When a macOS runner frees, the release job still cannot start: the account is full of lower-lane jobs. The design's rule (§5: a free place goes to the first entry that can use it) cannot prevent this, because when the Linux job was admitted no rule was broken: the release job could not use any free place then.
+**Corrected statement.** The first report of F1 (run 43494679727) said a release macOS job, waiting on macOS while lower-lane Linux jobs filled the account, "still cannot start when a macOS runner frees". That was wrong: every macOS job also counts in the account, so the run that ends frees a macOS place and an account place together, and the pump gives that place to the release job before anything behind it. What the old rule allowed is narrower: a lower-lane job takes the account's last place while the release job waits (the removed `KeepsLastAccountPlace` run showed only that), and then **a job the hub does not govern** (another repo's on the account, a person's) can take the place the ending macOS run frees before the hub's dispatch arrives. One outside job racing for that place is enough to block the release job.
 
-Strict head-of-line (no job passes an earlier higher-lane job) would fix it and break P9: a release macOS job waiting for macOS would keep every Linux job out of 35 free places (`strict-head-of-line` mutation). Choices for the owner: (a) accept it (the account limit of 40 is far from today's use; the 5-macOS limit is what queued 71 jobs), (b) reserve the account's last N places for release jobs while one waits, (c) count a waiting release macOS job against the account. The model takes (a) and documents it; (b) or (c) is a frozen-property change to `HigherLaneFirst`/`FirstInLineCanStart`, with a new run.
+**Owner's decision (Main, dispatch d6):** count a waiting release job against the account limit. A release entry whose own pool is full holds one account place; jobs behind it may not take it (`Holds`, `HeldAhead`, `Room`). With it, two outside jobs started after the release job arrived are needed to block it (one per place), and P12 says so. The old rule is the `no-account-hold` mutation, which P12 must catch on `MC_account.cfg` (one outside Linux racer). P9 is amended so a place a release entry ahead holds is not "free" for a job behind it (`Properties.md`). Strict head-of-line stays rejected (`strict-head-of-line` still breaks P9).
+
+What no rule of the hub can do: keep outside jobs out. GitHub gives a freed place to whatever it has queued, and the account's other repos are shown and counted, never governed (design §9.1). The hold buys one place of slack per waiting release entry against them.
 
 ## Tools and files
 

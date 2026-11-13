@@ -16,7 +16,8 @@
 		"LapsedLeaseIsFinal",
 		"FirstInLineCanStart",
 		"ReleaseEventuallyAdmitted",
-		"LapsedLeaves"
+		"LapsedLeaves",
+		"ReleaseKeepsItsAccountPlace"
 	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property below it."
@@ -47,10 +48,28 @@
 		{
 			"name": "ignore-the-account-limit",
 			"why": "Admission checks the job's own pool and not the account's limit on all hosted jobs: Linux jobs fill the account while macOS jobs run.",
-			"search": "    /\\ (PoolOf(j) \\in Account => Cardinality(Places(\"mac\")) + Cardinality(Places(\"hosted\")) < HostedCap)",
+			"search": "    /\\ (PoolOf(j) \\in Account =>\n           Cardinality(Places(\"mac\")) + Cardinality(Places(\"hosted\")) + Cardinality(HeldAhead(j)) < HostedCap)",
 			"replace": "    /\\ TRUE",
 			"breaks": "WithinPoolLimits",
 			"config": "MC_account.cfg"
+		},
+		{
+			"name": "no-account-hold",
+			"why": "The design's first rule (F1 before the owner's decision): a release entry waiting on macOS holds no account place, so a land job behind it takes the account's last place, an outside Linux job takes the place the ending macOS run frees, and the release job finds macOS free and the account full.",
+			"search": " + Cardinality(HeldAhead(j)) < HostedCap)",
+			"replace": " < HostedCap)",
+			"breaks": "ReleaseKeepsItsAccountPlace",
+			"config": "MC_account.cfg",
+			"isolate": true
+		},
+		{
+			"name": "hold-blocks-the-holder",
+			"why": "Every held place counts against every job, the holder's own and those ahead of it included: a release entry whose pool frees with one account place left is kept out by its own hold.",
+			"search": "HeldAhead(j) == {r \\in Jobs : Holds(r) /\\ Ahead(r, j)}",
+			"replace": "HeldAhead(j) == {r \\in Jobs : Holds(r)}",
+			"breaks": "FirstInLineCanStart",
+			"config": "MC_account.cfg",
+			"isolate": true
 		},
 		{
 			"name": "requeue-a-failed-dispatch",

@@ -14,9 +14,20 @@
 			"expect": "pass"
 		},
 		{
-			"name": "macos-and-hosted-under-the-account-limit",
+			"name": "macos-and-hosted-under-the-account-limit-with-an-outside-racer",
 			"config": "MC_account.cfg",
 			"expect": "pass"
+		},
+		{
+			"name": "account-of-3-with-two-outside-racers",
+			"config": "MC_account.cfg",
+			"constants": {
+				"Jobs": "{\"relm\", \"lndh\", \"outm\", \"outh\", \"outh2\"}",
+				"Outside": "{\"outm\", \"outh\", \"outh2\"}",
+				"HostedCap": "3"
+			},
+			"expect": "pass",
+			"timeoutSec": 1800
 		},
 		{
 			"name": "supersede-within-one-key",
@@ -29,9 +40,15 @@
 			"expect": "pass"
 		},
 		{
-			"name": "liveness-release-admitted-lapsed-leaves",
+			"name": "liveness-one-pool",
 			"config": "MC_live.cfg",
 			"expect": "pass"
+		},
+		{
+			"name": "liveness-account",
+			"config": "MC_live_account.cfg",
+			"expect": "pass",
+			"timeoutSec": 1800
 		},
 		{
 			"name": "one-pool-two-release-jobs-five-jobs",
@@ -45,12 +62,6 @@
 			"expect": "pass",
 			"tier": "deep",
 			"timeoutSec": 1800
-		},
-		{
-			"name": "known-limit-a-lower-lane-takes-the-account-s-last-place",
-			"config": "MC_limit_KeepsLastAccountPlace.cfg",
-			"expect": "action",
-			"property": "KeepsLastAccountPlace"
 		},
 		{
 			"name": "an-admission-is-reachable",
@@ -93,6 +104,23 @@
 			"config": "MC_sanity_NeverFillsTheAccount.cfg",
 			"expect": "invariant",
 			"property": "NeverFillsTheAccount"
+		},
+		{
+			"name": "a-held-account-place-is-reachable",
+			"config": "MC_sanity_NeverHoldsAnAccountPlace.cfg",
+			"expect": "invariant",
+			"property": "NeverHoldsAnAccountPlace"
+		},
+		{
+			"name": "two-outside-racers-can-take-the-held-place",
+			"config": "MC_sanity_NeverBlockedByLaterAdmit.cfg",
+			"constants": {
+				"Jobs": "{\"relm\", \"lndh\", \"outm\", \"outh\", \"outh2\"}",
+				"Outside": "{\"outm\", \"outh\", \"outh2\"}",
+				"HostedCap": "3"
+			},
+			"expect": "invariant",
+			"property": "NeverBlockedByLaterAdmit"
 		}
 	]
 }

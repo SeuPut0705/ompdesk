@@ -77,9 +77,10 @@ VARIABLES
     next,     \* the next arrival number
     lapsed,   \* held entries whose lease ran out before a heartbeat renewed it
     paused,   \* the owner paused admission
-    admits    \* ghost: job -> how many times the hub took a place and dispatched it
+    admits,   \* ghost: job -> how many times the hub took a place and dispatched it
+    at        \* ghost: job -> the arrival number `next` had when the job last took a place (0: never)
 
-vars == <<state, seq, next, lapsed, paused, admits>>
+vars == <<state, seq, next, lapsed, paused, admits, at>>
 
 \* A job that ended, one way or another.
 Over == {"refused", "reused", "failed", "green", "red", "cancelled", "expired", "gone"}
@@ -92,6 +93,7 @@ TypeOK ==
     /\ lapsed \subseteq Jobs
     /\ paused \in BOOLEAN
     /\ admits \in [Jobs -> 0 .. 2]
+    /\ at \in [Jobs -> 0 .. Cardinality(Jobs) + 1]
 
 Init ==
     /\ state = [j \in Jobs |-> "none"]
@@ -100,6 +102,7 @@ Init ==
     /\ lapsed = {}
     /\ paused = FALSE
     /\ admits = [j \in Jobs |-> 0]
+    /\ at = [j \in Jobs |-> 0]
 
 \* ============================ What is true of the pools ============================
 
@@ -128,9 +131,21 @@ Counted(j) ==
     \/ state[j] = "cancelling"
 Places(p) == {j \in Jobs : PoolOf(j) = p /\ Counted(j)}
 
+\* A release entry whose own pool is full holds one place of the account for itself (the owner's F1 decision,
+\* 14 Nov 2026): a job behind it may not take the account's places it holds. A release entry waits "only on its own
+\* pool" exactly when this matters: a job behind it is admitted only while the account has room, so the account is
+\* never what that entry waits on at that moment.
+Holds(r) ==
+    /\ Waiting(r)
+    /\ r \in Release
+    /\ PoolOf(r) \in Account
+    /\ Cardinality(Places(PoolOf(r))) >= Limit(PoolOf(r))
+HeldAhead(j) == {r \in Jobs : Holds(r) /\ Ahead(r, j)}
+
 Room(j) ==
     /\ Cardinality(Places(PoolOf(j))) < Limit(PoolOf(j))
-    /\ (PoolOf(j) \in Account => Cardinality(Places("mac")) + Cardinality(Places("hosted")) < HostedCap)
+    /\ (PoolOf(j) \in Account =>
+           Cardinality(Places("mac")) + Cardinality(Places("hosted")) + Cardinality(HeldAhead(j)) < HostedCap)
 
 \* The runs a start of `j` supersedes (design 5 "Overlapping runs cancel themselves", 9.1).
 Superseded(j) ==
@@ -160,7 +175,7 @@ Start(j) ==
                         ELSE IF state[x] = "held" THEN "cancelled" ELSE "cancelling"]
     /\ seq' = [seq EXCEPT ![j] = next]
     /\ next' = next + 1
-    /\ UNCHANGED <<lapsed, paused, admits>>
+    /\ UNCHANGED <<lapsed, paused, admits, at>>
 
 \* The pump: the first live entry in line that has a place takes it, and its dispatch is sent. One step: the place
 \* is in the ledger before the dispatch's `await`.
@@ -172,58 +187,59 @@ Admit(j) ==
     /\ ~(\E r \in Jobs : Waiting(r) /\ Competes(r, j) /\ Ahead(r, j) /\ Room(r))
     /\ state' = [state EXCEPT ![j] = "dispatching"]
     /\ admits' = [admits EXCEPT ![j] = @ + 1]
+    /\ at' = [at EXCEPT ![j] = next]
     /\ UNCHANGED <<seq, next, lapsed, paused>>
 
 \* The dispatch was accepted: the run exists.
 Dispatched(j) ==
     /\ state[j] = "dispatching"
     /\ state' = [state EXCEPT ![j] = "running"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* The dispatch failed, or its answer never came: the entry ends and its place goes back. It is never queued again,
 \* because a dispatch whose answer was lost may have started the run.
 DispatchFails(j) ==
     /\ state[j] = "dispatching"
     /\ state' = [state EXCEPT ![j] = "failed"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* The poller shows the run ended (a job the hub governs: green or red; any other: only that it is gone).
 RunEnds(j) ==
     /\ state[j] = "running"
     /\ \E verdict \in (IF j \in Outside THEN {"gone"} ELSE {"green", "red"}) :
           state' = [state EXCEPT ![j] = verdict]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* The poller shows a superseded run ended: only now is its place free.
 CancelLands(j) ==
     /\ state[j] = "cancelling"
     /\ state' = [state EXCEPT ![j] = "cancelled"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* The lease sweep, or a heartbeat that arrives after its lease lapsed: the entry leaves the queue and its owner is
 \* told `expired`.
 Reap(j) ==
     /\ j \in lapsed /\ state[j] = "held"
     /\ state' = [state EXCEPT ![j] = "expired"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* Only under LateHeartbeatRenews: the heartbeat handler renews a lease without reading its deadline.
 Renew(j) ==
     /\ LateHeartbeatRenews
     /\ j \in lapsed /\ state[j] = "held"
     /\ lapsed' = lapsed \ {j}
-    /\ UNCHANGED <<state, seq, next, paused, admits>>
+    /\ UNCHANGED <<state, seq, next, paused, admits, at>>
 
 \* The owner's one control.
 Pause ==
     /\ MayPause /\ ~paused
     /\ paused' = TRUE
-    /\ UNCHANGED <<state, seq, next, lapsed, admits>>
+    /\ UNCHANGED <<state, seq, next, lapsed, admits, at>>
 
 Resume ==
     /\ MayPause /\ paused
     /\ paused' = FALSE
-    /\ UNCHANGED <<state, seq, next, lapsed, admits>>
+    /\ UNCHANGED <<state, seq, next, lapsed, admits, at>>
 
 \* ============================ The environment ============================
 
@@ -233,6 +249,7 @@ OutsideStarts(j) ==
     /\ state[j] = "none"
     /\ Free(j)
     /\ state' = [state EXCEPT ![j] = "running"]
+    /\ at' = [at EXCEPT ![j] = next]
     /\ UNCHANGED <<seq, next, lapsed, paused, admits>>
 
 \* A lease's time runs out with no heartbeat (the owner died, slept, or lost its link).
@@ -241,7 +258,7 @@ Lapse(j) ==
     /\ state[j] = "held"
     /\ j \notin lapsed
     /\ lapsed' = lapsed \cup {j}
-    /\ UNCHANGED <<state, seq, next, paused, admits>>
+    /\ UNCHANGED <<state, seq, next, paused, admits, at>>
 
 \* Every job is over: nothing is left to do.
 Terminated == (\A j \in Jobs : state[j] \in Over) /\ UNCHANGED vars
@@ -318,12 +335,19 @@ LapsedLeaseIsFinal ==
     [][\A j \in lapsed :
           state[j] = "held" => (~Starts(j) /\ (state'[j] = "held" => j \in lapsed'))]_vars
 
-\* P9: the first live entry in line that has a free place can be admitted (unless paused): nothing ahead of it that
-\* cannot start itself (a lapsed entry, an entry whose own pool is full) keeps it waiting.
+\* P9 (amended 14 Nov 2026 with the F1 decision): the first live entry in line that has a free place can be admitted
+\* (unless paused): nothing ahead of it that cannot start itself (a lapsed entry, an entry whose own pool is full)
+\* keeps it waiting, except for the account places a release entry ahead of it holds (P12).
+OwnPoolFree(j) == Cardinality(In(PoolOf(j))) < Limit(PoolOf(j))
+HoldsPlace(r) == Waiting(r) /\ r \in Release /\ PoolOf(r) \in Account /\ ~OwnPoolFree(r)
+FreeFor(j) ==
+    /\ Free(j)
+    /\ (PoolOf(j) \in Account =>
+           AccountLoad + Cardinality({r \in Jobs : HoldsPlace(r) /\ Ahead(r, j)}) < HostedCap)
 FirstInLine(j) ==
     /\ Waiting(j)
-    /\ Free(j)
-    /\ ~(\E r \in Jobs : Waiting(r) /\ Competes(r, j) /\ Ahead(r, j) /\ Free(r))
+    /\ FreeFor(j)
+    /\ ~(\E r \in Jobs : Waiting(r) /\ Competes(r, j) /\ Ahead(r, j) /\ FreeFor(r))
 FirstInLineCanStart == \A j \in Jobs : (~paused /\ FirstInLine(j)) => ENABLED Admit(j)
 
 \* P10 (liveness, under Fairness): a release job that waits is admitted, unless its lease lapses first.
@@ -333,17 +357,23 @@ ReleaseEventuallyAdmitted ==
 \* P11 (liveness, under Fairness): a held entry whose lease lapsed leaves the queue.
 LapsedLeaves == \A j \in Governed : (state[j] = "held" /\ j \in lapsed) ~> (state[j] # "held")
 
+\* P12 (added 14 Nov 2026 with the F1 decision): a release job whose own pool (macOS) has a free place is never kept
+\* out by the account limit because the hub admitted a job behind it into the account after it arrived. Jobs the hub
+\* does not govern can still take the account's places: a macOS place that frees is also an account place, and the
+\* release entry holds one more, so only two outside jobs started after it arrived can have taken both.
+BlockedByLaterAdmit(r) ==
+    /\ Waiting(r)
+    /\ r \in Release
+    /\ PoolOf(r) \in Account
+    /\ OwnPoolFree(r)
+    /\ AccountLoad >= HostedCap
+    /\ \E j \in Governed : Occupies(j) /\ PoolOf(j) \in Account /\ Ahead(r, j) /\ at[j] > seq[r]
+ReleaseKeepsItsAccountPlace ==
+    \A r \in Release \ Outside :
+        BlockedByLaterAdmit(r) =>
+            Cardinality({o \in Outside : PoolOf(o) \in Account /\ at[o] > seq[r]}) >= 2
+
 (* ---- END FROZEN PROPERTIES ---- *)
-
-\* ============================ Known limit (must be violated; ../SCOPE.md, finding F1) ============================
-
-\* A job never takes the account's last hosted place while a job of a higher lane waits for the account. The design's
-\* rule gives a free place to the first entry that can use it, so this does not hold: a release macOS job that waits
-\* for a macOS runner can find the account full of lower-lane Linux jobs admitted after it arrived.
-KeepsLastAccountPlace ==
-    [][\A j \in Jobs :
-          (Starts(j) /\ PoolOf(j) \in Account /\ AccountLoad + 1 = HostedCap) =>
-              ~(\E r \in Jobs : Waiting(r) /\ PoolOf(r) \in Account /\ Rank(r) < Rank(j))]_vars
 
 \* ============================ Sanity (each must be violated) ============================
 
@@ -354,4 +384,6 @@ NeverCancelsARunningJob == \A j \in Jobs : state[j] # "cancelling"
 NeverExpires == \A j \in Jobs : state[j] # "expired"
 NeverRefuses == \A j \in Jobs : state[j] # "refused"
 NeverFillsTheAccount == AccountLoad < HostedCap
+NeverHoldsAnAccountPlace == \A r \in Jobs : ~HoldsPlace(r)
+NeverBlockedByLaterAdmit == \A r \in Jobs : ~BlockedByLaterAdmit(r)
 =============================================================================

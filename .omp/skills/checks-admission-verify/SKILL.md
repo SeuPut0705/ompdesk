@@ -19,9 +19,9 @@ Sync commit: `syncCommit` of `checks-admission` in `formal/manifest.json` (the m
 
 ## Bounds and assumptions
 
-- One pool of 1 or 2 places with 4 jobs (5 in the deep run); macOS limit 1 under an account limit of 2; supersede and reuse scenarios of 3 to 5 jobs; liveness under the fairness in `Properties.md`. Full list: `formal/checks-admission/SCOPE.md`.
+- One pool of 1 or 2 places with 4 jobs (5 in the deep run); macOS limit 1 under an account limit of 2 with one outside macOS and one outside Linux job, and under an account limit of 3 with two outside Linux jobs; supersede and reuse scenarios of 3 to 5 jobs; liveness under the fairness in `Properties.md` on one pool and on the account. Full list: `formal/checks-admission/SCOPE.md`.
 - Assumptions the code must keep (A1 to A5 in `CORRESPONDENCE.md`): one admission step at a time; the place is in the hub's ledger before the dispatch is awaited; a failed dispatch is never requeued; lane, pool, key and digest are fixed at `start`.
-- Known limit F1 (`KeepsLastAccountPlace` must fail): a lower-lane Linux job can take the account's last hosted place while a release macOS job waits for macOS. `SCOPE.md` has the choices.
+- The account hold (F1, decided 14 Nov 2026): a waiting release entry whose own pool is full holds one account place that jobs behind it may not take (`Holds`, `HeldAhead`). P12 `ReleaseKeepsItsAccountPlace`: only two outside jobs started after it can keep such a release job out once macOS frees. Outside jobs are never governed; the hold is one place of slack against them, not a guarantee.
 
 ## Run it
 
