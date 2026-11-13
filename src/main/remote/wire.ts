@@ -73,6 +73,8 @@ export class Link {
 	readonly #sentQueue: object[] = [];
 	#check: { promise: Promise<boolean>; resolve: (alive: boolean) => void } | null = null;
 	#closed = false;
+	/** `close()` was called: an end that comes after it is this side's (`local`), as it was when main held the socket. */
+	#closing = false;
 	#closeReason: LinkCloseReason | null = null;
 
 	/** A link the core holds as `id` (an answered handshake, an opened device connection). */
@@ -145,6 +147,7 @@ export class Link {
 	/** Flush what was sent, then close; destroyed if the peer does not finish within a second. */
 	close(): void {
 		if (this.#closed) return;
+		this.#closing = true;
 		core().push("remote.close", { link: this.id });
 	}
 
@@ -178,7 +181,8 @@ export class Link {
 	finish(reason: LinkCloseReason): void {
 		if (this.#closed) return;
 		this.#closed = true;
-		this.#closeReason = reason;
+		// The peer may end the socket before the core reads the close main already sent: still this side's close.
+		this.#closeReason = reason === "closed" && this.#closing ? "local" : reason;
 		links.delete(this.id);
 		this.settleCheck(false);
 		this.#listener = null;
