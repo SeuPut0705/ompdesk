@@ -15,6 +15,7 @@ pub mod menu_model;
 pub mod migrate;
 pub mod netmap;
 pub mod notify_spec;
+pub mod proxy_mac;
 pub mod proxy_rules;
 pub mod range;
 pub mod shell_args;

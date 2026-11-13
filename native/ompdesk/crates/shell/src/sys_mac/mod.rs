@@ -7,6 +7,7 @@ pub mod desk;
 pub mod dialogs;
 pub mod keychain;
 pub mod menu;
+pub mod proxy;
 pub mod shellops;
 pub mod system;
 pub mod toast;
