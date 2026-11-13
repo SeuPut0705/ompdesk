@@ -821,3 +821,162 @@ async fn the_hub_answers_its_own_computers_pool_for_a_paired_link_to_forward() {
     local.with(|facts| facts.pools = vec![pool("mac-mini")]);
     assert_eq!(hub.local_pool().await.unwrap_err().code, "checks_source");
 }
+
+fn free_pool(device: &str, os: crate::checks::contract::Os) -> crate::checks::sources::LocalPool {
+    crate::checks::sources::LocalPool {
+        device: device.into(),
+        os,
+        slots: 2,
+        held: 0,
+        queued: 0,
+        oldest_wait_ms: 0,
+        volumes: Vec::new(),
+        as_of: 1,
+        offline: false,
+        check_store_bytes: None,
+        foreign: Vec::new(),
+    }
+}
+
+fn placements(hub: &Hub) -> Vec<Decision> {
+    hub.watch()
+        .borrow()
+        .decisions
+        .iter()
+        .filter(|decision| decision.action == PolicyAction::Place)
+        .cloned()
+        .collect()
+}
+
+#[tokio::test]
+async fn a_start_asks_placement_and_says_so_when_the_computer_it_picks_cannot_run_the_check() {
+    use crate::checks::contract::Os;
+    let github = github(CI);
+    github.with(|facts| facts.private = vec![REPO.into()]);
+    let local = Arc::new(FakeLocal::default());
+    local.with(|facts| facts.pools = vec![free_pool("local", Os::Linux)]);
+    let hub = Hub::new(github.clone(), local.clone());
+    hub.poller.round().await;
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    assert_eq!(reply.decision, StartDecision::Started, "{}", reply.reason);
+    // A private repository goes local first, but the hub cannot run a workflow on a computer yet: the run still
+    // starts, on GitHub, and the reply and the log say where policy wanted it and why it is not there.
+    assert_eq!(reply.placement, Some(Where::GithubHosted));
+    assert_eq!(dispatches(&github).len(), 1);
+    assert!(reply.reason.contains("local"), "{}", reply.reason);
+    let placed = placements(&hub);
+    assert_eq!(placed.len(), 1, "{placed:?}");
+    assert_eq!(placed[0].run, reply.run_id.unwrap());
+    assert_eq!(placed[0].why.pool.as_deref(), Some("device-local"));
+
+    // A public repository goes to a runner by policy: nothing to explain.
+    let github = self::github(CI);
+    let hub = Hub::new(github.clone(), local);
+    hub.poller.round().await;
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    assert_eq!(reply.placement, Some(Where::GithubHosted));
+    assert!(placements(&hub).is_empty());
+}
+
+/// Whether the board comes to show what `check` looks for, within a few seconds.
+async fn seen(board: &watch::Receiver<Arc<Snapshot>>, check: impl Fn(&Snapshot) -> bool) -> bool {
+    let mut board = board.clone();
+    tokio::time::timeout(Duration::from_secs(10), board.wait_for(|now| check(now)))
+        .await
+        .is_ok()
+}
+
+#[tokio::test]
+async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from_the_hubs_own_work() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI);
+    let local = Arc::new(FakeLocal::default());
+    local.with(|facts| {
+        facts.flaky = vec![crate::checks::sources::LocalFlaky {
+            check: "vitest".into(),
+            name: "src/a.test.ts › adds".into(),
+            passed: 4,
+            failed: 2,
+            quarantined: true,
+            streak: 1,
+        }]
+    });
+    let hub = Hub::new(github.clone(), local);
+    let board = hub.watch();
+    let _loop = hub.run();
+    let release = hub
+        .start(samples::session(), start(Purpose::Release, "feat"))
+        .await
+        .unwrap();
+    let id = release.run_id.unwrap();
+    let now = clock::now_ms();
+    github.with(|facts| {
+        facts.runs = vec![(
+            REPO.into(),
+            GithubRun {
+                id: 88,
+                workflow: "ci.yml".into(),
+                title: "ci".into(),
+                branch: "feat".into(),
+                sha: SHA.into(),
+                event: "workflow_dispatch".into(),
+                status: "in_progress".into(),
+                conclusion: None,
+                attempt: 1,
+                actor: "someone".into(),
+                created_at: now + 1_000,
+                updated_at: now + 2_000,
+            },
+        )];
+        facts.jobs = vec![GithubJob {
+            id: 801,
+            run: 88,
+            name: "check".into(),
+            attempt: 1,
+            status: "in_progress".into(),
+            conclusion: None,
+            labels: vec!["ubuntu-latest".into()],
+            created_at: now + 1_000,
+            started_at: Some(now + 1_500),
+            completed_at: None,
+            steps: Vec::new(),
+        }];
+    });
+    for _ in 0..2 {
+        clock::advance(30_000).await;
+        hub.poller.round().await;
+    }
+    assert!(
+        seen(&board, |now| now.gates.iter().any(|gate| gate.run.as_deref() == Some(&id)
+            && gate.state == crate::checks::contract::GateVerdict::Running))
+        .await,
+        "{:?}",
+        board.borrow().gates
+    );
+    assert_eq!(board.borrow().gates[0].gate.jobs.workflow, "ci.yml");
+    // The Tests and cost tab: a test this computer's own checks quarantined.
+    assert!(
+        seen(&board, |now| now.trends.tests.iter().any(|test| test.name == "src/a.test.ts › adds")).await,
+        "{:?}",
+        board.borrow().trends
+    );
+    // The merge queue as it stands.
+    let land = hub
+        .start(samples::session(), start(Purpose::Land, "feat2"))
+        .await
+        .unwrap();
+    assert!(land.run_id.is_some(), "{}", land.reason);
+    assert!(
+        seen(&board, |now| now.queue.iter().any(|entry| entry.branch == "feat2")).await,
+        "{:?}",
+        board.borrow().queue
+    );
+    clock::set_real();
+}
