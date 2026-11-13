@@ -422,6 +422,95 @@ async fn macos_is_for_listed_branches_one_unit_at_a_time_and_the_dispatch_carrie
 }
 
 #[tokio::test]
+async fn the_adoption_card_counts_starts_refusals_polls_and_a_land_after_a_red_answer() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI);
+    let hub = hub(&github);
+    let first = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap()
+        .run_id
+        .unwrap();
+    let refused = hub
+        .start(samples::session(), start(Purpose::Branch, "nowhere"))
+        .await
+        .unwrap();
+    assert_eq!(refused.decision, StartDecision::Refused);
+    hub.told(MainFact::Polls { polls: 7 }).await.unwrap();
+    let at = clock::now_ms() + 1_000;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, None))];
+        facts.jobs = vec![gh_job(701, 77, at, None)];
+    });
+    rounds(&hub, 2).await;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, Some("failure")))];
+        facts.jobs = vec![gh_job(701, 77, at, Some("failure"))];
+    });
+    rounds(&hub, 3).await;
+    hub.pass().await;
+    assert_ne!(hub.answered(&first).unwrap().verdict, AnswerVerdict::Green);
+    // The session was told the commit is not green, and lands it anyway: a start through the tool, and a wrong green.
+    let _ = hub
+        .start(samples::session(), start(Purpose::Land, "feat"))
+        .await;
+    let adoption = hub.watch().borrow().adoption.clone();
+    assert_eq!(
+        (
+            adoption.started,
+            adoption.refused,
+            adoption.polls,
+            adoption.wrong_greens
+        ),
+        (2, 1, 7, 1),
+        "{adoption:?}"
+    );
+    clock::set_real();
+}
+
+#[tokio::test]
+async fn the_decisions_answers_and_adoption_survive_a_restart_of_the_hub() {
+    let dir = std::env::temp_dir().join(format!(
+        "ompdesk-checks-journal-{}-{}",
+        std::process::id(),
+        clock::now_ms()
+    ));
+    let github = github(CI);
+    let local: Arc<dyn LocalSource> = Arc::new(FakeLocal::default());
+    let open = || {
+        let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(clock::now_ms())));
+        let poller = Poller::new(github.clone(), local.clone(), snapshot.clone());
+        Hub::build(
+            github.clone(),
+            local.clone(),
+            poller,
+            snapshot,
+            Some(dir.clone()),
+        )
+    };
+    let hub = open();
+    // Two starts of one branch: the second supersedes the first (a decision), and the first is answered.
+    for _ in 0..2 {
+        hub.start(samples::session(), start(Purpose::Branch, "feat"))
+            .await
+            .unwrap();
+    }
+    hub.told(MainFact::Polls { polls: 3 }).await.unwrap();
+    let before = Arc::clone(&hub.watch().borrow());
+    assert!(!before.decisions.is_empty());
+    drop(hub);
+    let hub = open();
+    let after = Arc::clone(&hub.watch().borrow());
+    assert_eq!(after.decisions, before.decisions);
+    assert_eq!(after.answers, before.answers);
+    assert_eq!(after.adoption, before.adoption);
+    assert_eq!(after.adoption.started, 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn the_owners_pause_refuses_every_start_and_survives_a_restart() {
     let dir = std::env::temp_dir().join(format!(
         "ompdesk-checks-hub-{}-{}",

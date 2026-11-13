@@ -20,10 +20,10 @@ use tokio::task::AbortHandle;
 use super::admission::{self, Admission, Ask, Ended, Key, Limit, Stage};
 use super::answer::{self, Judged};
 use super::contract::{
-    Answer, Decision, DecisionWhy, JobState, Lane, MainFact, Next, Origin, PolicyAction, Purpose,
-    QueueEntry, RepoId, Rerun, RunId, RunResult, RunVerdict, Sha, Snapshot, StartDecision,
-    StartReply, StartRequest, StartScope, StatusRequest, Until, WaitRequest, Where, WhyCode,
-    WorkflowAsk,
+    Answer, AnswerVerdict, Decision, DecisionWhy, JobState, Lane, MainFact, Next, Origin,
+    PolicyAction, Purpose, QueueEntry, RepoId, Rerun, RunId, RunResult, RunVerdict, Sha, Snapshot,
+    StartDecision, StartReply, StartRequest, StartScope, StatusRequest, Until, WaitRequest, Where,
+    WhyCode, WorkflowAsk,
 };
 use super::policy::{self, Plan};
 use super::poller::Poller;
@@ -160,6 +160,11 @@ const ANSWERS_SHOWN: usize = 50;
 /// The decisions the snapshot keeps for the board's "Decided automatically" log.
 const DECISIONS_SHOWN: usize = 100;
 const PAUSE_FILE: &str = "admission.json";
+/// The hub's journal: the decisions and answers the board shows and the adoption counts (design §7.5), kept across a
+/// restart, bounded by `DECISIONS_SHOWN` and `ANSWERS_SHOWN`.
+const JOURNAL_FILE: &str = "journal.json";
+/// The (session, repo, commit) a session was last told not green about, kept to tell a wrong green.
+const NOT_GREEN_KEPT: usize = 200;
 
 /// What the hub recorded of a run it started.
 #[derive(Clone)]
@@ -188,6 +193,27 @@ struct Book {
     /// Runs that ended but whose answer could not be read yet (GitHub unreadable, facts stale, the run not bound):
     /// judged again on every pass, with how many tries they had.
     unjudged: HashMap<RunId, (super::contract::Run, u32)>,
+    /// A session was answered red or unknown for this commit of this repository and not green since: its `start
+    /// {purpose: land}` of that commit is a wrong green (it went on as if the check had passed). Oldest first.
+    not_green: Vec<NotGreen>,
+}
+
+/// One (session, repo, commit) a session was answered not green about.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct NotGreen {
+    session: String,
+    repo: RepoId,
+    sha: Sha,
+}
+
+/// What the journal keeps.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct Journal {
+    decisions: Vec<Decision>,
+    answers: Vec<RunResult>,
+    adoption: super::contract::Adoption,
+    not_green: Vec<NotGreen>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -293,9 +319,26 @@ impl Hub {
         let (limits, account, _) = places(&snapshot.borrow(), &HashMap::new());
         let mut admission = Admission::new(limits, account, LEASE_MS);
         admission.pause(saved.paused);
+        let journal: Journal = dir
+            .as_ref()
+            .and_then(|dir| std::fs::read(dir.join(JOURNAL_FILE)).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        let book = Book {
+            answers: journal
+                .answers
+                .iter()
+                .map(|result| (result.run_id.clone(), result.answer.clone()))
+                .collect(),
+            not_green: journal.not_green,
+            ..Book::default()
+        };
         snapshot.send_modify(|current| {
             let mut next = Snapshot::clone(current);
             next.paused = saved.paused;
+            next.decisions = journal.decisions;
+            next.answers = journal.answers;
+            next.adoption = journal.adoption;
             *current = Arc::new(next);
         });
         Hub {
@@ -308,7 +351,7 @@ impl Hub {
                 queue: super::queue::open(Arc::new(Host(core.clone()))),
                 poller,
                 admission: Mutex::new(admission),
-                book: Mutex::default(),
+                book: Mutex::new(book),
                 store: dir.as_ref().map(|dir| Store::new(dir.join("results"))),
                 queue_dir: dir.as_ref().map_or_else(
                     || {
@@ -613,6 +656,47 @@ impl Core {
             next.decisions.drain(..over);
             *current = Arc::new(next);
         });
+        self.save_journal();
+    }
+
+    /// Writes the journal (`JOURNAL_FILE`) as the snapshot and the book hold it now; a hub without a folder keeps it
+    /// in memory. A write that fails (a full disk) is retried by `write_kept`.
+    fn save_journal(&self) {
+        let Some(dir) = &self.dir else {
+            return;
+        };
+        let snapshot = Arc::clone(&self.snapshot.borrow());
+        let journal = Journal {
+            decisions: snapshot.decisions.clone(),
+            answers: snapshot.answers.clone(),
+            adoption: snapshot.adoption.clone(),
+            not_green: locked(&self.book).not_green.clone(),
+        };
+        if let Ok(bytes) = serde_json::to_vec(&journal) {
+            let _ =
+                crate::disk::saves::write_kept(&dir.join(JOURNAL_FILE), &bytes, Some(0o600), 0o700);
+        }
+    }
+
+    /// One more of the "Are agents using it?" figures (design §7.5), kept in the journal.
+    fn count(&self, change: impl FnOnce(&mut super::contract::Adoption)) {
+        self.snapshot.send_modify(|current| {
+            let mut next = Snapshot::clone(current);
+            change(&mut next.adoption);
+            *current = Arc::new(next);
+        });
+        self.save_journal();
+    }
+
+    /// A start's answer, counted: runs started through the tool (started now or held for a place) and refusals.
+    fn counted(&self, reply: &Result<StartReply, Fault>) {
+        match reply.as_ref().map(|reply| reply.decision) {
+            Ok(StartDecision::Started | StartDecision::Held) => {
+                self.count(|adoption| adoption.started += 1);
+            }
+            Ok(StartDecision::Refused) => self.count(|adoption| adoption.refused += 1),
+            _ => {}
+        }
     }
 
     /// Keeps a run's answer, tells every subscriber (main wakes the session that started it) and the board.
@@ -628,6 +712,22 @@ impl Core {
                 return;
             }
             book.answers.insert(id.to_owned(), answer.clone());
+            // What a session was told about a commit: not green until a green answer of the same commit.
+            if let Some(pending) = book.pending.get(id).cloned()
+                && let Origin::Session { session, .. } = &pending.origin
+            {
+                let told = NotGreen {
+                    session: session.clone(),
+                    repo: pending.repo,
+                    sha: pending.sha,
+                };
+                book.not_green.retain(|kept| kept != &told);
+                if answer.verdict != AnswerVerdict::Green {
+                    book.not_green.push(told);
+                    let over = book.not_green.len().saturating_sub(NOT_GREEN_KEPT);
+                    book.not_green.drain(..over);
+                }
+            }
             origin.unwrap_or_else(|| {
                 book.pending
                     .get(id)
@@ -648,6 +748,7 @@ impl Core {
             next.answers.drain(..over);
             *current = Arc::new(next);
         });
+        self.save_journal();
         self.done.notify_waiters();
     }
 
@@ -929,6 +1030,15 @@ impl Core {
             return self.rerun(&origin, &repo, &git_ref, &sha).await;
         }
         if request.purpose == Purpose::Land && request.workflow.is_none() {
+            // A session that was answered red or unknown for this commit and lands it anyway acts on a green it was
+            // never given (design §7.5, "wrong green reports").
+            let wrong = matches!(&origin, Origin::Session { session, .. }
+            if locked(&self.book).not_green.iter().any(|told| {
+                &told.session == session && told.repo == repo && told.sha == sha
+            }));
+            if wrong {
+                self.count(|adoption| adoption.wrong_greens += 1);
+            }
             let base = match self.github.default_branch(&repo).await {
                 Ok(Some(base)) => base,
                 _ => "main".to_owned(),
@@ -1280,7 +1390,11 @@ impl Core {
 
 impl ChecksHub for Hub {
     fn start(&self, origin: Origin, request: StartRequest) -> Fut<'_, Result<StartReply, Fault>> {
-        Box::pin(self.core.start(origin, request))
+        Box::pin(async move {
+            let reply = self.core.start(origin, request).await;
+            self.core.counted(&reply);
+            reply
+        })
     }
 
     fn wait(
@@ -1315,7 +1429,10 @@ impl ChecksHub for Hub {
     }
 
     fn told(&self, fact: MainFact) -> Fut<'_, Result<(), Fault>> {
-        self.poller.told(fact);
+        match fact {
+            MainFact::Polls { polls } => self.core.count(|adoption| adoption.polls = polls),
+            fact => self.poller.told(fact),
+        }
         Box::pin(async { Ok(()) })
     }
 

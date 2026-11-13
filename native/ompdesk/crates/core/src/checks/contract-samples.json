@@ -761,6 +761,10 @@
             "goal": "goal-7"
           }
         }
+      },
+      {
+        "kind": "polls",
+        "polls": 12
       }
     ],
     "FakeOp": [

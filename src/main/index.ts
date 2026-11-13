@@ -1505,6 +1505,7 @@ app.whenReady().then(async () => {
 			sessions: () => sessionProcesses.owners(),
 			hosts: () => devices.state().hosts,
 			hostPool: host => devices.request<LocalPool>(host, CHECKS_LOCAL_POOL_METHOD, {}).catch(() => null),
+			pace: sessionPath => sessionIndex.pace(sessionPath),
 			log: (message, details) => writeRuntimeLog({ source: "checks", message, details }),
 		});
 		checksFacts.start();

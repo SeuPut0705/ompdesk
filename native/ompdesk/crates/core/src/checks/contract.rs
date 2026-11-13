@@ -583,7 +583,7 @@ pub struct RunResult {
 }
 
 /// "Are agents using it?" (§7 criterion 5).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Adoption {
     pub started: u32,
@@ -706,6 +706,9 @@ pub enum MainFact {
     Sessions {
         tags: std::collections::BTreeMap<String, Origin>,
     },
+    /// The polls of the sessions open now (shell polls of a run's state, `sleep`, `proc://` reads), from main's session
+    /// pace counters: the "Are agents using it?" card's figure (design §7.5).
+    Polls { polls: u32 },
 }
 
 /// `MainFact` as it is read: one plain object, its fields by the kind.
@@ -717,6 +720,7 @@ pub struct MainFactWire {
     pool: Option<super::sources::LocalPool>,
     device: Option<DeviceId>,
     tags: Option<std::collections::BTreeMap<String, Origin>>,
+    polls: Option<u32>,
 }
 
 impl TryFrom<MainFactWire> for MainFact {
@@ -735,6 +739,9 @@ impl TryFrom<MainFactWire> for MainFact {
             },
             "sessions" => MainFact::Sessions {
                 tags: wire.tags.clone().ok_or_else(|| missing("tags"))?,
+            },
+            "polls" => MainFact::Polls {
+                polls: wire.polls.ok_or_else(|| missing("polls"))?,
             },
             other => return Err(format!("no fact of kind {other:?}")),
         })
@@ -1205,6 +1212,7 @@ pub(crate) mod samples {
                 MainFact::Sessions {
                     tags: [("3f9a".to_owned(), session())].into(),
                 },
+                MainFact::Polls { polls: 12 },
             ]),
         );
         types.insert(

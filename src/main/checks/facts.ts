@@ -40,6 +40,8 @@ export interface ChecksFactsDeps {
 	hosts(): readonly { deviceId: string; state: RemoteLinkState }[];
 	/** A paired computer's pool as it reads it; null when it cannot say (an older build, a link that dropped). */
 	hostPool(deviceId: string): Promise<LocalPool | null>;
+	/** A session file's pace counters (`session-pace.ts`); undefined when it cannot be read. */
+	pace(sessionPath: string): Promise<{ polls: number } | undefined>;
 	log(message: string, details: Record<string, string | number | boolean>): void;
 }
 
@@ -79,10 +81,13 @@ export class ChecksFacts {
 		this.#deps = deps;
 	}
 
-	/** Tells the hub everything now and reads the paired computers on a timer; returns the stop. */
+	/** Tells the hub everything now and reads the paired computers and the sessions' polls on a timer; returns the stop. */
 	start(): () => void {
 		this.#everything();
-		this.#timer = setInterval(() => this.hostsChanged(), PAIRED_POOL_EVERY_MS);
+		this.#timer = setInterval(() => {
+			this.hostsChanged();
+			this.pollsChanged();
+		}, PAIRED_POOL_EVERY_MS);
 		return () => {
 			clearInterval(this.#timer ?? undefined);
 			this.#timer = null;
@@ -124,6 +129,19 @@ export class ChecksFacts {
 		this.#tell("sessions", { kind: "sessions", tags: sessionTags(this.#deps.sessions()) });
 	}
 
+	/** The polls of the sessions open now, summed from their pace counters: the adoption card's figure (design §7.5). */
+	pollsChanged(): void {
+		const files = [
+			...new Set(this.#deps.sessions().flatMap(({ sessionPath }) => (sessionPath ? [sessionPath] : []))),
+		];
+		void Promise.all(files.map(file => this.#deps.pace(file).catch(() => undefined)))
+			.then(paces => {
+				const polls = paces.reduce((sum, pace) => sum + (pace?.polls ?? 0), 0);
+				this.#tell("polls", { kind: "polls", polls });
+			})
+			.catch(error => this.#failed("polls", error));
+	}
+
 	/** A link came up or went down, or it is time to read the pools again. */
 	hostsChanged(): void {
 		for (const host of this.#deps.hosts()) {
@@ -150,6 +168,7 @@ export class ChecksFacts {
 		this.runnersChanged();
 		this.reposChanged();
 		this.sessionsChanged();
+		this.pollsChanged();
 		this.hostsChanged();
 	}
 

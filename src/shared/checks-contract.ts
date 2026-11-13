@@ -459,6 +459,7 @@ export const MainFactSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("devicePool"), pool: LocalPoolSchema }),
 	z.strictObject({ kind: z.literal("deviceOffline"), device: z.string() }),
 	z.strictObject({ kind: z.literal("sessions"), tags: z.record(OriginSchema) }),
+	z.strictObject({ kind: z.literal("polls"), polls: Count }),
 ]);
 export type MainFact = z.infer<typeof MainFactSchema>;
 

@@ -1049,6 +1049,8 @@ impl Poller {
                 }
             }
             MainFact::Sessions { tags } => engine.claims().set_tags(tags.into_iter().collect()),
+            // The hub's own count (`Snapshot.adoption`); nothing the poller reads.
+            MainFact::Polls { .. } => {}
         }
         drop(engine);
         self.wake.notify_one();

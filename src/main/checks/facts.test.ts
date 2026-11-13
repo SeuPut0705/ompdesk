@@ -27,6 +27,8 @@ interface World {
 	sessions: { tag: string; sessionPath?: string }[];
 	hosts: { deviceId: string; state: RemoteLinkState }[];
 	asOf: number;
+	/** Polls by session file. */
+	polls: Record<string, number>;
 	logged: string[];
 }
 
@@ -37,6 +39,7 @@ function world(): World {
 		sessions: [{ tag: "3f9a", sessionPath: SESSION_FILE }, { tag: "77aa" }],
 		hosts: [{ deviceId: "device-mini", state: "online" }],
 		asOf: 1000,
+		polls: { [SESSION_FILE]: 4 },
 		logged: [],
 	};
 }
@@ -50,6 +53,7 @@ function deps(hub: ChecksFactsDeps["hub"], w: World): ChecksFactsDeps {
 		sessions: () => w.sessions,
 		hosts: () => w.hosts,
 		hostPool: async () => pool(w.asOf),
+		pace: async file => (file in w.polls ? { polls: w.polls[file] ?? 0 } : undefined),
 		log: (message, details) => void w.logged.push(`${message} ${JSON.stringify(details)}`),
 	};
 }
@@ -111,13 +115,14 @@ describe("what main tells the checks hub", () => {
 		const facts = new ChecksFacts(deps(hub, w));
 		stops.push(facts.start());
 		await settle();
-		expect(told.map(fact => fact.kind).sort()).toEqual(["repos", "runners", "sessions"]);
+		expect(told.map(fact => fact.kind).sort()).toEqual(["polls", "repos", "runners", "sessions"]);
 
 		facts.reposChanged();
 		facts.sessionsChanged();
 		facts.runnersChanged();
+		facts.pollsChanged();
 		await settle();
-		expect(told).toHaveLength(3);
+		expect(told).toHaveLength(4);
 
 		w.sessions = [{ tag: "77aa", sessionPath: SESSION_FILE.replace("0a1b2c3d", "9e8d") }];
 		facts.sessionsChanged();
@@ -131,10 +136,33 @@ describe("what main tells the checks hub", () => {
 		await settle();
 		expect(
 			told
-				.slice(4)
+				.slice(5)
 				.map(fact => fact.kind)
 				.sort(),
-		).toEqual(["repos", "runners", "sessions"]);
+		).toEqual(["polls", "repos", "runners", "sessions"]);
+	});
+
+	it("tells the hub the polls of the sessions open now, summed from their pace counters", async () => {
+		const { told, hub } = recorder();
+		const w = world();
+		w.hosts = [];
+		const second = SESSION_FILE.replace("0a1b2c3d", "5e6f");
+		w.sessions = [
+			{ tag: "3f9a", sessionPath: SESSION_FILE },
+			{ tag: "4b4b", sessionPath: second },
+			// Two tabs of one session count its polls once; a session whose file cannot be read counts none.
+			{ tag: "5c5c", sessionPath: SESSION_FILE },
+			{ tag: "6d6d", sessionPath: "/gone.jsonl" },
+		];
+		w.polls[second] = 3;
+		const facts = new ChecksFacts(deps(hub, w));
+		stops.push(facts.start());
+		await settle();
+		expect(told.filter(fact => fact.kind === "polls")).toEqual([{ kind: "polls", polls: 7 }]);
+		w.polls[second] = 5;
+		facts.pollsChanged();
+		await settle();
+		expect(told.at(-1)).toEqual({ kind: "polls", polls: 9 });
 	});
 
 	it("reads a paired computer's pool on every round and says its link is lost only once it had one", async () => {
