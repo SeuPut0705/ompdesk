@@ -172,33 +172,40 @@ pub fn send(
 /// ends with it (as Electron's debugger, a client of its own). Commands sent meanwhile wait for it (`send_debugger`).
 pub fn attach(wc_id: u64) {
     let Some(entry) = wc(wc_id) else { return };
-    {
+    let attempt = {
         let mut e = entry.borrow_mut();
         if e.cdp_attached {
             return;
         }
         e.cdp_attached = true;
         e.cdp_session = None;
-    }
+        e.cdp_attempt += 1;
+        e.cdp_attempt
+    };
     let opened = move |session: Option<String>| {
         let Some(entry) = wc(wc_id) else { return };
         let waiting = {
             let mut e = entry.borrow_mut();
-            // Detached before the session existed: it goes at once.
-            if !e.cdp_attached {
-                if let Some(session) = &session {
-                    send(
-                        wc_id,
-                        "Target.detachFromTarget",
-                        Some(json!({ "sessionId": session })),
-                        None,
-                        |_| {},
-                    );
-                }
-                return;
+            if !e.cdp_attached || e.cdp_attempt != attempt {
+                None
+            } else {
+                e.cdp_session = session.clone();
+                Some(std::mem::take(&mut e.cdp_waiting))
             }
-            e.cdp_session = session.clone();
-            std::mem::take(&mut e.cdp_waiting)
+        };
+        // Detached (or detached and attached again) before this session existed: it goes at once. `send` borrows the
+        // page's entry, so the borrow above has ended.
+        let Some(waiting) = waiting else {
+            if let Some(session) = session {
+                send(
+                    wc_id,
+                    "Target.detachFromTarget",
+                    Some(json!({ "sessionId": session })),
+                    None,
+                    |_| {},
+                );
+            }
+            return;
         };
         if session.is_none() {
             crate::log::log("wc.debugger_session_failed", json!({ "wcId": wc_id }));

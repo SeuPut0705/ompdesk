@@ -125,6 +125,8 @@ pub struct WcEntry {
     /// The debugger's own DevTools session (a flat session the shell attached to this page's target): Electron's
     /// debugger is a session of its own, so detaching it drops everything it set (emulation, interception, scripts).
     pub cdp_session: Option<String>,
+    /// Counts `debugger.attach`es: a session that opens after a later attach or a detach is not this attach's.
+    pub cdp_attempt: u64,
     /// Debugger commands that arrived while its session was being made; they run once it exists (`None`: it failed).
     pub cdp_waiting: Vec<Box<dyn FnOnce(Option<String>)>>,
     pub cdp_registration: Option<Registration>,
@@ -166,6 +168,7 @@ impl WcEntry {
             watch_nav: HashSet::new(),
             cdp_attached: false,
             cdp_session: None,
+            cdp_attempt: 0,
             cdp_waiting: Vec::new(),
             cdp_registration: None,
             cdp_observer_added: false,
