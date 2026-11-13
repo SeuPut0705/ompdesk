@@ -1,0 +1,153 @@
+# The macOS checks of a push to main and of a dispatched landing gate (`ci.yml -f mac=true`), one unit with two callers:
+# mac-main.yml (every push to main, a queue of its own: one run going, the newest waiting) and ci.yml's `mac` job (a
+# dispatch the queue gate admitted, in the account-wide `mac-dispatch` lane, one holder and one waiting request; see
+# queue-gate.yml). Four runners at once, as release.yml's `mac`, `mac-native`, `native` and the memory build use. Whether
+# a run may have them is the caller's: nothing here reads `inputs`, which in a called workflow are this workflow's own.
+# `github` is the caller's.
+name: mac-checks
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # release.yml's `mac` pre-flight half: the @smoke specs on the fake omp, on the built app (out/), on macOS.
+  mac-smoke:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      # See release.yml's mac job: a plain install may leave no Electron binary; the shared install fetches it.
+      - uses: ./.github/actions/install
+      - run: bun run build
+      # The real terminal smoke runs stock omp's PTY natives, as release.yml's mac does.
+      - name: Install omp
+        run: |
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      # pwa-install and device-prefs drive a phone page in Playwright's own Chromium.
+      - name: Playwright browsers
+        run: bunx playwright install chromium
+      - run: bunx playwright test --grep "@smoke"
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # The vitest files that drive the real ompdesk-core binary, on macOS, as release.yml's `mac-native`.
+  mac-native:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      # Stages resources/ompdesk-bin (built on a cache miss), which the tests' core process runs.
+      - uses: ./.github/actions/install
+      # session-index.test.ts reads stock omp's session storage.
+      - name: Install omp
+        run: |
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      - uses: ./.github/actions/native-parity
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # release.yml's `native` on macOS arm64 (Linux and Windows run in ci.yml): clippy and `cargo test` over native/ompdesk.
+  native:
+    name: native (macos arm64)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/native-check
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # OMPdesk's own memory source (native/memory, the vendored ai-memory) is built only when it changed in the push: the
+  # same `bun run build:memory` release.yml's mac and win jobs run, on the same runner type as mac, then the binary's own
+  # check (`--version`, which build:memory runs) and the unit tests that read its build record. It saves the binary under
+  # release.yml's cache key, so a release after a main push that changed the source finds it built; a hit (that source
+  # was built before) only runs `--check`. A dispatched gate has no pushed range, so it builds.
+  memory:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Did native/memory change?
+        id: changed
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE" HEAD -- native/memory scripts/build-memory.ts resources/gui-bridge/memory-prompt.ts resources/gui-bridge/redactor.ts; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::native/memory did not change: not built."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.changed == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      # Electron's binary stays: licenses:check reads node_modules/electron/dist/LICENSE.
+      - if: steps.changed.outputs.changed == 'true'
+        uses: ./.github/actions/install
+      - if: steps.changed.outputs.changed == 'true'
+        id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
+        name: Build the memory binary
+        run: bun run build:memory
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit == 'true'
+        name: Check the cached memory binary
+        run: bun run build:memory -- --check
+      - if: steps.changed.outputs.changed == 'true'
+        name: Licenses list matches native/memory/Cargo.lock
+        run: bun run licenses:check

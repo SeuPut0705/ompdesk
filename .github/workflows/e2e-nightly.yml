@@ -11,8 +11,14 @@
 #   gh workflow run e2e-nightly.yml --ref <branch> -f parity="settings-device-switch"
 #   gh run download <run-id> -n parity   # <dir>/<surface>/{local,remote,phone,sheet}.png and parity.json
 #   gh workflow run e2e-nightly.yml --ref <branch> -f parity="--both-orders"   # the order check: <dir>/forward and <dir>/reverse
+#
+# Every job here is macOS. A dispatch (not the nightly) needs the queue gate's admission, which only main and the
+# branches in the repository variable MAC_REFS get, and runs in the account-wide `mac-dispatch` lane (one holder, one
+# waiting request; a newer request replaces the waiting one); the nightly has a lane of its own. A dispatch whose commit
+# already has a green run with the same inputs cancels itself (queue-gate.yml) unless it passes `-f force=true`.
+# See .omp/rules/e2e-ci-windows.md › CI › The check queue.
 name: e2e-nightly
-run-name: ${{ inputs.parity && format('parity {0}', inputs.parity) || inputs.specs && format('e2e {0}', inputs.specs) || 'e2e-nightly' }}
+run-name: ${{ github.event_name == 'schedule' && 'e2e-nightly' || inputs.parity && format('parity [{0}] {1}', inputs.parity, inputs.fake-env) || inputs.specs && format('e2e [{0}]', inputs.specs) || 'e2e-nightly [full]' }}
 
 on:
   schedule:
@@ -31,6 +37,10 @@ on:
         description: "Space-separated OMP_GUI_*=value variables the parity capture starts the fake omp with (e.g. OMP_GUI_TEST_USAGE_ACCOUNTS=many)"
         type: string
         default: ""
+      force:
+        description: "Run even when this commit already has a green run with these inputs (otherwise the run cancels itself)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,7 +50,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The queue's admission point (queue-gate.yml): skipped on the nightly, which has nothing to admit.
+  gate:
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      actions: write # cancels this run when its commit is already green
+    uses: ./.github/workflows/queue-gate.yml
+    with:
+      workflow: e2e-nightly.yml
+      mac: true
+      mac-refs: ${{ vars.MAC_REFS }}
+      force: ${{ inputs.force }}
+
   build-out:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || needs.gate.outputs.mac_ok == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -62,6 +87,9 @@ jobs:
   e2e:
     if: ${{ inputs.parity == '' }}
     needs: build-out
+    concurrency:
+      group: ${{ github.event_name == 'schedule' && 'mac-nightly' || 'mac-dispatch' }}
+      cancel-in-progress: false
     permissions:
       contents: read
     uses: ./.github/workflows/e2e-shards.yml
@@ -74,6 +102,9 @@ jobs:
   parity:
     if: ${{ inputs.parity != '' }}
     needs: build-out
+    concurrency:
+      group: ${{ github.event_name == 'schedule' && 'mac-nightly' || 'mac-dispatch' }}
+      cancel-in-progress: false
     runs-on: macos-latest
     timeout-minutes: 45
     env:

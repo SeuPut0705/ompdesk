@@ -1,8 +1,8 @@
 /**
  * The agent's quick edit loop (AGENTS.md › Build and the agent loop): a smoke pass over the checks most likely to fail
  * because of what changed, in seconds. Its vitest and Playwright picks follow names and imports, so a pass is never a
- * verdict: the verdict is the branch's runner run (`gh workflow run ci.yml --ref <branch> -f batch=true`, e2e
- * `e2e-nightly.yml -f specs=…`), and every pass line names it. It holds no lock as a whole (`scripts/build-lock.ts`):
+ * verdict: the verdict is the branch's runner run (`bun scripts/ci-run.ts ci --ref <branch> -f batch=true`, e2e
+ * `bun scripts/ci-run.ts e2e-nightly --ref <branch> -f specs=…`), and every pass line names it. It holds no lock as a whole (`scripts/build-lock.ts`):
  * the checks take a `vitest` slot, the build the `build` slot, Playwright a `playwright` slot.
  *
  *   bun run check:changed [--base <ref>] [--no-e2e] [--list]
@@ -168,11 +168,11 @@ if (failed.length > 0) {
 }
 // The picks here are a quick smoke pass by name and import, never a verdict: the full suites run on the branch's runner
 // (the owner's rule: heavy checks run on GitHub's runners).
-const VERDICT = "`gh workflow run ci.yml --ref <branch> -f batch=true` (full vitest, build, every OS)";
+const VERDICT = "`bun scripts/ci-run.ts ci --ref <branch> -f batch=true` (full vitest, build, every OS)";
 const verdictLine = (what: string) => `[check:changed] ${what}; a quick pick, not a verdict: the verdict is ${VERDICT}`;
 if (supportChanged && specs.length === 0) {
 	console.log(
-		'[check:changed] e2e support files changed and they match no single spec, so no e2e ran here; the e2e verdict is `gh workflow run e2e-nightly.yml --ref <branch> -f specs="<specs>"` or the full nightly',
+		'[check:changed] e2e support files changed and they match no single spec, so no e2e ran here; the e2e verdict is `bun scripts/ci-run.ts e2e-nightly --ref <branch> -f specs="<specs>"` or the full nightly',
 	);
 }
 if (specs.length === 0) {
