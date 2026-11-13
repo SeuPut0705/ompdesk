@@ -177,7 +177,7 @@ Launch(t) ==
 ----------------------------------------------------------------------------
 \* ===== pool events: each is followed by the `sync()` the pool triggers =====
 
-\* @code src/main/ipc.ts:876-879 the person's prompt: personsPrompt -> SidecarPool.notePrompted (host-services.ts:2263-2269 a device's, a view's through its window tab), before the command is sent
+\* @code src/main/ipc.ts:879-882 the person's prompt: personsPrompt -> SidecarPool.notePrompted (host-services.ts:2263-2269 a device's, a view's through its window tab), before the command is sent
 \* @code native/ompdesk/crates/core/src/pool/run.rs:243-247 Tracking::track[agent_start]: agent_start: a new run clears lastRun, stopped, retry
 \* @code native/ompdesk/crates/core/src/resume/machine.rs:538-540 Inst::sync_inner[judge-all]: sync() starts: judge every fact
 UserPrompt(t) ==
@@ -222,7 +222,7 @@ UserStop(t) ==
     /\ UNCHANGED <<run, last, kindOf, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH, launched, mvV, runSg, pk, rk, bad7, bad8>>
 
 \* @code src/main/turn-resume.ts:248-265 trackMove: a TOUCH_COMMANDS command goes out and is marked in flight (MovesInFlight.begin); `touched` counts it only at its answer
-\* @code src/main/ipc.ts:1063-1075 the window tab's move command; src/main/remote/host-services.ts:2276-2300 a device's
+\* @code src/main/ipc.ts:1066-1078 the window tab's move command; src/main/remote/host-services.ts:2276-2300 a device's
 MoveSend(t, k) ==
     /\ Idle /\ mv[t] = "none" /\ sg[t] < MaxSess
     /\ mv' = [mv EXCEPT ![t] = k]          \* k = "moves": the answer will count (or it times out); "stays": cancelled or failed

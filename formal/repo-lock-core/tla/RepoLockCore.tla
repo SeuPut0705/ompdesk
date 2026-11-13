@@ -124,14 +124,14 @@ DiskEnds ==
     /\ disk' = 0
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, handler, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:302-311 the handler returns (done, failed or cancelled); a git's task or a disk call's worker may still run, the scratch store is gone
+\* @code native/ompdesk/crates/core/src/server.rs:303-312 the handler returns (done, failed or cancelled); a git's task or a disk call's worker may still run, the scratch store is gone
 HandlerEnds ==
     /\ coreUp /\ handler = "running"
     /\ scratch # "made"
     /\ handler' = "finished"
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:312-314 the answer waits until every scope clone (a git's supervisor, a disk call's worker) is gone
+\* @code native/ompdesk/crates/core/src/server.rs:313-315 the answer waits until every scope clone (a git's supervisor, a disk call's worker) is gone
 CoreAnswers ==
     /\ coreUp /\ handler = "finished" /\ ~answered
     /\ WaitGroup => alive = 0

@@ -176,7 +176,7 @@ Retry(t) ==
     /\ UNCHANGED <<app, quitting, swept, launches, tab, held, sess, used, saved, keep, alive, mayEnd, failed, tookOver>>
 
 \* A quit is approved: the layout is no longer saved, and the teardown that follows closes every tab.
-\* @code src/main/index.ts:918-921 frozen: quitApproved
+\* @code src/main/index.ts:920-923 frozen: quitApproved
 QuitBegin ==
     /\ app = "up" /\ ~quitting
     /\ quitting' = TRUE
@@ -213,7 +213,7 @@ Boot ==
     /\ UNCHANGED <<quitting, held, sess, used, saved, inflight, alive, tookOver, retry>>
 
 \* The launch's sweep.
-\* @code src/main/index.ts:2397-2412 keep: the restored layouts and the markers; sweep after the tabs exist
+\* @code src/main/index.ts:2408-2423 keep: the restored layouts and the markers; sweep after the tabs exist
 Sweep ==
     /\ app = "up" /\ ~swept /\ ~quitting
     /\ swept' = TRUE
