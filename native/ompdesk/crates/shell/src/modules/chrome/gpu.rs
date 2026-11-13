@@ -179,10 +179,13 @@ pub fn software_now() -> bool {
     software_launch() || GPU_MODE.load(Ordering::SeqCst) == 2
 }
 
+/// Who waits on the UI thread to learn the composite mode.
+type Waiter = Box<dyn FnOnce(bool)>;
+
 thread_local! {
     static RESOLVED: Cell<Option<bool>> = const { Cell::new(None) };
     static ASKED: Cell<bool> = const { Cell::new(false) };
-    static WAITERS: RefCell<Vec<Box<dyn FnOnce(bool)>>> = const { RefCell::new(Vec::new()) };
+    static WAITERS: RefCell<Vec<Waiter>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Calls `then` (UI thread) with whether pages composite in software, once the GPU process reported (asked once per
