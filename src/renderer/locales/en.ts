@@ -4494,6 +4494,10 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.xdevNotice": "Tool list not repeated in the request",
 	"bridgeHealth.feature.contextHookIdle": "No request copy when nothing needs filtering",
 
+	// The disk is full (src/main/disk-full.ts): one toast in every window and on the phone until the files are saved.
+	"diskFull.toastTitle": "Disk is full",
+	"diskFull.toastBody": "OMPdesk couldn't save {files}; it will retry. Free some space and it saves by itself.",
+
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "Compaction limits",
 	"compactionLimits.desc":

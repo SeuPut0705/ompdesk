@@ -34,6 +34,7 @@ import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { lazyChunk, loadChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
 import { loadDeferredChunk } from "./lib/deferred-chunk";
+import { subscribeDiskFull } from "./lib/disk-full";
 import { hydrateDisplayPreferences, readDisplayPreference, setDisplayPreference } from "./lib/display-preferences";
 import { exportSessionHtml } from "./lib/export-session";
 import { useT } from "./lib/i18n";
@@ -713,6 +714,8 @@ export function App() {
 	useEffect(() => subscribeUpdaterStatus(), []);
 	// gui-bridge compatibility warnings: main-process signal + boot drain.
 	useEffect(() => subscribeBridgeHealth(), []);
+	// The disk is full: main's one notice as a toast, here and on the phone page, until the files are saved.
+	useEffect(() => subscribeDiskFull(), []);
 	// "omp updated to X" after omp updated itself (main sends it to one window).
 	useEffect(() => subscribeOmpUpdated(), []);
 

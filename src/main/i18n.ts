@@ -1,14 +1,14 @@
 import { app } from "electron";
-import Store from "electron-store";
 import { fillText } from "../shared/fill-text";
 import { isUiLanguage, type UiLanguage, uiLanguageFromLocale } from "../shared/ui-language";
 import type { EditLabels } from "./editable-context-menu";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import type { OmpFailure } from "./omp-runtime";
+import { SafeStore } from "./safe-store";
 
 export type MainLanguage = UiLanguage;
 
-const prefs = new Store<{ language?: MainLanguage }>({ name: "prefs" });
+const prefs = new SafeStore<{ language?: MainLanguage }>({ name: "prefs" });
 
 export function getMainLanguage(): MainLanguage {
 	const stored = prefs.get("language");

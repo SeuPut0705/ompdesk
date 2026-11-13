@@ -23,7 +23,7 @@ const SYNC_RETRY_MS: readonly number[] = [10, 20, 40, 80, 160, 320];
 /** Waits of the variants that do not block: 20 ms doubling, about 5 s in all. */
 const RETRY_MS: readonly number[] = [20, 40, 80, 160, 320, 640, 1_280, 2_560];
 /** Waits of a write that found the disk full: 5 s doubling up to a minute, for as long as the disk stays full. */
-const DISK_FULL_RETRY_MS: readonly number[] = [5_000, 10_000, 20_000, 40_000, 60_000];
+export const DISK_FULL_RETRY_MS: readonly number[] = [5_000, 10_000, 20_000, 40_000, 60_000];
 
 let counter = 0;
 const tempFor = (file: string): string => `${file}.${process.pid}-${counter++}.tmp`;

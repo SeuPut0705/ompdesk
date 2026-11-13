@@ -12,6 +12,7 @@ mod cache;
 mod facts;
 mod regenerable;
 mod saved;
+pub(crate) mod saves;
 mod scratch;
 mod sizes;
 pub(crate) mod tree;

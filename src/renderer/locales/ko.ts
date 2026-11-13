@@ -4487,6 +4487,10 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.xdevNotice": "요청에 도구 목록 중복 없음",
 	"bridgeHealth.feature.contextHookIdle": "거를 게 없으면 요청 복사 생략",
 
+	// 디스크가 가득 찼을 때(src/main/disk-full.ts): 파일이 저장될 때까지 모든 창과 휴대폰에 토스트 하나.
+	"diskFull.toastTitle": "디스크가 가득 찼어요",
+	"diskFull.toastBody": "디스크가 가득 차서 {files} 저장에 실패했어요. 공간을 비우면 알아서 다시 저장해요.",
+
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "압축 한도",
 	"compactionLimits.desc":
