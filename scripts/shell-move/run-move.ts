@@ -47,6 +47,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { buildSetups } from "./build-setups";
 import {
+	assertTestEnv,
 	assertTestIdentity,
 	LOCAL,
 	OFFERED_VERSION,
@@ -163,7 +164,7 @@ const regValue = (text: string, name: string) => new RegExp(`${name}\\s+REG_\\w+
 
 /** The environment of every test app: the profile, the isolated home, no registration, no setup installs. */
 function testEnv(): Record<string, string> {
-	return {
+	const env: Record<string, string> = {
 		...(process.env as Record<string, string>),
 		USERPROFILE: home,
 		HOME: home,
@@ -179,6 +180,8 @@ function testEnv(): Record<string, string> {
 		OMP_MOVE_DEBUG_PORT: String(debugPort),
 		...(failAt ? { OMP_MOVE_FAIL: failAt } : {}),
 	};
+	assertTestEnv(env);
+	return env;
 }
 
 const switches = (port: number) => [

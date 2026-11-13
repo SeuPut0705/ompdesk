@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { UUID } from "builder-util-runtime";
-import { REAL_DIR, REAL_GUID } from "./guard";
+import { REAL_DIR, REAL_GUID, REAL_UPDATER_CACHE } from "./guard";
 
 export const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 /** electron-builder's own namespace (app-builder-lib NsisTarget): the uninstall GUID is the appId's UUID v5 under it. */
@@ -42,4 +42,20 @@ export function assertTestIdentity(): void {
 	}
 	if (!LOCAL) problems.push("LOCALAPPDATA is not set");
 	if (problems.length) throw new Error(`refusing to run: ${problems.join("; ")}`);
+}
+
+/**
+ * Throws unless `env` keeps a test app's own folders off the person's: its LOCALAPPDATA (the updater's cache
+ * `ompdesk-updater` and its `pending\` setup), APPDATA (userData) and the profile all lie elsewhere.
+ */
+export function assertTestEnv(env: Record<string, string | undefined>): void {
+	const same = (a: string | undefined, b: string | undefined) =>
+		!!a && !!b && resolve(a).toLowerCase() === resolve(b).toLowerCase();
+	const problems: string[] = [];
+	if (!env.LOCALAPPDATA || same(env.LOCALAPPDATA, LOCAL)) problems.push("LOCALAPPDATA is the person's");
+	if (env.LOCALAPPDATA && same(join(env.LOCALAPPDATA, "ompdesk-updater"), REAL_UPDATER_CACHE))
+		problems.push("the updater cache is the person's");
+	if (!env.APPDATA || same(env.APPDATA, process.env.APPDATA)) problems.push("APPDATA is the person's");
+	if (!env.OMP_GUI_TEST_USER_DATA_DIR) problems.push("no test profile (OMP_GUI_TEST_USER_DATA_DIR)");
+	if (problems.length) throw new Error(`refusing to start a test app: ${problems.join("; ")}`);
 }

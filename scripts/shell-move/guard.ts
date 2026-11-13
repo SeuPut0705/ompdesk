@@ -4,6 +4,10 @@
  * directory walk, `reg query`, `Get-Process`); `diffOwner(before, after)` names every difference. `run-move.ts` takes
  * one before it does anything and one after everything, and exits 1 on any difference.
  *
+ * His updater's cache (`%LOCALAPPDATA%\ompdesk-updater`, electron-updater's `updaterCacheDirName`, the same for every
+ * copy of the app that runs with his LOCALAPPDATA) is compared whole: batch P's dry run ran its test app with his
+ * LOCALAPPDATA and left its 200 MB test setup in `pending\` there.
+ *
  * Not compared: the mtimes of `%APPDATA%\ompdesk` (his running app writes there all day; only the names of what sits
  * at its top level are held) and the contents of his install (listing, sizes and mtimes are).
  */
@@ -17,6 +21,7 @@ export const REAL_DIR = join(LOCAL, "Programs", "OMPdesk");
 export const REAL_UNINSTALL_KEY = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${REAL_GUID}`;
 const REAL_INSTALL_KEY = `HKCU\\Software\\${REAL_GUID}`;
 const CLASSES_OMP = "HKCU\\Software\\Classes\\omp";
+export const REAL_UPDATER_CACHE = join(LOCAL, "ompdesk-updater");
 
 export interface OwnerSnapshot {
 	/** Relative path (with /) → "size:mtimeMs" of every file under his install folder; null when there is none. */
@@ -28,6 +33,8 @@ export interface OwnerSnapshot {
 	appDataTop: string[] | null;
 	/** "mtimeMs" of the Start-menu and desktop shortcuts named OMPdesk.lnk. */
 	shortcuts: Record<string, string>;
+	/** Relative path → "size:mtimeMs" of every file under his updater's cache; null when there is none. */
+	updaterCache: Record<string, string> | null;
 	/** pid → path of every running process whose image is under his install folder. */
 	processes: Record<string, string>;
 }
@@ -81,6 +88,7 @@ export async function snapshotOwner(): Promise<OwnerSnapshot> {
 		uninstallKey: (await run(["reg", "query", REAL_UNINSTALL_KEY, "/s"])).out,
 		installKey: (await run(["reg", "query", REAL_INSTALL_KEY, "/s"])).out,
 		classesOmp: (await run(["reg", "query", CLASSES_OMP, "/s"])).out,
+		updaterCache: existsSync(REAL_UPDATER_CACHE) ? walk(REAL_UPDATER_CACHE) : null,
 		appDataTop: existsSync(join(APPDATA, "ompdesk")) ? readdirSync(join(APPDATA, "ompdesk")).sort() : null,
 		shortcuts: await lnkTimes(),
 		processes: await ownerProcesses(),
@@ -100,6 +108,11 @@ export function diffOwner(before: OwnerSnapshot, after: OwnerSnapshot): string[]
 				);
 			}
 		}
+	}
+	if (JSON.stringify(before.updaterCache) !== JSON.stringify(after.updaterCache)) {
+		problems.push(
+			`his updater cache changed: was ${JSON.stringify(before.updaterCache)}, is ${JSON.stringify(after.updaterCache)}`,
+		);
 	}
 	for (const key of ["uninstallKey", "installKey", "classesOmp"] as const) {
 		if (before[key] !== after[key])
