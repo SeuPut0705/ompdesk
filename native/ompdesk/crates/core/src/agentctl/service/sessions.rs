@@ -749,10 +749,8 @@ impl AgentControl {
             let timed_out = Instant::now() >= deadline;
             let waiting = args.wait == Some(true);
             // A steer or report reached the waiting session: the call ends so it is read at its next step.
-            let woken = waiting
-                && !ready
-                && !timed_out
-                && self.arrivals(&caller.tab_id) > arrived_before;
+            let woken =
+                waiting && !ready && !timed_out && self.arrivals(&caller.tab_id) > arrived_before;
             if !waiting || ready || timed_out || woken {
                 // The opener has the answer now: the session may close once its work landed.
                 {

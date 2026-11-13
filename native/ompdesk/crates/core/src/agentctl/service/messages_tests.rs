@@ -332,7 +332,9 @@ async fn a_steer_ends_the_receiver_s_blocking_wait_and_the_receipt_says_so() {
         )
         .await;
     assert!(
-        receipt.text.contains("inside a blocking ompdesk_session_result wait")
+        receipt
+            .text
+            .contains("inside a blocking ompdesk_session_result wait")
             && receipt.text.contains("returns now"),
         "{}",
         receipt.text
@@ -403,7 +405,10 @@ async fn a_report_or_the_person_s_prompt_ends_the_blocking_wait_too() {
 /// while the receipt said they would be read after the user answers.
 #[tokio::test]
 async fn a_message_to_a_session_with_an_open_card_queues_behind_it_whatever_delivery_says() {
-    for (n, delivery) in [None, Some("steer"), Some("follow_up")].into_iter().enumerate() {
+    for (n, delivery) in [None, Some("steer"), Some("follow_up")]
+        .into_iter()
+        .enumerate()
+    {
         let mut card = busy("c");
         card["asks"] = json!([{ "id": "r1", "request": { "id": "r1", "method": "select", "title": "Which?", "options": ["x", "y"] } }]);
         let (control, asked) = rig(
