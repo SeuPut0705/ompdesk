@@ -233,7 +233,11 @@ async function main(): Promise<void> {
 		console.log(
 			`window moved by (${movedX}, ${movedY}) CSS px; asked for (${distance}, ${distance / 2}); page saw ${after.clicks} click events`,
 		);
-		const near = (actual: number, wanted: number) => Math.abs(actual - wanted) <= 4;
+		// The OS starts a title-bar move only after the pointer passed its drag threshold and takes the grab point from a
+		// move after that, so a runner loses a few pixels (4 to 10 seen) that vary from run to run. What the check proves is
+		// that the window follows the pointer and the page sees no click: a shortfall under a tenth of the distance is that.
+		const slack = Math.max(12, distance / 10);
+		const near = (actual: number, wanted: number) => Math.abs(actual - wanted) <= slack;
 		if (!near(movedX, distance) || !near(movedY, distance / 2))
 			throw new Error(
 				`the window did not follow the drag: moved (${movedX}, ${movedY}), wanted (${distance}, ${distance / 2})`,
