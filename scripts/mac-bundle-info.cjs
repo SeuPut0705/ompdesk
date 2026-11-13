@@ -82,7 +82,9 @@ function appInfo(version) {
  * launcher (`OMPdesk`): which of the two names CEF takes is not settled by anything but a run, so both sets are in the
  * bundle, the second one with bundle ids of its own.
  */
-const HELPER_PREFIXES = [PRODUCT, SHELL];
+// OMP_HELPER_SETS=product: only the launcher-named set (the title-bar job's experiment: does CEF start its helpers from
+// `OMPdesk Helper*` with the shell's `main_bundle_path` / `browser_subprocess_path` set).
+const HELPER_PREFIXES = process.env.OMP_HELPER_SETS === "product" ? [PRODUCT] : [PRODUCT, SHELL];
 const helperName = (prefix, helper) => `${prefix} Helper${helper.suffix}`;
 
 /** A helper app's Info.plist: no Dock icon, its own bundle id under the app's. */

@@ -105,6 +105,19 @@ jobs:
           test -f scripts/shell-drag-check.ts || { echo "::error::scripts/shell-drag-check.ts is not there yet"; exit 1; }
           if [ "$RUNNER_OS" = macOS ]; then export OMPDESK_SHELL_EXE="$PWD/dist/mac-arm64/OMPdesk.app/Contents/MacOS/OMPdesk"; fi
           bun scripts/shell-drag-check.ts
+      # The stopgap's question: only `OMPdesk Helper*` apps in the bundle (the shell names CEF's helper path itself). Its
+      # result is an EVIDENCE line, not a gate: while it is red the bundle keeps both sets.
+      - if: runner.os == 'macOS'
+        name: One helper set (decides whether the second set can go)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          export OMP_HELPER_SETS=product
+          bun scripts/package-mac.ts --no-dmg --version 0.200.0 --sign-with -
+          ls "$PWD/dist/mac-arm64/OMPdesk.app/Contents/Frameworks" | sed 's/^/EVIDENCE: one-set bundle holds: /'
+          export OMPDESK_SHELL_EXE="$PWD/dist/mac-arm64/OMPdesk.app/Contents/MacOS/OMPdesk"
+          if bun scripts/shell-drag-check.ts; then echo "EVIDENCE: ONE helper set (OMPdesk Helper*): the shell's drag check passes on ${{ matrix.os }}"; else echo "EVIDENCE: ONE helper set: the drag check FAILS on ${{ matrix.os }}"; exit 1; fi
       - if: failure()
         shell: bash
         run: bash scripts/ci-failure.sh
