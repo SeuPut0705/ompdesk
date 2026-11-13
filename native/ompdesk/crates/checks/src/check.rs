@@ -1793,6 +1793,14 @@ mod tests {
             let mut run = earlier_run(&store, &id, "running", "same");
             run.state = State::Running;
             store.write(&run).unwrap();
+            // The runner holds `alive` while it runs; a free one reads as a killed run, which is finished.
+            let alive = fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(store.file(&id, "alive"))
+                .unwrap();
+            alive.lock().unwrap();
             let log = fs::OpenOptions::new()
                 .append(true)
                 .open(store.file(&id, "log"))
