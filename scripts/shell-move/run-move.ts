@@ -78,8 +78,8 @@ const { values } = parseArgs({
 	},
 });
 const failAt = values["fail-at"];
-if (failAt !== undefined && failAt !== "swap" && failAt !== "start")
-	throw new Error("--fail-at takes `swap` or `start`");
+if (failAt !== undefined && !["swap", "start", "start-twice"].includes(failAt))
+	throw new Error("--fail-at takes `swap`, `start` or `start-twice`");
 const label = values.label ?? (failAt ? `fail-${failAt}` : "success");
 const work = resolve(values.work ?? join(tmpdir(), "ompdesk-shell-move"));
 const out = join(work, "runs", label);
