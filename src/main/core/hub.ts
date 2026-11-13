@@ -33,14 +33,14 @@ export const HUB_CALL_DEADLINE_MS = 2_000;
 export const HUB_START_DEADLINE_MS = 4_000;
 
 /** Control words of the shared buffer: [state, length]; the lines follow at {@link DATA_OFFSET}. */
-const STATE = 0;
-const LENGTH = 1;
+export const STATE = 0;
+export const LENGTH = 1;
 /** Set by the worker once its socket reached the hub. */
 const CONNECTED = 2;
 const IDLE = 0;
 const WAITING = 1;
 const READY = 2;
-const DATA_OFFSET = 16;
+export const DATA_OFFSET = 16;
 const INITIAL_BYTES = 1 << 16;
 const MAX_BYTES = 1 << 30;
 
@@ -50,6 +50,7 @@ const net = require("node:net");
 const { sab } = workerData;
 const control = new Int32Array(sab, 0, 4);
 const encoder = new TextEncoder();
+const { StringDecoder } = require("node:string_decoder");
 let socket = null;
 let connecting = false;
 let lost = null;
@@ -120,8 +121,10 @@ function connect(endpoint, deadline) {
 			lost = "the hub did not accept a connection: " + error.message;
 			look();
 		});
+		// One decoder per connection: a multibyte character split across two chunks stays whole.
+		const decoder = new StringDecoder("utf8");
 		candidate.on("data", chunk => {
-			partial += chunk.toString("utf8");
+			partial += decoder.write(chunk);
 			let end;
 			while ((end = partial.indexOf("\\n")) >= 0) {
 				const text = partial.slice(0, end);
@@ -192,7 +195,7 @@ export interface HubStats {
 	methods: Map<string, number>;
 }
 
-class Connection {
+export class Connection {
 	readonly worker: Worker;
 	readonly sab: SharedArrayBuffer;
 	readonly control: Int32Array;
