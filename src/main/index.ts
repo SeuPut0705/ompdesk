@@ -1425,14 +1425,18 @@ app.whenReady().then(async () => {
 	// an empty one. The real hub answers nothing until its parts land, and then no frame is sent.
 	const testChecks = !app.isPackaged ? process.env.OMP_GUI_TEST_CHECKS : undefined;
 	const checksHub = new CoreChecksHub({ fake: testChecks !== undefined });
-	if (testChecks === "busy")
-		checksHub
-			.apply({ op: "snapshot", snapshot: sampleSnapshot(Date.now()) })
-			.catch((error: unknown) =>
-				console.warn(
-					`[checks] the scripted hub took no snapshot: ${error instanceof Error ? error.message : String(error)}`,
-				),
-			);
+	// The sample is in the hub before the relay watches it: `checks.watch` answers the snapshot it read, and a change
+	// pushed while that answer is on its way can reach main first, leaving the older (empty) one shown.
+	const seeded =
+		testChecks === "busy"
+			? checksHub.apply({ op: "snapshot", snapshot: sampleSnapshot(Date.now()) }).then(
+					() => undefined,
+					(error: unknown) =>
+						console.warn(
+							`[checks] the scripted hub took no snapshot: ${error instanceof Error ? error.message : String(error)}`,
+						),
+				)
+			: Promise.resolve();
 	const checksRelay = new ChecksRelay({
 		hub: checksHub,
 		names: async snapshot =>
@@ -1449,7 +1453,7 @@ app.whenReady().then(async () => {
 		},
 		onLost: listener => core().on(CORE_EXITED, listener),
 	});
-	checksRelay.start();
+	void seeded.then(() => checksRelay.start());
 	ipc.handle(IPC_COMMANDS.CHECKS_GET, () => checksRelay.current());
 	ipc.handle(IPC_COMMANDS.CHECKS_SET_PAUSED, (_caller, paused: unknown) => checksRelay.setPaused(paused === true));
 	hostModelsChanged.current = () => devices.hostModelsChanged();
