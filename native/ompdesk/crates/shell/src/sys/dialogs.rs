@@ -501,8 +501,12 @@ mod tests {
 
     /// The control socket's confirm card (`ipc.ts` `confirmOutside`) times out: the box that is up closes and the
     /// answer is its `cancelId` (refused). The box returning at all is the proof it closed.
+    /// It shows a real TaskDialog for half a second, so it runs only on a GitHub runner, never on a person's desktop.
     #[test]
     fn a_cancelled_box_closes_and_answers_its_cancel_id() {
+        if std::env::var_os("GITHUB_ACTIONS").is_none() {
+            return;
+        }
         let cancel = Arc::new(DialogCancel::default());
         let (done, answered) = mpsc::channel();
         let shown = cancel.clone();
