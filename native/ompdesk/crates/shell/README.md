@@ -124,6 +124,7 @@ file name).
 - **macOS launcher**: the bundle's `Contents/MacOS/OMPdesk` is `ompdesk-launcher`, which execs `ompdesk-shell` and, for the
   first launch of a version an update installed, restores the last Electron release if the new app never writes
   `app-started.json` (PROTOCOL.md §14 has the rules and the `swap.log` lines). `last-electron.json` names that release.
+- **Native chrome**: progress on the taskbar button (Windows) or the Dock icon (macOS) and a dark or light title bar that follows `nativeTheme.themeSource`; behind an authenticating proxy `net.request` can answer the login, and macOS follows the system proxy.
 - **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs each host request; a Rust panic writes `%TEMP%/ompdesk-shell-panic.log`.
 - **Dialogs** run on a thread of their own so their modal loop does not block CEF's UI thread; macOS `messageBox` is
   an app-modal alert, not a sheet.
@@ -132,7 +133,7 @@ file name).
 - **Locales**: only `en-US` and `ko` ship; any other OS language falls back to `en-US` pak resources (`app.getLocale()`
   still reports the OS locale).
 - **Windows caption buttons** are one native popup window (138 × 48 DIP) owned by the top-level window, in
-  `titleBarOverlay`'s colours; `setProgressBar` is accepted and has no effect yet.
+  `titleBarOverlay`'s colours; `setProgressBar` drives the taskbar button's progress.
 
 ## macOS: written here, not run here
 

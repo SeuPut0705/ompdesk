@@ -413,18 +413,33 @@ What the Rust shell does differently from this table or from Electron. README.md
   the page's clipboard API; `executeJavaScript` is CDP `Runtime.evaluate` (by value, promises awaited).
 - **`wc.cdp.send`**: every call times out after 60 s with `timeout`.
 - **`wc.frame`**: `width` scales by area averaging, never up.
-- **`win.op`**: `setProgressBar`, `setMenuBarVisibility`, `setAutoHideMenuBar`, `setBackgroundMaterial` (Mica is set at
-  creation) are accepted and do nothing; on a window that cannot take focus `show` and `showInactive` do not activate and
+- **`win.op`**: `setMenuBarVisibility`, `setAutoHideMenuBar`, `setBackgroundMaterial` (Mica is set at creation) are
+  accepted and do nothing. `setProgressBar {value, mode?}`: Windows shows it through `ITaskbarList3` (`value` 0..1
+  determinate, below 0 removes the bar, above 1 indeterminate; `mode` none, normal, indeterminate, error or paused
+  overrides), retried for 2 s while the taskbar button does not exist yet; macOS draws it on the Dock tile with an
+  `NSProgressIndicator` (UNVERIFIED); on a window that cannot take focus `show` and `showInactive` do not activate and
   `win.state.focused` stays false.
 - **`win.closeRequested`**: no answer within 5 s closes the window.
 - **`view.*`**: a view is hidden until its first `setVisible`/`setBounds` with a non-empty size; an empty `setBounds` only
   hides the view (a zero-sized browser view is a fatal check in Chromium).
 - **`session.*`**: `setProxy` writes Chromium's `proxy` preference; `resolveProxy` is answered from the user's WinINET /
-  WinHTTP settings, not Chromium's resolver; `setSpellCheckerLanguages` and `addWordToSpellCheckerDictionary` are accepted
-  and do nothing; `session.create` reports `spellCheckerLanguages: []`. `clearCache`/`clearStorageData` do nothing for a
-  partition without the `persist:` prefix (it keeps nothing past its pages; clearing a Chrome-style in-memory context
-  ends the process). Creating the Preview's two in-memory contexts logs Chromium's non-fatal `NOTREACHED hit. Observers
-  can only be added once!` on stderr.
+  WinHTTP settings on Windows, not Chromium's resolver; on macOS from CFNetwork's system proxy settings (static
+  HTTP/HTTPS/SOCKS, the exceptions list, exclude-simple-hostnames; a PAC script or auto-discovery is run through
+  `CFNetworkExecuteProxyAutoConfigurationURL` on a run loop for at most 3 s on the calling thread and falls back to the
+  fixed settings; a script answer is read for none/HTTP/HTTPS/SOCKS only and an HTTPS entry is written `PROXY`;
+  UNVERIFIED on macOS). `setSpellCheckerLanguages {languages}` normalises the codes (`en_US` to `en-US`; a language without
+  a dictionary falls back to its bare or first regional one, else is dropped) and writes Chromium's `spellcheck.dictionaries`
+  (and `browser.enable_spellchecking`) on the partition's context; `addWordToSpellCheckerDictionary {word}` adds to the
+  profile's custom dictionary through a page of that partition and answers `failed` when it has none yet. Chromium
+  downloads a language's dictionary on first use (needs network) or uses the OS spellchecker where it has the language.
+  `session.create` reports `spellCheckerLanguages` (what was set; for `app` the preference's value), the fixed
+  `availableSpellCheckerLanguages` list of Chromium's dictionary codes and `cachePath` (`app`:
+  `<userData>/shell-webview/Default/Cache`; `persist:<n>`: `<userData>/shell-webview/Partitions/<n>/Cache`, inferred;
+  in-memory: `null`). `clearCache`/`clearStorageData` on `app` run DevTools `Network.clearBrowserCache` (plus
+  `clearBrowserCookies`) on the first app page, never touching Local Storage, and clear the global context directly only
+  when no page exists. They do nothing for an in-memory partition (clearing a Chrome-style in-memory context ends the
+  process). Creating the Preview's two in-memory contexts logs Chromium's non-fatal `NOTREACHED hit. Observers can only be
+  added once!` on stderr.
 - **`protocol.request`**: request headers are one `[name, value]` pair per value; a failed head fails the request with
   `ERR_FAILED`.
 - **`ipc.sendSync`** is sent from a `prompt()` the Preview preload's `__ompdeskSendSync` makes (message starting with NUL +
@@ -435,8 +450,19 @@ What the Rust shell does differently from this table or from Electron. README.md
   macOS `messageBox` is app-modal, not a sheet.
 - **`notification.*`**: WinRT toasts keyed on the AppUserModelID; without a Start-menu shortcut carrying it a toast may
   not show, though `show` is still reported.
-- **`theme.setSource`** is pushed into every page as CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme`).
-- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; `resolveHost` ignores `cacheUsage`; request headers
+- **`theme.setSource`** is pushed into every page as CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme`) and reaches
+  native chrome: Windows sets `DWMWA_USE_IMMERSIVE_DARK_MODE` on every window (when the source changes, on window creation
+  and on `theme.changed`), macOS sets `NSApp.appearance` (UNVERIFIED).
+- **`app.childProcessGone`** is produced on Windows only. CEF has no callback for a helper process ending, so a thread polls
+  the shell's children once a second (ToolHelp plus `--type=` from the command line) and reports a gone non-renderer,
+  non-crashpad child with its exit code. Reasons come from the NTSTATUS table in `shell_core::childproc::reason`; exit code 1
+  is `killed`. A helper that lives under a second is missed, and nothing is reported once the shell is exiting. macOS: not
+  produced.
+- **`win.event`** `unresponsive`/`responsive` is sent for a window's main page in addition to its `wc.event`; views and
+  Preview pages produce only the `wc.event`.
+- **`wc.event preload-error`** `[preloadPath, {message, stack}]` is produced for `shell.js` throwing in an app page, via
+  `POST /__shell/preload-error`; a throw in a Preview partition's preload (`app.rs`) is not reported.
+- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; `resolveHost` with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`); an HTTP 401/407 challenge of a `net.fetch` is asked of Node with `net.login` (CEF re-asks after wrong credentials); request headers
   `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
 - **Application menu accelerators** are matched by a message hook for typed keys; a key sent through the DevTools protocol
   (the e2e harness) reaches the shell as an unhandled key event and is matched there.
