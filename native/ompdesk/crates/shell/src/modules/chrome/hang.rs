@@ -6,28 +6,22 @@
 //! under vitest); `chrome.unwatch` (Node's `will-quit`) ends it.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
-use shell_core::atomic;
+use shell_core::atomic::{self, Ordered};
 use shell_core::chrome_core::hang::{
-    HANG_CHECK_INTERVAL_MS, HangMarker, MainPhase, Watch, consume_marker, previous_hang_report,
+    HANG_CHECK_INTERVAL_MS, MainPhase, Recorder, Tick, consume_marker, previous_hang_report,
 };
 
 use crate::host::Call;
 use crate::log::log;
 use crate::modules::Ctx;
 
-struct Active {
-    watch: Watch,
-    path: PathBuf,
-    /// The thread of this watch; a later watch has another, so a stale thread ends itself.
-    generation: u64,
-}
-
-static ACTIVE: Mutex<Option<Active>> = Mutex::new(None);
-static GENERATION: Mutex<u64> = Mutex::new(0);
+/// The watch, and the one writer every marker goes through, in the order the transitions happened (`Recorder`).
+static RECORDER: LazyLock<Recorder> =
+    LazyLock::new(|| Recorder::new(Ordered::new("hang-marker", Box::new(write_marker))));
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -43,8 +37,8 @@ fn marker_path() -> PathBuf {
 }
 
 /// Best effort: a marker that cannot be written must not stop the watchdog.
-fn write_marker(path: &std::path::Path, marker: &HangMarker) {
-    if atomic::write(path, marker.text().as_bytes()).is_ok() {
+fn write_marker(path: &std::path::Path, bytes: &[u8]) {
+    if atomic::write(path, bytes).is_ok() {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -53,36 +47,9 @@ fn write_marker(path: &std::path::Path, marker: &HangMarker) {
     }
 }
 
-/// A heartbeat; the first one starts the watch.
+/// A heartbeat; the first one starts the watch and its check thread.
 fn heartbeat(pid: u32) {
-    let now = now_ms();
-    let mut resolved = None;
-    let mut start = None;
-    {
-        let mut guard = ACTIVE.lock().unwrap();
-        if let Some(active) = guard.as_mut() {
-            resolved = active
-                .watch
-                .heartbeat(now)
-                .map(|m| (active.path.clone(), m));
-        } else {
-            let generation = {
-                let mut next = GENERATION.lock().unwrap();
-                *next += 1;
-                *next
-            };
-            *guard = Some(Active {
-                watch: Watch::new(pid, now),
-                path: marker_path(),
-                generation,
-            });
-            start = Some(generation);
-        }
-    }
-    if let Some((path, marker)) = resolved {
-        write_marker(&path, &marker);
-    }
-    if let Some(generation) = start {
+    if let Some(generation) = RECORDER.heartbeat(pid, now_ms(), marker_path) {
         std::thread::Builder::new()
             .name("hang-watchdog".into())
             .spawn(move || watch(generation))
@@ -93,31 +60,20 @@ fn heartbeat(pid: u32) {
 fn watch(generation: u64) {
     loop {
         std::thread::sleep(Duration::from_millis(HANG_CHECK_INTERVAL_MS as u64));
-        let found = {
-            let mut active = ACTIVE.lock().unwrap();
-            match active.as_mut() {
-                Some(active) if active.generation == generation => active
-                    .watch
-                    .tick(now_ms())
-                    .map(|marker| (active.path.clone(), marker)),
-                _ => return,
-            }
-        };
-        if let Some((path, marker)) = found {
-            log(
+        match RECORDER.tick(generation, now_ms()) {
+            Tick::Over => return,
+            Tick::Quiet => {}
+            Tick::Detected(marker) => log(
                 "hang.detected",
                 serde_json::json!({ "unresponsiveMs": marker.unresponsive_ms }),
-            );
-            write_marker(&path, &marker);
+            ),
         }
     }
 }
 
 /// The OS resumed from suspend (`power.rs`): wait for fresh heartbeats before judging Node.
 pub fn resumed() {
-    if let Some(active) = ACTIVE.lock().unwrap().as_mut() {
-        active.watch.reset(now_ms());
-    }
+    RECORDER.reset(now_ms());
 }
 
 pub fn request(_ctx: Ctx, call: Call) -> Option<Call> {
@@ -138,15 +94,11 @@ pub fn event(_ctx: Ctx, name: &str, data: &Value) -> bool {
         "chrome.step" => {
             let phase = data["phase"].as_str().and_then(MainPhase::parse);
             match (phase, data["step"].as_str()) {
-                (Some(phase), Some(step)) => {
-                    if let Some(active) = ACTIVE.lock().unwrap().as_mut() {
-                        active.watch.step(phase, step);
-                    }
-                }
+                (Some(phase), Some(step)) => RECORDER.step(phase, step),
                 _ => log("hang.step_bad", serde_json::json!({ "data": data })),
             }
         }
-        "chrome.unwatch" => *ACTIVE.lock().unwrap() = None,
+        "chrome.unwatch" => RECORDER.stop(),
         _ => return false,
     }
     true
@@ -163,5 +115,7 @@ pub fn ready(ctx: Ctx) {
 }
 
 pub fn shutdown(_ctx: Ctx) {
-    *ACTIVE.lock().unwrap() = None;
+    RECORDER.stop();
+    // The app is going: the last marker reaches the disk first.
+    RECORDER.flush();
 }

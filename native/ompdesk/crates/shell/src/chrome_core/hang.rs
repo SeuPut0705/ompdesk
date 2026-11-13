@@ -310,6 +310,111 @@ impl Watch {
     }
 }
 
+/// What the shell's watchdog shares between Node's heartbeats (the host's reader thread) and its own check thread: the
+/// `Watch` and the marker file. Every transition and the write it asks for happen under one lock, and the write is handed
+/// to one `Ordered` writer there: the markers land in the order the transitions happened, so a "detected" write that is
+/// slow never overwrites the "recovered" one that followed it, and no two writes of the file overlap.
+pub struct Recorder {
+    state: std::sync::Mutex<Option<Active>>,
+    generation: std::sync::atomic::AtomicU64,
+    writer: crate::atomic::Ordered,
+}
+
+struct Active {
+    watch: Watch,
+    path: std::path::PathBuf,
+    /// The check thread of this watch; a later watch has another, so a stale thread ends itself.
+    generation: u64,
+}
+
+/// What a tick found.
+pub enum Tick {
+    /// The watch this check thread served is over (`stop`, or a newer watch): the thread ends.
+    Over,
+    Quiet,
+    /// A stall was found and its marker submitted.
+    Detected(HangMarker),
+}
+
+impl Recorder {
+    pub fn new(writer: crate::atomic::Ordered) -> Self {
+        Self {
+            state: std::sync::Mutex::new(None),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            writer,
+        }
+    }
+
+    fn submit(&self, path: &Path, marker: &HangMarker) {
+        self.writer
+            .submit(path.to_path_buf(), marker.text().into_bytes());
+    }
+
+    /// A heartbeat. The first one starts a watch writing to `path` and answers its generation (start a check thread
+    /// for it); a later one may end a reported stall, whose marker is rewritten as recovered.
+    pub fn heartbeat(
+        &self,
+        pid: u32,
+        now: i64,
+        path: impl FnOnce() -> std::path::PathBuf,
+    ) -> Option<u64> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(active) = state.as_mut() {
+            if let Some(marker) = active.watch.heartbeat(now) {
+                self.submit(&active.path, &marker);
+            }
+            return None;
+        }
+        let generation = self
+            .generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        *state = Some(Active {
+            watch: Watch::new(pid, now),
+            path: path(),
+            generation,
+        });
+        Some(generation)
+    }
+
+    /// One check of the thread of `generation`.
+    pub fn tick(&self, generation: u64, now: i64) -> Tick {
+        let mut state = self.state.lock().unwrap();
+        match state.as_mut() {
+            Some(active) if active.generation == generation => match active.watch.tick(now) {
+                Some(marker) => {
+                    self.submit(&active.path, &marker);
+                    Tick::Detected(marker)
+                }
+                None => Tick::Quiet,
+            },
+            _ => Tick::Over,
+        }
+    }
+
+    pub fn step(&self, phase: MainPhase, step: &str) {
+        if let Some(active) = self.state.lock().unwrap().as_mut() {
+            active.watch.step(phase, step);
+        }
+    }
+
+    /// The OS resumed from suspend: wait for fresh heartbeats before judging Node.
+    pub fn reset(&self, now: i64) {
+        if let Some(active) = self.state.lock().unwrap().as_mut() {
+            active.watch.reset(now);
+        }
+    }
+
+    pub fn stop(&self) {
+        *self.state.lock().unwrap() = None;
+    }
+
+    /// Waits until every marker submitted so far is on disk.
+    pub fn flush(&self) {
+        self.writer.flush();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,5 +732,65 @@ mod tests {
             let marker = parse_marker(step.input["raw"].as_str().unwrap()).expect("a marker");
             assert_eq!(previous_hang_report(&marker), step.output, "{step:?}");
         }
+    }
+
+    /// The check thread found a stall and its marker's write is slow; Node's next heartbeat ends the stall meanwhile.
+    /// The recovered marker is the one left on disk, whole (before, both threads wrote after releasing the lock, through
+    /// one shared temp file).
+    #[test]
+    fn a_slow_detected_write_never_overwrites_the_recovered_marker_that_followed() {
+        use std::sync::{Arc, Barrier};
+        let dir = std::env::temp_dir().join(format!("shell-hang-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("logs").join("main-thread-hang.json");
+        let recovered_submitted = Arc::new(Barrier::new(2));
+        let gate = recovered_submitted.clone();
+        let writes = std::sync::atomic::AtomicUsize::new(0);
+        let recorder = Arc::new(Recorder::new(crate::atomic::Ordered::new(
+            "test-hang-writer",
+            Box::new(move |path, bytes| {
+                // The detected marker's write waits until the recovered one was submitted.
+                if writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    gate.wait();
+                }
+                crate::atomic::write(path, bytes).unwrap();
+            }),
+        )));
+        let t0 = 1_000_000;
+        let generation = recorder
+            .heartbeat(42, t0, || path.clone())
+            .expect("the first heartbeat starts the watch");
+        // Ticks a second apart, as the check thread runs (one long jump reads as a system sleep and starts over).
+        let checker = {
+            let recorder = recorder.clone();
+            std::thread::spawn(move || {
+                (1..=(TIMEOUT / CHECK + 2))
+                    .any(|k| matches!(recorder.tick(generation, t0 + k * CHECK), Tick::Detected(_)))
+            })
+        };
+        // Joined before any wait on the writer: a check that found nothing fails here instead of hanging.
+        assert!(checker.join().unwrap(), "the check found the stall");
+        let node = {
+            let recorder = recorder.clone();
+            std::thread::spawn(move || {
+                recorder.heartbeat(42, t0 + TIMEOUT + 3 * CHECK, || unreachable!());
+            })
+        };
+        node.join().unwrap();
+        // The detected write is still held; the recovered one is queued behind it.
+        recovered_submitted.wait();
+        recorder.flush();
+        let marker =
+            parse_marker(&std::fs::read_to_string(&path).unwrap()).expect("a whole marker");
+        assert!(
+            marker.self_recovered,
+            "the newer, recovered marker is the one on disk"
+        );
+        assert_eq!(
+            std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1,
+            "no temp file left"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
