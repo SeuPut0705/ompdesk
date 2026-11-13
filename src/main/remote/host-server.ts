@@ -141,15 +141,21 @@ export interface HostAsk extends CoreAsk {
 	waitedMs: number;
 }
 
-const hosts = new Map<number, RemoteHost>();
+/** By the devices instance each serves: its number in the core changes when the core ends and it opens again. */
+const hosts = new Map<SharingCore, RemoteHost>();
 let routed = false;
+
+function hostOf(devices: number): RemoteHost | undefined {
+	for (const [sharing, host] of hosts) if (sharing.id === devices) return host;
+	return undefined;
+}
 
 /** The core's `open` asks, traffic lines and link ends reach the host they name. */
 function route(): void {
 	if (routed) return;
 	routed = true;
 	const process = core();
-	onCoreAsk("open", ask => hosts.get(ask.host as number)?.answerAsk(ask as HostAsk) ?? null);
+	onCoreAsk("open", ask => hostOf(ask.host as number)?.answerAsk(ask as HostAsk) ?? null);
 	process.on("remote.traffic", data => {
 		const { link, details } = data as { link: number; details: Record<string, unknown> };
 		for (const host of hosts.values()) host.traffic(link, details);
@@ -164,7 +170,6 @@ export class RemoteHost {
 	readonly #opts: RemoteHostOptions;
 	readonly #now: () => number;
 	readonly #emitter = new EventEmitter();
-	readonly #id: number;
 	readonly #connections = new Set<PeerConnection>();
 	/** Each device link's device, until the core says the link ended (its last traffic line comes before that). */
 	readonly #linkDevices = new Map<number, string>();
@@ -172,9 +177,8 @@ export class RemoteHost {
 	constructor(opts: RemoteHostOptions) {
 		this.#opts = opts;
 		this.#now = opts.now ?? Date.now;
-		this.#id = opts.sharing.id;
 		route();
-		hosts.set(this.#id, this);
+		hosts.set(opts.sharing, this);
 	}
 
 	/** The listening TCP port, or null while not listening. */

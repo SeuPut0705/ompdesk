@@ -205,6 +205,13 @@ interface HostLink {
 	relays: Map<string, LinkRelaySocket>;
 }
 
+/** A quota patch as the core reads it: a field main removed is null. */
+function wireOf(patch: Partial<Pick<PeerInfo, "limits" | "usage">>): Record<string, unknown> {
+	const wire: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(patch)) wire[key] = value ?? null;
+	return wire;
+}
+
 /**
  * The device records as main reads them in the same tick (the quota's `reserve`, the device lists): the core's last
  * state with main's own quota writes over it until the core says it applied them (`patched`). Main is the only
@@ -244,10 +251,14 @@ class PeerMirror implements QuotaStore {
 		const seq = ++this.#seq;
 		const written = { ...this.#written.get(deviceId)?.patch, ...patch };
 		this.#written.set(deviceId, { seq, patch: written });
-		const wire: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(patch)) wire[key] = value ?? null;
-		this.#send(seq, deviceId, wire);
+		this.#send(seq, deviceId, wireOf(patch));
 		return this.get(deviceId);
+	}
+
+	/** The core ended before it applied every write: the next one is told what it has not confirmed, in the order made. */
+	resend(): void {
+		const unconfirmed = [...this.#written].sort(([, a], [, b]) => a.seq - b.seq);
+		for (const [deviceId, { seq, patch }] of unconfirmed) this.#send(seq, deviceId, wireOf(patch));
 	}
 }
 
@@ -302,7 +313,7 @@ export class RemoteDevices {
 					: deps.confirm({ name, login: visitor.login, ip: visitor.ip, nodeName: visitor.nodeName }),
 			loopback: deps.loopback === true,
 			traffic: deps.logLink !== undefined,
-			keepAwake: this.#keepAwake.policyId(),
+			keepAwake: () => this.#keepAwake.policyId(),
 			keepAwakeEnabled: this.#keepAwakeEnabled(),
 			migratedAt: typeof deps.prefs.get(MIGRATED_KEY) === "number" ? (deps.prefs.get(MIGRATED_KEY) as number) : null,
 			...(deps.log ? { log: deps.log } : {}),
@@ -310,6 +321,7 @@ export class RemoteDevices {
 			onComputers: computers => this.#deps.broadcast(IPC_EVENTS.REMOTE_TAILNET, computers),
 			onAdoptLogin: login => this.#deps.adoptLogin(login),
 			onMigrated: migration => this.#migrated(migration),
+			onReopened: () => this.#peers.resend(),
 		}).then(sharing => {
 			this.#core = sharing;
 			this.#told(sharing.snapshot);

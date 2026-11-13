@@ -8,6 +8,7 @@
  */
 import { EventEmitter } from "node:events";
 import { CORE_EXITED, core } from "../core/process";
+import { openAgain } from "../core/reopen";
 import type { HostHello } from "./host-server";
 import type { PairedHost } from "./hosts-store";
 import type { Identity } from "./identity";
@@ -207,9 +208,11 @@ function route(): void {
 		};
 		clients.get(client)?.logged(event, details);
 	});
-	// A core that ends takes every client's loop with it.
+	// A core that ends takes every client's loop with it: each opens again in the next one, under a new number.
 	process.on(CORE_EXITED, () => {
-		for (const client of [...clients.values()]) client.told(null);
+		const lost = [...clients.values()];
+		clients.clear();
+		for (const client of lost) client.lost();
 	});
 }
 
@@ -219,7 +222,9 @@ export class RemoteClient {
 	readonly #opts: RemoteClientOptions;
 	readonly #emitter = new EventEmitter();
 	readonly #pending = new Map<number, Pending>();
-	readonly #id: Promise<number>;
+	#id: Promise<number>;
+	/** Bumped each time the loop is opened again, so an attempt a later one superseded gives up. */
+	#opens = 0;
 	#host: PairedHost;
 	#state: LinkState = "offline";
 	#hello: HostHello | null = null;
@@ -235,22 +240,7 @@ export class RemoteClient {
 		this.#host = { ...opts.host, addresses: [...opts.host.addresses] };
 		this.deviceId = opts.host.deviceId;
 		route();
-		this.#id = core()
-			.call<{ client: number }>("remote.client.open", {
-				identity: opts.identity.deviceId,
-				host: opts.host,
-				appVersion: opts.appVersion,
-				name: opts.name(),
-				capabilities: HELLO_CAPABILITIES,
-				...(opts.sharing ? { devices: opts.sharing.id } : {}),
-				...(opts.userData ? { userData: opts.userData } : {}),
-				...(opts.liveness ? { liveness: opts.liveness } : {}),
-			})
-			.then(({ result }) => {
-				clients.set(result.client, this);
-				return result.client;
-			});
-		this.#id.catch(() => undefined);
+		this.#id = this.#begin();
 	}
 
 	get state(): LinkState {
@@ -317,9 +307,64 @@ export class RemoteClient {
 		this.#setState("offline");
 		this.#dropLink(`${this.#host.name} went offline`);
 		void this.#id.then(
-			client => clients.delete(client),
+			client => {
+				if (clients.get(client) === this) clients.delete(client);
+			},
 			() => undefined,
 		);
+	}
+
+	/**
+	 * The core ended and took this client's loop with it (the numbers it held start over in the next core): offline now,
+	 * and the loop is opened again there, started again when it ran.
+	 */
+	lost(): void {
+		if (this.#closed) return;
+		this.#dropLink(`${this.#host.name} went offline`);
+		this.#setState("offline");
+		this.#id = this.#begin();
+	}
+
+	/** Opens the loop in the core that runs, or the next one, until it is; the latest call is the one that counts. */
+	#begin(): Promise<number> {
+		const opened = this.#openAgain(++this.#opens);
+		opened.catch(() => undefined);
+		return opened;
+	}
+
+	async #openAgain(token: number): Promise<number> {
+		// The devices instance this client belongs to opens again in its own listener of the same exit; by the next turn
+		// `opened()` waits for that one.
+		await Promise.resolve();
+		const wanted = () => !this.#closed && token === this.#opens;
+		const opened = await openAgain(() => this.#openInCore(), wanted);
+		if (!opened) throw new RemoteError("remote_offline", `${this.#host.name} went offline`);
+		if (!wanted()) {
+			if (core().generation === opened.generation) core().push("remote.client.close", { client: opened.client });
+			throw new RemoteError("remote_offline", `${this.#host.name} went offline`);
+		}
+		clients.set(opened.client, this);
+		if (this.#running) {
+			core().push("remote.client.connect", { client: opened.client });
+			this.#attemptingNow();
+		}
+		return opened.client;
+	}
+
+	async #openInCore(): Promise<{ client: number; generation: number }> {
+		const opts = this.#opts;
+		const devices = await opts.sharing?.opened();
+		const { result, generation } = await core().call<{ client: number }>("remote.client.open", {
+			identity: opts.identity.deviceId,
+			host: this.#host,
+			appVersion: opts.appVersion,
+			name: opts.name(),
+			capabilities: HELLO_CAPABILITIES,
+			...(devices !== undefined ? { devices } : {}),
+			...(opts.userData ? { userData: opts.userData } : {}),
+			...(opts.liveness ? { liveness: opts.liveness } : {}),
+		});
+		return { client: result.client, generation };
 	}
 
 	/** Rejects RemoteError `remote_offline` unless online, `timeout` after `timeoutMs`. */
@@ -357,14 +402,9 @@ export class RemoteClient {
 		this.#emitter.off(event, fn);
 	}
 
-	/** A transition the core told (null: the core ended, and with it the loop). */
-	told(told: ClientTold | null): void {
+	/** A transition the core told. */
+	told(told: ClientTold): void {
 		if (this.#closed) return;
-		if (!told) {
-			this.#dropLink(`${this.#host.name} went offline`);
-			this.#setState("offline");
-			return;
-		}
 		this.#host = { ...told.host, addresses: [...told.host.addresses] };
 		this.#hello = told.hello;
 		this.#error = told.error;

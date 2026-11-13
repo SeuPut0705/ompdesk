@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { IPC_EVENTS } from "../../shared/ipc-types";
 import type { SessionSummary } from "../../shared/session-summary";
+import { stopCore } from "../core/process";
 import { advanceCoreTimers, fakeCoreTimers, realCoreTimers } from "../core/test-clock";
 import {
 	MOBILE_WEB_LINK_EVENT,
@@ -439,6 +440,24 @@ describe("a host link after the computer wakes or the network returns", () => {
 		expect((await probeHost(`${LOOPBACK}:${port}`)).ok).toBe(true);
 		expect(a.devices.state().hosts[0]?.state).toBe("online");
 	});
+});
+
+describe("after the core process ended", () => {
+	it("listens as a host again and links to its host again, requests going through", async () => {
+		const { a, b, hostId } = await rig.connected();
+		// A crash looks the same as a stop: the devices instances, the host's listener and every client's loop go with it.
+		await stopCore();
+		expect(a.devices.state().hosts[0]?.state).not.toBe("online");
+		expect(b.devices.state().host.port).toBeNull();
+
+		await until(b, state => state.host.port !== null, 30_000);
+		await until(a, state => state.hosts[0]?.state === "online", 30_000);
+		await until(b, state => state.host.peers[0]?.online === true, 30_000);
+		b.services.call.mockImplementation(async (_peer, method) => (method === "test.echo" ? { echoed: true } : null));
+		expect(await a.devices.request(hostId, "test.echo", {})).toEqual({ echoed: true });
+		// The host's own state kept what it was told: still sharing, still named.
+		expect(b.devices.state().host).toMatchObject({ enabled: true, name: "Studio" });
+	}, 60_000);
 });
 
 describe("code-paired computers", () => {

@@ -25,11 +25,12 @@ function route(): void {
 	if (routed) return;
 	routed = true;
 	const process = core();
-	process.on("remote.ask", data => {
+	process.on("remote.ask", (data, _bin, generation) => {
 		const ask = data as CoreAsk;
 		const handler = handlers.get(ask.kind);
+		// The core numbers its asks from 1 at every start: only the core that asked may hear the answer.
 		const reply = (result: unknown) =>
-			void process.call("remote.answer", { call: ask.call, result }).catch(() => undefined);
+			void process.call("remote.answer", { call: ask.call, result }, { generation }).catch(() => undefined);
 		if (!handler) {
 			reply(null);
 			return;
