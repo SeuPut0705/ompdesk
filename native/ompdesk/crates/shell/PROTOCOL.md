@@ -725,7 +725,8 @@ Deviations:
 - `services.saveImage`: a write error's text is Rust's (`Permission denied (os error 13)`), where Node wrote
   `EACCES: permission denied, open '<path>'`.
 - `services.openOrReveal`: a symlink's target is read with `canonicalize` (on Windows `\\?\C:\…`, only its name is
-  judged, as before). `OMP_GUI_TEST_SERVICES_DRY=1` (test seam) answers without opening or revealing.
+  judged, as before). Test seams: `OMP_GUI_TEST_SERVICES_DRY=1` answers without opening or revealing, and with it
+  `OMP_GUI_TEST_SERVICES_NO_APP=.xyz,…` makes those extensions' open fail as when no app takes the file.
 
 ### 15.8 `updater.*` (SX4)
 

@@ -23,13 +23,16 @@ describe.skipIf(!executable)("services against the shell", () => {
 	let dir: string;
 
 	beforeAll(async () => {
-		const before = process.env.OMP_GUI_TEST_SERVICES_DRY;
-		process.env.OMP_GUI_TEST_SERVICES_DRY = "1";
+		const seams = { OMP_GUI_TEST_SERVICES_DRY: "1", OMP_GUI_TEST_SERVICES_NO_APP: ".xyz" };
+		const before = Object.fromEntries(Object.keys(seams).map(key => [key, process.env[key]]));
+		Object.assign(process.env, seams);
 		try {
 			shell = await startTestShell(executable as string);
 		} finally {
-			if (before === undefined) Reflect.deleteProperty(process.env, "OMP_GUI_TEST_SERVICES_DRY");
-			else process.env.OMP_GUI_TEST_SERVICES_DRY = before;
+			for (const [key, value] of Object.entries(before)) {
+				if (value === undefined) Reflect.deleteProperty(process.env, key);
+				else process.env[key] = value;
+			}
 		}
 		services = servicesClient(shellModule<ServicesSpec>("services", () => shell.client));
 	}, 90_000);
@@ -47,24 +50,67 @@ describe.skipIf(!executable)("services against the shell", () => {
 		return target;
 	}
 
-	const launchers = windows
-		? ["x.exe", "X.EXE", "x.bat", "x.cmd", "x.ps1", "x.lnk", "x.url", "x.msi", "x.vbs", "x.js", "x.hta", "x.scr"]
-		: ["run.command", "tool.TOOL", "x.terminal", "x.workflow", "x.pkg", "x.dmg", "x.scpt", "x.webloc", "run.sh"];
+	// open-path.test.ts's rows, each on its own platform.
+	it
+		.runIf(!windows)
+		.each([
+			"run.command",
+			"tool.TOOL",
+			"x.terminal",
+			"x.workflow",
+			"x.pkg",
+			"x.dmg",
+			"x.scpt",
+			"x.webloc",
+			"x.inetloc",
+			"x.fileloc",
+			"run.sh",
+			"x.jar",
+			"x.py",
+			"x.pyw",
+			"x.pyz",
+			"x.pl",
+			"x.rb",
+		])("reveals %s on macOS without opening it", async name => {
+		expect(await services.openOrReveal(file(name))).toBe("revealed");
+	});
 
-	it.each([...launchers, "x.jar", "x.py", "x.pyw", "x.pyz", "x.pl", "x.rb"])(
-		"reveals %s without opening it",
-		async name => {
-			expect(await services.openOrReveal(file(name))).toBe("revealed");
-		},
-	);
+	it
+		.runIf(windows)
+		.each([
+			"x.exe",
+			"X.EXE",
+			"x.bat",
+			"x.cmd",
+			"x.ps1",
+			"x.lnk",
+			"x.url",
+			"x.msi",
+			"x.vbs",
+			"x.js",
+			"x.hta",
+			"x.scr",
+			"x.jar",
+			"x.exe.",
+			"x.exe ",
+			"x.chm",
+			"x.settingcontent-ms",
+			"x.website",
+			"x.appinstaller",
+			"x.xll",
+			"x.wsc",
+			"x.sct",
+			"x.theme",
+			"x.themepack",
+		])("reveals %s on Windows without opening it", async name => {
+		// As in open-path.test.ts, by name: NTFS would drop the trailing dot or space of a file it makes.
+		expect(await services.openOrReveal(path.join(dir, name))).toBe("revealed");
+	});
 
-	it.runIf(windows).each(["x.exe.", "x.chm", "x.settingcontent-ms", "x.website", "x.xll", "x.theme"])(
-		"reveals %s on Windows",
-		async name => {
-			// NTFS drops a trailing dot from the file it makes; the request names the path as the link did.
-			expect(await services.openOrReveal(path.join(dir, name))).toBe("revealed");
-		},
-	);
+	it("falls back to revealing when the system has no app for the file", async () => {
+		// OMP_GUI_TEST_SERVICES_NO_APP=.xyz: the shell's dry open answers "no application" for it, as the OS would.
+		expect(await services.openOrReveal(file("a.xyz"))).toBe("revealed");
+	});
 
 	it.runIf(!windows)("reveals an .app bundle directory", async () => {
 		const bundle = path.join(dir, "Thing.app");

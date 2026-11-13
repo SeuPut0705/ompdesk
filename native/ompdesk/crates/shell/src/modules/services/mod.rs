@@ -5,7 +5,8 @@
 //! system browser, the file pickers) stays on the shim's `shell.*`/`dialog.*`, which are this shell's already.
 //!
 //! `OMP_GUI_TEST_SERVICES_DRY=1` (test seam, the parity suite): `openOrReveal` hands nothing to the OS and answers what
-//! it would have done, with an open counted as done.
+//! it would have done, with an open counted as done, except for a path ending in one of the extensions listed in
+//! `OMP_GUI_TEST_SERVICES_NO_APP` (`.xyz,.abc`), whose open fails as when no app takes the file.
 
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -29,11 +30,24 @@ pub struct Services;
 static DRY: LazyLock<bool> =
     LazyLock::new(|| std::env::var("OMP_GUI_TEST_SERVICES_DRY").is_ok_and(|v| v == "1"));
 
+/// Under the dry seam, the extensions (`.xyz,.abc`) no app takes: their open fails as the OS's would.
+static DRY_NO_APP: LazyLock<Vec<String>> = LazyLock::new(|| {
+    std::env::var("OMP_GUI_TEST_SERVICES_NO_APP")
+        .unwrap_or_default()
+        .split(',')
+        .map(|ext| ext.trim().to_lowercase())
+        .filter(|ext| !ext.is_empty())
+        .collect()
+});
+
 fn open(path: &str) -> Result<(), String> {
-    if *DRY {
-        Ok(())
-    } else {
-        shellops::open_path(path)
+    if !*DRY {
+        return shellops::open_path(path);
+    }
+    let lower = path.to_lowercase();
+    match DRY_NO_APP.iter().find(|ext| lower.ends_with(ext.as_str())) {
+        Some(_) => Err("no application".into()),
+        None => Ok(()),
     }
 }
 
