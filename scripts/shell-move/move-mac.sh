@@ -20,6 +20,11 @@
 #     `swap result … rolled back`; no dialog.
 #  S2 a failed move: the apps folder is made read-only before the countdown ends; the swap fails (copy failed), Electron is
 #     untouched, and the next launch of the released app logs `swap result outcome rolled back`.
+#  MOVE_FROM_APP=<an Electron .app>: the app that updates is that one (a stand-in "release 1" built from the branch with the
+#     start-checked SWAP_SCRIPT, shell-batch-checks.yml `move-mac-release1`) instead of the released v0.127.0. Its swap
+#     script keeps `<app>.previous` until the new app writes app-started.json for the offered version: S1 then says `started`,
+#     and S4 (the new shell does not start) has the SCRIPT restore `.previous` (`start failed; previous app restored`) and
+#     reopen the old app, which logs `swap result … rolled back`; the launcher only notes that the swap restores.
 # Evidence lines start with "EVIDENCE:". Exit 1 on any failed check.
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
 . "$HERE/mac-common.sh"
@@ -36,14 +41,20 @@ DMG=$(ls "$REPO"/dist/ompdesk-0.200.0-arm64.dmg 2>/dev/null | head -1); test -f 
 cp "$DMG" "$W/new.dmg"
 
 step "the released app v0.127.0, re-signed (release-form designated requirement)"
-curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.127.0/ompdesk-mac-arm64.dmg
-mkdir mnt && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint mnt rel.dmg >/dev/null && ditto mnt/OMPdesk.app rel.app && hdiutil detach mnt >/dev/null
+if [ -n "$MOVE_FROM_APP" ]; then
+  ditto "$MOVE_FROM_APP" rel.app
+else
+  curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.127.0/ompdesk-mac-arm64.dmg
+  mkdir mnt && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint mnt rel.dmg >/dev/null && ditto mnt/OMPdesk.app rel.app && hdiutil detach mnt >/dev/null
+fi
+OLD_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' rel.app/Contents/Info.plist)
+evidence "the app that updates: ${MOVE_FROM_APP:-the released v0.127.0} ($OLD_VERSION)"
 bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
 # The last Electron release the launcher puts back: the re-signed v0.127.0 itself (release 1 stands in when it exists).
 hdiutil create -quiet -volname OMPdesk -srcfolder rel.app -ov -format UDZO "$W/rollback.dmg"; check $? "the stand-in last Electron release (rel.app as a DMG)"
-start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag v0.127.0 --http-port $HTTPPORT
-curl -s "http://127.0.0.1:$HTTPPORT/repos/SeuPut0705/ompdesk/releases/tags/v0.127.0" | grep -q ompdesk-update; check $? "the stand-in serves the last Electron release's tag route on :$HTTPPORT"
+start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag "v$OLD_VERSION" --http-port $HTTPPORT
+curl -s "http://127.0.0.1:$HTTPPORT/repos/SeuPut0705/ompdesk/releases/tags/v$OLD_VERSION" | grep -q ompdesk-update; check $? "the stand-in serves the last Electron release's tag route on :$HTTPPORT"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:$FEEDPORT" --ignore-certificate-errors)
 update_lines() { jq -r 'select(.source=="app-update") | "\(.message) \(.details.event // "") \(.details.outcome // "") \(.details.mode // "") \(.details.reason // "")"' "$1/logs/gui-runtime.jsonl" 2>/dev/null; }
 has_line() { update_lines "$1" | grep -q "^$2"; }
@@ -74,14 +85,16 @@ relaunch_diag() {
   evidence "diag: started directly: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | head -1 | cut -c1-160); output: $(head -c 600 "$W/$name-direct.out" | tr '\n' '|')"
 }
 
-# scenario <name> <0 success | 1 read-only apps folder | 2 the new shell does not start>
+# scenario <name> <0 success | 1 read-only apps folder | 2 the new shell does not start (the launcher restores) | 3 the same,
+# the old app's own swap script restores (MOVE_FROM_APP)>
 scenario() {
   local name=$1 fail=$2
   use_keychain "$name"
   local APPS=$W/$name/Applications UD=$W/$name/ud
   mkdir -p "$APPS" "$UD"; ditto rel.app "$APPS/OMPdesk.app"
   launchctl setenv OMP_GUI_TEST_USER_DATA_DIR "$UD"
-  if [ "$fail" = 2 ]; then
+  local OLDENV=(); [ "$fail" = 3 ] && OLDENV=(OMPDESK_SWAP_START_WAIT_S=20)
+  if [ "$fail" = 2 ] || [ "$fail" = 3 ]; then
     # The swap script relaunches with `open -n`, which hands the new shell launchd's environment, not the old app's.
     launchctl setenv OMP_GUI_TEST_SHELL_FAIL_START 1
     launchctl setenv OMPDESK_LAUNCHER_RELEASE_URL "http://127.0.0.1:$HTTPPORT"
@@ -94,7 +107,7 @@ scenario() {
   test -f "$UD/update-token.bin"; check $? "$name: update-token.bin is in the profile"
   rm -rf "$UD/logs" "$UD/updates"
   step "$name: the released app, left alone with its updater"
-  OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-old.out" 2>&1 &
+  env "${OLDENV[@]}" OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-old.out" 2>&1 &
   wait_for "has_line $UD 'download verified'" 240; check $? "$name: check found, download verified"
   if [ "$fail" = 1 ]; then
     chmod -R a-w "$APPS"; evidence "S2 the apps folder is read-only before the countdown ends ($(stat -f %Sp "$APPS"))"
@@ -111,13 +124,27 @@ scenario() {
     evidence "S3 launcher traffic: $(grep -c . "$W/feed.log") feed lines; http: $(grep http "$W/feed.log" | cut -c1-110 | tr '\n' '|')"
     sleep 5
     evidence "S3 restored bundle: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist"), shell binary present: $(ls "$APPS/OMPdesk.app/Contents/MacOS" | tr '\n' ' ')"
-    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = 0.127.0 ] && [ ! -e "$APPS/OMPdesk.app/Contents/MacOS/ompdesk-shell" ]; check $? "S3: the Electron app is back in place (0.127.0, no shell binary)"
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = $OLD_VERSION ] && [ ! -e "$APPS/OMPdesk.app/Contents/MacOS/ompdesk-shell" ]; check $? "S3: the Electron app is back in place (the old version, no shell binary)"
     codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S3: the restored app verifies"
     wait_for "has_line $UD 'swap result'" 120; update_lines "$UD" | sed 's/^/EVIDENCE: S3 update log: /'
     update_lines "$UD" | grep -Eq '^swap result (rolled back|changed)'; check $? "S3: the restored Electron logged swap result (rolled back/changed)"
     ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | grep -q .; check $? "S3: the Electron app is running"
     ls "$APPS" | grep -q 'updating\|previous'; [ $? != 0 ]; check $? "S3: no .updating or .previous leftovers"
     evidence "S3 shell started at all: $(ls "$UD/shell-webview" 2>&1 | tr '\n' ' ')"
+  elif [ "$fail" = 3 ]; then
+    wait_for "grep -q 'previous app restored\|previous app lost' $UD/updates/swap.log" 300; check $? "S4: the swap script finished (swap.log)"
+    evidence "S4 swap.log: $(tr '\n' '|' < "$UD/updates/swap.log" | cut -c1-900)"
+    for line in '^installed' 'waiting for the new app to start' 'start failed; previous app restored'; do
+      grep -q "$line" "$UD/updates/swap.log"; check $? "S4: swap.log has \"$line\""
+    done
+    grep -q 'rollback: download ok' "$UD/updates/swap.log"; [ $? != 0 ]; check $? "S4: the launcher downloaded nothing (the script owns the rollback)"
+    sleep 5
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = $OLD_VERSION ] && [ ! -e "$APPS/OMPdesk.app/Contents/MacOS/ompdesk-shell" ]; check $? "S4: the old Electron app is back in place ($OLD_VERSION, no shell binary)"
+    codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S4: the restored app verifies"
+    wait_for "has_line $UD 'swap result'" 120; update_lines "$UD" | sed 's/^/EVIDENCE: S4 update log: /'
+    update_lines "$UD" | grep -Eq '^swap result (rolled back|changed)'; check $? "S4: the restored Electron logged swap result (rolled back/changed)"
+    ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | grep -q .; check $? "S4: the Electron app is running"
+    ls "$APPS" | grep -q 'updating\|previous'; [ $? != 0 ]; check $? "S4: no .updating or .previous leftovers"
   elif [ "$fail" = 0 ]; then
     wait_for "grep -q '^installed' $UD/updates/swap.log" 120; check $? "S1: swap.log says installed"
     evidence "S1 swap.log: $(tr '\n' '|' < "$UD/updates/swap.log" | cut -c1-300)"
@@ -133,12 +160,17 @@ scenario() {
     grep -q '"source":"stored"' "$W/$name-read.json" && grep -q '"droppedReason":null' "$W/$name-read.json"; check $? "S1: the seeded token was decrypted (source stored, none dropped)"
     wait_for "has_line $UD 'swap result'" 60; update_lines "$UD" | grep -q '^swap result installed'; check $? "S1: swap result outcome installed"
     codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S1: the installed app verifies"
+    if [ -n "$MOVE_FROM_APP" ]; then
+      wait_for "grep -q '^started' $UD/updates/swap.log" 180; check $? "S1: the start-checked script saw app-started.json for the new version (swap.log started)"
+      evidence "S1 app-started.json: $(cat "$UD/app-started.json" 2>&1 | cut -c1-120)"
+      ls "$APPS" | grep -q 'previous'; [ $? != 0 ]; check $? "S1: .previous is gone once the new app proved it started"
+    fi
     evidence "S1 installed bundle: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist") ($(codesign -d -r- "$APPS/OMPdesk.app" 2>&1 | sed -n 's/^designated => //p'))"
   else
     wait_for "grep -q 'copy failed\|install failed\|cannot move' $UD/updates/swap.log 2>/dev/null" 120; check $? "S2: the swap failed (swap.log)"
     evidence "S2 swap.log: $(tr '\n' '|' < "$UD/updates/swap.log" | cut -c1-300)"
     sleep 5
-    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = 0.127.0 ]; check $? "S2: the Electron app is untouched (0.127.0)"
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = $OLD_VERSION ]; check $? "S2: the Electron app is untouched (the old version)"
     ls "$APPS" | grep -q 'updating\|previous'; [ $? != 0 ]; check $? "S2: no .updating or .previous leftovers"
     kill_apps "$APPS/OMPdesk.app/Contents/MacOS"
     chmod -R u+w "$APPS"
@@ -153,8 +185,12 @@ scenario() {
   restore
 }
 scenario s1 0
-scenario s3 2
-scenario s2 1
+if [ -n "$MOVE_FROM_APP" ]; then
+  scenario s4 3
+else
+  scenario s3 2
+  scenario s2 1
+fi
 dialog_evidence
 security delete-keychain "$KC0" 2>/dev/null
 exit $FAILED

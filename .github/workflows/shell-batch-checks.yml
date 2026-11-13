@@ -16,6 +16,10 @@
 #              puts the Electron app back, and a new shell that exits after CEF init (OMP_GUI_TEST_SHELL_FAIL_START=1)
 #              gets Electron back too, started, `swap result outcome rolled back`, no window, no dialog; and the same
 #              version offered again after that failure is not swapped in (`start-failed-before: skipped`).
+#  move-mac-release1  the same move from a stand-in "release 1" (the branch omp/agent/swap-rollback built as an Electron app on the
+#              runner, re-signed with the throwaway certificate): its start-checked swap script keeps `<app>.previous` until the
+#              new app writes app-started.json for the offered version (the success path says `started`), and puts it back
+#              by itself when the shell does not come up (OMP_GUI_TEST_SHELL_FAIL_START=1), no dialog.
 #  keychain    S's landing gate for the macOS keychain (scripts/shell-move/keychain-ci.sh): a release-signed item read by the
 #              shell, an ad-hoc item never asked about, a profile without ciphertext never reading; no SecurityAgent or
 #              coreauthd line. macOS 27 has no hosted runner: the owner's Mac covers it.
@@ -188,6 +192,108 @@ jobs:
           retention-days: 7
       - if: failure()
         shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  release1-app:
+    name: release 1 stand-in (Electron app from omp/agent/swap-rollback)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: omp/agent/swap-rollback
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install
+        with:
+          builder: "true"
+      - id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        run: bun run build:memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.memory-cache.outputs.cache-hit == 'true'
+        run: bun run build:memory -- --check
+      - run: bun run build:agent-desktop
+      - run: bun run build
+      # An unsigned (ad-hoc sealed: scripts/mac-sign.cjs without a certificate) app folder; the move job re-signs it.
+      - name: Package the Electron app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: bunx electron-builder --mac dir --arm64 --publish never
+      - name: Keep the app bundle (symlinks and modes)
+        run: |
+          set -euo pipefail
+          test -d dist/mac-arm64/OMPdesk.app
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/mac-arm64/OMPdesk.app/Contents/Info.plist
+          tar -czf release1-app.tgz -C dist/mac-arm64 OMPdesk.app
+          ls -l release1-app.tgz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release1-app
+          path: release1-app.tgz
+          retention-days: 3
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  move-mac-release1:
+    name: move-mac-release1 (${{ matrix.os }})
+    needs: release1-app
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-mac-inputs
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release1-app
+          path: ${{ runner.temp }}/r1
+      - name: The update move from release 1 (success, then a new shell that does not start)
+        shell: bash
+        run: |
+          set -o pipefail
+          tar -xzf "$RUNNER_TEMP/r1/release1-app.tgz" -C "$RUNNER_TEMP/r1"
+          MOVE_FROM_APP="$RUNNER_TEMP/r1/OMPdesk.app" bash scripts/shell-move/move-mac.sh 2>&1 | tee move-mac-release1.log
+      - name: Evidence lines
+        if: always()
+        shell: bash
+        run: |
+          { echo "### update move from release 1, ${{ matrix.os }}"; echo '```'; grep -E '^(EVIDENCE|ok|FAILED)' move-mac-release1.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: move-mac-release1-${{ matrix.os }}
+          path: move-mac-release1.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
         run: bash scripts/ci-failure.sh
         env:
           GH_TOKEN: ${{ github.token }}
