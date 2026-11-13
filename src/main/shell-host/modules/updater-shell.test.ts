@@ -6,13 +6,14 @@
  * `LOCALAPPDATA`), never the runner's own. macOS runs the manual mode (a relaunch needs a writable stand-in bundle),
  * Windows the automatic one.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { UpdateAuthInfo, UpdateAuthTestResult } from "../../../shared/ipc-types";
 import { type ModuleClient, shellModule } from "./client";
 import { startTestShell, type TestShell, testShellExecutable } from "./test-shell";
@@ -521,9 +522,43 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 	});
 
 	// The installer the shell starts is a real process (was installer-spawn.test.ts and nsis-updater.test.ts): the stand
-	// serves the bytes of Windows' own cmd.exe as the setup, which starts with `--updated …`, reads nothing and ends.
+	// serves a recorder as the setup, a program this suite compiles with the runner's rustc (GitHub's Windows images
+	// carry Rust) that writes the arguments it was started with beside itself and ends.
 	describe.skipIf(process.platform !== "win32")("the Windows installer, a real process", () => {
-		const SYSTEM_EXE = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe");
+		const RECORD = "installer-args.txt";
+		let recorder: Buffer;
+		let built: string;
+
+		beforeAll(() => {
+			built = mkdtempSync(path.join(tmpdir(), "oup-recorder-"));
+			const source = path.join(built, "recorder.rs");
+			writeFileSync(
+				source,
+				`fn main() {
+	let args: Vec<String> = std::env::args().skip(1).collect();
+	let out = std::env::current_exe().unwrap().with_file_name("${RECORD}");
+	let part = out.with_extension("part");
+	std::fs::write(&part, args.join("\\n") + "\\n").unwrap();
+	std::fs::rename(&part, &out).unwrap();
+}
+`,
+			);
+			const exe = path.join(built, "recorder.exe");
+			execFileSync("rustc", ["-O", "-o", exe, source], { cwd: built, stdio: "pipe" });
+			recorder = readFileSync(exe);
+		}, 120_000);
+		afterAll(() => rmSync(built, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+
+		/** The arguments the recorder was started with, once it has written them (it runs detached). */
+		async function startedWith(rig: Rig): Promise<string[]> {
+			const file = path.join(rig.pending, RECORD);
+			const deadline = Date.now() + 20_000;
+			while (!existsSync(file)) {
+				if (Date.now() > deadline) throw new Error("the installer never started");
+				await new Promise(resolve => setTimeout(resolve, 50));
+			}
+			return readFileSync(file, "utf8").trimEnd().split("\n");
+		}
 
 		/** Finds 2.0.0, its "installer" `payload`, and downloads it by itself (automatic mode). */
 		async function downloaded(payload: Buffer): Promise<Rig> {
@@ -541,13 +576,14 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 			JSON.parse(readFileSync(path.join(rig.userData, "update-install.json"), "utf8"));
 
 		it("Restart & install starts the downloaded installer, then Node quits for the update", TIMEOUT, async () => {
-			const rig = await downloaded(readFileSync(SYSTEM_EXE));
+			const rig = await downloaded(recorder);
 			const installed = await rig.updater.call("install", { trigger: "user click" });
 			expect(installed.then).toBe("quit-for-update");
 			// Started: no failure status after the install, and the marker says which install began.
 			expect(rig.statuses.items.some(isState("error"))).toBe(false);
 			expect(marker(rig)).toMatchObject({ from: "1.0.0", to: "2.0.0", mode: "nsis", trigger: "user click" });
 			await rig.logs.until(isLog("swap", "helper"));
+			expect(await startedWith(rig)).toEqual(["--updated", "--force-run"]);
 		});
 
 		it("an installer Windows refuses to run fails the install, and Node still quits", TIMEOUT, async () => {
@@ -559,18 +595,15 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 			expect(failed?.status).toMatchObject({ state: "error", key: "updates.failed" });
 		});
 
-		it(
-			"an approved quit installs silently, and the shell ends only after the installer started",
-			TIMEOUT,
-			async () => {
-				const rig = await downloaded(readFileSync(SYSTEM_EXE));
-				await rig.updater.post("quit", { trigger: "quit" });
-				await rig.logs.until(isLog("swap", "helper"));
-				// Read before the close: the harness removes the private profile once the shell has exited.
-				expect(marker(rig)).toMatchObject({ to: "2.0.0", mode: "nsis", trigger: "quit" });
-				// The shell's `shutdown` joins the installer's start; the close resolves only once the shell has exited.
-				await rig.close();
-			},
-		);
+		it("an approved quit starts the installer silently as the shell ends", TIMEOUT, async () => {
+			const rig = await downloaded(recorder);
+			await rig.updater.post("quit", { trigger: "quit" });
+			await rig.logs.until(isLog("swap", "helper"));
+			// Read before the close: the harness removes the private profile once the shell has exited.
+			expect(marker(rig)).toMatchObject({ to: "2.0.0", mode: "nsis", trigger: "quit" });
+			await rig.close();
+			// The recorder lives in the installer cache, outside the profile: its record outlives the shell.
+			expect(await startedWith(rig)).toEqual(["--updated", "/S"]);
+		});
 	});
 });
