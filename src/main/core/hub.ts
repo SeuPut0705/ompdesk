@@ -27,9 +27,10 @@ export const HUB_CALL_DEADLINE_MS = 2_000;
 /**
  * How long a connection's first waits may take while its worker has not reached the hub yet: the worker thread starts,
  * and the core may be starting (spawned by this very call). That is a process starting, not a hub that stopped
- * answering, and on a loaded Windows runner it took over 2 s. Once connected, every wait has {@link HUB_CALL_DEADLINE_MS}.
+ * answering, and on a loaded Windows runner it took over 2 s. Still under the hang watchdog's 5 s, the owner's bound
+ * on any wait of main's thread. Once connected, every wait has {@link HUB_CALL_DEADLINE_MS}.
  */
-export const HUB_START_DEADLINE_MS = 10_000;
+export const HUB_START_DEADLINE_MS = 4_000;
 
 /** Control words of the shared buffer: [state, length]; the lines follow at {@link DATA_OFFSET}. */
 const STATE = 0;
@@ -342,11 +343,12 @@ export class Hub {
 	 * worker has not reached the hub, slice after slice up to {@link HUB_START_DEADLINE_MS} in all.
 	 */
 	#block(control: Int32Array): "ok" | "not-equal" | "timed-out" {
-		const started = Date.now();
-		for (;;) {
+		// Counted in slices, never read off the clock: a test's fake clock stands still while main's thread waits.
+		for (let slice = 1; ; slice++) {
 			const connected = Atomics.load(control, CONNECTED) === 1;
 			const outcome = Atomics.wait(control, STATE, WAITING, HUB_CALL_DEADLINE_MS);
-			if (outcome !== "timed-out" || connected || Date.now() - started >= HUB_START_DEADLINE_MS) return outcome;
+			if (outcome !== "timed-out" || connected || slice * HUB_CALL_DEADLINE_MS >= HUB_START_DEADLINE_MS)
+				return outcome;
 		}
 	}
 
@@ -402,7 +404,11 @@ export class Hub {
 
 	#answer(handler: HubInstanceHandler, item: HubItem): void {
 		const ask = item.ask as number;
+		// The core that asked: a promise that settles after it was lost has nobody to answer, and the next core numbers
+		// its asks from 1 again, so the answer must never reach that one.
+		const asker = this.#connection;
 		const send = (body: { value?: unknown; error?: { code?: string; message: string } }) => {
+			if (!asker || asker.dead || this.#connection !== asker) return;
 			const params = { ask, ...body };
 			// Inside a call main waits for, the answer goes and that wait picks up what it wakes; otherwise main waits
 			// for the continuation it wakes, as a promise's continuation ran in the resolving tick's microtasks.

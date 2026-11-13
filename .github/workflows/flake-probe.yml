@@ -9,6 +9,11 @@
 # Its own workflow, not a ci.yml input: ci.yml's pre-flight jobs run on every dispatch, and its per-ref
 # concurrency would cancel a probe on the next push (or one probe the next). Manual only; inputs reach the
 # shell through `env`, never inline.
+#
+# The macOS leg is the account's scarcest runner: it needs the queue gate's admission (main or a MAC_REFS branch) and
+# runs in the account-wide `mac-dispatch` lane. A probe is meant to be repeated, so no green run of the same name
+# cancels a new one; an identical dispatch waits for the one running, and a third replaces the waiting one.
+# See .omp/rules/e2e-ci-windows.md › CI › The check queue.
 name: flake-probe
 run-name: "flake ${{ inputs.spec }} ×${{ inputs.repeat }} (${{ inputs.os }})"
 
@@ -36,9 +41,30 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: flake-probe-${{ github.ref }}-${{ inputs.spec }}-${{ inputs.grep }}-${{ inputs.repeat }}-${{ inputs.os }}
+  cancel-in-progress: false
+
 jobs:
+  # The queue's admission point (queue-gate.yml); a probe is repeated on purpose, so it never cancels as a duplicate.
+  gate:
+    permissions:
+      contents: read
+      actions: write # the gate's job may cancel a duplicate run; dedupe is off here
+    uses: ./.github/workflows/queue-gate.yml
+    with:
+      workflow: flake-probe.yml
+      mac: ${{ inputs.os == 'macos' || inputs.os == 'all' }}
+      mac-refs: ${{ vars.MAC_REFS }}
+      dedupe: false
+
   probe:
     name: probe (${{ matrix.os }})
+    needs: gate
+    if: ${{ !cancelled() && (inputs.os != 'macos' || needs.gate.outputs.mac_ok == 'true') }}
+    concurrency:
+      group: ${{ matrix.os == 'macos' && 'mac-dispatch' || format('flake-probe-{0}-{1}', github.run_id, matrix.os) }}
+      cancel-in-progress: false
     runs-on: ${{ matrix.os }}-latest
     timeout-minutes: 60
     permissions:
@@ -47,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.os != 'all' && format('["{0}"]', inputs.os) || endsWith(inputs.spec, '.e2e.ts') && '["macos","windows"]' || '["macos","windows","ubuntu"]') }}
+        os: ${{ fromJSON(format('[{0}]', inputs.os != 'all' && format('"{0}"', inputs.os) || format('{0}"windows"{1}', needs.gate.outputs.mac_ok == 'true' && '"macos",' || '', !endsWith(inputs.spec, '.e2e.ts') && ',"ubuntu"' || ''))) }}
     defaults:
       run:
         shell: bash

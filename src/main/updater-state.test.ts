@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lastSwapEntry } from "./update-log-core";
 import {
 	classifyRepoAccess,
 	DOWNLOAD_IDLE_TIMEOUT_MS,
@@ -261,21 +262,95 @@ describe("in-place macOS swap", () => {
 		expect(isSwappableBundleLocation("/private/var/folders/x/AppTranslocation/ABC/d/ompdesk.app")).toBe(false);
 	});
 
-	describe.runIf(process.platform === "darwin")("swap script", () => {
+	describe.runIf(process.platform !== "win32")("swap script", () => {
 		let dir: string;
 		const makeApp = (appPath: string, marker: string) => {
 			fs.mkdirSync(path.join(appPath, "Contents", "MacOS"), { recursive: true });
 			fs.writeFileSync(path.join(appPath, "Contents", "marker"), marker);
 		};
+		const markerOf = (appPath: string) => fs.readFileSync(path.join(appPath, "Contents", "marker"), "utf8");
+		const swapLog = () => fs.readFileSync(path.join(dir, "swap.log"), "utf8");
+		const opened = () => fs.readFileSync(path.join(dir, "opened.log"), "utf8").trim().split("\n");
+		const markFile = () => path.join(dir, "userData", "app-started.json");
+		const writeMark = (version: string) => {
+			fs.mkdirSync(path.dirname(markFile()), { recursive: true });
+			fs.writeFileSync(markFile(), JSON.stringify({ version, pid: 1, at: 1 }));
+		};
+		// What `open -n <bundle> --args …` is on the test's PATH: it logs the call, and a bundle holding "new" starts by
+		// writing the start mark for STAND_IN_MARK_VERSION (after STAND_IN_MARK_DELAY seconds, when set), as a new app
+		// does once its first page loaded. Written by rename, as main does. `ditto` and `xattr` only stand in where
+		// the host has none (Linux): they come last on the PATH.
+		const writeTools = () => {
+			const first = path.join(dir, "bin-first");
+			const last = path.join(dir, "bin-last");
+			fs.mkdirSync(first);
+			fs.mkdirSync(last);
+			const tool = (folder: string, name: string, body: string) =>
+				fs.writeFileSync(path.join(folder, name), `#!/bin/bash\n${body}\n`, { mode: 0o755 });
+			tool(
+				first,
+				"open",
+				`bundle="$2"
+echo "$* [$(cat "$bundle/Contents/marker")]" >> "$STAND_IN_OPENED"
+if [ "$(cat "$bundle/Contents/marker")" = "new" ] && [ -n "$STAND_IN_MARK_VERSION" ]; then
+  mark() { mkdir -p "$(dirname "$STAND_IN_MARK")"; printf '{"version":"%s","pid":%s,"at":1}' "$STAND_IN_MARK_VERSION" "$$" > "$STAND_IN_MARK.tmp" && mv "$STAND_IN_MARK.tmp" "$STAND_IN_MARK"; }
+  if [ -n "$STAND_IN_MARK_DELAY" ]; then ( sleep "$STAND_IN_MARK_DELAY"; mark ) >/dev/null 2>&1 & else mark; fi
+fi`,
+			);
+			tool(last, "ditto", 'cp -R "$1" "$2"');
+			tool(last, "xattr", "exit 0");
+			return `${first}:${process.env.PATH ?? ""}:${last}`;
+		};
 		// Async: the test's own event loop must stay free to reap the fake app
 		// process, or it lingers as a zombie that still answers `kill -0`.
-		const runSwap = (pid: number, src: string, dest: string) => {
+		const runSwap = (
+			pid: number,
+			src: string,
+			dest: string,
+			options: {
+				relaunch?: "0" | "1";
+				/** What the opener stand-in writes into the mark (none: a new app that never starts). */
+				markVersion?: string;
+				markDelay?: string;
+				expect?: string;
+				waitSeconds?: string;
+			} = {},
+		) => {
 			const { promise, resolve } = Promise.withResolvers<number | null>();
-			spawn("/bin/bash", ["-c", SWAP_SCRIPT, "swap", String(pid), src, dest, "0", path.join(dir, "swap.log")]).on(
-				"exit",
-				resolve,
-			);
+			spawn(
+				"/bin/bash",
+				[
+					"-c",
+					SWAP_SCRIPT,
+					"swap",
+					String(pid),
+					src,
+					dest,
+					options.relaunch ?? "0",
+					path.join(dir, "swap.log"),
+					markFile(),
+					options.expect ?? "2.0.0",
+					"--flag",
+				],
+				{
+					env: {
+						...process.env,
+						PATH: writeTools(),
+						STAND_IN_OPENED: path.join(dir, "opened.log"),
+						STAND_IN_MARK: markFile(),
+						STAND_IN_MARK_VERSION: options.markVersion ?? "",
+						STAND_IN_MARK_DELAY: options.markDelay ?? "",
+						OMPDESK_SWAP_START_WAIT_S: options.waitSeconds ?? "0",
+					},
+				},
+			).on("exit", resolve);
 			return promise;
+		};
+		const staged = () => {
+			const dest = path.join(dir, "Applications", "ompdesk.app");
+			const src = path.join(dir, "updates", "2.0.0", "ompdesk.app");
+			makeApp(src, "new");
+			return { dest, src };
 		};
 
 		beforeEach(() => {
@@ -294,10 +369,116 @@ describe("in-place macOS swap", () => {
 
 			expect(status).toBe(0);
 			expect(Date.now() - startedAt).toBeGreaterThanOrEqual(400);
-			expect(fs.readFileSync(path.join(dest, "Contents", "marker"), "utf8")).toBe("new");
+			expect(markerOf(dest)).toBe("new");
 			expect(fs.readdirSync(path.dirname(dest))).toEqual(["ompdesk.app"]);
 			expect(fs.existsSync(src)).toBe(false);
-			expect(fs.readFileSync(path.join(dir, "swap.log"), "utf8")).toContain("installed");
+			expect(swapLog()).toContain("installed");
+		});
+
+		it("without a relaunch removes the old app at once and opens nothing: that path has no start check", async () => {
+			const { dest, src } = staged();
+			makeApp(dest, "old");
+			expect(await runSwap(999_999, src, dest, { relaunch: "0" })).toBe(0);
+
+			expect(fs.readdirSync(path.dirname(dest))).toEqual(["ompdesk.app"]);
+			expect(fs.existsSync(path.join(dir, "opened.log"))).toBe(false);
+			expect(lastSwapEntry(swapLog())?.outcome).toBe("installed");
+		});
+
+		it("keeps the old app until the new one marked its start, then removes it", async () => {
+			const { dest, src } = staged();
+			makeApp(dest, "old");
+			expect(await runSwap(999_999, src, dest, { relaunch: "1", markVersion: "2.0.0" })).toBe(0);
+
+			expect(markerOf(dest)).toBe("new");
+			expect(fs.readdirSync(path.dirname(dest))).toEqual(["ompdesk.app"]);
+			expect(opened()).toEqual([`-n ${dest} --args --flag [new]`]);
+			const log = swapLog();
+			expect(log).toMatch(/installed\nwaiting for the new app to start\nstarted\n$/);
+			expect(lastSwapEntry(log)?.outcome).toBe("started");
+		});
+
+		it("waits for a mark that comes some time after the open", async () => {
+			const { dest, src } = staged();
+			makeApp(dest, "old");
+			const status = await runSwap(999_999, src, dest, {
+				relaunch: "1",
+				markVersion: "2.0.0",
+				markDelay: "0.3",
+				waitSeconds: "20",
+			});
+
+			expect(status).toBe(0);
+			expect(lastSwapEntry(swapLog())?.outcome).toBe("started");
+			expect(markerOf(dest)).toBe("new");
+			expect(fs.existsSync(`${dest}.previous`)).toBe(false);
+		});
+
+		it("puts the previous app back and reopens it when the new one never marks its start", async () => {
+			const { dest, src } = staged();
+			makeApp(dest, "old");
+			fs.writeFileSync(path.join(dest, "Contents", "MacOS", "app-file"), "intact");
+			expect(await runSwap(999_999, src, dest, { relaunch: "1" })).toBe(0);
+
+			expect(markerOf(dest)).toBe("old");
+			expect(fs.readFileSync(path.join(dest, "Contents", "MacOS", "app-file"), "utf8")).toBe("intact");
+			expect(fs.readdirSync(path.dirname(dest))).toEqual(["ompdesk.app"]);
+			expect(opened()).toEqual([`-n ${dest} --args --flag [new]`, `-n ${dest} --args --flag [old]`]);
+			const log = swapLog();
+			expect(log).toMatch(/installed\nwaiting for the new app to start\nstart failed; previous app restored\n$/);
+			expect(lastSwapEntry(log)?.outcome).toBe("start failed; previous app restored");
+		});
+
+		it("counts a mark for another version as not started", async () => {
+			const { dest, src } = staged();
+			makeApp(dest, "old");
+			expect(await runSwap(999_999, src, dest, { relaunch: "1", markVersion: "1.9.0" })).toBe(0);
+
+			expect(markerOf(dest)).toBe("old");
+			expect(lastSwapEntry(swapLog())?.outcome).toBe("start failed; previous app restored");
+		});
+
+		it("never reads a mark left by an earlier launch as the new app's", async () => {
+			const { dest, src } = staged();
+			makeApp(dest, "old");
+			writeMark("2.0.0");
+			expect(await runSwap(999_999, src, dest, { relaunch: "1" })).toBe(0);
+
+			expect(markerOf(dest)).toBe("old");
+			expect(fs.existsSync(markFile())).toBe(false);
+			expect(lastSwapEntry(swapLog())?.outcome).toBe("start failed; previous app restored");
+		});
+
+		it("ends what the new app left running before it takes the old one back", async () => {
+			const { dest, src } = staged();
+			makeApp(dest, "old");
+			const leftover = spawn("/bin/bash", [
+				"-c",
+				'exec -a "$0" sleep 60',
+				path.join(dest, "Contents", "MacOS", "app"),
+			]);
+			const exited = new Promise<NodeJS.Signals | null>(resolve =>
+				leftover.once("exit", (_code, signal) => resolve(signal)),
+			);
+			await vi.waitFor(() => {
+				const processes = execFileSync("ps", ["-axww", "-o", "pid=", "-o", "command="], { encoding: "utf8" });
+				expect(processes).toContain(`${leftover.pid} ${path.join(dest, "Contents", "MacOS", "app")}`);
+			});
+			expect(await runSwap(999_999, src, dest, { relaunch: "1" })).toBe(0);
+
+			expect(await exited).toBe("SIGTERM");
+			expect(markerOf(dest)).toBe("old");
+			expect(lastSwapEntry(swapLog())?.outcome).toBe("start failed; previous app restored");
+		});
+
+		it("says the previous app is lost when there was none to put back, and leaves what is there", async () => {
+			const { dest, src } = staged();
+			fs.mkdirSync(path.dirname(dest), { recursive: true });
+			expect(await runSwap(999_999, src, dest, { relaunch: "1" })).toBe(0);
+
+			expect(markerOf(dest)).toBe("new");
+			expect(opened()).toEqual([`-n ${dest} --args --flag [new]`]);
+			expect(lastSwapEntry(swapLog())?.outcome).toBe("start failed; previous app lost");
 		});
 
 		it("leaves the installed app untouched when the staged bundle is gone", async () => {
@@ -306,8 +487,13 @@ describe("in-place macOS swap", () => {
 			const status = await runSwap(999_999, path.join(dir, "missing", "ompdesk.app"), dest);
 
 			expect(status).toBe(1);
-			expect(fs.readFileSync(path.join(dest, "Contents", "marker"), "utf8")).toBe("old");
-			expect(fs.readdirSync(dir).sort()).toEqual(["ompdesk.app", "swap.log"]);
+			expect(markerOf(dest)).toBe("old");
+			expect(
+				fs
+					.readdirSync(dir)
+					.filter(name => !name.startsWith("bin-"))
+					.sort(),
+			).toEqual(["ompdesk.app", "swap.log"]);
 		});
 	});
 });

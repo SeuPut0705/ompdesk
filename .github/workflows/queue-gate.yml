@@ -1,0 +1,116 @@
+# The one admission point of the check queue (owner's rule, 13 Nov 2026: the account runs 5 macOS jobs at once and
+# sessions queued 71 of them, so every session had to judge the queue and Main cancelled runs by hand all evening).
+# Every workflow a session can dispatch calls this first (`needs: gate`), so the rules below hold for a raw
+# `gh workflow run` as well as for `bun scripts/ci-run.ts`:
+#
+#   1. macOS is for release-bound work. A dispatch that asks for macOS runners (`mac`) is admitted only from `main` or a
+#      branch named in the repository variable MAC_REFS (space or comma separated; Main sets it with
+#      `gh variable set MAC_REFS --body "branch-a branch-b"`). Any other ref fails here with the reason, and its macOS
+#      jobs (`needs: gate`, `if: needs.gate.outputs.mac_ok == 'true'`) never start. Pushes to main, schedules and
+#      release.yml are always admitted.
+#   2. The same commit is checked once. A dispatch whose commit already has a successful run of the same workflow with
+#      the same inputs (the run name, which every caller builds from its inputs) cancels itself, unless `force` or a
+#      re-run (attempt 2 and later). A failed or cancelled run covers nothing, and a run still going is not a twin:
+#      the caller's concurrency group already lets the newest dispatch replace it.
+#
+# The macOS cap itself is not here: it is the caller's job-level concurrency group (`mac-dispatch`, one holder and
+# one waiting request for every dispatched macOS job of every workflow and ref), which GitHub enforces whatever
+# this job does. See .omp/rules/e2e-ci-windows.md › CI › The check queue.
+name: queue-gate
+
+on:
+  workflow_call:
+    inputs:
+      workflow:
+        description: "The calling workflow's file name (the lookup of its earlier runs)"
+        type: string
+        required: true
+      mac:
+        description: "This run asks for macOS runners"
+        type: boolean
+        default: false
+      mac-refs:
+        description: "vars.MAC_REFS"
+        type: string
+        default: ""
+      dedupe:
+        description: "Cancel this run when its commit already has a green run of the same name"
+        type: boolean
+        default: true
+      force:
+        description: "Run even when the commit already has a green run of the same name"
+        type: boolean
+        default: false
+    outputs:
+      mac_ok:
+        description: "'true' when the run may start its macOS jobs"
+        value: ${{ jobs.gate.outputs.mac_ok }}
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write # `gh run cancel` on this run when its commit is already green
+    outputs:
+      mac_ok: ${{ steps.admit.outputs.mac_ok }}
+    steps:
+      - name: macOS is for release-bound work
+        id: admit
+        env:
+          EVENT: ${{ github.event_name }}
+          MAC: ${{ inputs.mac }}
+          MAC_REFS: ${{ inputs.mac-refs }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ok=false
+          if [ "$EVENT" != workflow_dispatch ] || [ "$MAC" != true ] || [ "$REF" = refs/heads/main ]; then
+            ok=true
+          else
+            set -f # the list is names, never glob patterns
+            for ref in ${MAC_REFS//,/ }; do
+              if [ "$ref" = "$REF_NAME" ]; then ok=true; fi
+            done
+          fi
+          echo "mac_ok=$ok" >> "$GITHUB_OUTPUT"
+          if [ "$ok" != true ]; then
+            echo "::error title=macOS is reserved for release-bound work::$REF_NAME is not in MAC_REFS (now: '${MAC_REFS:-empty}'). Main adds a branch with: gh variable set MAC_REFS --body \"<branch> ...\""
+            exit 1
+          fi
+
+      # Fails open: a lookup that errors leaves the run going. The job's own failure is for the admission above only.
+      - name: The same commit and inputs are checked once
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedupe && !inputs.force && github.run_attempt == 1 }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          WORKFLOW: ${{ inputs.workflow }}
+        run: |
+          set -euo pipefail
+          title=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .display_title)
+          # No inputs in the name means no way to tell two dispatches apart: leave this run alone.
+          case "$title" in *"["*"]"*) ;; *) echo "::warning::run name '$title' carries no inputs: not compared"; exit 0 ;; esac
+          twin=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?head_sha=$SHA&event=workflow_dispatch&status=success&per_page=100" |
+            jq -r --arg title "$title" --arg me "$RUN_ID" \
+              '[.workflow_runs[] | select(.display_title == $title and (.id | tostring) != $me)] | first | .id // empty')
+          if [ -z "$twin" ]; then
+            echo "No green run of '$title' on ${SHA:0:12} yet."
+            exit 0
+          fi
+          msg="Commit ${SHA:0:12} already has a green '$title': https://github.com/$REPO/actions/runs/$twin. This run is cancelled; pass force=true to run it anyway."
+          echo "::notice title=Already checked::$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+          # The API, not `gh run cancel`: that asks git for the repository, and this job has no checkout.
+          gh api --method POST "repos/$REPO/actions/runs/$RUN_ID/cancel"
+          # The cancel ends this job; reaching the end of the wait means it did not.
+          sleep 120
+          exit 1

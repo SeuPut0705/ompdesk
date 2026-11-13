@@ -32,6 +32,8 @@ pub const DIR_ENV: &str = "OMPDESK_HEAVY_DIR";
 pub const SLOTS_ENV: &str = "OMPDESK_HEAVY_SLOTS";
 pub const HELD_ENV: &str = "OMPDESK_HEAVY_HELD";
 pub const MIN_FREE_ENV: &str = "OMPDESK_HEAVY_MIN_FREE_GB";
+/// Free space under which a running heavy command is stopped, in GB (default `watch::DANGER`); for tests.
+pub const DANGER_ENV: &str = "OMPDESK_HEAVY_DANGER_GB";
 
 const GIB: u64 = 1024 * 1024 * 1024;
 const MAX_SLOTS: usize = 7;
@@ -136,6 +138,8 @@ pub struct Volumes {
     pub paths: Vec<PathBuf>,
     /// `OMPDESK_HEAVY_MIN_FREE_GB` in bytes; `None` is `min_free` of each volume.
     pub need: Option<u64>,
+    /// Free bytes under which a running command is stopped.
+    pub danger: u64,
     probe: Probe,
 }
 
@@ -166,13 +170,18 @@ impl Volumes {
                 paths.push(cwd.join(value));
             }
         }
-        let need = env(MIN_FREE_ENV)
-            .and_then(|v| v.trim().parse::<f64>().ok())
-            .filter(|gb| *gb >= 0.0)
-            .map(|gb| (gb * GIB as f64) as u64);
+        let gb_of = |name: &str| {
+            env(name)
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .filter(|gb| *gb >= 0.0)
+                .map(|gb| (gb * GIB as f64) as u64)
+        };
+        let need = gb_of(MIN_FREE_ENV);
+        let danger = gb_of(DANGER_ENV).unwrap_or(crate::watch::DANGER);
         Volumes {
             paths: paths.iter().filter_map(|p| existing(p)).collect(),
             need,
+            danger,
             probe: std::sync::Arc::new(crate::sys::disk_space),
         }
     }
@@ -396,12 +405,24 @@ impl Pool {
     }
 
     /// Takes `weight` slots (clamped to the pool's size), waiting in order behind every earlier waiter.
-    /// `on_wait` is called once when the slots are not free at once.
+    /// `on_wait` is called when the slots are not free at once and again when the reason changes.
     pub fn acquire(
+        &self,
+        weight: usize,
+        owner: Owner,
+        on_wait: impl FnMut(&Waiting),
+    ) -> io::Result<Lease> {
+        self.acquire_unless(weight, owner, on_wait, &|| false)
+    }
+
+    /// `acquire` that gives up its place, with `ErrorKind::Interrupted`, once `cancelled` says so (a cancelled check
+    /// that still waits never starts later).
+    pub fn acquire_unless(
         &self,
         weight: usize,
         mut owner: Owner,
         mut on_wait: impl FnMut(&Waiting),
+        cancelled: &dyn Fn() -> bool,
     ) -> io::Result<Lease> {
         let want = weight.clamp(1, self.size);
         let started = Instant::now();
@@ -409,6 +430,12 @@ impl Pool {
         let mut held: Vec<(usize, File)> = Vec::new();
         let mut told: Option<(bool, usize)> = None;
         let outcome = loop {
+            if cancelled() {
+                break Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "cancelled while waiting",
+                ));
+            }
             let tickets = self.live_tickets(Some(&ticket_path));
             let ahead = tickets.iter().filter(|(n, _)| *n < number).count();
             let mut low_disk = Vec::new();

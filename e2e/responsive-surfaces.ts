@@ -85,7 +85,7 @@ export interface Surface {
 	};
 }
 
-export type ParitySession = "work" | "reply" | "steer" | "limit";
+export type ParitySession = "work" | "reply" | "steer" | "advisor" | "limit";
 
 /** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
 async function scriptVoice(script: Record<string, unknown>): Promise<void> {
@@ -809,6 +809,19 @@ export const SURFACES: readonly Surface[] = [
 		settle: 900,
 		when: () => false,
 		parity: { session: "steer" },
+	},
+	{
+		id: "reply-advisor-note",
+		area: "A",
+		title: "An advisor note with prices, a bare URL and one long formula: money stays text, every line stays inside the card",
+		open: async page => {
+			await showTurn(page, "fixture advisor note");
+			await page.getByText("Advisor note delivered.", { exact: true }).last().waitFor({ timeout: 15_000 });
+		},
+		ready: "[data-card]:has-text('결론을 정정하세요')",
+		settle: 900,
+		when: () => false,
+		parity: { session: "advisor", inView: "[data-card]:has-text('결론을 정정하세요')" },
 	},
 	...(
 		[

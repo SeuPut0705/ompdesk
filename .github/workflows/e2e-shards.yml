@@ -3,6 +3,9 @@
 # Called by e2e-nightly.yml and by ci.yml's manual `e2e=true`, each after its
 # own `build-out` job; release.yml no longer calls it. It never runs on its own.
 #
+# The callers hold the account-wide macOS lane for the whole call (a concurrency group on the calling job: `mac-dispatch`
+# for a dispatch, `mac-nightly` for the nightly); this workflow sets no group of its own.
+#
 # Sharding is scripts/e2e-shard.ts (whole spec files, dealt by estimated cost),
 # not `playwright test --shard`, which counts tests that skip inside their body
 # and so leaves one shard nearly empty. Every shard runs against the real latest

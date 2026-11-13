@@ -280,18 +280,63 @@ fn run(rest: &[String]) -> i32 {
     code
 }
 
-/// Ends `pid` (and on Windows its tree): SIGTERM, then SIGKILL after `GRACE` if it still runs.
-pub fn stop_process(pid: u32) {
+/// `pid` and every process under it now (`ps`'s parent links), deepest first; a descendant that left its parent
+/// (a daemon) is not seen.
+#[cfg(unix)]
+pub fn tree(pid: u32) -> Vec<u32> {
+    let out = Command::new("ps")
+        .args(["-A", "-o", "pid=,ppid="])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let pairs: Vec<(u32, u32)> = out
+        .lines()
+        .filter_map(|l| {
+            let mut w = l.split_whitespace();
+            Some((w.next()?.parse().ok()?, w.next()?.parse().ok()?))
+        })
+        .collect();
+    let mut all = vec![pid];
+    let mut at = 0;
+    while at < all.len() {
+        let parent = all[at];
+        all.extend(
+            pairs
+                .iter()
+                .filter(|(_, pp)| *pp == parent)
+                .map(|(p, _)| *p),
+        );
+        at += 1;
+    }
+    all.reverse();
+    all
+}
+
+/// Ends `pid` and what it started (on Windows its tree): SIGTERM to each, then SIGKILL after `grace` to what is left.
+/// A shell wrapper's children are its own processes, not the wrapper, so each is signalled.
+pub fn stop_process(pid: u32, grace: std::time::Duration) {
     #[cfg(unix)]
     {
-        crate::sys::signal(pid, libc::SIGTERM);
-        std::thread::sleep(crate::watch::GRACE);
-        if crate::sys::alive(pid) {
-            crate::sys::signal(pid, libc::SIGKILL);
+        let first = tree(pid);
+        for p in &first {
+            crate::sys::signal(*p, libc::SIGTERM);
+        }
+        let until = std::time::Instant::now() + grace;
+        while std::time::Instant::now() < until && first.iter().any(|p| crate::sys::alive(*p)) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        // Read the tree again: a process may have started children meanwhile.
+        let mut left = tree(pid);
+        left.extend(first.into_iter().filter(|p| crate::sys::alive(*p)));
+        for p in left {
+            crate::sys::signal(p, libc::SIGKILL);
         }
     }
     #[cfg(windows)]
     {
+        let _ = grace;
         let _ = Command::new("taskkill")
             .args(["/T", "/F", "/PID", &pid.to_string()])
             .stdout(std::process::Stdio::null())
@@ -351,7 +396,7 @@ fn run_holding(command: &[String]) -> i32 {
         heavy::Volumes::of_work(&here, command, &env),
         None,
         |line| eprintln!("ompdesk: {line}"),
-        Some(Box::new(move || stop_process(pid))),
+        Some(Box::new(move || stop_process(pid, crate::watch::GRACE))),
     );
     let out = std::sync::Arc::new(crate::watch::Capped::new(io::stdout()));
     let err = std::sync::Arc::new(crate::watch::Capped::new(io::stderr()));
@@ -504,5 +549,44 @@ fn heavy_command(rest: &[String]) -> i32 {
             0
         }
         _ => usage("heavy takes status or hold"),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_stop_ends_a_shell_wrapper_and_the_writer_it_started() {
+        // A wrapper that ignores SIGTERM and a background writer under it: both must be gone.
+        let mut wrapper = Command::new("sh")
+            .args(["-c", "trap '' TERM; sleep 60 & echo $! ; wait"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        let mut out = std::io::BufReader::new(wrapper.stdout.take().unwrap());
+        std::io::BufRead::read_line(&mut out, &mut line).unwrap();
+        let writer: u32 = line.trim().parse().unwrap();
+        let reaper = std::thread::spawn(move || wrapper.wait());
+        let started = Instant::now();
+        stop_process(reaper_pid(&reaper, writer), Duration::from_millis(300));
+        let until = Instant::now() + Duration::from_secs(5);
+        while crate::sys::alive(writer) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!crate::sys::alive(writer), "the writer survived");
+        assert!(reaper.join().unwrap().is_ok());
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    /// The wrapper's pid: the parent of the writer it started.
+    fn reaper_pid<T>(_: &std::thread::JoinHandle<T>, writer: u32) -> u32 {
+        let out = Command::new("ps")
+            .args(["-o", "ppid=", "-p", &writer.to_string()])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
     }
 }

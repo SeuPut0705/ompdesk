@@ -263,7 +263,7 @@ describe("memory recall hook, term corpus", () => {
 	it("drops a conclusion whose shared words the sibling terms file says are common", async () => {
 		// The prompt's rare word (기기연결) is not in the conclusion; every word it does share is everyday.
 		const common = Object.fromEntries(["테일스케일", "페어링", "삭제", "신원", "연결", "코드"].map(t => [t, 90]));
-		common["기기연결"] = 1;
+		common.기기연결 = 1;
 		await writeFile(
 			join(dir, "recall-terms.json"),
 			JSON.stringify({ v: 1, store: "s", native: 1, synced: 0, n: 100, df: common }),
