@@ -85,6 +85,17 @@ fn omp(method: &str, args: &Value) -> Result<Value, String> {
                             (Some("/w/shot.png"), _) | (_, Some(1)) => png("shot.png"),
                             (Some("/w/doc.pdf"), _) => pdf("doc.pdf"),
                             (Some("/w/same.pdf"), _) => pdf("same.pdf"),
+                            (Some(path), _)
+                                if path.starts_with("/w/p") || path.starts_with("/w/s") =>
+                            {
+                                // Distinct pictures: 10 MiB each (`/w/p*`) or 7 MiB each (`/w/s*`).
+                                let size =
+                                    if path.starts_with("/w/p") { 10 } else { 7 } * 1024 * 1024;
+                                let mut bytes = vec![7u8; size];
+                                bytes[..PNG.len()].copy_from_slice(PNG);
+                                bytes[PNG.len()] = path.as_bytes()[path.len() - 5];
+                                json!({ "success": true, "data": { "name": path.rsplit('/').next().unwrap(), "mimeType": "image/png", "dataBase64": b64(&bytes) } })
+                            }
                             (Some("/w/big.bin"), _) => {
                                 json!({ "success": true, "data": { "name": "big.bin", "mimeType": "application/octet-stream", "dataBase64": b64(&vec![0u8; 10 * 1024 * 1024 + 1]) } })
                             }
@@ -602,4 +613,55 @@ fn the_store_keeps_what_an_entry_names_and_sweeps_the_rest_once_it_is_old() {
     *now.lock().unwrap() = 1_000_000_000.0 + 1e15;
     assert_eq!(store.sweep(&keep), 1);
     assert!(store.get_now(&kept).is_some());
+}
+
+/// The link refuses a message past 16 MiB, so what crosses it to a paired device's tab is bounded: at most 8 MiB of
+/// pictures inline (about 10.7 MiB as base64), every other picture lands as a file there and is named by its path.
+#[tokio::test]
+async fn pictures_for_a_paired_device_stay_under_the_links_frame_cap() {
+    const FRAME_CAP: usize = 16 * 1024 * 1024;
+    for (first, second, inline) in [("/w/p1.png", "/w/p2.png", 0), ("/w/s1.png", "/w/s2.png", 1)] {
+        let dir = temp(&format!("device-{inline}"));
+        let mut device = tab("b");
+        device["device"] = json!("dev-1");
+        let (control, asked) = rig(
+            9_420 + inline as u64,
+            state(vec![tab("a"), device]),
+            Caps::default(),
+            &files_in(&dir),
+            omp,
+        );
+        let sent = control
+            .run(
+                "a",
+                "ompdesk_session_send",
+                json!({ "session": "b", "message": "look", "attachments": [{ "path": first }, { "path": second }] }),
+                None,
+            )
+            .await;
+        assert!(!sent.is_error, "{}", sent.text);
+        let prompts = asked_with(&asked, "command")
+            .into_iter()
+            .filter(|args| args["command"]["type"] == "prompt")
+            .collect::<Vec<_>>();
+        assert_eq!(prompts.len(), 1);
+        let command = &prompts[0]["command"];
+        assert_eq!(command["images"].as_array().map_or(0, Vec::len), inline);
+        assert!(
+            command.to_string().len() < FRAME_CAP,
+            "the command over the link is {} bytes",
+            command.to_string().len()
+        );
+        // Whatever did not go inline landed on that computer and is named in the message.
+        assert_eq!(asked_with(&asked, "land").len(), 2 - inline);
+        assert_eq!(
+            command["message"]
+                .as_str()
+                .unwrap()
+                .matches("Attached: /up/")
+                .count(),
+            2 - inline
+        );
+        control.host.port().close();
+    }
 }
