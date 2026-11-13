@@ -21,10 +21,11 @@ function route(): void {
 	if (routed) return;
 	routed = true;
 	const process = core();
-	process.on("remotebytes.ask", data => {
+	process.on("remotebytes.ask", (data, _bin, generation) => {
 		const { call, asker, ...ask } = data as { call: number; asker: number } & BytesAsk;
+		// The core numbers its asks from 1 at every start: only the core that asked may hear the answer.
 		const reply = (answer: object) =>
-			void process.call("remotebytes.answer", { call, ...answer }).catch(() => undefined);
+			void process.call("remotebytes.answer", { call, ...answer }, { generation }).catch(() => undefined);
 		const answerer = answerers.get(asker);
 		if (!answerer) reply({ failed: true });
 		else

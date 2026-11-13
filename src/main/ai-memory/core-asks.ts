@@ -35,7 +35,7 @@ function field(value: unknown, key: string): unknown {
  * handler is refused, so the core's request fails with a message instead of waiting.
  */
 export function answerAsks(service: string, handlers: Readonly<Record<string, AskHandler>>): () => void {
-	return core().on("upkeep.ask", data => {
+	return core().on("upkeep.ask", (data, _bin, generation) => {
 		const ask = field(data, "ask");
 		const kind = field(data, "kind");
 		if (field(data, "service") !== service || typeof ask !== "number" || typeof kind !== "string") return;
@@ -48,7 +48,7 @@ export function answerAsks(service: string, handlers: Readonly<Record<string, As
 				return { ask, ok: false, error: error instanceof Error ? error.message : String(error) };
 			}
 		})()
-			.then(answer => core().call("upkeep.answer", answer))
+			.then(answer => core().call("upkeep.answer", answer, { generation }))
 			// A core that ended meanwhile has nothing left that waits for it.
 			.catch(() => {});
 	});

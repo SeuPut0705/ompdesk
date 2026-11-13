@@ -86,10 +86,11 @@ function route(): void {
 	if (routed) return;
 	routed = true;
 	const process = core();
-	process.on("memsync.ask", data => {
+	process.on("memsync.ask", (data, _bin, generation) => {
 		const ask = data as Ask;
+		// The core numbers its asks from 1 at every start: only the core that asked may hear the answer.
 		const answer = (result: unknown) =>
-			void process.call("memsync.answer", { call: ask.call, result }).catch(() => undefined);
+			void process.call("memsync.answer", { call: ask.call, result }, { generation }).catch(() => undefined);
 		if (ask.kind === "redact") answer(ask.texts.map(redactDiagnosticsText));
 		else {
 			const sync = syncs.get(ask.sync);

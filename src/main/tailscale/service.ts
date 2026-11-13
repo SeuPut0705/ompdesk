@@ -183,13 +183,13 @@ function route(): void {
 	if (routed) return;
 	routed = true;
 	const process = core();
-	process.on("mobileWeb.ask", data => {
+	process.on("mobileWeb.ask", (data, _bin, generation) => {
 		const ask = data as Ask;
 		const service = services.get(ask.service);
-		if (service) service.answerAsk(ask);
+		if (service) service.answerAsk(ask, generation);
 		else
 			void core()
-				.call("mobileWeb.answer", { call: ask.call, ok: false, message: "cancelled" })
+				.call("mobileWeb.answer", { call: ask.call, ok: false, message: "cancelled" }, { generation })
 				.catch(() => undefined);
 	});
 	process.on("mobileWeb.state", data => {
@@ -386,11 +386,14 @@ export class MobileWebService {
 		this.#deps.onState(state);
 	}
 
-	/** Answers the core's question from `deps`; a question of a step that was stopped is not asked. */
-	answerAsk(ask: Ask): void {
+	/**
+	 * Answers the core's question from `deps`; a question of a step that was stopped is not asked. The answer goes only to
+	 * the core of `generation` that asked: the next core numbers its questions from 1 again.
+	 */
+	answerAsk(ask: Ask, generation: number): void {
 		const reply = (body: { ok: true; result: unknown } | { ok: false; message: string }) =>
 			void core()
-				.call("mobileWeb.answer", { call: ask.call, ...body })
+				.call("mobileWeb.answer", { call: ask.call, ...body }, { generation })
 				.catch(() => undefined);
 		if (this.#tokens.get(ask.token)?.aborted) {
 			reply({ ok: false, message: "cancelled" });

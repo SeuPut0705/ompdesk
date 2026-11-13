@@ -402,11 +402,11 @@ export class AiMemoryService {
 	async #opening(): Promise<void> {
 		const host = core();
 		const mine =
-			<T>(handle: (told: T) => void) =>
-			(data: unknown) => {
+			<T>(handle: (told: T, generation: number) => void) =>
+			(data: unknown, _bin: Uint8Array | null, generation: number) => {
 				// A frame of this app's own core, spelled by `aimemory/service/mod.rs`.
 				const told = data as T & { service: string };
-				if (told.service === this.#name && !this.#disposed) handle(told);
+				if (told.service === this.#name && !this.#disposed) handle(told, generation);
 			};
 		if (this.#unsubscribe.length === 0) {
 			this.#unsubscribe = [
@@ -429,7 +429,7 @@ export class AiMemoryService {
 				),
 				host.on(
 					"aimemory.service.ask",
-					mine<Ask>(ask => void this.#answer(ask)),
+					mine<Ask>((ask, generation) => void this.#answer(ask, generation)),
 				),
 				host.on(
 					"aimemory.service.cancel",
@@ -519,11 +519,20 @@ export class AiMemoryService {
 	 * the request's own timeout (a timer on that clock) would end it at the test's first jump: there it waits as long
 	 * as a held request.
 	 */
-	async #call<T>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
+	async #call<T>(
+		method: string,
+		params: Record<string, unknown> = {},
+		timeoutMs?: number,
+		generation?: number,
+	): Promise<T> {
 		const now = this.#deps.now;
 		const sent = { service: this.#name, ...(now ? { now: now() } : {}), ...params };
 		const bound = now ? HOLD_MS : timeoutMs;
-		return (await core().call<T>(method, sent, bound === undefined ? {} : { timeoutMs: bound })).result;
+		const options = {
+			...(bound === undefined ? {} : { timeoutMs: bound }),
+			...(generation === undefined ? {} : { generation }),
+		};
+		return (await core().call<T>(method, sent, options)).result;
 	}
 
 	/** A queued step: queued in its turn, then waited for. */
@@ -546,7 +555,7 @@ export class AiMemoryService {
 		return error.code.startsWith("memory_") ? new Error(error.message) : error;
 	}
 
-	async #answer(ask: Ask): Promise<void> {
+	async #answer(ask: Ask, generation: number): Promise<void> {
 		let answer: { value: unknown } | { error: { message: string; stack: string | null } };
 		try {
 			answer = { value: (await this.#asked(ask)) ?? null };
@@ -558,8 +567,10 @@ export class AiMemoryService {
 				},
 			};
 		}
-		// A core that went meanwhile asks again.
-		await this.#call("aimemory.service.answer", { ask: ask.ask, ...answer }).catch(() => undefined);
+		// A core that went meanwhile asks again; the next core numbers its asks from 1, so it never hears this answer.
+		await this.#call("aimemory.service.answer", { ask: ask.ask, ...answer }, undefined, generation).catch(
+			() => undefined,
+		);
 	}
 
 	async #asked(ask: Ask): Promise<unknown> {
