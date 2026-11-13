@@ -243,7 +243,7 @@ Switch(t, s) ==
 
 \* @code native/ompdesk/crates/core/src/pool/listen.rs:212-247 Ctx::feed_session_info: sessionInfoUpdate with another sessionId unregisters the file (entry.sessionFile = undefined)
 \* @code native/ompdesk/crates/core/src/pool/routes.rs:99-118 Ctx::unregister_session_file_of: #unregisterSessionFile: the let-go calls onSessionFilesChanged
-\* @code src/main/index.ts:1421-1424 onSessionFilesChanged -> hostServices.listingChanged()
+\* @code src/main/index.ts:1435-1438 onSessionFilesChanged -> hostServices.listingChanged()
 IdChange(t) ==
     /\ ~Busy
     /\ t \in WinTabs /\ file[t] # NoS /\ nChanges < MaxChanges
@@ -261,7 +261,7 @@ Reregister(t, s) ==
     /\ pendReg' = pendReg \ {t}
     /\ UNCHANGED <<rec, idx, hs, lkv, hsl, ip, fd, post, cn, seen>>
 
-\* @code src/main/index.ts:1269-1278 sessionOpeners(): the closed-child record (AGENT_CLOSED_CHILDREN_PREF) appears or goes
+\* @code src/main/index.ts:1283-1292 sessionOpeners(): the closed-child record (AGENT_CLOSED_CHILDREN_PREF) appears or goes
 \* @code src/main/ipc.ts:1285 the pref changed: hostedTabs.listingChanged()
 Record ==
     /\ ~Busy
