@@ -59,8 +59,11 @@ interface Helper {
 const plist = require("plist") as { build: (value: Record<string, unknown>) => string };
 const { afterPack } = require("./after-pack.cjs") as { afterPack: (context: PackContext) => Promise<void> };
 const bundle = require("./mac-bundle-info.cjs") as {
+	APP_ID: string;
 	PRODUCT: string;
 	FRAMEWORK: string;
+	SHELL: string;
+	LAUNCHER: string;
 	HELPERS: Helper[];
 	frameworkRoot: (framework: string) => string;
 	appInfo: (version: string) => Record<string, unknown>;
