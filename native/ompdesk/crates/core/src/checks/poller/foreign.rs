@@ -197,6 +197,7 @@ pub async fn list() -> Result<Vec<Proc>, String> {
 }
 
 /// `ps -o pid=,ppid=,command=`: two numbers and the rest of the line.
+#[cfg(any(unix, test))]
 fn parse_ps(text: &str) -> Vec<Proc> {
     text.lines()
         .filter_map(|line| {
