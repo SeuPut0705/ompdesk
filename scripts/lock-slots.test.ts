@@ -6,6 +6,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { configureNativeBin, nativeBinPath } from "../src/main/native-bin";
 import { ensureNative } from "./build-native";
 import {
+import { removeWhenFree } from "../src/main/test-folders";
 	acquireHeavy,
 	acquireHold,
 	acquireSlot,
@@ -90,9 +91,11 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-slots-"));
 	said = [];
 });
-afterEach(() => {
+// A released `ompdesk heavy hold` removes its slot's owner file as it exits; on Windows that pending delete refuses the
+// folder's removal (EPERM) until the hold is gone.
+afterEach(async () => {
 	for (const lease of leases.splice(0)) lease.release();
-	fs.rmSync(dir, { recursive: true, force: true });
+	await removeWhenFree(dir);
 });
 
 describe("slots", () => {
