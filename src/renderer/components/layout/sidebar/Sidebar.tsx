@@ -145,6 +145,7 @@ import { projectMenuItems } from "./project-menu";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { logSelection, useRowSelection } from "./row-selection";
 import { SidebarChats } from "./SidebarChats";
+import { SidebarChecks } from "./SidebarChecks";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarDoneMark } from "./SidebarDoneMark";
@@ -330,6 +331,7 @@ function SidebarFooter() {
 			className="flex shrink-0 flex-col gap-px border-t border-(--sc-divider) p-2"
 			data-sidebar-destinations
 		>
+			<SidebarChecks />
 			{railPins.map(pin => {
 				if (pin === "usage") return <SidebarUsage key={pin} {...pinMenuHandlers(pin, setPinMenu)} />;
 				// Agents and Stats are the destination rows below, shown only while pinned.

@@ -204,3 +204,100 @@ html[data-input="touch"] .omp-sidebar-usage [data-provider-head] {
 .omp-sidebar-usage .omp-usage-gauge-reset {
 	font-size: var(--sc-font-2xs);
 }
+
+/* Checks block in the footer (SidebarChecks.tsx): ONE button for the whole block, so its box is the hover and the
+   selected wash. The 6 px inset puts the gauges' edge where the destination rows' wash begins and the head's glyph
+   over theirs; the focus ring is the base :focus-visible outline. It never scrolls: four pools and a release line of
+   two clipped lines are its most. */
+.omp-sidebar-checks {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	flex-direction: column;
+	gap: var(--sc-space-1-5);
+	padding: var(--sc-space-1-5);
+	border-radius: var(--sc-radius-md);
+	background: transparent;
+	color: var(--sc-text-secondary);
+	cursor: pointer;
+	font-size: var(--sc-font-xs);
+	text-align: left;
+}
+
+.omp-sidebar-checks:hover {
+	background: var(--sc-hover);
+}
+
+.omp-sidebar-checks[aria-current="page"] {
+	background: var(--sc-selected);
+}
+
+.omp-sidebar-checks-head {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: var(--sc-space-1-5);
+	font-weight: 500;
+}
+
+/* "not read lately" and "offline" stand where the badge did, quiet: a count that old is not news. */
+.omp-sidebar-checks-quiet {
+	flex-shrink: 0;
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-2xs);
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+.omp-sidebar-checks-pools {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: var(--sc-space-1-5);
+}
+
+.omp-sidebar-checks .omp-usage-gauge-text {
+	gap: var(--sc-space-1);
+	padding-inline: var(--sc-space-1-5);
+}
+
+/* A runner's long id gives way to the count, never the count to the name. */
+.omp-sidebar-checks .omp-usage-gauge-text > :first-child {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.omp-sidebar-checks .omp-usage-gauge-reset {
+	font-size: var(--sc-font-2xs);
+}
+
+.omp-sidebar-checks-more {
+	padding-inline: 2px;
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-2xs);
+}
+
+.omp-sidebar-checks-release {
+	display: flex;
+	min-width: 0;
+	align-items: flex-start;
+	gap: var(--sc-space-1-5);
+	padding-inline: 2px;
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-2xs);
+}
+
+.omp-sidebar-checks-release > svg {
+	margin-top: 1px;
+}
+
+.omp-sidebar-checks-release-text {
+	display: -webkit-box;
+	min-width: 0;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+}
