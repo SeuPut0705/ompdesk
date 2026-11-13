@@ -25,9 +25,13 @@ export interface CliInstallOptions {
 
 const shQuote = (text: string): string => `'${text.replace(/'/g, "'\\''")}'`;
 
-/** Also Git Bash's launcher on Windows. */
-function posixLauncher(binary: string): string {
-	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\nexec ${shQuote(binary)} "$@"\n`;
+/**
+ * Also Git Bash's launcher on Windows, where the path is written with forward slashes: Git Bash and MSYS resolve
+ * `C:/…` and `C:\…` alike, omp's own bash (every agent's `ompdesk check`) only the former.
+ */
+function posixLauncher(binary: string, platform: SetupPlatform): string {
+	const path = platform === "win32" ? binary.replaceAll("\\", "/") : binary;
+	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\nexec ${shQuote(path)} "$@"\n`;
 }
 
 /** The executable by its absolute path: cmd.exe looks in the current folder before PATH. */
@@ -61,7 +65,7 @@ export function installCliLaunchers(options: CliInstallOptions): string[] {
 	const appBin = join(userData, "bin");
 
 	const files = (dir: string, foreignWins: boolean): boolean => {
-		const ok = [place(join(dir, "ompdesk"), posixLauncher(binary), foreignWins)];
+		const ok = [place(join(dir, "ompdesk"), posixLauncher(binary, platform), foreignWins)];
 		if (platform === "win32") ok.push(place(join(dir, "ompdesk.cmd"), cmdLauncher(binary), foreignWins));
 		return ok.every(Boolean);
 	};
