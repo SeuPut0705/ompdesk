@@ -4378,7 +4378,8 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		// It asks from within a turn main stamped.
 		child.busy = true;
 		child.busySince = Date.now() - 60_000;
-		await service.run(a, T.report, { kind: "question", text: "Keep the old API?" });
+		const question = { kind: "question", text: "Keep the old API?", dispatch: "d1", id: "q1" };
+		await service.run(a, T.report, question);
 		const waiting = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
 		expect(waiting?.waiting).toBe(true);
 		// The person answered in the child's own tab: its next turn started after the question. Main stamps it with
@@ -4388,6 +4389,10 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		const item = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
 		expect(item?.waiting).toBeUndefined();
 		expect(item?.state).toBe("running");
+		// A replay of the question in the new turn is refused, and leaves the question answered.
+		expect((await service.run(a, T.report, question)).text).toMatch(/already delivered/);
+		const replayed = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
+		expect(replayed?.waiting).toBeUndefined();
 	});
 
 	it("tells the opener when a child shows a question card, once, and lists the child as waiting until it is answered", async () => {

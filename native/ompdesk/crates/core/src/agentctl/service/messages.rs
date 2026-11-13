@@ -841,10 +841,23 @@ impl AgentControl {
             let seeded = self.journal_marks(&caller.tab_id).await.dispatch;
             self.mailbox.seed(&caller.tab_id, seeded);
         }
-        self.mem()
+        // The turn of the mail the mailbox keeps: taken with the post (a reader during its delivery sees the new mail
+        // with it), and given back only when the mailbox refuses a replay, which leaves its state as it was; a mail it
+        // took and could not deliver is its newest all the same.
+        let turn_key = format!("{}\n{to}", caller.tab_id);
+        let before = self
+            .mem()
             .mailed_in
-            .insert(format!("{}\n{to}", caller.tab_id), caller.busy_since);
-        let outcome = self.mailbox.post(mail.clone()).await.map_err(Fail::other)?;
+            .insert(turn_key.clone(), caller.busy_since);
+        let outcome = self.mailbox.post(mail.clone()).await;
+        if matches!(outcome, Ok(Posted::Duplicate | Posted::Stale)) {
+            let mut mem = self.mem();
+            match before {
+                Some(turn) => mem.mailed_in.insert(turn_key, turn),
+                None => mem.mailed_in.remove(&turn_key),
+            };
+        }
+        let outcome = outcome.map_err(Fail::other)?;
         if let Some(parent) = &parent {
             self.host.review_changed(parent);
         }
