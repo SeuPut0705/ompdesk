@@ -1,5 +1,5 @@
 //! The socket Node and a second launch speak to the shell on: a named pipe on Windows, a unix socket elsewhere
-//! (macOS: `<userData>/shell.sock`). One type for both, so the host code is the same.
+//! (macOS: `$TMPDIR/ompdesk-<hash>-shell.sock`). One type for both, so the host code is the same.
 
 use std::io::{self, Read, Write};
 #[cfg(unix)]
@@ -33,16 +33,19 @@ impl Listener {
         use std::os::unix::net::{UnixListener, UnixStream};
         let path = Path::new(name);
         match UnixListener::bind(path) {
-            Ok(inner) => Ok(Self { inner }),
+            Ok(inner) => {
+                restrict_to_owner(path);
+                Ok(Self { inner })
+            }
             Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
                 // A socket file whose owner is gone (a crash) refuses connections: take the name over.
                 if UnixStream::connect(path).is_ok() {
                     return Err(error);
                 }
                 std::fs::remove_file(path)?;
-                Ok(Self {
-                    inner: UnixListener::bind(path)?,
-                })
+                let inner = UnixListener::bind(path)?;
+                restrict_to_owner(path);
+                Ok(Self { inner })
             }
             Err(error) => Err(error),
         }
@@ -59,6 +62,13 @@ impl Listener {
 #[cfg(windows)]
 pub fn connect(name: &str) -> io::Result<Conn> {
     crate::sys::pipe_connect(name)
+}
+
+/// The socket is the owner's alone (0600).
+#[cfg(unix)]
+fn restrict_to_owner(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
 }
 
 #[cfg(unix)]

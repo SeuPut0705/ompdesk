@@ -61,7 +61,7 @@ ompdesk-shell(.exe)          the shell; also every CEF helper (same exe, `--type
 2. User-data folder: `--user-data-dir`, else `OMP_GUI_TEST_USER_DATA_DIR`, else Electron's own rule
    (`FOLDERID_RoamingAppData\ompdesk`, `~/Library/Application Support/ompdesk`).
 3. One instance per user-data folder: named pipe `\\.\pipe\ompdesk-shell-<16 hex of SHA-256(lower-cased path)>` (unix
-   socket `<userData>/shell.sock` on macOS). A second launch hands `{argv, cwd}` over and exits 0; the first emits
+   socket `$TMPDIR/ompdesk-<16 hex of SHA-256(userData)>-shell.sock` on macOS, `/tmp/…` when TMPDIR is long: `sun_path` holds 104 bytes; mode 0600). A second launch hands `{argv, cwd}` over and exits 0; the first emits
    `app.secondInstance`.
 4. Electron's `file://` Local Storage is exported once (`migrate/local_storage.rs`, read from a copy of the LevelDB);
    the injected preload copies it into the `app://ompdesk` origin before any page script and the shell marks it done.

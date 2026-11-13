@@ -392,7 +392,7 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **Ids**: Node's `winId`/`wcId`/`viewId` are used as sent; the shell's own counters only serve a create that omits them.
 - **`app.exit`**: windows close without `win.closeRequested`; browsers that have not closed after 4 s do not hold the quit.
   Node dying unexpectedly: the shell exits 1 after logging it on stderr.
-- **`app.secondInstance`** is sent for a second launch of the same user-data folder (named pipe, unix socket on macOS);
+- **`app.secondInstance`** is sent for a second launch of the same user-data folder (named pipe, unix socket on macOS: `$TMPDIR/ompdesk-<16 hex of SHA-256(userData)>-shell.sock`, `/tmp/…` when TMPDIR is long, 0600; the host socket Node gets is `…-host-<pid>.sock` beside it);
   `app.openUrl`, `app.openFile`, `app.activate` are macOS only and unverified.
 - **`wc.navigate`**: for main-frame navigations Node did not start itself. A click on a `file:` link is reported by the
   injected preload (`POST /__shell/will-navigate`) and the request is sent without waiting for the answer: Blink refuses

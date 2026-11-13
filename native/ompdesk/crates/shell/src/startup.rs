@@ -53,9 +53,29 @@ pub fn instance_hash(user_data: &Path) -> String {
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
-/// macOS: the unix socket beside the profile.
+/// The longest unix socket path used (`sun_path` is 104 bytes on macOS, 108 on Linux, with the terminating NUL).
+const SOCKET_PATH_MAX: usize = 100;
+
+/// A unix socket for `tag`: `ompdesk-<instance hash>-<tag>.sock` in `tmp` (the per-user temp folder), `/tmp` when that
+/// would pass `sun_path`'s limit. Never under the profile, whose path can be long (the e2e profiles are); the hash is of the
+/// user-data path, so a second launch of the same profile computes the same name, and two profiles never share one.
+pub fn unix_socket_path(user_data: &Path, tmp: &Path, tag: &str) -> PathBuf {
+    let file = format!("ompdesk-{}-{tag}.sock", instance_hash(user_data));
+    let beside = tmp.join(&file);
+    if beside.as_os_str().len() <= SOCKET_PATH_MAX {
+        return beside;
+    }
+    Path::new("/tmp").join(file)
+}
+
+/// macOS: the unix socket a second launch hands its arguments to.
 pub fn socket_path(user_data: &Path) -> PathBuf {
-    user_data.join("shell.sock")
+    unix_socket_path(user_data, &std::env::temp_dir(), "shell")
+}
+
+/// macOS: the unix socket Node connects to, one per shell process.
+pub fn host_socket_path(user_data: &Path, pid: u32) -> PathBuf {
+    unix_socket_path(user_data, &std::env::temp_dir(), &format!("host-{pid}"))
 }
 
 /// The folder holding `out/main/index.js`, found by walking up from `start`.
@@ -206,6 +226,29 @@ mod tests {
             remote_debugging_port(&args(&["--remote-debugging-port=nope"])),
             None
         );
+    }
+
+    #[test]
+    fn a_socket_path_is_short_and_one_per_user_data_folder() {
+        let tmp = Path::new("/var/folders/xx/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/T");
+        let long = Path::new(
+            "/var/folders/xx/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/T/ompdesk-run-1234-abcdef/omp-gui-smoke-abcdef/desktop",
+        );
+        let path = unix_socket_path(long, tmp, "shell");
+        assert!(path.starts_with(tmp));
+        assert!(path.as_os_str().len() <= SOCKET_PATH_MAX);
+        assert_eq!(path, unix_socket_path(long, tmp, "shell"));
+        assert_ne!(path, unix_socket_path(Path::new("/other"), tmp, "shell"));
+        let host = unix_socket_path(long, tmp, "host-77");
+        assert_ne!(host, path, "the host socket is another file");
+        assert!(host.as_os_str().len() <= SOCKET_PATH_MAX);
+        // A temp folder that is itself long falls back to /tmp.
+        let long_tmp = Path::new(
+            "/var/folders/xx/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/T/with/a/very/long/path/of/its/own/that/is/too/much",
+        );
+        let fallback = unix_socket_path(long, long_tmp, "shell");
+        assert!(fallback.starts_with("/tmp"));
+        assert!(fallback.as_os_str().len() <= SOCKET_PATH_MAX);
     }
 
     #[test]

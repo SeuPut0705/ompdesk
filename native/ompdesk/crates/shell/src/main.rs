@@ -288,8 +288,7 @@ fn browser(argv: Vec<String>) -> i32 {
     #[cfg(windows)]
     let socket = format!("{}-host-{}", instance_name, std::process::id());
     #[cfg(not(windows))]
-    let socket = user_data
-        .join(format!("shell-host-{}.sock", std::process::id()))
+    let socket = startup::host_socket_path(&user_data, std::process::id())
         .display()
         .to_string();
     let host_listener = match Listener::bind(&socket) {
