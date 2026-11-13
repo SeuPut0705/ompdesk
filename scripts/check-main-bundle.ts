@@ -349,7 +349,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // `UsageGauges`; the page, the sidebar block and the strings stay in their own chunks): measured 2,204,042 by the
 // runner's build of omp/agent/checks-ui, 2,142 bytes over. The store then started from the last frame in the snapshot
 // cache, so a reload paints the sidebar block at once (no-loading-screens): measured 2,204,493, 393 bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_204_500;
+// Release 2's integration of check control with main's turn rail (both above, measured on separate branches) adds them
+// up: measured 2,205,588 by the runner's build of omp/agent/checks-integration (run 43515015998).
+const WEB_FIRST_SCREEN_JS_BYTES = 2_205_600;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
