@@ -47,7 +47,7 @@ export function MailReentryNotice() {
 				role="status"
 				variant="warning"
 			>
-				<span className="line-clamp-2">
+				<span className={phone ? "line-clamp-4" : "line-clamp-2"}>
 					{t(accounts.length === 1 ? "mail.reentry.one" : "mail.reentry.many", { names })}
 				</span>
 			</Banner>

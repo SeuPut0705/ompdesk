@@ -45,6 +45,8 @@ async function seedProject(project: string): Promise<void> {
 }
 
 const dir = process.env.OMP_GUI_PARITY;
+/** The language of both apps: English, or `OMP_GUI_PARITY_LANGUAGE=ko` to look at a Korean sheet. */
+const language = process.env.OMP_GUI_PARITY_LANGUAGE === "ko" ? "ko" : "en";
 
 const VIEWS = ["local", "remote", "phone"] as const;
 type View = (typeof VIEWS)[number];
@@ -154,20 +156,27 @@ if (dir) {
 		const pageErrors: string[] = [];
 		try {
 			const hostProfile = await makeRemoteProfile(parent, "host", {
-				language: "en",
+				language,
 				theme: "light",
 				// The usage row under a reply (`reply-usage`): on here, on the paired computer and through to the phone.
 				prefs: { displayPreferences: { showTokenUsage: true } },
 				// Only the host's omp starts under the hold: its slow-start bound is short, so the banner shows within seconds.
-				env: { OMP_GUI_START_SLOW_MS: "1500" },
+				env: { OMP_GUI_START_SLOW_MS: "1500", OMP_GUI_TEST_KEYCHAIN_WOULD_ASK: "1" },
 			});
 			await seedProject(hostProfile.project);
 			const clientProfile = await makeRemoteProfile(parent, "client", {
-				language: "en",
+				language,
 				theme: "light",
 				port: hostProfile.port,
 				prefs: { displayPreferences: { showTokenUsage: true } },
+				env: { OMP_GUI_TEST_KEYCHAIN_WOULD_ASK: "1" },
 			});
+			// `settings-updates-token-dropped`: a token the keychain would not release was removed at an earlier launch, and
+			// the marker it left is what Settings › Updates shows (src/main/update-auth.ts).
+			if (surfaces.some(surface => surface.id === "settings-updates-token-dropped")) {
+				for (const profile of [hostProfile, clientProfile])
+					await fs.writeFile(path.join(profile.desktop, "update-token.dropped"), "keychain-would-ask");
+			}
 			host = await launchRemote(hostProfile);
 			client = await launchRemote(clientProfile);
 			const b = host.page;

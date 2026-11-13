@@ -5931,9 +5931,9 @@ export const ko: Record<string, string> = {
 	"mail.actionFailed": "이메일 계정을 바꾸지 못했어요",
 	"mail.needsReentry": "비밀번호를 다시 입력하세요. 저장된 비밀번호를 읽으려면 macOS가 로그인 암호를 물어봐야 해요.",
 	"mail.reentry.one":
-		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해서, 이 계정의 루틴이 로그인하지 않고 있어요.",
+		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해요.",
 	"mail.reentry.many":
-		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해서, 이 계정들의 루틴이 로그인하지 않고 있어요.",
+		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해요.",
 	"mail.reentry.action": "비밀번호 입력",
 	"mail.reentry.dismiss": "이메일 비밀번호 알림 닫기",
 	"mail.test": "테스트",

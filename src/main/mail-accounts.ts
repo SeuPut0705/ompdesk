@@ -44,6 +44,11 @@ export interface MailAccountsOptions {
 	box: SecretBox;
 	/** How a connection to an account's server is made (TLS in the app; the tests' fake server is plain TCP). */
 	connect?: (account: Pick<MailAccount, "host" | "port">) => ImapConnect;
+	/**
+	 * Whether a password saved this run is kept in memory (default). The parity sheet's launch turns it off so an
+	 * account it saves reads as one whose password was not opened yet (`OMP_GUI_TEST_KEYCHAIN_WOULD_ASK`, index.ts).
+	 */
+	rememberSaved?: boolean;
 	/** Told after every change (the window's list). */
 	onChange?: (state: MailAccountsState) => void;
 }
@@ -163,7 +168,7 @@ export class MailAccounts {
 					dirMode: 0o700,
 				},
 			);
-			this.#passwords.set(accountId, clean.password);
+			if (this.#options.rememberSaved !== false) this.#passwords.set(accountId, clean.password);
 		}
 		const stored: Stored = {
 			id: accountId,

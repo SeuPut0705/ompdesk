@@ -5941,9 +5941,9 @@ export const en: Record<string, string> = {
 	"mail.actionFailed": "Couldn't update the email accounts",
 	"mail.needsReentry": "Enter the password again: macOS would ask for your login password to read the saved one.",
 	"mail.reentry.one":
-		"The email account {names} needs its password again: macOS would ask for your login password to read it, so its routines are not logging in.",
+		"The email account {names} needs its password again: macOS would ask for your login password to read it.",
 	"mail.reentry.many":
-		"The email accounts {names} need their passwords again: macOS would ask for your login password to read them, so their routines are not logging in.",
+		"The email accounts {names} need their passwords again: macOS would ask for your login password to read them.",
 	"mail.reentry.action": "Enter password",
 	"mail.reentry.dismiss": "Dismiss the email password notice",
 	"mail.test": "Test",

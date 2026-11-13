@@ -68,6 +68,7 @@ import {
 import { ECC_PREF } from "../shared/ecc";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
+import { KEYCHAIN_WOULD_ASK } from "../shared/keychain";
 import {
 	LOCAL_ENGINE_DETECT_PREF,
 	LOCAL_ENGINES_LEDGER_PREF,
@@ -309,6 +310,9 @@ app.commandLine.appendSwitch(
 	[blinkSettings, "dnsPrefetchingEnabled=false"].filter(Boolean).join(","),
 );
 const mediaStreams = new MediaStreams();
+// Test seam (unpackaged only, the parity sheet's launch): the mail accounts read as if the macOS keychain would ask for
+// the login password, so an account saved through the page shows the re-entry notice (e2e/responsive-surfaces.ts).
+const keychainWouldAskForTests = !app.isPackaged && process.env.OMP_GUI_TEST_KEYCHAIN_WOULD_ASK === "1";
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -2037,11 +2041,12 @@ app.whenReady().then(async () => {
 	// The owner's mailboxes for email routines; each password is kept encrypted by the OS keystore (mail-accounts.ts).
 	mailAccounts = new MailAccounts({
 		dir: app.getPath("userData"),
+		...(keychainWouldAskForTests ? { rememberSaved: false } : {}),
 		// A test launch reaches its fake IMAP server over plain TCP on this computer; a real launch always uses TLS.
 		...(process.env.OMP_GUI_TEST_IMAP_PLAIN ? { connect: plainImapConnect } : {}),
 		box: {
 			available: () => safeStorage.isEncryptionAvailable(),
-			blocked: () => safeStorageUnavailableReason(),
+			blocked: () => (keychainWouldAskForTests ? KEYCHAIN_WOULD_ASK : safeStorageUnavailableReason()),
 			encrypt: text => safeStorage.encryptString(text),
 			decrypt: data => safeStorage.decryptString(data),
 		},
