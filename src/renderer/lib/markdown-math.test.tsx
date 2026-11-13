@@ -71,6 +71,24 @@ describe("Markdown math rendering", () => {
 		expect(user.querySelectorAll(".katex")).toHaveLength(1);
 	});
 
+	it("keeps money amounts as text and still typesets real dollar math beside them", () => {
+		const prices = [
+			"월 $149 결론을 정정하세요. 약 $26/월이고, 무료분을 소진한 경우만 약 $149입니다",
+			"($149/월)와 ($26/월)는 $5/$10, $5~$10, $149-$26 입니다",
+			"Costs $5 and $10, then $20 more.",
+		];
+		for (const price of prices) {
+			const document = render(price);
+			expect(document.querySelector(".katex, .katex-error")).toBeNull();
+			expect(document.documentElement.textContent).toContain(price);
+		}
+		const mixed = render("It costs $5 and $10, so $x^2$ is cheap; $$a+b$$ too and $1+1$.");
+		expect(Array.from(mixed.querySelectorAll("annotation"), node => node.textContent)).toEqual(["x^2", "a+b", "1+1"]);
+		expect(mixed.documentElement.textContent).toContain("It costs $5 and $10, so");
+		const multiline = render("Then $a\n+ b$ holds.");
+		expect(multiline.querySelector("annotation")?.textContent?.replace(/\s+/g, " ")).toBe("a + b");
+	});
+
 	it("renders display math in lists and quotes without swallowing following prose", () => {
 		const document = render(String.raw`- Equation:
 
