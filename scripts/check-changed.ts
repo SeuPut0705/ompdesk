@@ -19,7 +19,7 @@
  *    file) and says how many it leaves to CI's `check` (`scripts/changed-tests.ts`, with
  *    the measurement behind it). Either way it also runs every test whose text names a
  *    changed file, a deleted one or CHANGELOG.md included (`scripts/changed-readers.ts`).
- * 2. Then, unless `--no-e2e` or nothing matches: `bun run build` (reused when
+ * 2. Then, unless `--no-e2e` (which leaves both to the branch's CI run) or nothing matches: `bun run build` (reused when
  *    out/ matches) and the Playwright specs that touch what changed: a changed
  *    spec, a spec whose file name or text mentions a changed source file's
  *    name (`layout/work-board/WorkBoard.tsx` finds `e2e/work-board.e2e.ts`), or a
@@ -90,7 +90,8 @@ function rendererSourcesNaming(className: string): string[] {
 
 const BIOME_EXT = /\.(?:[cm]?[jt]sx?|json|jsonc|css)$/;
 const BIOME_DIRS = /^(?:(?:src|e2e|resources|scripts)\/|[^/]+$)/;
-const specs = flag("--no-e2e")
+const noE2e = flag("--no-e2e");
+const specs = noE2e
 	? []
 	: specsFor(sourceChanged, {
 			specs: new Map(
@@ -172,12 +173,12 @@ if (supportChanged && specs.length === 0) {
 }
 if (specs.length === 0) {
 	// App source, resources or a root build input can break the bundle (an import main cannot resolve, the bundle check)
-	// without touching a spec's name.
-	if (scope.build) {
+	// without touching a spec's name. `--no-e2e` leaves the build to the branch's CI run, as it leaves the specs.
+	if (scope.build && !noE2e) {
 		console.log("[check:changed] build (a build input changed)");
 		const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
 		if (build.code !== 0) process.exit(1);
-	}
+	} else if (scope.build) console.log("[check:changed] build skipped (--no-e2e): CI's build job checks the bundle");
 	console.log(`[check:changed] PASSED in ${seconds(performance.now() - started)} (no e2e spec matches the change)`);
 	process.exit(0);
 }
