@@ -275,6 +275,16 @@ impl ChecksHub for FakeHub {
             Ok(())
         })
     }
+
+    fn local_pool(&self) -> Fut<'_, Result<super::sources::LocalPool, Fault>> {
+        Box::pin(async move {
+            self.called("localPool", None, &Value::Null);
+            Err(Fault::new(
+                "not_built",
+                "a scripted hub has no computer of its own",
+            ))
+        })
+    }
 }
 
 #[cfg(test)]

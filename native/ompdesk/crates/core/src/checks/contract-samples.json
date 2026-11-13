@@ -21,6 +21,7 @@
     "snapshot": "checks.snapshot",
     "facts": "checks.facts",
     "runners": "checks.runners",
+    "localPool": "checks.localPool",
     "result": "checks.result"
   },
   "enums": {
