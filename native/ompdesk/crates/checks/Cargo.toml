@@ -19,7 +19,7 @@ workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 # The content hash of a check's input set; already linked by the core.
-sha2 = "0.10"
+sha2 = "0.11"
 
 [target.'cfg(unix)'.dependencies]
 # flock for the heavy slots, setsid for a detached check runner, kill(0) for liveness, the RAM size.
