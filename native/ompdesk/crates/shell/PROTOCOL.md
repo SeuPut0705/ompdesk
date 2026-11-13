@@ -638,9 +638,14 @@ on GitHub's runners.
    returns its decisions as data equal to those frames; `cargo test` replays the file and fails on the first step that
    differs.
 3. **Tests of callers** stay where they are and run against the typed client over a fake host
-   (`shellModule(ns, () => fake)`). The e2e specs that cover the surface stay unchanged and run against the built
-   shell; a slice adds them to the batch run's selection. `shell-check` (fmt, clippy `-D warnings`, `cargo test`) runs
-   in the same batch run (`gh workflow run ci.yml --ref <branch> -f batch=true`).
+   (`shellModule(ns, () => fake)`). The e2e specs that cover the surface keep their scenarios and assertions and run
+   against the built shell; a slice adds them to the batch run's selection. A spec helper that reached a moved page
+   through main (`app.evaluate(({webContents}) => …)`, `executeJavaScript`, `sendInputEvent`) is rewritten to reach the
+   same page as a CDP target through the harness's Playwright attach (`ShellApplication.windows()`, which lists views
+   and offscreen pages too; `page.evaluate`, `page.mouse`); a target it cannot reach yet is added to the harness
+   (`e2e/fixture/shell-launch.ts`). No module grows a test-only call and no production frame exists only for a test.
+   `shell-check` (fmt, clippy `-D warnings`, `cargo test`) runs in the same batch run
+   (`gh workflow run ci.yml --ref <branch> -f batch=true`).
 4. **Ledger line** in the format of the others: what moved, kept exactly (the parity suite's cases and the captured
    step count), differences, what stays TypeScript and why, CI coverage.
 
