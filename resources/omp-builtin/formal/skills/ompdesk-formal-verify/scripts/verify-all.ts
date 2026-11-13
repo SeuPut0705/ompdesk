@@ -4,7 +4,11 @@
 // points at a real file and line, and whether the covered files changed since the model's sync commit.
 //
 //   bun verify-all.ts <formal dir> [--tier fast|deep] [--only id] [--stamp [--allow-dirty]] [--strict-drift]
-//                     [--skip-mutations]
+//                     [--skip-mutations] [--verdicts <folder>]
+//
+//   --verdicts      do not run TLC: read the verdicts that `shard.ts run` recorded (one file per run and per
+//                   mutation check, from CI jobs that ran side by side) and print the same report from them. The
+//                   `@code` tags, the drift check and `--stamp` run here as always.
 //
 //   --tier fast     (default: the inner loop and every PR) the models whose tier is `fast`
 //   --tier deep     (scheduled runs) every model, `fast` and `deep`
@@ -33,12 +37,15 @@ import { checkTags, extractTags } from "./lib/code-tags";
 import { checkDrift, git, planStamp } from "./lib/drift";
 import { isRecord, readJson } from "./lib/json";
 import { type Manifest, type ModelEntry, parseManifest, tierOf } from "./lib/manifest";
+import type { MatrixRun } from "./lib/matrix";
+import { parseMutations, planMutations, type UnitResults } from "./lib/mutate-core";
 import { EXIT, UsageError } from "./lib/proc";
+import { readVerdict, recordedBanner, recordedResults, rowUnitId, runOf } from "./lib/shard";
 import { main as mutateMain } from "./mutate";
-import { main as tlcMain } from "./tlc";
+import { type TlcReplay, main as tlcMain } from "./tlc";
 
 const USAGE =
-	"usage: bun verify-all.ts <formal dir> [--tier fast|deep] [--only id] [--stamp [--allow-dirty]] [--strict-drift] [--skip-mutations]";
+	"usage: bun verify-all.ts <formal dir> [--tier fast|deep] [--only id] [--stamp [--allow-dirty]] [--strict-drift] [--skip-mutations] [--verdicts <folder>]";
 
 export interface Args {
 	dir: string;
@@ -50,6 +57,8 @@ export interface Args {
 	tierGiven: boolean;
 	strictDrift: boolean;
 	skipMutations: boolean;
+	/** `--verdicts`: a folder of recorded verdicts (`shard.ts run`) that takes the place of running TLC and the mutations. */
+	verdicts?: string;
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -73,6 +82,10 @@ export function parseArgs(argv: string[]): Args {
 			if (tier !== "fast" && tier !== "deep") throw new UsageError(`--tier is fast or deep\n${USAGE}`);
 			args.tier = tier;
 			args.tierGiven = true;
+		} else if (arg === "--verdicts") {
+			const folder = argv[++i];
+			if (!folder) throw new UsageError(`--verdicts needs a folder\n${USAGE}`);
+			args.verdicts = folder;
 		} else if (arg === "--stamp") args.stamp = true;
 		else if (arg === "--allow-dirty") args.allowDirty = true;
 		else if (arg === "--strict-drift") args.strictDrift = true;
@@ -170,6 +183,24 @@ async function verifyModel(model: ModelEntry, formalDir: string, codeRoot: strin
 			add("spec", "fail", `${model.spec} does not exist`);
 			return result;
 		}
+		const recordedRoot = args.verdicts ? path.resolve(args.verdicts) : undefined;
+		/** What takes TLC's place when the runs were made by other jobs: their recorded verdicts, by unit id. */
+		const replay = (ids: (run: MatrixRun, index: number) => string): TlcReplay | undefined =>
+			recordedRoot === undefined
+				? undefined
+				: {
+						result: (run, index) => {
+							const verdict = readVerdict(recordedRoot, model.id, ids(run, index));
+							return verdict?.kind === "row" ? runOf(verdict, dir) : undefined;
+						},
+						banner: runs =>
+							recordedBanner(
+								recordedRoot,
+								model.id,
+								path.basename(spec),
+								runs.map((run, index) => ids(run, index)),
+							),
+					};
 		if (model.matrix) {
 			let plan: MatrixPlan;
 			try {
@@ -184,14 +215,32 @@ async function verifyModel(model: ModelEntry, formalDir: string, codeRoot: strin
 			if (plan.file === null) add("TLC matrix", "skipped", left);
 			else {
 				try {
-					add("TLC matrix", verdictOf(await tlcMain([spec, "--matrix", plan.file])), left);
+					add(
+						"TLC matrix",
+						verdictOf(
+							await tlcMain(
+								[spec, "--matrix", plan.file],
+								replay((run, index) => rowUnitId(index, run.name)),
+							),
+						),
+						left,
+					);
 				} finally {
 					plan.cleanup();
 				}
 			}
 		} else {
-			for (const config of model.configs ?? [`${path.basename(spec, ".tla")}.cfg`]) {
-				add(`TLC ${config}`, verdictOf(await tlcMain([spec, "--config", path.join(dir, config)])));
+			const configs = model.configs ?? [`${path.basename(spec, ".tla")}.cfg`];
+			for (const [index, config] of configs.entries()) {
+				add(
+					`TLC ${config}`,
+					verdictOf(
+						await tlcMain(
+							[spec, "--config", path.join(dir, config)],
+							replay(() => rowUnitId(index, config)),
+						),
+					),
+				);
 			}
 		}
 	} else {
@@ -201,7 +250,23 @@ async function verifyModel(model: ModelEntry, formalDir: string, codeRoot: strin
 	if (model.mutations && !args.skipMutations) {
 		const target = model.kind === "tla" ? model.spec : model.model;
 		if (!target) add("mutations", "fail", 'a lean model with mutations needs a "model" file');
-		else add("mutations", verdictOf(await mutateMain([path.join(dir, target), path.join(dir, model.mutations)])));
+		else {
+			const argv = [path.join(dir, target), path.join(dir, model.mutations)];
+			let recorded: UnitResults | undefined;
+			if (args.verdicts) {
+				try {
+					const units = planMutations(parseMutations(readJson(argv[1] as string))).units;
+					recorded = recordedResults(
+						path.resolve(args.verdicts),
+						model.id,
+						units.map(unit => unit.id),
+					);
+				} catch (error) {
+					add("mutations", "fail", error instanceof Error ? error.message : String(error));
+				}
+			}
+			if (!args.verdicts || recorded) add("mutations", verdictOf(await mutateMain(argv, recorded)));
+		}
 	} else if (model.mutations) add("mutations", "skipped", "--skip-mutations");
 	const extension = model.kind === "tla" ? ".tla" : ".lean";
 	const problems = modelFiles(dir, extension).flatMap(file =>
@@ -311,6 +376,13 @@ export function summarize(results: ModelResult[]): string[] {
 	});
 }
 
+/** The models a run covers: `--only`'s one, else every model of the tier (a `fast` run leaves the `deep` models out). */
+export function selectModels(manifest: Manifest, args: Pick<Args, "only" | "tier">): ModelEntry[] {
+	return args.only
+		? manifest.models.filter(model => model.id === args.only)
+		: manifest.models.filter(model => args.tier === "deep" || tierOf(model) === "fast");
+}
+
 export async function main(argv: string[]): Promise<number> {
 	let args: Args;
 	try {
@@ -328,9 +400,7 @@ export async function main(argv: string[]): Promise<number> {
 		console.error(error instanceof Error ? error.message : String(error));
 		return EXIT.usage;
 	}
-	const models = args.only
-		? manifest.models.filter(model => model.id === args.only)
-		: manifest.models.filter(model => args.tier === "deep" || tierOf(model) === "fast");
+	const models = selectModels(manifest, args);
 	if (models.length === 0) {
 		console.error(
 			args.only

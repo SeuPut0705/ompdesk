@@ -46,6 +46,8 @@ export interface TlcRun {
 	configUsed: string;
 	logPath?: string;
 	durationMs: number;
+	/** Set when the run is a recorded verdict that was reused (the time is the original run's). */
+	cached?: boolean;
 	/** Set when java could not be started. */
 	spawnError?: string;
 }
