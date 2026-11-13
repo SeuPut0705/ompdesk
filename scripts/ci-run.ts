@@ -81,7 +81,7 @@ const NOT_RUNNING = 3;
 
 export type Route =
 	| { via: "hub"; code: 0 | 2; text: string }
-	| { via: "direct" }
+	| { via: "direct"; why: string }
 	| { via: "refused"; code: 1 | 2; why: string };
 
 /** Where the dispatch goes, given what the hub answered. */
@@ -90,7 +90,10 @@ export function route(mac: boolean, hub: HubAnswer | undefined): Route {
 		const text = hub.out.trim();
 		return { via: "hub", code: text.startsWith("Checks refused") ? 2 : 0, text };
 	}
-	if (!mac) return { via: "direct" };
+	if (!mac) {
+		const why = hub ? (hub.err || hub.out).trim() || `ompdesk exited ${hub.code}` : "no ompdesk command found";
+		return { via: "direct", why };
+	}
 	if (!hub || hub.code === NOT_RUNNING) {
 		return {
 			via: "refused",
@@ -138,8 +141,10 @@ export const RUNNER_LIMITS = {
 };
 
 /** OMPdesk is not there: a run without macOS goes out as `gh workflow run` would send it. */
-async function dispatchDirectly(args: CiRunArgs, ref: string): Promise<number> {
-	console.log("ci-run: OMPdesk does not answer; this dispatch asks for no macOS, so it goes out directly.");
+async function dispatchDirectly(args: CiRunArgs, ref: string, why: string): Promise<number> {
+	console.log(
+		`ci-run: the checks hub did not take it (${why}); this dispatch asks for no macOS, so it goes out directly.`,
+	);
 	if (!gh(["api", `repos/{owner}/{repo}/git/ref/heads/${ref}`]).ok) fail(`${ref} is not pushed: push it first`, 2);
 	const fields = Object.entries(args.inputs).flatMap(([key, value]) => ["-f", `${key}=${value}`]);
 	const started = Date.now();
@@ -198,7 +203,7 @@ async function main(argv: string[]): Promise<number> {
 			console.log(way.text);
 			return way.code;
 		case "direct":
-			return dispatchDirectly(args, ref);
+			return dispatchDirectly(args, ref, way.why);
 		case "refused":
 			fail(way.why, way.code);
 	}

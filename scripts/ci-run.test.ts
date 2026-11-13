@@ -63,8 +63,8 @@ describe("ci-run route", () => {
 
 	it("dispatches without macOS directly when OMPdesk does not answer, and refuses macOS then", () => {
 		const down = { code: 3, out: "", err: "ompdesk: OMPdesk is not running" };
-		expect(route(false, down)).toEqual({ via: "direct" });
-		expect(route(false, undefined)).toEqual({ via: "direct" });
+		expect(route(false, down)).toEqual({ via: "direct", why: "ompdesk: OMPdesk is not running" });
+		expect(route(false, undefined)).toEqual({ via: "direct", why: "no ompdesk command found" });
 		expect(route(true, down)).toMatchObject({
 			via: "refused",
 			code: 2,
@@ -76,6 +76,6 @@ describe("ci-run route", () => {
 	it("never sends macOS work around a hub that answered with an error", () => {
 		const broken = { code: 1, out: "", err: "ompdesk: checks_source: gh is not signed in" };
 		expect(route(true, broken)).toMatchObject({ via: "refused", code: 1, why: expect.stringContaining("signed in") });
-		expect(route(false, broken)).toEqual({ via: "direct" });
+		expect(route(false, broken)).toMatchObject({ via: "direct", why: expect.stringContaining("signed in") });
 	});
 });
