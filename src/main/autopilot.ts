@@ -405,6 +405,8 @@ export class Autopilot {
 				command,
 				source: { device: Boolean(sidecar.device), cwd: sidecar.cwd },
 				today: this.#deps.today?.() ?? localDate(new Date()),
+				// What the person chose is dated by main's clock, as a cycle's start it is compared with.
+				now: Date.now(),
 			});
 			if (!answer.ok) {
 				return {

@@ -128,6 +128,11 @@ pub struct CommandParams {
     pub command: Value,
     pub source: Source,
     pub today: String,
+    /// Main's clock when it took the command: what the person chose is dated by it, as the TypeScript dated it,
+    /// because a cycle's `startedAt` it is compared with comes from main's world too, and the core's clock is
+    /// another process's (on Windows a tick apart).
+    #[serde(default)]
+    pub now: Option<i64>,
 }
 
 /// The tab a command came from (`sidecar.device`, `sidecar.cwd`).

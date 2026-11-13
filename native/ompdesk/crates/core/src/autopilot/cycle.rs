@@ -965,7 +965,12 @@ impl Coordinator {
 
     /// "Ship, then stop": the next cycle that begins is told to land its work and release when a release is due, and the run
     /// ends after that cycle (`cycle_end`). A paused run resumes for it; a second press cancels it.
-    pub async fn stop_after_ship(self: &Arc<Self>, run: &Arc<Run>, enabled: bool) -> R<()> {
+    pub async fn stop_after_ship(
+        self: &Arc<Self>,
+        run: &Arc<Run>,
+        enabled: bool,
+        chosen_at: Option<i64>,
+    ) -> R<()> {
         if run.lock().stopping {
             return Ok(());
         }
@@ -996,7 +1001,7 @@ impl Coordinator {
             if state.end_after_ship.is_some() {
                 return Ok(());
             }
-            state.end_after_ship = Some(self.now());
+            state.end_after_ship = Some(chosen_at.unwrap_or_else(|| self.now()));
         }
         self.touch(run);
         self.bridge(&run.tab, note, json!({"text": STOP_AFTER_SHIP_NOTE}), None)

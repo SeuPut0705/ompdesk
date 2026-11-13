@@ -242,7 +242,8 @@ impl Coordinator {
                 self.begin_stop(&run, "user").await;
             }
             "stop_after_ship" => {
-                self.stop_after_ship(&run, flag(command, "enabled")).await?;
+                self.stop_after_ship(&run, flag(command, "enabled"), params.now)
+                    .await?;
             }
             "abort" => {
                 self.port.tell("noteStopped", &json!({"tab": tab}));

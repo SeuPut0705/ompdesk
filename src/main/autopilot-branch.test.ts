@@ -79,6 +79,8 @@ describe("stop", () => {
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		world.busy.add("ap-1");
+		// Main dates the choice with its own clock as it takes the command, a moment after this; cycles that began
+		// after it are a minute and two later.
 		const chosen = Date.now();
 		await autopilot.handleCommand(
 			win,
@@ -103,7 +105,7 @@ describe("stop", () => {
 		// The next one ended red: nothing shipped, the choice stays on and the agent is told to repair.
 		autopilot.frame(sidecar, {
 			type: "autopilot_cycle_end",
-			record: record({ n: 2, verify: "red", startedAt: chosen + 1 }),
+			record: record({ n: 2, verify: "red", startedAt: chosen + 60_000 }),
 		});
 		await autopilot.idle();
 		expect(autopilot.isStopping("ap-1")).toBe(false);
@@ -113,7 +115,7 @@ describe("stop", () => {
 		const sha = await commit(worktree, "fixed.txt");
 		autopilot.frame(sidecar, {
 			type: "autopilot_cycle_end",
-			record: record({ n: 3, commit: sha, startedAt: chosen + 2 }),
+			record: record({ n: 3, commit: sha, startedAt: chosen + 120_000 }),
 		});
 		await autopilot.idle();
 		expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(sha);
