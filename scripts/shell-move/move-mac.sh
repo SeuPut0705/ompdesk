@@ -41,7 +41,7 @@ DMG=$(ls "$REPO"/dist/ompdesk-0.200.0-arm64.dmg 2>/dev/null | head -1); test -f 
 cp "$DMG" "$W/new.dmg"
 
 step "the released app v0.127.0, re-signed (release-form designated requirement)"
-if [ -n "$MOVE_FROM_APP" ]; then
+if [ -n "${MOVE_FROM_APP:-}" ]; then
   ditto "$MOVE_FROM_APP" rel.app
 else
   curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.127.0/ompdesk-mac-arm64.dmg
@@ -83,6 +83,7 @@ relaunch_diag() {
   OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-direct.out" 2>&1 &
   sleep 25
   evidence "diag: started directly: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | head -1 | cut -c1-160); output: $(head -c 600 "$W/$name-direct.out" | tr '\n' '|')"
+  crash_diag "$APPS/OMPdesk.app" "$W/$name-direct.out" "$UD"
 }
 
 # scenario <name> <0 success | 1 read-only apps folder | 2 the new shell does not start (the launcher restores) | 3 the same,
@@ -160,7 +161,7 @@ scenario() {
     grep -q '"source":"stored"' "$W/$name-read.json" && grep -q '"droppedReason":null' "$W/$name-read.json"; check $? "S1: the seeded token was decrypted (source stored, none dropped)"
     wait_for "has_line $UD 'swap result'" 60; update_lines "$UD" | grep -q '^swap result installed'; check $? "S1: swap result outcome installed"
     codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S1: the installed app verifies"
-    if [ -n "$MOVE_FROM_APP" ]; then
+    if [ -n "${MOVE_FROM_APP:-}" ]; then
       wait_for "grep -q '^started' $UD/updates/swap.log" 180; check $? "S1: the start-checked script saw app-started.json for the new version (swap.log started)"
       evidence "S1 app-started.json: $(cat "$UD/app-started.json" 2>&1 | cut -c1-120)"
       ls "$APPS" | grep -q 'previous'; [ $? != 0 ]; check $? "S1: .previous is gone once the new app proved it started"
@@ -185,7 +186,7 @@ scenario() {
   restore
 }
 scenario s1 0
-if [ -n "$MOVE_FROM_APP" ]; then
+if [ -n "${MOVE_FROM_APP:-}" ]; then
   scenario s4 3
 else
   scenario s3 2

@@ -62,6 +62,7 @@ kill_apps "$SHELL_APP/Contents/MacOS"
 grep -q '"draft":"a draft typed in Electron"' "$W/read-a.json" && grep -q '"large":200000' "$W/read-a.json"; check $? "A: Local Storage came over (draft, Korean, 200 000 characters)"
 grep -q '"source":"stored"' "$W/read-a.json" && grep -q '"droppedReason":null' "$W/read-a.json"; check $? "A: the shell decrypted the stand-in token (the token resolves from the stored file: source "stored", none dropped)"
 evidence "A page: $(cut -c1-400 "$W/read-a.json")"
+grep -q '"source":"stored"' "$W/read-a.json" || crash_diag "$SHELL_APP" "$W/shell-a.out" "$UD"
 dialogs; check $? "A: no dialog (SecurityAgent) line"
 restore
 

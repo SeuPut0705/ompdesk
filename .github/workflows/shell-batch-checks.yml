@@ -159,6 +159,10 @@ jobs:
       - name: Put bun's cache on the workspace volume
         shell: bash
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      # The old setup is built from the released tag's installer.nsh (`git show v0.127.0:…`).
+      - name: The released tag
+        shell: bash
+        run: git fetch --no-tags --depth=1 origin tag v0.127.0
       - uses: ./.github/actions/shell-mac-inputs
         with:
           builder: "true"

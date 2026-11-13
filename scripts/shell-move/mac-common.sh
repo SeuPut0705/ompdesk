@@ -75,3 +75,19 @@ start_feed() {
   check $? "the stand-in feed answers the repository probe on :$port"
   head -3 "$W/feed.log"
 }
+
+# crash_diag <app> <out file> <userData>: why a bundle's process died (a trap, a signal): its output, the shell's log, the
+# crash report the system wrote and the signatures of the launcher and the shell.
+crash_diag() {
+  local app=$1 out=$2 ud=$3
+  evidence "diag: output: $(head -c 700 "$out" 2>&1 | tr '\n' '|')"
+  evidence "diag: shell log tail: $(tail -n 6 "$ud/shell-webview/shell.log.jsonl" 2>&1 | cut -c1-220 | tr '\n' '|')"
+  for f in "$app/Contents/MacOS/OMPdesk" "$app/Contents/MacOS/ompdesk-shell"; do
+    evidence "diag: $(basename "$f"): $(codesign -dvv "$f" 2>&1 | grep -E 'Identifier|flags|Authority|TeamIdentifier|Signature' | tr '\n' ' ' | cut -c1-330)"
+  done
+  sleep 3
+  for r in $(ls -t ~/Library/Logs/DiagnosticReports/*mpdesk* 2>/dev/null | head -1); do
+    evidence "diag: crash report $(basename "$r")"
+    grep -E '"(exception|signal|termination|codeSigningID|procPath)"|Exception Type|Termination|Triggered by|dyld|Library not loaded|Symbol not found' "$r" | head -14 | cut -c1-300 | sed 's/^/EVIDENCE: diag crash: /'
+  done
+}
