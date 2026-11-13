@@ -96,8 +96,16 @@ describe("installCliLaunchers", () => {
 		const cmd = readFileSync(join(appBin, "ompdesk.cmd"), "utf8");
 		expect(cmd.startsWith("@echo off\r\nrem ")).toBe(true);
 		expect(cmd).toContain(`"${options.binary}" %*`);
+	});
+
+	it("names the CLI with forward slashes in the sh launcher on Windows, which every Windows bash resolves", () => {
+		const { options, appBin } = setup(false, "win32");
+		// A Windows path whatever the test's host: omp's own bash answered `not found` for `exec 'C:\…\ompdesk.exe'`.
+		installCliLaunchers({ ...options, binary: String.raw`C:\Program Files\O'MP\ompdesk-bin\ompdesk.exe` });
 		const sh = readFileSync(join(appBin, "ompdesk"), "utf8");
-		expect(sh).toContain(`exec '${options.binary}' "$@"`);
+		expect(sh).toContain(`exec 'C:/Program Files/O'\\''MP/ompdesk-bin/ompdesk.exe' "$@"`);
+		const cmd = readFileSync(join(appBin, "ompdesk.cmd"), "utf8");
+		expect(cmd).toContain(String.raw`"C:\Program Files\O'MP\ompdesk-bin\ompdesk.exe" %*`);
 	});
 
 	it("leaves the command out, and the app starting, when its folder cannot be written", () => {
