@@ -313,12 +313,16 @@ struct Plan {
 
 /// A free port on this computer's loopback: `wanted` when it is free, else one the system picks.
 fn free_port(wanted: u16) -> Result<u16, Fault> {
-    let bound = |port: u16| {
+    free_port_by(wanted, |port| {
         TcpListener::bind((Ipv4Addr::LOCALHOST, port))
             .and_then(|listener| listener.local_addr())
             .map(|address| address.port())
             .ok()
-    };
+    })
+}
+
+/// `free_port` with the binding injected: `bound(port)` is the port got, or `None` when it is taken.
+fn free_port_by(wanted: u16, bound: impl Fn(u16) -> Option<u16>) -> Result<u16, Fault> {
     bound(wanted)
         .or_else(|| bound(0))
         .ok_or_else(|| Fault::new("no_port", "No free local port"))
@@ -763,7 +767,13 @@ mod tests {
         let other = free_port(port).unwrap();
         assert_ne!(other, port);
         drop(taken);
-        assert_eq!(free_port(port).unwrap(), port);
+        // Not `free_port(port) == port` on the real stack: tests running beside this one take the freed ephemeral
+        // port between the drop and the call.
+        assert_eq!(free_port_by(port, Some).unwrap(), port);
+        assert_eq!(
+            free_port_by(port, |asked| (asked == 0).then_some(1234)).unwrap(),
+            1234
+        );
     }
 
     #[test]
