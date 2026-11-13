@@ -195,8 +195,11 @@
 			"spec": "ChecksQueue.tla",
 			"matrix": "matrix.json",
 			"mutations": "mutations.json",
-			"covers": [],
-			"syncCommit": null
+			"covers": [
+				"native/ompdesk/crates/core/src/checks/queue.rs"
+			],
+			"syncCommit": null,
+			"verifySkill": ".omp/skills/checks-queue-verify/SKILL.md"
 		}
 	]
 }
