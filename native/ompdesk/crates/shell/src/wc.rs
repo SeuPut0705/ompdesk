@@ -31,8 +31,10 @@ fn module_owned(wc_id: u64) -> bool {
     wc(wc_id).is_some_and(|e| e.borrow().module_owned)
 }
 
-pub fn emit(wc_id: u64, name: &str, args: Value) {
-    if module_owned(wc_id) {
+/// An event of `wc_id`: a Preview page's goes to its module (it may already be gone from the registry, so the caller
+/// that knows says `module`), every other page's to Node.
+fn emit_as(module: bool, wc_id: u64, name: &str, args: Value) {
+    if module {
         return crate::modules::preview::page_event(wc_id, name, &args);
     }
     host::event(
@@ -57,7 +59,12 @@ fn window_event(wc_id: u64, name: &str) {
     }
 }
 
-/// `wc.state` when anything changed since the last push (a Preview page's goes to its module).
+pub fn emit(wc_id: u64, name: &str, args: Value) {
+    emit_as(module_owned(wc_id), wc_id, name, args);
+}
+
+/// `wc.state` when anything changed since the last push (a Preview page's module reads the state it needs from the
+/// event that follows, so it gets no push).
 pub fn push_state(wc_id: u64) {
     let Some(entry) = wc(wc_id) else { return };
     let mut e = entry.borrow_mut();
@@ -66,9 +73,7 @@ pub fn push_state(wc_id: u64) {
         e.sent_state = Some(json.clone());
         let module = e.module_owned;
         drop(e);
-        if module {
-            crate::modules::preview::page_state(wc_id);
-        } else {
+        if !module {
             host::event("wc.state", json);
         }
     }
@@ -322,6 +327,7 @@ wrap_life_span_handler! {
                 u.exiting && u.browsers == 0
             });
             let entry = ui_state(|u| u.wcs.remove(&wc_id));
+            let module = entry.as_ref().is_some_and(|e| e.borrow().module_owned);
             ipc::drop_page(wc_id);
             if let Some(entry) = entry {
                 let mut e = entry.borrow_mut();
@@ -330,7 +336,7 @@ wrap_life_span_handler! {
                     callback(Err(("gone".into(), "the page was destroyed".into())));
                 }
             }
-            emit(wc_id, "destroyed", json!([]));
+            emit_as(module, wc_id, "destroyed", json!([]));
             crate::window::page_destroyed(wc_id);
             if exiting_and_last {
                 quit_message_loop();
@@ -542,47 +548,32 @@ wrap_jsdialog_handler! {
         fn on_jsdialog(
             &self,
             _browser: Option<&mut Browser>,
-            origin_url: Option<&CefString>,
+            _origin_url: Option<&CefString>,
             dialog_type: JsdialogType,
             message_text: Option<&CefString>,
             _default_prompt_text: Option<&CefString>,
             callback: Option<&mut JsdialogCallback>,
             _suppress_message: Option<&mut i32>,
         ) -> i32 {
-            // `__ompdeskSendSync(channel, payload)` of a Preview partition's preload is a `prompt()` whose message
-            // starts with NUL + "omp-sync:" (PROTOCOL.md §6): a page → Node call that returns an answer to the page
-            // synchronously, with the answer as the prompt's result.
+            // `__ompdeskSendSync(channel, payload)` of a viewer partition's dialog preload is a `prompt()` whose message
+            // starts with NUL + "omp-sync:" (PROTOCOL.md §6): a page → module call that returns an answer to the page
+            // synchronously, with the answer as the prompt's result. Only a Preview page has that preload.
             let message = message_text.map(|m| m.to_string()).unwrap_or_default();
             let (JsdialogType::PROMPT, Some(body)) = (dialog_type, message.strip_prefix("\u{0}omp-sync:")) else { return 0 };
             let Some(callback) = callback.cloned() else { return 0 };
-            let Ok(Value::Object(call)) = serde_json::from_str::<Value>(body) else {
-                callback.cont(0, Some(&cs("")));
-                return 1;
+            let call = match serde_json::from_str::<Value>(body) {
+                Ok(Value::Object(call)) if module_owned(self.wc_id) => call,
+                _ => {
+                    callback.cont(0, Some(&cs("")));
+                    return 1;
+                }
             };
-            if module_owned(self.wc_id) {
-                let channel = call.get("channel").and_then(Value::as_str).unwrap_or("").to_string();
-                let payload = call.get("payload").cloned().unwrap_or(Value::Null);
-                crate::modules::preview::sync_call(self.wc_id, &channel, payload, move |value| {
-                    let text = value.to_string();
-                    callback.cont(1, Some(&cs(&text)));
-                });
-                return 1;
-            }
-            host::request(
-                "ipc.sendSync",
-                json!({
-                    "wcId": self.wc_id,
-                    "frameUrl": origin_url.map(|u| u.to_string()).unwrap_or_default(),
-                    "channel": call.get("channel").cloned().unwrap_or(Value::Null),
-                    "args": [call.get("payload").cloned().unwrap_or(Value::Null)],
-                }),
-                None,
-                move |result, _| {
-                    let value = result.ok().and_then(|v| v.get("value").cloned()).unwrap_or(Value::Null);
-                    let text = value.to_string();
-                    crate::ui::post(move || callback.cont(1, Some(&cs(&text))));
-                },
-            );
+            let channel = call.get("channel").and_then(Value::as_str).unwrap_or("").to_string();
+            let payload = call.get("payload").cloned().unwrap_or(Value::Null);
+            crate::modules::preview::sync_call(self.wc_id, &channel, payload, move |value| {
+                let text = value.to_string();
+                callback.cont(1, Some(&cs(&text)));
+            });
             1
         }
 
@@ -630,20 +621,6 @@ wrap_download_handler! {
                 );
                 return 1;
             }
-            let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
-            if session::downloads_denied(&partition) {
-                host::event(
-                    "session.download",
-                    json!({
-                        "partition": partition, "wcId": self.wc_id,
-                        "url": item.as_ref().map(|i| string_of(&i.url())).unwrap_or_default(),
-                        "filename": suggested_name.map(|n| n.to_string()).unwrap_or_default(),
-                        "mimeType": item.as_ref().map(|i| string_of(&i.mime_type())).unwrap_or_default(),
-                        "totalBytes": item.as_ref().map(|i| i.total_bytes().max(0)).unwrap_or(0),
-                    }),
-                );
-                return 1;
-            }
             if let Some(callback) = callback {
                 callback.cont(Some(&cs("")), 1);
             }
@@ -665,9 +642,8 @@ wrap_permission_handler! {
             requested: u32,
             callback: Option<&mut MediaAccessCallback>,
         ) -> i32 {
-            let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
             if let Some(callback) = callback {
-                if module_owned(self.wc_id) || session::permissions_denied(&partition) {
+                if module_owned(self.wc_id) {
                     callback.cancel();
                 } else {
                     callback.cont(requested);
@@ -684,9 +660,8 @@ wrap_permission_handler! {
             _requested: u32,
             callback: Option<&mut PermissionPromptCallback>,
         ) -> i32 {
-            let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
             if let Some(callback) = callback {
-                callback.cont(if module_owned(self.wc_id) || session::permissions_denied(&partition) { PermissionRequestResult::DENY } else { PermissionRequestResult::ACCEPT });
+                callback.cont(if module_owned(self.wc_id) { PermissionRequestResult::DENY } else { PermissionRequestResult::ACCEPT });
             }
             1
         }
@@ -839,12 +814,9 @@ wrap_render_handler! {
             }
             // SAFETY: CEF hands `width * height` BGRA pixels at `buffer`, valid for this call; copied before return.
             let bgra = unsafe { std::slice::from_raw_parts(buffer, width as usize * height as usize * 4) }.to_vec();
-            let watching = wc(self.wc_id).map(|e| e.borrow().watch_events.contains("paint")).unwrap_or(false);
             update(self.wc_id, |e| e.painted = Some(state::Painted { width, height, bgra: std::sync::Arc::new(bgra) }));
             if module_owned(self.wc_id) {
                 crate::modules::preview::painted(self.wc_id);
-            } else if watching {
-                host::event("wc.paint", json!({ "wcId": self.wc_id, "width": width, "height": height, "scale": 1.0 }));
             }
         }
     }
@@ -1145,7 +1117,10 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
             })
         }
         "setZoomFactor" => {
-            set_zoom_factor(wc_id, args.get("factor").and_then(Value::as_f64).unwrap_or(1.0));
+            set_zoom_factor(
+                wc_id,
+                args.get("factor").and_then(Value::as_f64).unwrap_or(1.0),
+            );
             with_browser(wc_id, move |_| ok(call))
         }
         "setUserAgent" => {
@@ -1354,13 +1329,14 @@ pub fn close(wc_id: u64) {
         Some(host) => host.close_browser(1),
         None => {
             // Not created yet: nothing to close; forget it.
-            ui_state(|u| u.wcs.remove(&wc_id));
-            emit(wc_id, "destroyed", json!([]));
+            let module =
+                ui_state(|u| u.wcs.remove(&wc_id)).is_some_and(|e| e.borrow().module_owned);
+            emit_as(module, wc_id, "destroyed", json!([]));
         }
     }
 }
 
-/// `wc.cdp.*` and `wc.frame` requests.
+/// `wc.cdp.*` requests.
 pub fn cdp_request(call: Call) {
     let Some(wc_id) = call.params.get("wcId").and_then(Value::as_u64) else {
         return call.err("invalid", "wcId is missing");
@@ -1391,7 +1367,6 @@ pub fn cdp_request(call: Call) {
                 }
             })
         }
-        "wc.frame" => crate::wcframe::request(call, wc_id),
         _ => call.unsupported(),
     });
 }

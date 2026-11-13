@@ -8,6 +8,7 @@ pub mod js;
 pub mod languages;
 pub mod layout;
 pub mod pacer;
+pub mod page_tools;
 pub mod relay_rules;
 pub mod stream;
 pub mod urls;

@@ -13,7 +13,7 @@ import { createMenuModule } from "./menu";
 import { NativeImage } from "./native-image";
 import { createNet } from "./net";
 import { createSafeStorage, keychainFetcher } from "./safe-storage";
-import { DEFAULT_PARTITION, type ProtocolHandler, Session, serveDownloads, serveProtocolRequests } from "./session";
+import { DEFAULT_PARTITION, type ProtocolHandler, Session, serveProtocolRequests } from "./session";
 import { servePages, webContentsModule } from "./web-contents";
 
 export interface CreateOptions {
@@ -74,10 +74,9 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 		return found;
 	};
 	serveProtocolRequests(host, sessionFor);
-	serveDownloads(host, partition => sessions.get(partition));
 	servePages(host);
 
-	const { BrowserWindow, WebContentsView, closeAll: closeWindows } = createWindowClasses(host, app, sessionFor);
+	const { BrowserWindow, closeAll: closeWindows } = createWindowClasses(host, app, sessionFor);
 	closeAll = closeWindows;
 
 	const ipcMain = new IpcMain();
@@ -113,7 +112,6 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 	return {
 		app,
 		BrowserWindow,
-		WebContentsView,
 		webContents: webContentsModule(host),
 		session,
 		protocol,

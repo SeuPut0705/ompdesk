@@ -1,8 +1,8 @@
 /**
  * `WebContents` over the host protocol (PROTOCOL.md §4): a page of the shell with Electron's methods and events.
  * State the app reads synchronously (`getURL`, `isLoading`, `getTitle`, zoom, history flags) is mirrored from the
- * shell's `wc.state` pushes; what cannot be mirrored is a request. `capturePage`, `printToPDF`, `sendInputEvent`,
- * `insertText`, `executeJavaScriptInIsolatedWorld` and the `debugger` are built on the DevTools protocol.
+ * shell's `wc.state` pushes; what cannot be mirrored is a request. `capturePage` and the `debugger` are built on the
+ * DevTools protocol.
  */
 import { EventEmitter } from "node:events";
 import { join, relative, resolve, sep } from "node:path";
@@ -10,8 +10,7 @@ import { pathToFileURL } from "node:url";
 import type { WcState } from "../facts";
 import { encodeBin } from "./binary-json";
 import { emitPreventable, type Host, makeEvent, type PageRecord } from "./host";
-import { type InputEvent, inputCommands } from "./input-events";
-import { frameSource, NativeImage } from "./native-image";
+import { NativeImage } from "./native-image";
 import { DEFAULT_PARTITION, type Session } from "./session";
 
 /** The events whose first argument is a details object that is also the Electron event (`details.url`). */
@@ -22,7 +21,6 @@ const WATCHED_EVENTS = new Set([
 	"context-menu",
 	"input-event",
 	"console-message",
-	"paint",
 	"will-navigate",
 	"will-frame-navigate",
 	"will-redirect",
@@ -84,9 +82,8 @@ export class Debugger extends EventEmitter {
 
 export interface WebContentsOptions {
 	partition: string;
-	/** The app window this page is the main page of; undefined for a view or an offscreen page. */
+	/** The app window this page is the main page of. */
 	windowId?: number;
-	offscreen?: boolean;
 	userAgent?: string;
 }
 
@@ -98,7 +95,6 @@ export function rendererRoot(facts: { appPath: string; rendererRoot?: string }):
 export class WebContents extends EventEmitter implements PageRecord {
 	readonly id: number;
 	readonly windowId: number | undefined;
-	readonly offscreen: boolean;
 	readonly debugger: Debugger;
 	readonly #host: Host;
 	readonly #partition: string;
@@ -114,7 +110,6 @@ export class WebContents extends EventEmitter implements PageRecord {
 		this.#host = host;
 		this.id = id;
 		this.windowId = options.windowId;
-		this.offscreen = options.offscreen === true;
 		this.#partition = options.partition;
 		this.#sessionFor = sessionFor;
 		this.#state = {
@@ -174,15 +169,6 @@ export class WebContents extends EventEmitter implements PageRecord {
 	handleEvent(name: string, args: unknown[]): void {
 		if (name === "destroyed") {
 			this.#destroy();
-			return;
-		}
-		if (name === "paint") {
-			const paint = args[0] as { width: number; height: number; scale?: number };
-			const image = NativeImage.fromFrame(
-				{ width: paint.width, height: paint.height },
-				frameSource(this.#host.client, this.id),
-			);
-			this.emit("paint", makeEvent(), { x: 0, y: 0, width: paint.width, height: paint.height }, image);
 			return;
 		}
 		if (name === "did-stop-loading" || name === "did-finish-load") this.#settleLoads(null);
@@ -296,11 +282,6 @@ export class WebContents extends EventEmitter implements PageRecord {
 	isCrashed(): boolean {
 		return this.#state.crashed;
 	}
-
-	getUserAgent(): string {
-		return this.#state.userAgent;
-	}
-
 	getZoomFactor(): number {
 		return this.#state.zoomFactor;
 	}
@@ -309,16 +290,6 @@ export class WebContents extends EventEmitter implements PageRecord {
 		this.#state = { ...this.#state, zoomFactor: factor };
 		this.op("setZoomFactor", { factor });
 	}
-
-	get navigationHistory() {
-		return {
-			canGoBack: () => this.#state.canGoBack,
-			canGoForward: () => this.#state.canGoForward,
-			goBack: () => this.op("goBack"),
-			goForward: () => this.op("goForward"),
-		};
-	}
-
 	get session(): Session {
 		return this.#sessionFor(this.#partition);
 	}
@@ -326,27 +297,6 @@ export class WebContents extends EventEmitter implements PageRecord {
 	setWindowOpenHandler(handler: WindowOpenHandler): void {
 		this.#windowOpenHandler = handler;
 	}
-
-	setWebRTCIPHandlingPolicy(policy: string): void {
-		this.op("setWebRTCIPHandlingPolicy", { policy });
-	}
-
-	setFrameRate(fps: number): void {
-		this.op("setFrameRate", { fps });
-	}
-
-	invalidate(): void {
-		this.op("invalidate");
-	}
-
-	startPainting(): void {
-		this.op("startPainting");
-	}
-
-	stopPainting(): void {
-		this.op("stopPainting");
-	}
-
 	focus(): void {
 		this.op("focus");
 	}
@@ -423,94 +373,15 @@ export class WebContents extends EventEmitter implements PageRecord {
 		});
 		return answer.result;
 	}
-
-	/** `executeJavaScriptInIsolatedWorld`: a DevTools isolated world of the main frame, named by `worldId`. */
-	async executeJavaScriptInIsolatedWorld(
-		worldId: number,
-		scripts: Array<{ code: string }>,
-		userGesture?: boolean,
-	): Promise<unknown> {
-		const tree = (await this.cdp("Page.getFrameTree")) as { frameTree: { frame: { id: string } } };
-		const world = (await this.cdp("Page.createIsolatedWorld", {
-			frameId: tree.frameTree.frame.id,
-			worldName: `ompdesk-world-${worldId}`,
-		})) as { executionContextId: number };
-		let value: unknown;
-		for (const script of scripts) {
-			const evaluated = (await this.cdp("Runtime.evaluate", {
-				expression: script.code,
-				contextId: world.executionContextId,
-				awaitPromise: true,
-				returnByValue: true,
-				userGesture: userGesture === true,
-			})) as {
-				result?: { value?: unknown };
-				exceptionDetails?: { text?: string; exception?: { description?: string } };
-			};
-			if (evaluated.exceptionDetails)
-				throw new Error(
-					evaluated.exceptionDetails.exception?.description ?? evaluated.exceptionDetails.text ?? "script failed",
-				);
-			value = evaluated.result?.value;
-		}
-		return value;
-	}
-
-	/**
-	 * `capturePage`: the page's pixels as PNG (`Page.captureScreenshot`), of `rect` (CSS px) when given. The image
-	 * remembers how to be taken again at another scale (`NativeImage#fitted`), since nothing here resizes a bitmap.
-	 */
+	/** `capturePage`: the page's pixels as PNG (`Page.captureScreenshot`), of `rect` (CSS px) when given. */
 	async capturePage(rect?: { x: number; y: number; width: number; height: number }): Promise<NativeImage> {
-		const take = async (scale: number): Promise<Buffer> => {
-			const clip = rect ?? (await this.#viewport());
-			const shot = (await this.cdp("Page.captureScreenshot", {
-				format: "png",
-				fromSurface: true,
-				...(rect || scale !== 1 ? { clip: { ...clip, scale } } : {}),
-			})) as { data: string };
-			return Buffer.from(shot.data, "base64");
-		};
-		return NativeImage.fromCapture(await take(1), ratio => take(ratio));
-	}
-
-	async #viewport(): Promise<{ x: number; y: number; width: number; height: number }> {
-		const metrics = (await this.cdp("Page.getLayoutMetrics")) as {
-			cssVisualViewport: { clientWidth: number; clientHeight: number };
-		};
-		return {
-			x: 0,
-			y: 0,
-			width: metrics.cssVisualViewport.clientWidth,
-			height: metrics.cssVisualViewport.clientHeight,
-		};
-	}
-
-	async printToPDF(
-		options: { printBackground?: boolean; landscape?: boolean; pageSize?: string } = {},
-	): Promise<Buffer> {
-		const size = options.pageSize === "A4" ? { paperWidth: 8.27, paperHeight: 11.69 } : {};
-		const pdf = (await this.cdp("Page.printToPDF", {
-			printBackground: options.printBackground === true,
-			landscape: options.landscape === true,
-			transferMode: "ReturnAsBase64",
-			...size,
+		const shot = (await this.cdp("Page.captureScreenshot", {
+			format: "png",
+			fromSurface: true,
+			...(rect ? { clip: { ...rect, scale: 1 } } : {}),
 		})) as { data: string };
-		return Buffer.from(pdf.data, "base64");
+		return NativeImage.createFromBuffer(Buffer.from(shot.data, "base64"));
 	}
-
-	/** Browser-process input through the DevTools protocol: it reaches the page as real input does. */
-	sendInputEvent(event: InputEvent): void {
-		for (const command of inputCommands(event)) {
-			this.cdp(command.method, command.params).catch((error: unknown) =>
-				this.#host.warn(`sendInputEvent: ${String(error)}`),
-			);
-		}
-	}
-
-	async insertText(text: string): Promise<void> {
-		await this.cdp("Input.insertText", { text });
-	}
-
 	// --- registry ---
 
 	/** Runs the listeners of `kind` as `emitPreventable` would: true when none prevented the default. */
@@ -539,9 +410,6 @@ export function servePages(host: Host): void {
 	});
 	client.on("wc.event", ({ wcId, name, args }: { wcId: number; name: string; args?: unknown[] }) => {
 		host.pages.get(wcId)?.handleEvent(name, args ?? []);
-	});
-	client.on("wc.paint", ({ wcId, ...paint }: { wcId: number; width: number; height: number; scale?: number }) => {
-		host.pages.get(wcId)?.handleEvent("paint", [paint]);
 	});
 	client.on(
 		"wc.cdp.message",

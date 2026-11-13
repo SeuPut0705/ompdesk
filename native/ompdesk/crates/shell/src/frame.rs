@@ -1,5 +1,5 @@
-//! A painted frame (BGRA, as CEF hands it) encoded for `wc.frame`: scaled down on request, then JPEG or PNG. Only
-//! what is asked for is encoded, never on paint.
+//! A painted frame (BGRA, as CEF hands it) encoded for the Preview's stream: scaled down on request, then JPEG or PNG.
+//! Only what is asked for is encoded, never on paint.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {

@@ -39,7 +39,6 @@ if (process.env.OMP_GUI_TEST_NODE_INSPECT === "1") {
 export const {
 	app,
 	BrowserWindow,
-	WebContentsView,
 	webContents,
 	session,
 	protocol,

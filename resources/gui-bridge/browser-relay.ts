@@ -5,7 +5,7 @@
  * port; the session's `browser.relay` / `browser.relayUrl` are held as runtime
  * overrides (never written to config.yml), so stock's browser tool resolves to
  * relay mode and drives whatever tab the relay's extension offers. OMPdesk's
- * main process connects as that extension (src/main/preview/agent-relay.ts) and
+ * main process connects as that extension (the shell's preview module) and
  * offers only the visible preview page.
  *
  * The extension socket needs the random token this method returns; the server

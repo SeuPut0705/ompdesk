@@ -32,6 +32,34 @@ wrap_dev_tools_message_observer! {
     }
 }
 
+/// What a debugger's session saw: Node's (`wc.cdp.message`) for the shim's pages, the Preview module's own relay for a
+/// page of its own (the agent's browsing never leaves the shell).
+fn debugger_message(wc_id: u64, data: Value) {
+    if wc(wc_id).is_some_and(|e| e.borrow().module_owned) {
+        let session = data.get("sessionId").and_then(Value::as_str);
+        let method = data
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let params = data.get("params").cloned().unwrap_or(Value::Null);
+        crate::modules::preview::debugger_event(wc_id, method, &params, session);
+    } else {
+        host::event("wc.cdp.message", data);
+    }
+}
+
+/// The debugger's session ended: DevTools took the page, or it went away.
+fn debugger_detached(wc_id: u64) {
+    if wc(wc_id).is_some_and(|e| e.borrow().module_owned) {
+        crate::modules::preview::debugger_detached(wc_id, "target closed");
+    } else {
+        host::event(
+            "wc.cdp.detached",
+            json!({ "wcId": wc_id, "reason": "target closed" }),
+        );
+    }
+}
+
 /// What closing the debugger's session ends, taken out of the page's entry: whether it was attached, its session, the
 /// commands waiting for it and the debugger's commands in flight. The borrow has ended when this returns, so the caller
 /// may run them.
@@ -85,14 +113,11 @@ fn agent_detached(wc_id: u64) {
     let Some(entry) = wc(wc_id) else { return };
     let (attached, _) = end_debugger(&entry, true).fail_commands();
     if attached {
-        host::event(
-            "wc.cdp.detached",
-            json!({ "wcId": wc_id, "reason": "target closed" }),
-        );
+        debugger_detached(wc_id);
     }
     let rearm = wc(wc_id).is_some_and(|e| {
         let e = e.borrow();
-        !e.closing && e.watch_events.contains("input-event")
+        !e.closing && (e.module_owned || e.watch_events.contains("input-event"))
     });
     if rearm {
         // Not from inside CEF's own callback: the next turn of the UI thread attaches the new agent.
@@ -145,10 +170,7 @@ fn on_message(wc_id: u64, value: Value) {
             && params.get("sessionId").and_then(Value::as_str) == debugger.as_deref();
         if ended && attached {
             end_debugger(&entry, false).fail_commands();
-            host::event(
-                "wc.cdp.detached",
-                json!({ "wcId": wc_id, "reason": "target closed" }),
-            );
+            debugger_detached(wc_id);
         }
         return;
     };
@@ -160,7 +182,7 @@ fn on_message(wc_id: u64, value: Value) {
     if debugger.as_deref() != Some(session) {
         data["sessionId"] = json!(session);
     }
-    host::event("wc.cdp.message", data);
+    debugger_message(wc_id, data);
 }
 
 /// Registers the observer once per page (it stays for the page's life).
@@ -296,10 +318,7 @@ pub fn attach(wc_id: u64) {
         }
         if session.is_none() {
             crate::log::log("wc.debugger_session_failed", json!({ "wcId": wc_id }));
-            host::event(
-                "wc.cdp.detached",
-                json!({ "wcId": wc_id, "reason": "target closed" }),
-            );
+            debugger_detached(wc_id);
         }
     };
     crate::wc::with_browser(wc_id, move |_| {

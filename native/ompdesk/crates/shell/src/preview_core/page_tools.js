@@ -1,15 +1,4 @@
-/**
- * C137–C139/C143: the element picker, region select, comment pins, CSS
- * variable tweaks and the `data-choice` wait on a preview page. They run in an
- * isolated world (`PAGE_WORLD`), so the page's own scripts can neither read nor
- * call them, and they act only on trusted (real) input events; main adds the
- * gesture and agent checks on top (host.ts).
- */
 
-/** Isolated world id for OMPdesk's page tools (any id other than 0, the page's own world). */
-export const PAGE_WORLD = 1077;
-
-const PRELUDE = String.raw`
 if (!globalThis.__ompdesk) {
 	const escape = value => CSS.escape(value);
 	const uniqueId = node => node.id && document.querySelectorAll("#" + escape(node.id)).length === 1;
@@ -260,10 +249,4 @@ if (!globalThis.__ompdesk) {
 			});
 		},
 	};
-}
-`;
-
-/** One call into the page tools; `args` are JSON-encoded, never spliced as code. */
-export function pageCall(method: string, ...args: unknown[]): string {
-	return `${PRELUDE}\nglobalThis.__ompdesk[${JSON.stringify(method)}](...${JSON.stringify(args)})`;
 }

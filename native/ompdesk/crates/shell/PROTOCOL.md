@@ -22,9 +22,9 @@ The core's wire (`crates/core/src/wire.rs`), over the named pipe / unix socket t
   writer per side, so frames never interleave. A malformed line is logged and skipped.
 - Error `code`s: `unsupported`, `invalid`, `gone` (window/page/view destroyed), `denied`, `failed` (message says why),
   `cdp` (DevTools protocol error, `message` is the protocol's), `timeout`.
-- Names: `winId` = Electron's `BrowserWindow.id`, `wcId` = `webContents.id`, `viewId` = a `WebContentsView`'s id.
-  **Node assigns all three** (one counter each, from 1, never reused in a run) and sends them in `win.create` /
-  `view.create`: Electron's constructors return at once with `win.id` and `win.webContents.id` readable, so they
+- Names: `winId` = Electron's `BrowserWindow.id`, `wcId` = `webContents.id`. **Node assigns both** (one counter each, from
+  1, never reused in a run) and sends them in
+  `win.create`: Electron's constructors return at once with `win.id` and `win.webContents.id` readable, so they
   cannot wait for an answer. The shell processes requests in arrival order, so an op sent right after a `create`
   finds its target; a request about an id the shell does not know answers `gone`.
 - Requests that need CEF (`win.*`, `wc.*`, `view.*`, `session.*`, `menu.*`, `tray.*`, `dialog.*`, `clipboard.*`,
@@ -112,7 +112,7 @@ shell's own resolution of the same switch/env is authoritative and equal in ever
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
-| `win.create` | Node | `{winId, wcId, options}` | `{state: WinState}` — see options below. For `webPreferences.offscreen: true` there is no OS window: a windowless CEF browser (`wc.paint` events, `wc.frame`) and `state.visible` stays false. |
+| `win.create` | Node | `{winId, wcId, options}` | `{state: WinState}` — see options below. (`webPreferences.offscreen: true`, a windowless browser, was the Preview viewers' page: removed by SX2, §15.6.) |
 | `win.op` | Node | `{winId, op, args}` | `{}` unless noted; the ops below. |
 | `win.closeRequested` | shell→Node | `{winId}` | `{prevent: boolean}` — the person closed the window (caption button, Alt+F4, taskbar, ⌘W, `win.op close` is **not** this). The shim runs `close` listeners with `preventDefault`; the shell closes only when `prevent` is false, then emits `win.event closed`. No answer within 5 s counts as not prevented. |
 | `win.state` (event) | shell→Node | `WinState` + `{winId}` | pushed after every change; the shim answers `getBounds()`, `isMaximized()`, … synchronously from it. |
@@ -158,8 +158,6 @@ window closes without `win.closeRequested`; the shell then emits `win.event clos
 | `wc.cdp.send` | Node | `{wcId, method, params?, sessionId?, debugger?: true}` | `{result}`; protocol error → `error.code "cdp"`. Without `debugger` it goes to the page's own session and works with or without `attach` (the shell registers its DevTools observer on first use); the shim builds `capturePage`, `printToPDF`, `sendInputEvent`, `insertText` and `executeJavaScriptInIsolatedWorld` on it. With `debugger` (the shim's `debugger.sendCommand`) it goes to the debugger's own session, or to `sessionId`, one under it. |
 | `wc.cdp.message` (event) | shell→Node | `{wcId, method, params, sessionId?}` | the debugger's session's events (no `sessionId`) and those of the sessions under it; only while attached. The page's own session's events never come here. |
 | `wc.cdp.detached` (event) | shell→Node | `{wcId, reason}` | the page went away or DevTools took the page. |
-| `wc.frame` | Node | `{wcId, format: "jpeg"\|"png", quality?: 0..100, width?: number}` | `{width, height}` + `bin` = the page's **latest painted frame** encoded (offscreen browsers only), scaled to `width` DIP-independent pixels when given, never larger than the source. Encode only what is sent. |
-| `wc.paint` (event) | shell→Node | `{wcId, width, height, scale}` | an offscreen browser painted (dirty rect dropped; the full frame is `wc.frame`). |
 
 The DevTools commands the shim itself sends through `wc.cdp.send` (so the shell must pass them to the page's DevTools agent
 unchanged): `Page.getFrameTree`, `Page.createIsolatedWorld`, `Runtime.evaluate` (`contextId`, `awaitPromise`,
@@ -191,13 +189,12 @@ instead of resizing a bitmap), `Page.printToPDF` (`transferMode: "ReturnAsBase64
 | `console-message` | `[{level: "debug"\|"info"\|"warning"\|"error", message, lineNumber, sourceId}]` |
 | `context-menu` | `[{x, y, isEditable, selectionText, misspelledWord, dictionarySuggestions: string[], mediaType: "none"\|"image"\|…, linkURL, srcURL, editFlags: {canUndo, canRedo, canCut, canCopy, canPaste, canSelectAll}}]` — optional (see below). |
 | `input-event` | `[{type: "mouseUp"\|"keyUp"}]` — a trusted pointer or key release on the page: a person's, or browser-process input sent through the DevTools protocol (`sendInputEvent`), as Electron's; never a script's `dispatchEvent` |
-| `will-prevent-unload` | `[]` — an offscreen page's beforeunload prompt; the Preview's listener always prevents it (the page unloads): the shim then sends `wc.op ignoreBeforeUnload`. Optional. |
 | `preload-error` | `[preloadPath, {message, stack}]` — the shell's injected `shell.js` threw |
 | `destroyed` | `[]` — last event of a page |
 
 Optional events are switched on per page with `wc.op watchEvents {names: string[]}` (Node → shell, sent when the
 first listener of a name is added; `names` is the full set so far): `context-menu`, `input-event`,
-`console-message`, `paint`, `will-prevent-unload`, `will-navigate`, `will-frame-navigate`, `will-redirect` (the last
+`console-message`, `will-navigate`, `will-frame-navigate`, `will-redirect` (the last
 three are what `wc.navigate` serves). The unconditional ones are the loading, navigation, title,
 `render-process-gone`, `unresponsive`/`responsive`, `destroyed`, `did-fail-load`, `dom-ready` and `preload-error`
 events. `console-message` and `did-start-navigation` carry their details as the event object in Electron 36 (the shim
@@ -205,12 +202,7 @@ spreads `args[0]` into the event).
 
 ## 5. `view.*` (WebContentsView: the Preview)
 
-| Method | Asks | Params | Result |
-|---|---|---|---|
-| `view.create` | Node | `{viewId, wcId, webPreferences: {session: <partition name>, sandbox, contextIsolation, nodeIntegration, webSecurity, navigateOnDragDrop}}` | `{}` — a CEF browser in a Views `BrowserView` with the partition's request context; not attached anywhere yet |
-| `view.op` | Node | `{viewId, op, args}` | ops: `attach {winId}` (`win.contentView.addChildView`), `detach {winId}` (`removeChildView`), `setBounds {bounds}` (window-content DIP), `setVisible {visible}`, `setBackgroundColor {color}`. A destroyed window's views are destroyed with it. |
-
-`wc.op`/`wc.cdp.*`/`wc.event` serve a view's page by its `wcId`. `view.op destroy` / `wc.op close` destroys it.
+Removed by SX2 (§15.6): the Preview's views are the `preview` module's own pages (§15.4 rule 4), made and placed by the shell; no `view.*` frame exists, and a Preview page's `wc.*` and `session.*` frames are never sent to Node.
 
 ## 6. `session.*` and `protocol.*`
 
@@ -219,15 +211,8 @@ with the page), a name without `persist:` is in memory only, `persist:<name>` is
 
 | Method | Asks | Params | Result |
 |---|---|---|---|
-| `session.create` | Node | `{partition, cache?: boolean}` | `{userAgent, acceptLanguages, spellCheckerLanguages: string[], availableSpellCheckerLanguages: string[], cachePath: string \| null}` — idempotent; the shim mirrors these for `getUserAgent()`, `getSpellCheckerLanguages()`, `availableSpellCheckerLanguages` and `getCachePath()`. `cachePath` is the folder of the partition's HTTP cache on disk (`app`: the shell's own `<userData>/shell-webview/Default/Cache`; `persist:<n>`: that partition's cache folder; an in-memory partition: `null`); disk care measures it and `session.op clearCache` must empty it, for `app` too |
-| `session.op` | Node | `{partition, op, args}` | `setProxy {mode: "direct"\|"system"\|"fixed_servers"\|"pac_script", proxyRules?, pacScript?, proxyBypassRules?}`, `resolveProxy {url}` → `{result: "PROXY h:p; DIRECT"}`, `clearCache`, `clearStorageData`, `setUserAgent {userAgent, acceptLanguages?}`, `setSpellCheckerLanguages {languages}`, `addWordToSpellCheckerDictionary {word}`, `setPermissions {mode: "deny-all"\|"default"}` (the Preview denies every permission request **and** check; no round trip), `setDownloads {mode: "deny"\|"default"}` (denied: the shell cancels, and tells Node with `session.download`), `registerPreload {id, source}` (below), `handleScheme {scheme}`, `unhandleScheme {scheme}` |
-| `session.download` (event) | shell→Node | `{partition, wcId, url, filename, mimeType, totalBytes}` | a cancelled download (`setDownloads deny`): the shim emits the partition's `will-download` with the page's `webContents` |
-
-`registerPreload {id, source}`: the shell runs `source` (a classic script) in every frame's main world of that
-partition before page scripts. It runs with one extra global function, `__ompdeskSendSync(channel, payload)`, a
-synchronous page → Node call answered by `ipc.sendSync` below (the Preview's alert/confirm/prompt shim,
-`src/main/web/preview-dialog.ts`, uses it instead of Electron's `ipcRenderer.sendSync`). No other global exists in
-such a script.
+| `session.create` | Node | `{partition, cache?: boolean}` | `{userAgent, acceptLanguages, spellCheckerLanguages: string[], availableSpellCheckerLanguages: string[], cachePath: string \| null}` — idempotent; the shim mirrors these for `getSpellCheckerLanguages()`, `availableSpellCheckerLanguages` and `getCachePath()`. `cachePath` is the folder of the partition's HTTP cache on disk (`app`: the shell's own `<userData>/shell-webview/Default/Cache`; `persist:<n>`: that partition's cache folder; an in-memory partition: `null`); disk care measures it and `session.op clearCache` must empty it, for `app` too |
+| `session.op` | Node | `{partition, op, args}` | `setProxy {mode: "direct"\|"system"\|"fixed_servers"\|"pac_script", proxyRules?, pacScript?, proxyBypassRules?}`, `resolveProxy {url}` → `{result: "PROXY h:p; DIRECT"}`, `clearCache`, `clearStorageData`, `setUserAgent {userAgent, acceptLanguages?}`, `setSpellCheckerLanguages {languages}`, `addWordToSpellCheckerDictionary {word}`, `handleScheme {scheme}`, `unhandleScheme {scheme}` |
 
 | Method | Asks | Params | Result |
 |---|---|---|---|
@@ -235,8 +220,9 @@ such a script.
 | `protocol.chunk` / `protocol.end` (events) | Node | as above | |
 | `protocol.cancel` (event) | shell→Node | `{streamId}` | |
 
-A scheme is served by Node only on partitions that called `handleScheme` for it (`omp-media` on the app session,
-`omp-visual` on a window's visual partition); a request for it elsewhere fails with `net::ERR_UNKNOWN_URL_SCHEME`.
+A scheme is served by Node only on partitions that called `handleScheme` for it (`omp-media` on the app session); a
+request for it elsewhere fails with `net::ERR_UNKNOWN_URL_SCHEME`. `omp-visual` is not Node's: the Preview module serves it
+on its visual partitions (§15.6).
 
 ## 7. `menu.*`, `tray.*`
 
@@ -353,13 +339,12 @@ in the other:
 |---|---|---|---|
 | `ipc.invoke` | shell→Node | `{wcId, frameUrl, channel, args}` | `{value}`; a handler's rejection is an error answer (`code "failed"`, `message` = the thrown message) and the page's promise rejects with `Error(message)` |
 | `ipc.send` (event) | shell→Node | `{wcId, frameUrl, channel, args}` | fire and forget |
-| `ipc.sendSync` | shell→Node | `{wcId, frameUrl, channel, args}` | `{value}` — only `__ompdeskSendSync` and Electron-style `sendSync` channels (`ipcMain.on` handlers that set `event.returnValue`); the shell blocks the page for the answer. Node answers when a handler sets `returnValue` — possibly much later (the Preview's dialog waits for a person, up to 60 s) — and with `null` when no handler listens. The shell sends `{cancel: id}` when the page stops waiting (navigated, closed). |
 | `wc.send` | Node | (section 4) | |
 
 Bytes: JSON cannot carry a `Uint8Array`, so the page and the shell write one as `{"$bin": "<base64>"}` anywhere inside `args` of `ipc.invoke` / `ipc.send` / `ipc.sendSync`, inside the `{value}` of an answer and inside `wc.send` `args`; the shell forwards the JSON untouched and the page-side reviver turns it back; the shim decodes incoming `args` to `Buffer` and encodes `Buffer`/`Uint8Array`/`ArrayBuffer` in answers and `wc.send`.
 
 `frameUrl` is the sending frame's URL (`event.senderFrame.url`); Node serves only `app://ompdesk/` for app channels,
-and `ipc.sendSync` from Preview partitions only for their registered preload (`__ompdeskSendSync`).
+and no frame of a Preview page (§15.6).
 
 ## 13. Values the shim mirrors (sync getters)
 
@@ -380,7 +365,7 @@ and `ipc.sendSync` from Preview partitions only for their registered preload (`_
 Made asynchronous (cannot be mirrored; each call site changed, see `src/main/shell-host/INVENTORY.md`):
 `clipboard.readText()` → `readClipboardText()` (`clipboard.readText` request), `powerMonitor.getSystemIdleTime()` →
 `systemIdleSeconds()` (`power.idleTime`), `NativeImage#toJPEG/toPNG/resize` of a captured or painted page →
-`capturePage`/`wc.frame` encode options.
+`capturePage` encode options.
 
 ## 14. Shell deviations (ShellCrate records here)
 
@@ -424,7 +409,6 @@ What the Rust shell does differently from this table or from Electron. README.md
   window's own page act on the page of that window that last took keyboard focus (it took the OS focus, or a key it
   left unhandled came from it), as Electron's menu roles act on the focused webContents: a Preview view the person
   typed in.
-- **`wc.frame`**: `width` scales by area averaging, never up.
 - **`win.op`**: `setMenuBarVisibility`, `setAutoHideMenuBar`, `setBackgroundMaterial` (Mica is set at creation) are
   accepted and do nothing. `setProgressBar {value, mode?}`: Windows shows it through `ITaskbarList3` (`value` 0..1
   determinate, below 0 removes the bar, above 1 indeterminate; `mode` none, normal, indeterminate, error or paused
@@ -435,8 +419,6 @@ What the Rust shell does differently from this table or from Electron. README.md
   `focused`, `show` does not activate it) and `showInactive` shows the window and hands key status back at once (never
   `NSApp activate`). A created window's size is set again when Views made it 1 px off the requested one (UNVERIFIED on a Mac).
 - **`win.closeRequested`**: no answer within 5 s closes the window.
-- **`view.*`**: a view is hidden until its first `setVisible`/`setBounds` with a non-empty size; an empty `setBounds` only
-  hides the view (a zero-sized browser view is a fatal check in Chromium).
 - **`session.*`**: `setProxy` writes Chromium's `proxy` preference; `resolveProxy` is answered from the user's WinINET /
   WinHTTP settings on Windows, not Chromium's resolver; on macOS from CFNetwork's system proxy settings (static
   HTTP/HTTPS/SOCKS, the exceptions list, exclude-simple-hostnames; a PAC script or auto-discovery is run through
@@ -465,8 +447,6 @@ What the Rust shell does differently from this table or from Electron. README.md
   to the display (`WM_GETMINMAXINFO`) does not apply; macOS is not handled (UNVERIFIED whether Views clamps there).
 - **`protocol.request`**: request headers are one `[name, value]` pair per value; a failed head fails the request with
   `ERR_FAILED`.
-- **`ipc.sendSync`** is sent from a `prompt()` the Preview preload's `__ompdeskSendSync` makes (message starting with NUL +
-  `omp-sync:`); it is answered when Node answers, and the page waits in the dialog meanwhile, not the UI thread.
 - **Page transport**: `Uint8Array` crosses as `{"$bin": "<base64>"}` in `ipc.invoke`/`ipc.send` args, `wc.send` args and
   `{value}` of an invoke answer; the shim decodes and encodes it.
 - **`dialog.*`**: Windows dialogs run on a thread of their own (their modal loop does not block CEF's UI thread); a
@@ -734,6 +714,22 @@ Node sends it with every call that may navigate and the module keeps the last va
 | `preview.judge` | shell→Node | `{tabId, image: {data, mimeType}, budgetMs}` | `{judged: boolean, problem: "error" \| "blank" \| null}` |
 
 Deviations:
+
+- (Node half) `agentStart`'s order: the endpoint is vetted and the socket opened (`preview.agentStart` follows) before the module checks the shown page, so a visual's page is refused after the socket was opened and then closed (the TypeScript refused it before opening anything); nothing reaches the relay.
+- (Node half) A viewer's `preview.input` batch is checked in Node only for being an array of at most 64 events; each event's shape (`PreviewStreamInput`) is the module's to validate (the TypeScript's zod schema was `previewStreamBatchSchema`). `PREVIEW_PAGE`, poll and dialog requests keep their zod checks in Node.
+- (Node half) `PREVIEW_STREAM_PDF` is `preview.pdfName` then `preview.pdf {maxBytes: 5 MiB}` (two calls; the page may change between them), and `PREVIEW_SAVE_PDF` asks `preview.pdfName`, shows the save dialog, then asks `preview.pdf`: the PDF is printed only after the person chose a file.
+- (Node half) `preview.visualize`'s `winId` is the app window's `BrowserWindow.id`; for a tab owned by a paired viewer's virtual window (no native window) Node sends that window's negative `webContents.id`, the owner `key` a viewer's pages have.
+- (Node half) `PREVIEW_COMMAND`'s `dispose` is sent with `remote: false`; any `PreviewRequest` carrying a `tabId` sends `remote` for that tab (a tab the owner's window does not own counts as remote), every other command for the owner's active tab.
+- Removed by SX2 (shim TypeScript only, the Rust behind stays): `webContents.navigationHistory`, `executeJavaScriptInIsolatedWorld`, `printToPDF`, `sendInputEvent` (and `input-events.ts`), `insertText`, `getUserAgent`, `setWebRTCIPHandlingPolicy`; `session.setProxy`, `setUserAgent`/`getUserAgent`, `getAcceptLanguages`, `clearStorageData`. Kept with callers: `getZoomFactor`/`setZoomFactor` (`menu.ts`, `e2e/desktop.e2e.ts`).
+- (Shell half) Removed by SX2 on the shell side: `view.*` (no frame; the module makes and places its views), `wc.frame` (the `dispatch.rs` arm and `wcframe.rs`) and `wc.paint` (a Preview page's paint goes to the module, nothing else watches `paint`), `session.op registerPreload`/`setPermissions`/`setDownloads` and `session.download` (the module's partitions deny permissions, drop a visual's downloads and turn a web page's into the `download` notice itself), `ipc.sendSync` (the `omp-sync:` prompt is answered by the module for a streamed page; any other page's is cancelled), the `will-prevent-unload` event (`beforeunload` never asks: the page leaves). **Left for SX1:** the offscreen branch of `win.create` in `window.rs` has no caller now; the chrome slice deletes it with the rest of that file's shim arms.
+- (Shell half) The shell registers the `omp-visual` scheme itself (standard, secure, fetch; `app.rs`, in every process) and serves it on each visual partition from `VisualStore::serve` (`modules/preview/scheme.rs`, one factory per partition's request context). Node's `registerSchemesAsPrivileged` entry for it is redundant (the shell skips a duplicate), and the scheme is never `handleScheme`d.
+- (Shell half) Partitions are made with their host and let go when it is disposed (`session::forget`: cookies and cache cleared, the request context dropped), not kept for the owner's next host. An in-memory context frees its storage with its last page, so a later host of the same owner starts empty under the same names (`preview-<winId>`, `preview-visual-<winId>`, `preview-web-<|key|>`, `preview-visual-web-<|key|>`: a viewer's key is its virtual window's negative `webContents.id`, the names use its absolute value).
+- (Shell half) `__ompdeskSendSync` had no definition in the shell (PROTOCOL §6 promised it and nothing set it, so the dialog shim returned at once): `session.rs` now gives every registered preload the function, a `prompt()` taken before page scripts run whose message is NUL + `omp-sync:` + the call as JSON; the dialog handler answers it with the value's JSON.
+- (Shell half) A viewer's offscreen browsers paint at device scale 1 (`screen_info`), so the page's window is the frame's size times the profile's `dpr` in DIPs (the TypeScript divided by the host screen's scale: the same pixels). A frame is `dpr` pixels per CSS px whatever the host screen.
+- (Shell half) A viewer's input reaches the page as browser-process events on the offscreen host (`send_mouse_*_event`, `send_key_event`, `ime_commit_text`): key codes are mapped to Windows virtual keys by a table (`preview_core::input::virtual_key`, US layout; a character without one is typed through its `char` event only), a key event carries no native scan code (so `KeyboardEvent.code` is empty), and committed text goes in after a round trip like keys do (`preview_core::input::InputSequence`), then holds what follows for a second one, where the TypeScript awaited `insertText`. The keyboard focus is taken on a page's first input. Not verified without a CEF run: Command shortcuts on macOS, which Chromium takes from an OS key event an offscreen host does not have.
+- (Shell half) The region screenshot (`preview.page region`) is `Page.captureScreenshot` of the picked rectangle (its viewport rectangle moved by the visual viewport's offset) at `clip.scale = min(1, 1600 / (width × zoom))`, and the Preview check's picture the same with the longer viewport side at 1280; the TypeScript resized the captured bitmap. The sizes agree up to what the engine rounds.
+- (Shell half) A main-frame load that fails shows CEF's error text as the tab's `error` (`ERR_<code>` when it gives none): Electron's descriptions are the same `net::` names. The web partition's spellchecker is not seeded (the shell has no spellchecker); its Accept-Language is `accept_languages(PREFERRED_LANGUAGES)` through `session::set_user_agent` as the TypeScript's `applyAcceptLanguages`.
+- (Shell half) `preview.visualize`'s `winId` is not read: the pages that show a visual are found among every owner's, as the TypeScript's `VisualPages` did. A viewer's `preview.poll` before its page exists is answered with an empty poll after 500 ms; an app window's with `failed` "No streamed preview page".
 
 ### 15.7 `services.*` (SX3)
 

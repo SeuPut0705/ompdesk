@@ -80,7 +80,8 @@ ompdesk-shell(.exe)          the shell; also every CEF helper (same exe, `--type
 | `src/lib.rs` + `src/{wire,range,startup,facts,frame,color,conn,chunks,proxy_rules,…}.rs`, `src/migrate/`, `src/sys/` | `shell_core`: everything CEF-free, with the Rust tests; `src/sys/` is the one place raw Win32 lives (`unsafe` allowed there, each block with `// SAFETY:`), `src/sys_mac/` the macOS twin |
 | `src/main.rs`, `lifecycle.rs`, `node.rs`, `host.rs`, `dispatch.rs` | startup, exit, Node process, the socket and its handshake, routing |
 | `src/app.rs` | CEF `App`: command line, custom schemes, browser- and renderer-process handlers |
-| `src/window.rs`, `view.rs`, `wc.rs`, `cdp.rs`, `wcframe.rs`, `session.rs` | windows, Preview views, pages and their events, DevTools protocol, offscreen frames, request contexts |
+| `src/window.rs`, `view.rs`, `wc.rs`, `cdp.rs`, `session.rs` | windows, Preview views, pages and their events, DevTools protocol, request contexts |
+| `src/modules/`, `src/preview_core/` | the moved subsystems (PROTOCOL.md §15): `modules/preview/` is the Preview (hosts, the viewer's stream, the agent relay, `gui_visualize`, `omp-visual:`), `preview_core/` its CEF-free rules |
 | `src/scheme.rs`, `ipc.rs`, `protocol.rs` | `app://ompdesk` (files, range requests, `/__ipc/`, `/__shell/`), the page ⇄ Node relay, schemes served by Node |
 | `src/{menu,tray,dialog,clipboard,shellops,notification,screen,theme,power,shortcut,system,net}.rs` | the remaining namespaces |
 | `build.rs`, `app.manifest`, `cef-pin.json` | Windows manifest and icon resource, the CEF pin |
@@ -105,9 +106,9 @@ file name).
 - **`did-navigate`** is the first address change after a navigation started (status 200, "OK": CEF gives no code there);
   later address changes are `did-navigate-in-page`.
 - **Popups** (`window.open`): cancelled at once; Node is told with `wc.windowOpen` but its answer is never waited for.
-- **JS dialogs**: `__ompdeskSendSync` of a Preview preload is a `prompt()` whose message starts with `NUL` + `omp-sync:`,
-  answered asynchronously through `ipc.sendSync` (so a 60 s wait for a person blocks the page, not the shell). Other
-  dialogs are CEF's own; `beforeunload` never asks.
+- **JS dialogs**: `__ompdeskSendSync` of a viewer partition's dialog preload (defined by `session.rs`) is a `prompt()` whose
+  message starts with `NUL` + `omp-sync:`, answered by the Preview module (`modules/preview/stream.rs`) when the viewer
+  answers, so a 60 s wait for a person blocks the page, not the shell. Other dialogs are CEF's own; `beforeunload` never asks.
 - **`webContents.setBackgroundThrottling`** is accepted and ignored.
 - **`copyImageAt`** copies the image under the point through the page's own clipboard API (CEF has no such call).
 - **`session.setProxy`/`resolveProxy`**: proxy modes go to Chromium's `proxy` preference of the request context;

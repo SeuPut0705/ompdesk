@@ -128,11 +128,16 @@ for (const [language, theme] of variants([
 			await expect(session.send("Runtime.evaluate", { expression: "1 + 1" })).resolves.toMatchObject({
 				result: { value: 2 },
 			});
-			const security = await app.evaluate(async ({ webContents }) => {
-				const child = webContents.getAllWebContents().find(contents => contents.getTitle() === "Second page");
-				if (!child) throw new Error("Missing native preview contents");
-				return child.executeJavaScript("({ node: typeof require, ipc: typeof window.omp })");
-			});
+			// The Preview's page is the shell's own: a CDP target, found by its title (the shell's preview module owns it).
+			const pageTitled = async (title: string) => {
+				for (const candidate of app.windows())
+					if ((await candidate.title().catch(() => "")) === title) return candidate;
+				throw new Error("Missing native preview contents");
+			};
+			const security = await (await pageTitled("Second page")).evaluate(() => ({
+				node: typeof (globalThis as { require?: unknown }).require,
+				ipc: typeof (window as { omp?: unknown }).omp,
+			}));
 			expect(security).toEqual({ node: "undefined", ipc: "undefined" });
 			await expect(banner).toContainText(/Page\.|Runtime\.|Input\.|DOM\./);
 			if (captures) {
@@ -148,11 +153,7 @@ for (const [language, theme] of variants([
 				});
 			}
 			// What the agent sets on the page (here a viewport override) lasts only while it holds the page.
-			const innerWidth = () =>
-				app.evaluate(async ({ webContents }) => {
-					const child = webContents.getAllWebContents().find(contents => contents.getTitle() === "Second page");
-					return child?.executeJavaScript("innerWidth");
-				});
+			const innerWidth = async () => (await pageTitled("Second page")).evaluate(() => window.innerWidth);
 			await session.send("Emulation.setDeviceMetricsOverride", {
 				width: 271,
 				height: 500,

@@ -5,11 +5,11 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp, fixtureOmp } from "./harness";
 
-// The judge-model preview check (src/main/preview/preview-check.ts) on the built app and the fake omp
+// The judge-model preview check (the shell's preview module, `visualize.rs`) on the built app and the fake omp
 // (`OMP_GUI_TEST_JUDGE_ASSIST` makes its judge decide). With a native judge that sees an error, the visual's page gets
 // the notice and the gui_visualize result the hint; without one, the result and the Preview are as before. The rules
-// themselves (thresholds, privacy, timeouts) are pinned by preview-check.test.ts and the "Preview check" cases of
-// preview/host.test.ts.
+// themselves (thresholds, privacy, timeouts) are pinned by the module's Rust tests and the parity suites
+// (src/main/shell-host/modules/preview*.test.ts).
 
 interface Frame {
 	type?: string;

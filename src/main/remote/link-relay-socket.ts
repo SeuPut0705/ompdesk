@@ -1,9 +1,9 @@
 /**
  * The device's end of agent browsing's tunnel (`host.previewRelay.*`, app-protocol.ts): a `RelaySocket` whose frames
  * cross the paired link to the relay the host's tab started (`PreviewRelayTunnels` there dials it). The preview host
- * (preview/host.ts) runs the same relay extension over it as over a loopback socket.
+ * (the shell's preview module) runs the same relay extension over it as over a loopback socket.
  */
-import type { RelaySocket } from "../preview/relay-socket";
+import type { RelaySocket } from "../shell-host/modules/preview";
 import { PREVIEW_RELAY_METHODS, type PreviewRelayEvent } from "./app-protocol";
 
 /** What the tunnel needs of the host's link: one request. Failures are the link's own errors. */

@@ -1,5 +1,5 @@
 /**
- * `BrowserWindow` and `WebContentsView` over the host protocol (PROTOCOL.md §3, §5). The constructors return at
+ * `BrowserWindow` over the host protocol (PROTOCOL.md §3, §5). The constructors return at
  * once as Electron's do, so the ids are Node's to assign; the shell's `win.state` pushes feed the synchronous getters
  * (`getBounds`, `isMaximized`, …), and the window's own calls update that mirror at once (`show()` then
  * `isVisible()` reads true) until the shell's push says what really happened.
@@ -77,74 +77,9 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 	const windows = new Map<number, BrowserWindow>();
 	let focused: BrowserWindow | null = null;
 
-	class ContentView extends EventEmitter {
-		readonly children: WebContentsView[] = [];
-		readonly #winId: number;
-
-		constructor(winId: number) {
-			super();
-			this.#winId = winId;
-		}
-
-		addChildView(view: WebContentsView): void {
-			if (!this.children.includes(view)) this.children.push(view);
-			view.op("attach", { winId: this.#winId });
-		}
-
-		removeChildView(view: WebContentsView): void {
-			const at = this.children.indexOf(view);
-			if (at >= 0) this.children.splice(at, 1);
-			view.op("detach", { winId: this.#winId });
-		}
-	}
-
-	class WebContentsView extends EventEmitter {
-		readonly id: number;
-		readonly webContents: WebContents;
-		#bounds: Rect = { x: 0, y: 0, width: 0, height: 0 };
-		/** A view is visible once it is shown: Electron's default. */
-		#visible = true;
-
-		constructor(options: { webPreferences?: WebPreferences } = {}) {
-			super();
-			this.id = host.nextViewId();
-			const preferences = shellPreferences(options.webPreferences);
-			const partition = String(preferences.session);
-			this.webContents = new WebContents(host, host.nextContentsId(), { partition }, sessionFor);
-			host.post("view.create", { viewId: this.id, wcId: this.webContents.id, webPreferences: preferences });
-		}
-
-		op(op: string, args: Record<string, unknown> = {}): void {
-			host.post("view.op", { viewId: this.id, op, args });
-		}
-
-		setVisible(visible: boolean): void {
-			this.#visible = visible;
-			this.op("setVisible", { visible });
-		}
-
-		getVisible(): boolean {
-			return this.#visible;
-		}
-
-		setBounds(bounds: Rect): void {
-			this.#bounds = { ...bounds };
-			this.op("setBounds", { bounds });
-		}
-
-		getBounds(): Rect {
-			return { ...this.#bounds };
-		}
-
-		setBackgroundColor(color: string): void {
-			this.op("setBackgroundColor", { color });
-		}
-	}
-
 	class BrowserWindow extends EventEmitter {
 		readonly id: number;
 		readonly webContents: WebContents;
-		readonly contentView: ContentView;
 		#state: WinState;
 		#destroyed = false;
 
@@ -152,13 +87,11 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 			super();
 			this.id = host.nextWindowId();
 			this.#state = initialState(options);
-			this.contentView = new ContentView(this.id);
 			const preferences = shellPreferences(options.webPreferences);
-			const offscreen = options.webPreferences?.offscreen === true;
 			this.webContents = new WebContents(
 				host,
 				host.nextContentsId(),
-				{ partition: String(preferences.session), windowId: offscreen ? undefined : this.id, offscreen },
+				{ partition: String(preferences.session), windowId: this.id },
 				sessionFor,
 			);
 			windows.set(this.id, this);
@@ -516,5 +449,5 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 		return windows.size === 0;
 	}
 
-	return { BrowserWindow, WebContentsView, closeAll };
+	return { BrowserWindow, closeAll };
 }

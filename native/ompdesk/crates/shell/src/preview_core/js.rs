@@ -52,6 +52,20 @@ pub fn is_line_end(c: char) -> bool {
     matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
 
+/// `text.slice(0, max)`: at most `max` UTF-16 units, never half a character.
+pub fn slice_utf16(text: &str, max: usize) -> String {
+    let mut units = 0;
+    let mut out = String::new();
+    for c in text.chars() {
+        units += c.len_utf16();
+        if units > max {
+            break;
+        }
+        out.push(c);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,5 +85,14 @@ mod tests {
         }
         assert!(round(f64::NAN).is_nan());
         assert_eq!(round(f64::INFINITY), f64::INFINITY);
+    }
+
+    #[test]
+    fn slices_in_utf16_units_without_splitting_a_character() {
+        assert_eq!(slice_utf16("abc", 2), "ab");
+        assert_eq!(slice_utf16("abc", 10), "abc");
+        assert_eq!(slice_utf16("a😀b", 2), "a");
+        assert_eq!(slice_utf16("a😀b", 3), "a😀");
+        assert_eq!(slice_utf16("한글", 1), "한");
     }
 }

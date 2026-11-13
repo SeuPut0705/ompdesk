@@ -88,6 +88,18 @@ pub fn fit_frame(bounds: Bounds, frame: Option<(f64, f64)>) -> (Bounds, f64) {
     )
 }
 
+/// The Preview's zoom range (`PREVIEW_ZOOM_MIN`/`MAX`).
+const ZOOM_MIN: f64 = 0.5;
+const ZOOM_MAX: f64 = 2.0;
+
+/// `clampPreviewZoom`: the zoom range on 10 % steps, so repeated steps never drift; 1 for a value that is not finite.
+pub fn clamp_zoom(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 1.0;
+    }
+    js::round(js::clamp(value, ZOOM_MIN, ZOOM_MAX) * 10.0) / 10.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +166,21 @@ mod tests {
                 other => panic!("{other:?}"),
             };
             assert_eq!(got, want, "{row}");
+        }
+    }
+
+    #[test]
+    fn clamps_zoom_on_ten_percent_steps() {
+        for (value, want) in [
+            (1.0, 1.0),
+            (1.04, 1.0),
+            (1.06, 1.1),
+            (0.1, 0.5),
+            (9.0, 2.0),
+            (f64::NAN, 1.0),
+            (f64::INFINITY, 1.0),
+        ] {
+            assert_eq!(clamp_zoom(value), want, "{value}");
         }
     }
 }

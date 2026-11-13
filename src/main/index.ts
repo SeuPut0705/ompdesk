@@ -77,7 +77,6 @@ import {
 } from "../shared/local-engines";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
 import { MODEL_SETUP_RESEARCH_PICK_PREF } from "../shared/model-setup";
-import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
@@ -296,12 +295,10 @@ if (userDataDirectory) {
 	}
 }
 
-// Players stream audio/video through `omp-media://` (range requests); the agent's visuals load in the Preview
-// through `omp-visual://` (main/preview/visuals.ts; handled on the preview's visual session only). Privileges
-// must precede whenReady.
+// Players stream audio/video through `omp-media://` (range requests); privileges must precede whenReady. The agent's
+// visuals' `omp-visual://` is registered by the shell's own preview module.
 protocol.registerSchemesAsPrivileged([
 	{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true } },
-	{ scheme: VISUAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 // No page resolves host names it only hints at (`<link rel=dns-prefetch>`, in any frame, whatever
 // `x-dns-prefetch-control` says): a visual's page could spell what it read into a name for the system resolver,

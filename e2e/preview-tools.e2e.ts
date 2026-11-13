@@ -116,27 +116,31 @@ for (const [language, theme] of variants([
 				path: path.join(captures, `${name}-${language}-${theme}.png`),
 			});
 		};
-		/** Act on the preview page's own webContents in main: the page starts a download, or its renderer is crashed. */
-		const child = (op: "zoom" | "download" | "crash") =>
-			app.evaluate(
-				async ({ webContents }, source) => {
-					const contents = webContents
-						.getAllWebContents()
-						.find(candidate => candidate.getURL().startsWith(`http://${source.host}/`));
-					if (!contents) throw new Error("No preview page");
-					if (source.op === "download")
-						await contents.executeJavaScript(
-							"(() => { const a = document.createElement('a'); a.href = '/file.zip'; document.body.append(a); a.click(); })()",
-						);
-					else if (source.op === "crash") {
-						contents.debugger.attach("1.3");
-						await contents.debugger.sendCommand("Page.crash").catch(() => {});
-						contents.debugger.detach();
-					}
-					return contents.getZoomFactor();
-				},
-				{ host, op },
-			);
+		/** The preview page: the shell's preview module owns it, so it is reached as a CDP target by its address. */
+		const previewTarget = (url: (address: string) => boolean) => {
+			const target = app.windows().find(candidate => url(candidate.url()));
+			if (!target) throw new Error("No preview page");
+			return target;
+		};
+		/** The page's devicePixelRatio at zoom 1 (read before the zoom steps): `devicePixelRatio` moves with the zoom factor. */
+		let baseRatio = 0;
+		/** Act on the preview page itself: the page starts a download, its renderer is crashed, or its zoom is read. */
+		const child = async (op: "zoom" | "download" | "crash") => {
+			const target = previewTarget(address => address.startsWith(`http://${host}/`));
+			if (op === "download")
+				await target.evaluate(() => {
+					const a = document.createElement("a");
+					a.href = "/file.zip";
+					document.body.append(a);
+					a.click();
+				});
+			else if (op === "crash") {
+				const session = await target.context().newCDPSession(target);
+				await session.send("Page.crash").catch(() => {});
+			}
+			// The page's zoom factor (what `webContents.getZoomFactor()` was), read as its devicePixelRatio against zoom 1's.
+			return (await target.evaluate(() => window.devicePixelRatio)) / (baseRatio || 1);
+		};
 		const page = await app.firstWindow();
 		try {
 			await page.waitForFunction(() => window.omp?.rpc != null);
@@ -167,6 +171,9 @@ for (const [language, theme] of variants([
 			await page.keyboard.press("Escape");
 
 			// C123: zoom in twice, the pill names it and resets it.
+			baseRatio = await previewTarget(address => address.startsWith(`http://${host}/`)).evaluate(
+				() => window.devicePixelRatio,
+			);
 			const options = aside.getByRole("button", { name: label.options, exact: true });
 			for (let step = 0; step < 2; step++) {
 				await options.click();
@@ -223,13 +230,9 @@ for (const [language, theme] of variants([
 			await addressBar.fill(`${host}/popup`);
 			await addressBar.press("Enter");
 			await expect(status).toHaveText("Popup source");
-			await app.evaluate(async ({ webContents }, source) => {
-				const contents = webContents
-					.getAllWebContents()
-					.find(candidate => candidate.getURL() === `http://${source}/popup`);
-				if (!contents) throw new Error("No popup source page");
-				await contents.executeJavaScript("document.getElementById('go').click()", true);
-			}, host);
+			await previewTarget(address => address === `http://${host}/popup`).evaluate(() =>
+				document.getElementById("go")?.click(),
+			);
 			const strip = aside.getByRole("tablist", { name: label.tabs, exact: true });
 			await expect(strip.locator("[data-preview-tab]")).toHaveCount(2);
 			await expect(status).toHaveText("Second page");

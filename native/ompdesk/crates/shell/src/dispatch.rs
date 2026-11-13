@@ -22,9 +22,7 @@ pub fn request(call: Call) {
         "win.create" => crate::window::create(call),
         "win.op" => crate::window::op(call),
         "wc.op" => crate::wc::op(call),
-        "wc.cdp.attach" | "wc.cdp.detach" | "wc.cdp.send" | "wc.frame" => {
-            crate::wc::cdp_request(call)
-        }
+        "wc.cdp.attach" | "wc.cdp.detach" | "wc.cdp.send" => crate::wc::cdp_request(call),
         "session.create" => crate::session::create(call),
         "session.op" => crate::session::op(call),
         m if m.starts_with("menu.") => crate::menu::handle(call),

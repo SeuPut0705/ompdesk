@@ -45,6 +45,7 @@ impl Module for Preview {
 
     fn ready(&self, ctx: Ctx) {
         let _ = CTX.set(ctx);
+        scheme::load();
     }
 
     fn shutdown(&self, _ctx: Ctx) {
@@ -59,9 +60,15 @@ pub fn page_event(wc_id: u64, name: &str, args: &Value) {
     host::page_event(wc_id, name, args);
 }
 
-/// The page's mirrored state changed (url, title, loading, history).
-pub fn page_state(wc_id: u64) {
-    host::page_event(wc_id, "state", &Value::Null);
+/// A DevTools event of the debugger's own session on the page (the agent's browsing), with its session id when it is one
+/// of the sessions under it.
+pub fn debugger_event(wc_id: u64, method: &str, params: &Value, session_id: Option<&str>) {
+    relay::debugger_event(wc_id, method, params, session_id);
+}
+
+/// The debugger's session on the page ended (DevTools took the page, or it went away).
+pub fn debugger_detached(wc_id: u64, reason: &str) {
+    relay::debugger_detached(wc_id, reason);
 }
 
 /// `window.open` / `target=_blank` (always cancelled by the caller).

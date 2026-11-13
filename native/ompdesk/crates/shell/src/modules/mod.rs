@@ -9,6 +9,8 @@
 //! `crate::session`, `crate::tray`, …), never a second copy of them; Node through its `Ctx`; the core through
 //! `Ctx::core`.
 
+pub mod preview;
+
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -50,7 +52,7 @@ pub trait Module: Sync {
 /// The registration list: one line per moved module, in the order `ready` runs. Batch SX's slices each add theirs
 /// (PROTOCOL.md §15.1): `&chrome::Chrome`, `&preview::Preview`, `&services::Services`, `&updater::Updater`,
 /// `&boot::Boot`.
-static MODULES: &[&dyn Module] = &[];
+static MODULES: &[&dyn Module] = &[&preview::Preview];
 
 /// What a module may do on the wire, scoped to its namespace: every name it emits or asks is `<namespace>.<name>`.
 #[derive(Clone, Copy)]

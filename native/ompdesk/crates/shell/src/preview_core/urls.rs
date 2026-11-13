@@ -120,11 +120,19 @@ mod tests {
             let past_u64 = row["parseVisual"]["version"]
                 .as_f64()
                 .is_some_and(|v| v > u64::MAX as f64);
-            let want = if past_u64 { serde_json::Value::Null } else { row["parseVisual"].clone() };
+            let want = if past_u64 {
+                serde_json::Value::Null
+            } else {
+                row["parseVisual"].clone()
+            };
             assert_eq!(json!(visual), want, "parseVisualUrl {url:?}");
             let shown = [None, Some("0123456789abcdef"), Some("fedcba9876543210")];
             let may: Vec<bool> = shown.iter().map(|s| visual_may_navigate(*s, url)).collect();
-            let want = if past_u64 { json!([false, false, false]) } else { row["mayNavigate"].clone() };
+            let want = if past_u64 {
+                json!([false, false, false])
+            } else {
+                row["mayNavigate"].clone()
+            };
             assert_eq!(json!(may), want, "visualMayNavigate {url:?}");
         }
     }

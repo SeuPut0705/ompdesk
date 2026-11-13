@@ -167,7 +167,7 @@ export class WebHost {
 				openExternal: deps.shell.openExternal,
 				models: { read: readModelsText, write: writeModelsText },
 			}),
-			// The phone's streamed Preview (preview-stream.ts) is built in; a host build without it passes `preview: false`.
+			// The phone's streamed Preview (the shell's preview module) is built in; a host build without it passes `preview: false`.
 			features: () => ({ push: true, preview: true, upload: true, passkey: false, ...deps.features }),
 			build: () => this.#build,
 			activeTab: win => deps.tabs.activeTab(win),

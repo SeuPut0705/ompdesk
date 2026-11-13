@@ -48,10 +48,10 @@ export function emitPreventable(emitter: EventEmitter, name: string, ...args: un
 /** What a registered page offers the shell's events and requests. */
 export interface PageRecord {
 	readonly id: number;
-	/** The shell's event for this page (`wc.event`, `wc.state`, `wc.paint`, `wc.cdp.*`). */
+	/** The shell's event for this page (`wc.event`, `wc.state`, `wc.cdp.*`). */
 	handleEvent(name: string, args: unknown[]): void;
 	handleState(state: unknown): void;
-	/** The app window this page belongs to, undefined for a view and an offscreen page. */
+	/** The app window this page belongs to, undefined for a page that is no window's main page. */
 	readonly windowId?: number;
 }
 
@@ -60,7 +60,6 @@ export class Host {
 	readonly facts: HostFacts;
 	#winId = 0;
 	#wcId = 0;
-	#viewId = 0;
 	#trayId = 0;
 	#menuId = 0;
 	/** Pages by `wcId`; filled by the page constructors, emptied when a page is destroyed. */
@@ -79,10 +78,6 @@ export class Host {
 
 	nextContentsId(): number {
 		return ++this.#wcId;
-	}
-
-	nextViewId(): number {
-		return ++this.#viewId;
 	}
 
 	nextTrayId(): number {

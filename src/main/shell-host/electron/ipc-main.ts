@@ -1,9 +1,8 @@
 /**
- * `ipcMain`: the shell forwards what a page's `window.omp` calls (`ipc.invoke`, `ipc.send`, and `ipc.sendSync` for the
- * Preview's dialog preload) and this dispatches it to the handlers main registered, with the page's `WebContents` as
- * `event.sender` — so `IpcRegistry`, `BrowserWindow.fromWebContents` and the core routing work as under Electron.
- * Only a page that belongs to an app window may invoke or send; a Preview page (a view or an offscreen browser) has
- * no `window.omp`, and its one synchronous channel is its registered preload's.
+ * `ipcMain`: the shell forwards what a page's `window.omp` calls (`ipc.invoke`, `ipc.send`) and this dispatches it to the
+ * handlers main registered, with the page's `WebContents` as `event.sender` — so `IpcRegistry`,
+ * `BrowserWindow.fromWebContents` and the core routing work as under Electron. Only a page that belongs to an app
+ * window may invoke or send: the Preview's pages are the shell's own and never reach main.
  */
 import { EventEmitter } from "node:events";
 import { decodeBin, encodeBin } from "./binary-json";
@@ -15,11 +14,10 @@ export interface IpcMainEvent {
 	senderFrame: { url: string };
 	frameId: number;
 	processId: number;
-	returnValue?: unknown;
 	reply(channel: string, ...args: unknown[]): void;
 }
 
-export type IpcMainInvokeEvent = Omit<IpcMainEvent, "returnValue" | "reply">;
+export type IpcMainInvokeEvent = Omit<IpcMainEvent, "reply">;
 
 type InvokeListener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -71,7 +69,7 @@ export function serveIpc(host: Host, ipcMain: IpcMain): void {
 	host.client.handle(
 		"ipc.invoke",
 		async (params: { wcId: number; frameUrl: string; channel: string; args?: unknown[] }) => {
-			const { reply: _reply, returnValue: _returnValue, ...event } = appEvent(params.wcId, params.frameUrl);
+			const { reply: _reply, ...event } = appEvent(params.wcId, params.frameUrl);
 			return {
 				value: encodeBin(
 					await ipcMain.dispatchInvoke(event, params.channel, decodeBin(params.args ?? []) as unknown[]),
@@ -86,26 +84,4 @@ export function serveIpc(host: Host, ipcMain: IpcMain): void {
 			...(decodeBin(params.args ?? []) as unknown[]),
 		);
 	});
-	// `event.returnValue` may be set later (the Preview's dialog waits for a person): the answer is the first value set,
-	// null when nothing handles the channel or the page stops waiting (the shell cancels the request).
-	host.client.handle(
-		"ipc.sendSync",
-		(params: { wcId: number; frameUrl: string; channel: string; args?: unknown[] }, { signal }) => {
-			const event = eventFor(params.wcId, params.frameUrl);
-			if (!event) throw new Error(`IPC from an unknown page: ${params.wcId}`);
-			const { promise, resolve } = Promise.withResolvers<{ value: unknown }>();
-			let value: unknown;
-			Object.defineProperty(event, "returnValue", {
-				get: () => value,
-				set: (next: unknown) => {
-					value = next;
-					resolve({ value: encodeBin(next) ?? null });
-				},
-			});
-			signal.addEventListener("abort", () => resolve({ value: null }), { once: true });
-			if (!ipcMain.emit(params.channel, event, ...(decodeBin(params.args ?? []) as unknown[])))
-				resolve({ value: null });
-			return promise;
-		},
-	);
 }

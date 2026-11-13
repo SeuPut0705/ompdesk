@@ -35,6 +35,17 @@ fn app_scheme_options() -> i32 {
         | O::CEF_SCHEME_OPTION_FETCH_ENABLED as i32
 }
 
+/// The scheme the Preview module serves the agent's visuals from: standard, secure, with fetch (what a page's own
+/// scripts and subresources need of an origin). It is registered by the shell, whatever `app.init` lists.
+const VISUAL_SCHEME: &str = shell_core::preview_core::urls::VISUAL_SCHEME;
+
+fn visual_scheme_options() -> i32 {
+    use sys::cef_scheme_options_t as O;
+    O::CEF_SCHEME_OPTION_STANDARD as i32
+        | O::CEF_SCHEME_OPTION_SECURE as i32
+        | O::CEF_SCHEME_OPTION_FETCH_ENABLED as i32
+}
+
 fn scheme_options(privileges: &Value) -> i32 {
     use sys::cef_scheme_options_t as O;
     let flag = |key: &str| {
@@ -232,9 +243,11 @@ wrap_app! {
                 Some(init) if self.browser => init.schemes.clone(),
                 _ => schemes_from_argv(),
             };
-            for scheme in schemes {
+            for scheme in schemes.iter().filter(|s| s.name != VISUAL_SCHEME) {
                 registrar.add_custom_scheme(Some(&CefString::from(scheme.name.as_str())), scheme.options);
             }
+            // The agent's visuals (`modules/preview/scheme.rs`): the Preview module's own scheme, in every process.
+            registrar.add_custom_scheme(Some(&CefString::from(VISUAL_SCHEME)), visual_scheme_options());
         }
 
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {

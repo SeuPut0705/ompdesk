@@ -12,7 +12,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, dialog, type Notification, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, type Notification, shell } from "electron";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
@@ -117,7 +117,6 @@ import { LOCAL_ENGINE_DETECT_PREF } from "../shared/local-engines";
 import { isMacPermission } from "../shared/mac-permissions";
 import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-accounts";
 import { type ModelSetupRequest, parseResearchPick } from "../shared/model-setup";
-import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type {
 	AgentMessage,
@@ -175,9 +174,7 @@ import { type NoticeKind, NotificationBatcher, type ShownNotice } from "./notifi
 import { createNotifyHandler } from "./notify-triage";
 import { systemOmp } from "./omp-runtime";
 import { openLocalPath } from "./open-path";
-import { registerPreviewHost } from "./preview/host";
-import { createTabCheck } from "./preview/preview-check";
-import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
+import { VISUALIZE_TOOL } from "./preview/definition";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
@@ -194,6 +191,7 @@ import { deleteSession, moveSession, onSessionDeleted, recordSessionDelete, rena
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { shellHost } from "./shell-host/modules/client";
+import { registerPreview } from "./shell-host/modules/preview";
 import { publishLabels } from "./shell-host/modules/relay";
 import { readClipboardText } from "./shell-host/shell-calls";
 import { updateSidebarPrefs } from "./sidebar-prefs";
@@ -217,7 +215,6 @@ import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 import { type FileEditReports, parseFileEditReport } from "./web/file-edit-reports";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
-import { writeDialogPreload } from "./web/preview-dialog";
 import { attachHere, type UploadStore } from "./web/uploads";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
@@ -493,38 +490,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const { ipc } = deps;
 	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices);
 	registerSshToolsIpc(ipc);
-	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
-	let dialogPreload: string | null = null;
-	const visualPages = registerPreviewHost(
-		ipc,
-		(senderId, tabId) => {
-			const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
-			const target = win ? deps.sidecarPool.tabTarget(win, tabId) : null;
-			// A named tab this window does not own counts as remote: agent browsing refuses it.
-			return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
-		},
-		visuals,
-		{
-			// A paired phone's preview (main/web/preview-stream.ts): its tab may be a paired host's, like a window's.
-			isRemote: (win, tabId) => {
-				const target = deps.sidecarPool.tabTarget(win, tabId);
-				return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
-			},
-			hostScale: () => screen.getPrimaryDisplay().scaleFactor,
-			preloadPath: () => (dialogPreload ??= writeDialogPreload(app.getPath("userData"))),
-		},
-		// Agent browsing on a paired host's tab: its relay is on the host's loopback, so the frames cross the link.
-		(win, tabId) => {
-			const target = deps.sidecarPool.tabTarget(win, tabId);
-			return target?.device ? deps.remoteDevices.previewRelay(target.device, target.tabId) : null;
-		},
-	);
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();
 	/** The same for a window's model setup research. */
 	const remoteModelSetups = new Map<number, string>();
 	const { sidecarPool, sessionIndex, logWatcher, windowManager, remoteDevices } = deps;
 	const prefsStore = new SafeStore<PrefsSchema>({ name: "prefs" });
+	const preview = registerPreview(ipc, {
+		tabTarget: (win, tabId) => sidecarPool.tabTarget(win, tabId),
+		// Agent browsing on a paired host's tab: its relay is on the host's loopback, so the frames cross the link.
+		tunnel: (win, tabId) => {
+			const target = sidecarPool.tabTarget(win, tabId);
+			return target?.device ? remoteDevices.previewRelay(target.device, target.tabId) : null;
+		},
+		judgeAssist: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
+		activeTab: win => sidecarPool.activeTabForWindow(win),
+		appWindowId: win => (win instanceof BrowserWindow ? win.id : undefined),
+	});
 	const remoteMachine = { request: remoteDevices.request.bind(remoteDevices), statsText: mainT };
 	/**
 	 * Delete a stored session (the sidebar, `/delete`, the control tools): the tab holding it closes. On this computer
@@ -617,25 +599,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				reply("gui_visualize shows visuals only for tabs on the user's own computer.", true);
 				return;
 			}
-			const context = {
-				tabId: tab.tabId,
-				cwd: sidecar.cwd,
-				store: visuals,
-				pages: visualPages,
-				reveal: (visualId: string) => {
-					if (!tab.win.isDestroyed())
-						tab.win.webContents.send(PREVIEW_VISUAL, { tabId: tab.tabId, visualId } satisfies PreviewVisualEvent);
-				},
-				// The Preview check judges the page through this tab's own omp, only while the judgeAssist pref is on.
-				check: createTabCheck({
-					enabled: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
-					// The renderer opens the Preview only for the tab in front (stores/preview-visuals.ts).
-					inFront: () => sidecarPool.activeTabForWindow(tab.win) === tab.tabId,
-					pages: visualPages,
-					rpc: sidecar.rpcClient,
-				}),
-			};
-			void runVisualizeTool(context, request.arguments).then(result => reply(result.text, result.isError));
+			void preview
+				.visualize({ tabId: tab.tabId, cwd: sidecar.cwd, win: tab.win, rpc: sidecar.rpcClient }, request.arguments)
+				.then(
+					result => reply(result.text, result.isError),
+					error => reply(`gui_visualize failed: ${error instanceof Error ? error.message : String(error)}`, true),
+				);
 			return;
 		}
 		if (isAgentControlTool(request.toolName)) {

@@ -528,29 +528,6 @@ describe("BrowserWindow", () => {
 		await settle();
 		expect(fake.callsOf("win.op").at(-1)?.params).toMatchObject({ op: "close", args: { force: true } });
 	});
-
-	it("adds and removes view children as view ops", async () => {
-		const { BrowserWindow, WebContentsView } = electron;
-		const win = new BrowserWindow({});
-		const view = new WebContentsView({ webPreferences: { sandbox: true } });
-		win.contentView.addChildView(view);
-		view.setBounds({ x: 1, y: 2, width: 3, height: 4 });
-		expect(win.contentView.children.at(-1)).toBe(view);
-		expect(view.getVisible()).toBe(true);
-		view.setVisible(false);
-		expect(view.getVisible()).toBe(false);
-		view.setVisible(true);
-		win.contentView.removeChildView(view);
-		await settle();
-		expect(fake.callsOf("view.create")[0].params).toMatchObject({ viewId: 1, wcId: view.webContents.id });
-		expect(fake.callsOf("view.op").map(call => [call.params.op, call.params.args])).toEqual([
-			["attach", { winId: win.id }],
-			["setBounds", { bounds: { x: 1, y: 2, width: 3, height: 4 } }],
-			["setVisible", { visible: false }],
-			["setVisible", { visible: true }],
-			["detach", { winId: win.id }],
-		]);
-	});
 });
 
 describe("webContents", () => {
@@ -590,7 +567,6 @@ describe("webContents", () => {
 			webContents.isLoading(),
 			webContents.getZoomFactor(),
 		]).toEqual(["app://ompdesk/index.html", "T", true, 1.25]);
-		expect(webContents.navigationHistory.canGoBack()).toBe(true);
 		expect(seen).toEqual([
 			[-105, "NAME_NOT_RESOLVED", "https://x", true, 1, 2],
 			[{ reason: "crashed", exitCode: 9 }],
@@ -711,35 +687,12 @@ describe("webContents", () => {
 		fake.answers.set("wc.op", params => (params.op === "executeJavaScript" ? { result: 42 } : {}));
 		expect(await webContents.executeJavaScript("6*7")).toBe(42);
 		fake.answers.set("wc.cdp.send", params => {
-			if (params.method === "Page.getFrameTree") return { result: { frameTree: { frame: { id: "F" } } } };
-			if (params.method === "Page.createIsolatedWorld") return { result: { executionContextId: 7 } };
-			if (params.method === "Runtime.evaluate") return { result: { result: { value: "iso" } } };
 			if (params.method === "Page.captureScreenshot") return { result: { data: PNG_1X1.toString("base64") } };
 			return { result: {} };
 		});
-		expect(await webContents.executeJavaScriptInIsolatedWorld(3, [{ code: "1" }])).toBe("iso");
 		const image = await webContents.capturePage({ x: 0, y: 0, width: 10, height: 10 });
 		expect(image.getSize()).toEqual({ width: 1, height: 1 });
 		expect(image.toPNG().equals(PNG_1X1)).toBe(true);
-		webContents.sendInputEvent({ type: "mouseWheel", x: 5, y: 6, deltaX: 0, deltaY: 40 });
-		webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
-		await webContents.insertText("한");
-		await settle();
-		const cdp = fake.callsOf("wc.cdp.send").map(call => call.params);
-		expect(cdp.find(call => call.method === "Runtime.evaluate")?.params).toMatchObject({
-			contextId: 7,
-			expression: "1",
-		});
-		expect(cdp.find(call => call.method === "Input.dispatchMouseEvent")?.params).toMatchObject({
-			type: "mouseWheel",
-			deltaY: -40,
-		});
-		expect(cdp.find(call => call.method === "Input.dispatchKeyEvent")?.params).toMatchObject({
-			type: "rawKeyDown",
-			key: "ArrowLeft",
-			windowsVirtualKeyCode: 37,
-		});
-		expect(cdp.at(-1)).toMatchObject({ method: "Input.insertText", params: { text: "한" } });
 	});
 
 	it("BrowserWindow.capturePage is the page's capture", async () => {
@@ -747,21 +700,6 @@ describe("webContents", () => {
 		fake.answers.set("wc.cdp.send", () => ({ result: { data: PNG_1X1.toString("base64") } }));
 		const image = await win.capturePage({ x: 0, y: 0, width: 5, height: 5 });
 		expect(image.getSize()).toEqual({ width: 1, height: 1 });
-	});
-
-	it("takes a capture again at a smaller scale instead of resizing a bitmap", async () => {
-		const { webContents } = new electron.BrowserWindow({});
-		fake.answers.set("wc.cdp.send", params => {
-			if (params.method === "Page.getLayoutMetrics")
-				return { result: { cssVisualViewport: { clientWidth: 100, clientHeight: 50 } } };
-			const scale = (params.params as { clip?: { scale: number } } | undefined)?.clip?.scale ?? 1;
-			return { result: { data: pngOfWidth(Math.round(100 * scale)).toString("base64") } };
-		});
-		const wide = await webContents.capturePage();
-		expect(wide.getSize().width).toBe(100);
-		const fitted = await wide.fitted(40);
-		expect(fitted.getSize().width).toBe(40);
-		expect(await wide.fitted(200)).toBe(wide);
 	});
 
 	it("keeps the debugger apart from the shim's own DevTools use, and forwards its messages", async () => {
@@ -791,26 +729,6 @@ describe("webContents", () => {
 		expect(webContents.debugger.isAttached()).toBe(false);
 		await expect(webContents.debugger.sendCommand("X")).rejects.toThrow(/not attached/);
 	});
-
-	it("gives an offscreen paint as an image that is encoded by the shell when something is sent", async () => {
-		const win = new electron.BrowserWindow({ webPreferences: { offscreen: true } });
-		const images: Array<{ getSize(): { width: number; height: number }; encode(options: unknown): Promise<Buffer> }> =
-			[];
-		win.webContents.on("paint", (_event, _dirty, image) => images.push(image));
-		await shell.event("wc.paint", { wcId: win.webContents.id, width: 780, height: 1688, scale: 2 });
-		await settle();
-		fake.answers.set("wc.frame", () => new Answered({ width: 390, height: 844 }, Buffer.from("jpeg")));
-		const frameCalls: Array<Record<string, unknown>> = [];
-		shell.handle("wc.frame", params => {
-			frameCalls.push(params as Record<string, unknown>);
-			return new Answered({ width: 390, height: 844 }, Buffer.from("jpeg"));
-		});
-		expect(images[0].getSize()).toEqual({ width: 780, height: 1688 });
-		expect((await images[0].encode({ format: "jpeg", quality: 60, width: 390 })).toString()).toBe("jpeg");
-		expect(frameCalls).toEqual([{ wcId: win.webContents.id, format: "jpeg", quality: 60, width: 390 }]);
-		expect(win.webContents.offscreen).toBe(true);
-		expect(win.webContents.windowId).toBeUndefined();
-	});
 });
 
 /** A 1×1 PNG. */
@@ -819,21 +737,14 @@ const PNG_1X1 = Buffer.from(
 	"base64",
 );
 
-/** The header of a PNG that says `width` × 1: enough for the sizes the shim reads. */
-function pngOfWidth(width: number): Buffer {
-	const png = Buffer.from(PNG_1X1);
-	png.writeUInt32BE(width, 16);
-	return png;
-}
-
 describe("ipcMain with main's IpcRegistry", () => {
 	beforeEach(async () => {
 		await boot();
 		await ready();
 	});
 
-	it("dispatches invoke and send from an app window with the page as event.sender, and refuses a view", async () => {
-		const { BrowserWindow, WebContentsView, ipcMain } = electron;
+	it("dispatches invoke and send from an app window with the page as event.sender, and refuses an unknown page", async () => {
+		const { BrowserWindow, ipcMain } = electron;
 		const win = new BrowserWindow({});
 		const registry = new IpcRegistry(ipcMain as never);
 		const seen: Array<[string, number | undefined, number | undefined, unknown[]]> = [];
@@ -859,9 +770,8 @@ describe("ipcMain with main's IpcRegistry", () => {
 		await expect(shell.call("ipc.invoke", { ...from, channel: "nobody", args: [] })).rejects.toThrow(
 			"No handler registered for 'nobody'",
 		);
-		const view = new WebContentsView({});
 		await expect(
-			shell.call("ipc.invoke", { wcId: view.webContents.id, frameUrl: "https://x/", channel: "sum", args: [1, 1] }),
+			shell.call("ipc.invoke", { wcId: 999, frameUrl: "https://x/", channel: "sum", args: [1, 1] }),
 		).rejects.toThrow(/not an app window/);
 		expect(() => registry.handle("sum", () => 0)).toThrow("second handler");
 	});
@@ -896,20 +806,6 @@ describe("ipcMain with main's IpcRegistry", () => {
 				args: [1],
 			},
 		});
-	});
-
-	it("answers ipc.sendSync when a handler sets returnValue, even much later, and with null when none listens", async () => {
-		const { BrowserWindow, WebContentsView, ipcMain } = electron;
-		new BrowserWindow({});
-		const view = new WebContentsView({});
-		ipcMain.on("dialog", (event: { returnValue?: unknown }, kind: string) => {
-			setTimeout(() => {
-				event.returnValue = `answered ${kind}`;
-			}, 0);
-		});
-		const params = { wcId: view.webContents.id, frameUrl: "https://page/", args: ["confirm"] };
-		expect(await shell.call("ipc.sendSync", { ...params, channel: "dialog" })).toEqual({ value: "answered confirm" });
-		expect(await shell.call("ipc.sendSync", { ...params, channel: "silent" })).toEqual({ value: null });
 	});
 });
 
@@ -962,57 +858,16 @@ describe("session and protocol", () => {
 		).rejects.toThrow(/No handler/);
 	});
 
-	it("probes a permission handler: deny-all is a policy, anything that grants is refused", async () => {
-		const ses = electron.session.fromPartition("preview-1");
-		ses.setPermissionRequestHandler(((
-			_contents: unknown,
-			_permission: unknown,
-			callback: (granted: boolean) => void,
-		) => callback(false)) as never);
-		ses.setPermissionCheckHandler((() => false) as never);
-		await settle();
-		expect(
-			fake
-				.callsOf("session.op")
-				.filter(call => call.params.op === "setPermissions")
-				.map(call => call.params.args),
-		).toEqual([{ mode: "deny-all" }, { mode: "deny-all" }]);
-		expect(() =>
-			ses.setPermissionRequestHandler(((_c: unknown, _p: unknown, callback: (granted: boolean) => void) =>
-				callback(true)) as never),
-		).toThrow(/denies everything/);
-		expect(() => ses.setPermissionCheckHandler((() => true) as never)).toThrow(/denies everything/);
-	});
-
-	it("mirrors what session.create returned, and cancels downloads when someone listens", async () => {
+	it("mirrors what session.create returned", async () => {
 		fake.answers.set("session.create", () => ({
-			userAgent: "UA",
-			acceptLanguages: "ko",
 			spellCheckerLanguages: ["en-US"],
 			availableSpellCheckerLanguages: ["en-US", "ko"],
 			cachePath: "C:/data/ompdesk/shell-webview/Default/Cache",
 		}));
-		const ses = electron.session.fromPartition("preview-2");
+		const ses = electron.session.fromPartition("partition-2");
 		await ses.ready;
-		expect(ses.getUserAgent()).toBe("UA");
 		expect(ses.getCachePath()).toBe("C:/data/ompdesk/shell-webview/Default/Cache");
 		expect(ses.availableSpellCheckerLanguages).toEqual(["en-US", "ko"]);
-		const downloads: string[] = [];
-		ses.on("will-download", (_event, item: { getURL(): string; getFilename(): string }) =>
-			downloads.push(`${item.getURL()} ${item.getFilename()}`),
-		);
-		await settle();
-		expect(fake.callsOf("session.op").map(call => call.params.op)).toContain("setDownloads");
-		await shell.event("session.download", {
-			partition: ses.partition,
-			wcId: 0,
-			url: "https://x/f.zip",
-			filename: "f.zip",
-			mimeType: "application/zip",
-			totalBytes: 1,
-		});
-		await settle();
-		expect(downloads).toEqual(["https://x/f.zip f.zip"]);
 		expect(electron.session.defaultSession.partition).toBe("app");
 	});
 });
@@ -1408,7 +1263,7 @@ describe("menus, dialogs and the small modules", () => {
 		const image = nativeImage.createFromDataURL(`data:image/png;base64,${PNG_1X1.toString("base64")}`);
 		expect(image.getSize()).toEqual({ width: 1, height: 1 });
 		expect(image.toPNG().equals(PNG_1X1)).toBe(true);
-		expect(() => image.toJPEG(80)).toThrow(/encodeImage/);
+		expect(() => image.toJPEG(80)).toThrow(/bitmap codec/);
 		expect(nativeImage.createFromPath("C:/no/such.png").isEmpty()).toBe(true);
 		expect(nativeImage.createFromDataURL("data:text/plain,hi").isEmpty()).toBe(true);
 	});

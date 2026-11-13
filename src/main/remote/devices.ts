@@ -49,7 +49,7 @@ import {
 	type SidebarProjectsState,
 } from "../../shared/sidebar-projects";
 import type { ModelWaitTracker } from "../model-wait-count";
-import type { RelaySocket } from "../preview/relay-socket";
+import type { RelaySocket } from "../shell-host/modules/preview";
 import type { ResumeMarker } from "../turn-resume";
 import type { WebBlocks } from "../web/blocks-store";
 import {

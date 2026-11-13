@@ -2,7 +2,7 @@
 //! shares `<userData>/shell-webview` with the app's page), a name is in memory, `persist:<name>` lives in
 //! `<userData>/shell-webview/Partitions/<name>`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -20,8 +20,6 @@ fn cs(text: &str) -> CefString {
 #[derive(Default)]
 struct Sessions {
     preloads: HashMap<String, Vec<(String, String)>>,
-    deny_permissions: HashSet<String>,
-    deny_downloads: HashSet<String>,
     user_agents: HashMap<String, (String, Option<String>)>,
     /// What `setSpellCheckerLanguages` set, by partition (normalised).
     spell: HashMap<String, Vec<String>>,
@@ -40,21 +38,34 @@ fn is_app(partition: &str) -> bool {
     partition.is_empty() || partition == "app"
 }
 
-pub fn permissions_denied(partition: &str) -> bool {
-    with(|s| s.deny_permissions.contains(partition))
-}
+/// What a registered preload script runs with: `__ompdeskSendSync(channel, payload)`, a synchronous page → shell call. It
+/// is the page's own native `prompt()` (taken before any script can replace it) with a message that starts with NUL +
+/// `omp-sync:` and carries the call as JSON; the shell's dialog handler (`wc.rs`) answers the prompt with the value's JSON,
+/// so the page waits in the dialog, not the UI thread. The script that takes the function removes it from `globalThis`.
+const SEND_SYNC: &str = r#"(function(){
+const prompt = window.prompt.bind(window);
+globalThis.__ompdeskSendSync = function (channel, payload) {
+	const answer = prompt("\u0000omp-sync:" + JSON.stringify({ channel, payload }), "");
+	if (answer === null) return null;
+	try {
+		return JSON.parse(answer);
+	} catch {
+		return null;
+	}
+};
+})();"#;
 
-pub fn downloads_denied(partition: &str) -> bool {
-    with(|s| s.deny_downloads.contains(partition))
-}
-
-/// The scripts `registerPreload` handed over for `partition`, as one script for the renderer to run first.
+/// The scripts registered for `partition` (the Preview's dialog shim on a viewer's), as one script for the renderer to run
+/// first.
 pub fn preload_for(partition: &str) -> Option<String> {
     with(|s| {
-        let list = s.preloads.get(partition)?;
+        let list = s.preloads.get(partition).filter(|list| !list.is_empty())?;
+        let scripts = list
+            .iter()
+            .map(|(_, source)| format!("(function(){{{source}\n}})();"));
         Some(
-            list.iter()
-                .map(|(_, source)| format!("(function(){{{source}\n}})();"))
+            std::iter::once(SEND_SYNC.to_owned())
+                .chain(scripts)
                 .collect::<Vec<_>>()
                 .join("\n"),
         )
@@ -294,37 +305,6 @@ type Value2 = cef::Value;
 
 fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
     match name {
-        "setPermissions" => {
-            with(|s| {
-                if args.get("mode").and_then(Value::as_str) == Some("deny-all") {
-                    s.deny_permissions.insert(partition.to_string());
-                } else {
-                    s.deny_permissions.remove(partition);
-                }
-            });
-        }
-        "setDownloads" => {
-            with(|s| {
-                if args.get("mode").and_then(Value::as_str) == Some("deny") {
-                    s.deny_downloads.insert(partition.to_string());
-                } else {
-                    s.deny_downloads.remove(partition);
-                }
-            });
-        }
-        "registerPreload" => {
-            let id = args
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let source = args
-                .get("source")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            register_preload(partition, id, source);
-        }
         "setUserAgent" => {
             let ua = args
                 .get("userAgent")
@@ -433,7 +413,7 @@ fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
     call.ok(json!({}));
 }
 
-/// A script every frame's main world of `partition` runs before page scripts (`registerPreload`), replacing one of
+/// A script every frame's main world of `partition` runs before page scripts (the Preview's dialog shim), replacing one of
 /// the same `id`.
 pub fn register_preload(partition: &str, id: String, source: String) {
     with(|s| {
@@ -443,9 +423,27 @@ pub fn register_preload(partition: &str, id: String, source: String) {
     });
 }
 
+/// A partition that is done with (a Preview host's, when it goes): its cookies and cache are cleared, and its request
+/// context and settings are let go, so CEF frees the in-memory profile with its last page. Making it again starts empty.
+pub fn forget(partition: &str) {
+    if let Some(context) = ui_state(|u| u.contexts.remove(partition)) {
+        if let Some(cookies) = context.cookie_manager(None) {
+            cookies.delete_cookies(None, None, None);
+        }
+        context.clear_http_cache(None);
+    }
+    with(|s| {
+        s.preloads.remove(partition);
+        s.user_agents.remove(partition);
+    });
+}
+
 /// The user agent (and Accept-Language) every page of `partition` gets once its browser exists.
 pub fn set_user_agent(partition: &str, user_agent: String, languages: Option<String>) {
-    with(|s| s.user_agents.insert(partition.to_string(), (user_agent, languages)));
+    with(|s| {
+        s.user_agents
+            .insert(partition.to_string(), (user_agent, languages))
+    });
 }
 
 /// Chromium's `proxy` preference of `partition`'s request context (UI thread); `args` as `session.op setProxy`.

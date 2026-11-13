@@ -37,7 +37,6 @@ mod tray;
 mod ui;
 mod view;
 mod wc;
-mod wcframe;
 mod window;
 
 use std::path::{Path, PathBuf};

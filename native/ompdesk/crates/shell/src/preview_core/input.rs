@@ -451,6 +451,66 @@ pub fn electron_key(key: &str) -> Option<ElectronKey> {
     None
 }
 
+/// The Windows virtual key a key code stands for (what `KeyboardEvent.keyCode` reports on a page), 0 for a key without one.
+/// US layout: a shifted symbol is the key it is typed on.
+pub fn virtual_key(key_code: &str) -> i32 {
+    let named = match key_code {
+        "Left" => 0x25,
+        "Up" => 0x26,
+        "Right" => 0x27,
+        "Down" => 0x28,
+        "Enter" => 0x0D,
+        "Backspace" => 0x08,
+        "Delete" => 0x2E,
+        "Tab" => 0x09,
+        "Escape" => 0x1B,
+        "Home" => 0x24,
+        "End" => 0x23,
+        "PageUp" => 0x21,
+        "PageDown" => 0x22,
+        "Insert" => 0x2D,
+        "Space" => 0x20,
+        _ => 0,
+    };
+    if named != 0 {
+        return named;
+    }
+    if is_function_key(key_code) {
+        return key_code[1..].parse::<i32>().map_or(0, |n| 0x70 + n - 1);
+    }
+    let mut chars = key_code.chars();
+    let (Some(c), None) = (chars.next(), chars.next()) else {
+        return 0;
+    };
+    match c {
+        'a'..='z' => c.to_ascii_uppercase() as i32,
+        'A'..='Z' | '0'..='9' => c as i32,
+        ')' => 0x30,
+        '!' => 0x31,
+        '@' => 0x32,
+        '#' => 0x33,
+        '$' => 0x34,
+        '%' => 0x35,
+        '^' => 0x36,
+        '&' => 0x37,
+        '*' => 0x38,
+        '(' => 0x39,
+        ';' | ':' => 0xBA,
+        '=' | '+' => 0xBB,
+        ',' | '<' => 0xBC,
+        '-' | '_' => 0xBD,
+        '.' | '>' => 0xBE,
+        '/' | '?' => 0xBF,
+        '`' | '~' => 0xC0,
+        '[' | '{' => 0xDB,
+        '\\' | '|' => 0xDC,
+        ']' | '}' => 0xDD,
+        '\'' | '"' => 0xDE,
+        ' ' => 0x20,
+        _ => 0,
+    }
+}
+
 /// A DOM wheel delta as the page's: opposite sign, capped, and a zero stays a plain zero.
 fn flip_wheel(delta: f64) -> f64 {
     if delta == 0.0 {
@@ -1094,5 +1154,26 @@ mod tests {
             busy.plan(&[InputOp::Text("z".into())]),
             [SequenceStep::RoundTrip, SequenceStep::Text("z".into())]
         );
+    }
+
+    #[test]
+    fn maps_key_codes_to_windows_virtual_keys() {
+        for (key, want) in [
+            ("Left", 0x25),
+            ("Enter", 0x0D),
+            ("Space", 0x20),
+            ("F1", 0x70),
+            ("F12", 0x7B),
+            ("F24", 0x87),
+            ("a", 0x41),
+            ("Z", 0x5A),
+            ("7", 0x37),
+            ("!", 0x31),
+            (";", 0xBA),
+            ("\r", 0),
+            ("한", 0),
+        ] {
+            assert_eq!(virtual_key(key), want, "{key:?}");
+        }
     }
 }
