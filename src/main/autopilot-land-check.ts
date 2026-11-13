@@ -12,9 +12,10 @@
  * `check:changed`) would find nothing on a clean checkout of the candidate and pass without checking anything; this
  * way it checks the run's change on top of the default branch as it is now.
  */
+
+import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { promises as fs } from "node:fs";
 import { withoutGitSelectors } from "../shared/git-env";
 import { gitRaw } from "./local/git/exec";
 import { prepareWorktree } from "./local/git/worktree-seed";

@@ -8,8 +8,9 @@
  * sessions before the list existed) and again after the session index changes. A folder the person removed stays out
  * until they open it again (`add`); a removed project's sessions are not touched.
  */
-import * as path from "node:path";
+
 import { promises as fs } from "node:fs";
+import * as path from "node:path";
 import type { SessionInfo } from "../shared/ipc-types";
 import {
 	type AutopilotRun,

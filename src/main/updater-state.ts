@@ -140,7 +140,7 @@ export interface StageBundleOptions {
 	/** Running bundle; the staged one must carry its bundle id. */
 	ownBundle: string;
 	run: ToolRunner;
-		fs: Pick<typeof nodeFs.promises, "mkdir" | "mkdtemp" | "readdir" | "rm" | "rmdir">;
+	fs: Pick<typeof nodeFs.promises, "mkdir" | "mkdtemp" | "readdir" | "rm" | "rmdir">;
 }
 
 /**

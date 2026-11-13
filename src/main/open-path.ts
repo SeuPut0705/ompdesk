@@ -6,8 +6,8 @@
  * launcher types are revealed in Finder / Explorer instead, never opened.
  */
 
-import path from "node:path";
 import { promises as fsp } from "node:fs";
+import path from "node:path";
 
 /**
  * Types that start code when opened, on any platform (a repo's `run.bat` is revealed on a Mac too). Scripts an

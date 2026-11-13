@@ -5,9 +5,9 @@
  * `workspace` for the disk and blobs, `desktop-control` for what happens on the host's screen.
  */
 import type { Dirent } from "node:fs";
+import { constants, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { constants, promises as fsp } from "node:fs";
 import { z } from "zod";
 import { codedError } from "../../shared/ipc-error-codes";
 import {

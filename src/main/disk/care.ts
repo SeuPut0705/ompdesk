@@ -25,8 +25,9 @@
  * retention). Where this platform cannot tell which processes work in a folder (Windows), steps 1 and 3 keep
  * everything. Every action is one `disk-care` line in gui-runtime.jsonl.
  */
-import * as path from "node:path";
+
 import { promises as fs } from "node:fs";
+import * as path from "node:path";
 import {
 	DISK_CARE_ARTIFACT_IDLE_DAYS,
 	DISK_CARE_REMOVE_IDLE_DAYS,
