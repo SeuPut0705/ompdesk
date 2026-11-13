@@ -336,9 +336,7 @@ function RunRow({ run, frame, current }: { run: Run; frame: ChecksFrame; current
 			? t("checks.run.reusedFrom")
 			: state === "superseded"
 				? t("checks.run.supersededBy")
-				: state === "held" && decision
-					? decision.reason
-					: tallyText(run, t);
+				: ((state === "held" && decision ? whyText(decision, frame, t) : null) ?? tallyText(run, t));
 	useEffect(() => {
 		if (current) ref.current?.scrollIntoView({ block: "center" });
 	}, [current]);
@@ -512,6 +510,42 @@ function decisionText(decision: Decision, run: Run | undefined, t: Translate): s
 	return t(`checks.decisions.${decision.action}`, { target });
 }
 
+/**
+ * Why the hub decided, from its code (`Decision.why`); `reason` is the hub's English for agents and never shown.
+ * Null for a code the hub has no words for (`other`): the action's sentence then stands alone.
+ */
+function whyText(decision: Decision, frame: ChecksFrame, t: Translate): string | null {
+	const { why } = decision;
+	const run = (id: string) => {
+		const found = frame.snapshot.runs.find(entry => entry.id === id);
+		return found ? `${repoName(found.repo)} · ${found.ref}` : id;
+	};
+	const pool = (id: string) => {
+		const found = frame.snapshot.pools.find(entry => entry.id === id);
+		return found ? poolName(found, frame.names) : id;
+	};
+	switch (why.code) {
+		case "newer-run":
+		case "green-on-same-inputs":
+			return t(`checks.why.${why.code}`, { run: run(why.run) });
+		case "pool-full":
+		case "release-ahead":
+			return t(`checks.why.${why.code}`, { pool: pool(why.pool), running: why.running, limit: why.limit });
+		case "placed-on":
+			return t("checks.why.placed-on", { pool: pool(why.pool) });
+		case "batched":
+			return t("checks.why.batched", { batch: why.batch });
+		case "flaky":
+			return t("checks.why.flaky", { fails: why.fails, runs: why.runs });
+		case "failed-jobs":
+			return t("checks.why.failed-jobs", { count: why.count, plural: plural(why.count) });
+		case "paused":
+			return t("checks.why.paused");
+		case "other":
+			return null;
+	}
+}
+
 function DecisionsCard({ frame }: { frame: ChecksFrame }) {
 	const t = useT();
 	const { decisions, runs } = frame.snapshot;
@@ -528,6 +562,7 @@ function DecisionsCard({ frame }: { frame: ChecksFrame }) {
 				<ul className="flex flex-col gap-3">
 					{newest.map(decision => {
 						const Icon = DECISION_ICON[decision.action];
+						const why = whyText(decision, frame, t);
 						return (
 							<li
 								className="flex min-w-0 gap-2"
@@ -543,9 +578,7 @@ function DecisionsCard({ frame }: { frame: ChecksFrame }) {
 											t,
 										)}
 									</p>
-									<p className="text-sc-xs text-(--sc-text-muted)">
-										{t("checks.decisions.policy", { reason: decision.reason })}
-									</p>
+									{why && <p className="text-sc-xs text-(--sc-text-muted)">{why}</p>}
 								</div>
 								<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
 									<Age at={decision.at} />

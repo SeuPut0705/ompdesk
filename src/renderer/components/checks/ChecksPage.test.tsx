@@ -161,7 +161,7 @@ describe("Checks page", () => {
 		expect(release).toContain("Running");
 		const held = text(view, '[data-check-run="run-42"]');
 		expect(held).toContain("Held");
-		expect(held).toContain("macOS is full (5 of 5) and a release job is ahead");
+		expect(held).toContain("GitHub macOS is full (5 of 5) and a release job is ahead");
 		expect(held).toContain("Search index");
 		expect(held).toContain("on Mac mini");
 		const person = text(view, '[data-check-run="run-40"]');
@@ -189,16 +189,27 @@ describe("Checks page", () => {
 		expect(answer).toContain("rerun the failed ones");
 		const decisions = [...view.querySelectorAll("[data-check-decision]")].map(row => row.textContent ?? "");
 		expect(decisions).toHaveLength(2);
-		expect(decisions.join(" ")).toContain("macOS is full (5 of 5) and a release job is ahead");
+		expect(decisions.join(" ")).toContain("GitHub macOS is full (5 of 5) and a release job is ahead");
+		expect(decisions.join(" ")).toContain("app · omp/agent/search-index is a newer run of the same ref and workflow");
 	});
 
-	it("writes one sentence per policy action", async () => {
+	it("writes one sentence per policy action, and never the hub's English reason", async () => {
 		const frame = busy();
 		const decisions = [
-			{ policy: "release-first", run: "run-42", action: "hold" as const, reason: "macOS full", at: FIXED_NOW },
+			{
+				policy: "release-first",
+				run: "run-42",
+				action: "hold" as const,
+				why: { code: "other" as const },
+				reason: "macOS full",
+				at: FIXED_NOW,
+			},
 		];
 		const view = await mount(withSnapshot(frame, { decisions }));
-		expect(text(view, '[data-check-decision="hold"]')).toContain("Held 1 job of app · omp/agent/search-index");
+		const row = text(view, '[data-check-decision="hold"]');
+		expect(row).toContain("Held 1 job of app · omp/agent/search-index");
+		expect(row).not.toContain("macOS full");
+		expect(text(view, '[data-check-run="run-42"]')).not.toContain("macOS full");
 	});
 
 	it("marks the run it was opened on, as the work board's row opens it", async () => {
@@ -255,6 +266,9 @@ describe("Checks page", () => {
 		expect(page).toContain("검사");
 		expect(page).toContain("릴리스 v1.4.0");
 		expect(page).toContain("게이트 2개 중 1개 통과");
+		expect(page).toContain("GitHub macOS 가득 참 (5개 중 5개), 릴리스 작업이 먼저예요");
+		expect(page).not.toContain("is full");
+		expect(page).not.toContain("newer run");
 		expect(page).not.toMatch(/checks\.[a-z]/);
 		expect(page).not.toContain("Pause admission");
 	});
