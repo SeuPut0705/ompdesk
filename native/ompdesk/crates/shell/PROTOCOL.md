@@ -700,8 +700,38 @@ Deviations:
 
 ### 15.6 `preview.*` (SX2)
 
+The Preview's pages are the module's (`modules/preview/`, rules in `preview_core/`); Node keeps the `PREVIEW_*` IPC
+handlers, the relay's socket, the save dialog and the tab's omp, and calls the client
+(`src/main/shell-host/modules/preview.ts`). An **owner** is the page that asked: `{key, winId?}`, `key` the asking
+page's id (an app window's renderer `webContents.id`, or a paired viewer's virtual window's), `winId` the app window
+for a window's renderer (its Preview pages are views in it) and absent for a viewer (its pages are offscreen and
+streamed). `remote` is whether the owner's active tab runs on a paired host (its loopback addresses stay blocked);
+Node sends it with every call that may navigate and the module keeps the last value per owner. Shapes are those of
+`src/shared/preview.ts`.
+
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
+| `preview.command` | Node | `{owner, remote, request: PreviewRequest}` | `PreviewState` — every `PreviewRequest` but `agentStart` (below); `dispose` answers `EMPTY_PREVIEW`. Errors `failed` with host.ts's messages (`Too many preview tabs`, `Preview URL unavailable`, `Unknown preview tab`, `Unknown visual`, …). |
+| `preview.agentStart` | Node | `{owner, remote, tabId}` | `PreviewState` — the shown page (a web page, else `failed` "Agent browsing is for web pages, not visuals") gets the relay extension; its state shows `agent {tabId, attached: false}`. Node has already vetted the endpoint and opened the socket. |
+| `preview.agentReady` | Node | `{owner}` | `PreviewState` — the socket is open: the extension's `hello` goes out (`preview.relayOut`) unless the agent was stopped meanwhile. |
+| `preview.relayIn` (event) | Node | `{owner, data: string}` | a frame from the relay |
+| `preview.relayClosed` (event) | Node | `{owner}` | the relay's socket closed: the agent stops |
+| `preview.relayOut` (event) | shell→Node | `{owner, data: string}` | a frame for the relay |
+| `preview.relayEnd` (event) | shell→Node | `{owner}` | the agent stopped (Take over, another tab, the panel closed): Node closes the socket |
+| `preview.ownerGone` (event) | Node | `{owner}` | the owner's window closed, its renderer loaded another document, or the viewer went: its pages close |
+| `preview.state` (event) | shell→Node | `{owner, state: PreviewState}` | Node sends `PREVIEW_STATE` to the owner |
+| `preview.page` | Node | `{owner, request: PreviewPageRequest}` | the page tool's result (`region`: `{image: base64 PNG, elements}`) |
+| `preview.pdfName` | Node | `{owner}` | `{name}` — the shown page's title as a file name; `failed` "No page to save" |
+| `preview.pdf` | Node | `{owner, maxBytes?}` | `{}` + `bin` = the shown page as PDF; past `maxBytes` `failed` "The page's PDF is too large to send over this link" |
+| `preview.visuals` | Node | `{}` | `PreviewVisualRecord[]` |
+| `preview.poll` | Node | `{owner, ack, wait?}` | `PreviewStreamPoll` (a viewer's shown page; before its first layout an empty answer after 500 ms) |
+| `preview.input` (event) | Node | `{owner, events: PreviewStreamInput[]}` | a viewer's gestures and keys |
+| `preview.dialogAnswer` | Node | `{owner, id, accept, text?}` | `{}` |
+| `preview.copy` | Node | `{owner}` | `{text}` — the viewer page's selection (at most 100 000 characters) |
+| `preview.visualize` | Node | `{tabId, cwd, winId, judge: boolean, inFront: boolean, args}` | `{text, isError}` — one `gui_visualize` call of a tab on this computer |
+| `preview.reveal` (event) | shell→Node | `{tabId, visualId}` | Node sends `PREVIEW_VISUAL` to the tab's window |
+| `preview.judgeAvailable` | shell→Node | `{tabId, budgetMs}` | `{available: boolean}` — the tab's omp has a native judge |
+| `preview.judge` | shell→Node | `{tabId, image: {data, mimeType}, budgetMs}` | `{judged: boolean, problem: "error" \| "blank" \| null}` |
 
 Deviations:
 
