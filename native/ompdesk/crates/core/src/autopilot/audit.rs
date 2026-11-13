@@ -519,7 +519,11 @@ mod tests {
 
     fn world() -> World {
         let base = crate::fs::disk::make_temp_dir("ompdesk-audit-test-").unwrap();
-        let base = std::fs::canonicalize(base).unwrap();
+        // The OS's own spelling, as node's `realpath` gives it: `canonicalize` says `\\?\C:\...` on Windows, which git for
+        // Windows refuses ("cannot mkdir ... Invalid argument").
+        let base = std::path::PathBuf::from(crate::fs::disk::spelled(
+            &std::fs::canonicalize(base).unwrap(),
+        ));
         let (main, remote, work) = (
             base.join("main"),
             base.join("remote.git"),
