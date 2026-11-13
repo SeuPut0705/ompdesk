@@ -172,12 +172,15 @@ jobs:
         shell: bash
         run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --label success 2>&1 | tee move-win-success.log
       - name: A move whose unpack is incomplete
+        if: always()
         shell: bash
         run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at swap 2>&1 | tee move-win-fail-swap.log
       - name: A move whose new shell does not start
+        if: always()
         shell: bash
         run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at start 2>&1 | tee move-win-fail-start.log
       - name: A new shell that does not start, twice in a row (the second round is skipped)
+        if: always()
         shell: bash
         run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at start-twice 2>&1 | tee move-win-fail-start-twice.log
       - name: Evidence lines
