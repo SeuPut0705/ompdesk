@@ -109,7 +109,35 @@ describe("CoreProcess", () => {
 
 	it("answers a request", async () => {
 		const answer = await echo(startCore(), { value: { list: [1, "two", null], text: "é ✓ 😀" } });
-		expect(answer).toEqual({ result: { value: { list: [1, "two", null], text: "é ✓ 😀" } }, bin: null });
+		expect(answer).toEqual({
+			result: { value: { list: [1, "two", null], text: "é ✓ 😀" } },
+			bin: null,
+			generation: expect.any(Number),
+		});
+	});
+
+	it("names the core that answered or sent an event, and fences a call to the core it was meant for", async () => {
+		const core = startCore();
+		const ready = Promise.withResolvers<number>();
+		core.on("ready", (_data, _bin, generation) => ready.resolve(generation));
+		const first = await echo(core, { value: 1 });
+		expect(await ready.promise).toBe(first.generation);
+		expect(core.generation).toBe(first.generation);
+		await core.stop();
+		expect(core.generation).toBe(0);
+		// The numbers a core asks by start over with the next one: an answer to the first must not reach the second.
+		await expect(core.call("core.echo", { value: 2 }, { generation: first.generation })).rejects.toMatchObject({
+			code: "core_exited",
+		});
+		expect(core.pid).toBeNull();
+		const second = await echo(core, { value: 3 });
+		expect(second.generation).not.toBe(first.generation);
+		await expect(core.call("core.echo", { value: 4 }, { generation: first.generation })).rejects.toMatchObject({
+			code: "core_exited",
+		});
+		expect((await core.call("core.echo", { value: 5 }, { generation: second.generation })).result).toEqual({
+			value: 5,
+		});
 	});
 
 	it("carries a megabyte of raw bytes each way", async () => {

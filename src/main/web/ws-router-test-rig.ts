@@ -93,12 +93,13 @@ export class TestRouterHost {
 		listen();
 		const router = new WsRouter(deps);
 		const host = new TestRouterHost(router, options.now ?? 1_000_000);
-		await core().call("web.router.test.open", {
+		const { generation } = await core().call("web.router.test.open", {
 			host: router.host,
 			now: host.clock.now,
 			manualTimers: options.timers !== "real",
 			config: router.config(),
 		});
+		router.started(generation);
 		return host;
 	}
 

@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { IPC_COMMANDS } from "../../shared/ipc-types";
+import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import {
 	WEB_BLOCKS_LIST,
 	WEB_BLOCKS_REMOVE,
@@ -30,6 +30,7 @@ import {
 import { WEB_HOST_CHANNELS, type WebBlobOpenResult } from "../../shared/web-host";
 import { WEB_PROTOCOL_VERSION, type WebServerFrame } from "../../shared/web-protocol";
 import type { WebPushStateResponse } from "../../shared/web-push";
+import { stopCore } from "../core/process";
 import type { TailnetPeer } from "../tailscale/whois";
 import { itWithFileSymlinks } from "../test-symlinks";
 import type { ClientWindow } from "./client-window";
@@ -52,6 +53,11 @@ let approve: boolean;
 let sockets: WebSocket[];
 let peers: Map<string, TailnetPeer>;
 let allowed: string[];
+/** The desktop leaves an approval unanswered (a test answers it by hand). */
+let holdDesktop: boolean;
+/** The addresses `tailscale whois` was asked about, and the answers a test keeps back until it lets them go. */
+let whoisAsked: string[];
+let whoisHeld: Map<string, Promise<void>>;
 let realFetch: typeof fetch;
 
 /** The secret first path segment of the serve target; a request carries it only when it came through serve. */
@@ -71,7 +77,7 @@ function desktop(): ClientWindow {
 			id: 1,
 			send: (channel: string, payload: unknown) => {
 				desktopSent.push({ channel, payload });
-				if (channel === WEB_PAIRING_REQUEST) {
+				if (channel === WEB_PAIRING_REQUEST && !holdDesktop) {
 					const request = payload as WebPairingRequest;
 					queueMicrotask(() => host.confirmations.respond({ id: request.id, approve }));
 				}
@@ -97,6 +103,9 @@ beforeEach(async () => {
 	approve = true;
 	sockets = [];
 	allowed = [LOGIN];
+	holdDesktop = false;
+	whoisAsked = [];
+	whoisHeld = new Map();
 	peers = new Map([[PEER_IP, { nodeId: "nPHONE1", nodeName: "s25u", login: LOGIN }]]);
 	const deps: WebHostDeps = {
 		ipc: {
@@ -118,7 +127,11 @@ beforeEach(async () => {
 		shell: { openPath: async () => {}, reveal: () => {}, openExternal: async () => {} },
 		allowedUsers: () => allowed,
 		confirmNewDevices: () => confirmNew,
-		whois: async address => peers.get(address) ?? null,
+		whois: async address => {
+			whoisAsked.push(address);
+			await whoisHeld.get(address);
+			return peers.get(address) ?? null;
+		},
 		onUnpairedAuth: unpaired,
 		language: () => "en",
 	};
@@ -1111,4 +1124,65 @@ describe("/api/push", () => {
 		await arrived(frames => frames.length > 0);
 		expect(frames[0]).toMatchObject({ t: "hello", features: { push: true } });
 	});
+});
+
+/** The core ends (a crash looks the same to main): the edge listens again on its port once the next core runs. */
+async function restartCore(): Promise<void> {
+	await stopCore();
+	await vi.waitFor(() => expect(host.server.port).not.toBeNull(), { timeout: 10_000 });
+}
+
+/** `tailscale whois` of `address` answers once the returned function is called. */
+function holdWhois(address: string): () => void {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	whoisHeld.set(address, promise);
+	return resolve;
+}
+
+describe("after the core restarts", () => {
+	it("hears an answer only from the core that asked: a lookup the old core waited on settles no other device's", async () => {
+		// A fresh core numbers its asks from 1, so the next core's first lookup has the old one's number.
+		await restartCore();
+		const early = "100.64.0.21";
+		const late = "100.64.0.22";
+		peers.set(early, { nodeId: "nEARLY", nodeName: "early-phone", login: LOGIN });
+		peers.set(late, { nodeId: "nLATE", nodeName: "late-phone", login: LOGIN });
+		const releaseEarly = holdWhois(early);
+		const releaseLate = holdWhois(late);
+		const abandoned = post("/api/pair", { name: "x" }, { "x-forwarded-for": early }).catch(() => null);
+		await vi.waitFor(() => expect(whoisAsked).toContain(early));
+		await restartCore();
+		const answered = post("/api/pair", { name: "y" }, { "x-forwarded-for": late });
+		await vi.waitFor(() => expect(whoisAsked).toContain(late));
+		releaseEarly();
+		releaseLate();
+		expect((await answered).status).toBe(200);
+		await abandoned;
+		await settled();
+		expect(host.devices.list().map(device => device.nodeId)).toEqual(["nLATE"]);
+	}, 20_000);
+
+	it("declines an approval the old core was holding, so nothing answers it later", async () => {
+		confirmNew = true;
+		holdDesktop = true;
+		const waiting = post("/api/pair", { name: "x" }).catch(() => null);
+		await vi.waitFor(() => expect(sent(WEB_PAIRING_REQUEST)).toHaveLength(1));
+		const [request] = sent(WEB_PAIRING_REQUEST) as WebPairingRequest[];
+		await restartCore();
+		expect(host.confirmations.pending()).toEqual([]);
+		expect(host.confirmations.respond({ id: request?.id ?? "", approve: true })).toBe(false);
+		await waiting;
+		expect(host.devices.list()).toEqual([]);
+	}, 20_000);
+
+	it("keeps pushing to a phone that connects again", async () => {
+		const paired = await pair();
+		await restartCore();
+		const { frames } = await open(paired, await ticketFor(paired));
+		await vi.waitFor(() => expect(frames.some(frame => frame.t === "hello")).toBe(true));
+		host.router.deliver(paired.deviceId, IPC_EVENTS.SESSIONS_CHANGED, { device: null });
+		await vi.waitFor(() =>
+			expect(frames.some(frame => frame.t === "evt" && frame.ch === IPC_EVENTS.SESSIONS_CHANGED)).toBe(true),
+		);
+	}, 20_000);
 });

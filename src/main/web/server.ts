@@ -89,10 +89,11 @@ let routed: CoreProcess | null = null;
 function route(process: CoreProcess): void {
 	if (routed === process) return;
 	routed = process;
-	process.on("web.ask", data => {
+	process.on("web.ask", (data, _bin, generation) => {
 		const ask = data as EdgeAsk;
+		// The core numbers its asks from 1 at every start: only the core that asked may hear the answer.
 		const answer = (result: unknown) =>
-			void process.call("web.answer", { call: ask.call, result }).catch(() => undefined);
+			void process.call("web.answer", { call: ask.call, result }, { generation }).catch(() => undefined);
 		const server = servers.get(ask.host);
 		if (!server) return answer(null);
 		server.answerAsk(ask).then(answer, error => {
@@ -146,13 +147,14 @@ export class WebServer {
 		servers.set(this.#id, this);
 		this.#asked = options.port ?? 0;
 		try {
-			const { result } = await process.call<{ port: number }>("web.start", {
+			const { result, generation } = await process.call<{ port: number }>("web.start", {
 				host: this.#id,
 				userData: this.#deps.userData,
 				port: this.#asked,
 				staticRoot: this.#deps.staticRoot(),
 				router: this.#deps.router.config(),
 			});
+			this.#deps.router.started(generation);
 			this.#port = result.port;
 			return result;
 		} catch (error) {
@@ -215,6 +217,8 @@ export class WebServer {
 
 	/** The core ended with the edge in it: its sockets are gone, and the edge listens again on the same port. */
 	coreExited(): void {
+		// What the dead core was waiting on can no longer be answered: its numbers belong to that core alone.
+		this.#deps.confirmations.declineAll();
 		if (this.#port === null) return;
 		const port = this.#port;
 		this.#port = null;

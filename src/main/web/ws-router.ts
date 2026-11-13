@@ -278,8 +278,8 @@ export class WsRouter {
 	readonly #texts = new WeakMap<object, Uint8Array>();
 	/** Devices told of a push they had no connection for: until one connects, one word is all the core needs. */
 	readonly #unsent = new Set<string>();
-	/** The core's router was started (`config`) and has not ended with its core since. */
-	#open = false;
+	/** The generation of the core whose router this host started in (`started`); 0 before the first start. */
+	#startedIn = 0;
 
 	constructor(deps: WsRouterDeps) {
 		this.#deps = deps;
@@ -293,7 +293,6 @@ export class WsRouter {
 	config(): RouterConfig {
 		route(core());
 		routers.set(this.host, this);
-		this.#open = true;
 		const webChannels = Object.fromEntries(
 			Object.entries(this.#deps.webChannels).map(([channel, entry]) => [
 				channel,
@@ -315,6 +314,16 @@ export class WsRouter {
 		};
 	}
 
+	/** The core of `generation` answered `web.start`: its router holds this host until that core ends. */
+	started(generation: number): void {
+		this.#startedIn = generation;
+	}
+
+	/** Whether the core running now is the one that started this host's router (a later core has not). */
+	#open(): boolean {
+		return this.#startedIn !== 0 && this.#startedIn === core().generation;
+	}
+
 	connectionCount(deviceId: string): number {
 		return this.#connections.get(deviceId)?.length ?? 0;
 	}
@@ -333,7 +342,7 @@ export class WsRouter {
 		this.#recordTokens(deviceId, channel, payload);
 		const policy = Object.hasOwn(IPC_POLICY, channel) ? IPC_POLICY[channel as keyof typeof IPC_POLICY] : undefined;
 		if (policy?.dir !== "push" || policy.mode === "client" || Object.hasOwn(DESKTOP_ONLY_PUSH, channel)) return;
-		if (!this.#open) return;
+		if (!this.#open()) return;
 		if (!this.#connections.has(deviceId)) {
 			// Counted, so a page that comes back is not told it missed nothing; its data would reach no socket.
 			if (this.#unsent.has(deviceId)) return;
@@ -363,7 +372,7 @@ export class WsRouter {
 	}
 
 	closeDevice(deviceId: string, code: number, reason: string): void {
-		if (this.#open) core().push("web.closeDevice", { host: this.host, device: deviceId, code, reason });
+		if (this.#open()) core().push("web.closeDevice", { host: this.host, device: deviceId, code, reason });
 	}
 
 	noteDriver(tabId: string, deviceId: string): void {
@@ -400,7 +409,6 @@ export class WsRouter {
 
 	/** The core ended, and every page socket with it. */
 	coreExited(): void {
-		this.#open = false;
 		this.#unsent.clear();
 		const ended = [...this.#connections];
 		this.#connections.clear();

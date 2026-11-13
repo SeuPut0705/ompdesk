@@ -98,12 +98,21 @@ export interface CoreCallOptions {
 	 * failed the call) or when the core ends. Whatever the request started in the core has ended by then.
 	 */
 	onEnded?: () => void;
+	/**
+	 * Only for the core that started with this generation (`generation`, or the third argument an event listener
+	 * gets): the request fails `core_exited` at once, and no core is started, when another one runs or none does. An
+	 * answer to a question the core asked goes this way, because the numbers a core asks by start over with the next
+	 * one, and an answer sent to it would settle another question.
+	 */
+	generation?: number;
 }
 
 export interface CoreAnswer<T> {
 	result: T;
 	/** The answer's raw bytes: a plain `Uint8Array` that owns its buffer; null when it carried none. */
 	bin: Uint8Array | null;
+	/** The generation of the core that answered (`CoreProcess.generation` while it runs). */
+	generation: number;
 }
 
 export interface CoreProcessOptions {
@@ -212,7 +221,7 @@ export class CoreProcess {
 	readonly #stopping = new Set<ChildProcessWithoutNullStreams>();
 	/** Resolves once a core ended and every process it started is gone (or past `GROUP_GONE_MS`). */
 	readonly #gone = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
-	readonly #listeners = new Map<string, Set<(data: unknown, bin: Uint8Array | null) => void>>();
+	readonly #listeners = new Map<string, Set<(data: unknown, bin: Uint8Array | null, generation: number) => void>>();
 	#stops = 0;
 	/** Where the running core's hub listens (`hub.ts` connects there), made fresh for each start. */
 	#hub: { address: string; token: string; generation: number; folder: string | null } | null = null;
@@ -233,7 +242,7 @@ export class CoreProcess {
 	}
 
 	/** Subscribes to an event the core sends (the frame's `bin` tail, when it has one, as the second argument); returns the unsubscribe. */
-	on(event: string, listener: (data: unknown, bin: Uint8Array | null) => void): () => void {
+	on(event: string, listener: (data: unknown, bin: Uint8Array | null, generation: number) => void): () => void {
 		let listeners = this.#listeners.get(event);
 		if (!listeners) {
 			listeners = new Set();
@@ -246,6 +255,11 @@ export class CoreProcess {
 	/** How many times `stop()` ended a core: a request that fails `core_exited` after the count moved was ended on purpose. */
 	get stops(): number {
 		return this.#stops;
+	}
+
+	/** The running core's generation: it changes with every start (0 while none runs); never starts one. */
+	get generation(): number {
+		return this.#child ? (this.#hub?.generation ?? 0) : 0;
 	}
 
 	/**
@@ -261,7 +275,7 @@ export class CoreProcess {
 
 	/** The generation of the running core's hub (0 while none runs), without starting one. */
 	hubEndpointGeneration(): number {
-		return this.#child ? (this.#hub?.generation ?? 0) : 0;
+		return this.generation;
 	}
 
 	/**
@@ -279,6 +293,10 @@ export class CoreProcess {
 	}
 
 	call<T>(method: string, params: unknown = {}, options: CoreCallOptions = {}): Promise<CoreAnswer<T>> {
+		if (options.generation !== undefined && options.generation !== this.generation) {
+			options.onEnded?.();
+			return Promise.reject(new CoreError("core_exited", `the ompdesk-core that ${method} was meant for ended`));
+		}
 		let child: ChildProcessWithoutNullStreams;
 		try {
 			child = this.#start();
@@ -363,7 +381,8 @@ export class CoreProcess {
 		this.#child = child;
 		const hubFolder = this.#hub.folder;
 		this.#answered = false;
-		const reader = new FrameReader((frame, bin) => this.#receive(child, frame, bin), this.#log);
+		const generation = this.#hub.generation;
+		const reader = new FrameReader((frame, bin) => this.#receive(child, generation, frame, bin), this.#log);
 		child.stdout.on("data", (chunk: Buffer) => reader.push(chunk));
 		createInterface({ input: child.stderr }).on("line", line => this.#log(line));
 		// A write to a core that already ended fails here; its close rejects what waits.
@@ -374,7 +393,7 @@ export class CoreProcess {
 		const end = (error: CoreError) => {
 			if (ended) return;
 			ended = true;
-			this.#ended(child, error, gone.resolve);
+			this.#ended(child, generation, error, gone.resolve);
 		};
 		child.on("error", error =>
 			end(new CoreError("core_unavailable", `ompdesk-core could not run: ${error.message}`)),
@@ -386,9 +405,9 @@ export class CoreProcess {
 		return child;
 	}
 
-	#receive(child: ChildProcessWithoutNullStreams, frame: Frame, bin: Uint8Array | null): void {
+	#receive(child: ChildProcessWithoutNullStreams, generation: number, frame: Frame, bin: Uint8Array | null): void {
 		if (typeof frame.event === "string") {
-			for (const listener of this.#listeners.get(frame.event) ?? []) listener(frame.data, bin);
+			for (const listener of this.#listeners.get(frame.event) ?? []) listener(frame.data, bin, generation);
 			return;
 		}
 		if (typeof frame.id !== "number") return;
@@ -410,7 +429,7 @@ export class CoreProcess {
 		clearTimeout(pending.timer);
 		pending.detach();
 		pending.onEnded?.();
-		if (frame.ok) pending.resolve({ result: frame.result, bin });
+		if (frame.ok) pending.resolve({ result: frame.result, bin, generation });
 		else
 			pending.reject(
 				new CoreError(
@@ -420,7 +439,7 @@ export class CoreProcess {
 			);
 	}
 
-	#ended(child: ChildProcessWithoutNullStreams, error: CoreError, gone: () => void): void {
+	#ended(child: ChildProcessWithoutNullStreams, generation: number, error: CoreError, gone: () => void): void {
 		const expected = this.#stopping.delete(child);
 		if (this.#child === child) {
 			this.#child = null;
@@ -431,7 +450,7 @@ export class CoreProcess {
 		}
 		if (!expected) this.#log(error.message);
 		// What lived in that core (a remote link, a listener) is gone with it.
-		for (const listener of this.#listeners.get(CORE_EXITED) ?? []) listener(null, null);
+		for (const listener of this.#listeners.get(CORE_EXITED) ?? []) listener(null, null, generation);
 		const waiting = [...this.#pending].filter(([, pending]) => pending.child === child);
 		for (const [id, pending] of waiting) {
 			this.#pending.delete(id);
