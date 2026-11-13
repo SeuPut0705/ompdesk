@@ -171,7 +171,8 @@ export type RpcCommand =
 	| {
 			id?: string;
 			type: "agent_control_mail";
-			content: string;
+			/** Text, or text blocks and the pictures a report carries (`ompdesk_report` attachments). */
+			content: string | (TextContent | ImageContent)[];
 			details: Record<string, unknown>;
 			triggerTurn: boolean;
 			deliverAs?: "aside";
@@ -179,6 +180,10 @@ export type RpcCommand =
 	// Which message markers main sent this session its journal holds, and which omp process answers
 	// (main/agent-control/send-outbox.ts): `{instance, journaled}`.
 	| { id?: string; type: "agent_control_sent"; marks: string[] }
+	// One attachment of `ompdesk_session_send` / `ompdesk_report` read where this session's omp runs
+	// (gui-bridge agent-control.ts `agent_control.attachment`): `{path}` a file, `{image}` the n-th newest picture of
+	// its conversation (1 = newest). Answers `{name, mimeType, dataBase64, sha256}`.
+	| { id?: string; type: "agent_control_attachment"; path?: string; image?: number }
 	// The other live sessions in this session's worktree or repository (gui-bridge modes/checkout-peers.ts);
 	// `checkout_peers` frames keep the value current. Answers `{peers}` (null: the session works alone).
 	| { id?: string; type: "get_checkout_peers" }

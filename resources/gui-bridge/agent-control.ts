@@ -14,7 +14,17 @@
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
-import { hasMailEntry, journaledMarks, MAIL_CUSTOM_TYPE } from "./agent-control-contracts";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
+import {
+	ATTACHMENT_MAX_BYTES,
+	type AttachmentWire,
+	hasMailEntry,
+	journaledMarks,
+	MAIL_CUSTOM_TYPE,
+	sniffImageType,
+} from "./agent-control-contracts";
 import { crossFamily, JUDGE_ROLES, modelFamily } from "./agent-control-judge-core";
 import { completeOnSmol, type ModelLike, type NextPromptSession } from "./modes/next-prompt-engine";
 import { type PromptSectionContext, type PromptSectionHost, registerPromptSection } from "./prompt-sections";
@@ -26,7 +36,10 @@ import { type PromptSectionContext, type PromptSectionHost, registerPromptSectio
 interface ControlSession {
 	/** Stock `AgentSession.isStreaming`: a turn runs (or a prompt is being set up). */
 	isStreaming: boolean;
+	/** Stock `AgentSession.messages`: the live conversation, oldest first. */
+	messages: readonly unknown[];
 	sessionManager: {
+		getCwd(): string;
 		getBranch(): { customType?: unknown; data?: unknown }[];
 		appendCustomEntry(customType: string, data: unknown): unknown;
 	};
@@ -69,9 +82,12 @@ export function isWorkerSession(ctx: PromptSectionContext): boolean {
 	return ctx.sessionManager.getBranch().some(entry => entry.customType === WORKER_ENTRY);
 }
 
+/** What a report carries to its receiver: text, and the pictures sent along (stock's `(TextContent | ImageContent)[]`). */
+type MailContent = string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
+
 interface MailMessage {
 	customType: string;
-	content: string;
+	content: MailContent;
 	display: boolean;
 	details?: unknown;
 }
@@ -92,6 +108,91 @@ export function install(pi: PromptSectionHost & Partial<MailHost>): void {
 	);
 }
 
+const EXTENSION_TYPES: Record<string, string> = {
+	".pdf": "application/pdf",
+	".txt": "text/plain",
+	".md": "text/markdown",
+	".json": "application/json",
+	".csv": "text/csv",
+	".html": "text/html",
+	".zip": "application/zip",
+	".log": "text/plain",
+};
+const IMAGE_EXTENSIONS: Record<string, string> = {
+	"image/png": "png",
+	"image/jpeg": "jpg",
+	"image/webp": "webp",
+	"image/gif": "gif",
+};
+
+function tooBig(bytes: number): Error {
+	return new Error(`it is ${bytes} bytes; an attachment is at most ${ATTACHMENT_MAX_BYTES} bytes (10 MiB)`);
+}
+
+function wire(name: string, mimeType: string, bytes: Buffer): AttachmentWire {
+	return {
+		name,
+		mimeType,
+		dataBase64: bytes.toString("base64"),
+		sha256: createHash("sha256").update(bytes).digest("hex"),
+	};
+}
+
+/** A file on this computer: absolute, or relative to the session's folder. */
+async function attachFile(requested: string, env: ControlEnv): Promise<AttachmentWire> {
+	const file = path.resolve(env.session().sessionManager.getCwd(), requested);
+	const info = await stat(file);
+	if (!info.isFile()) throw new Error(`${file} is not a file`);
+	if (info.size > ATTACHMENT_MAX_BYTES) throw tooBig(info.size);
+	const bytes = await readFile(file);
+	if (bytes.length > ATTACHMENT_MAX_BYTES) throw tooBig(bytes.length);
+	const name = path.basename(file);
+	const mimeType =
+		sniffImageType(bytes) ?? EXTENSION_TYPES[path.extname(name).toLowerCase()] ?? "application/octet-stream";
+	return wire(name, mimeType, bytes);
+}
+
+/** Every picture of the live conversation (a person's, a tool result's, a message's), newest first. */
+function conversationImages(messages: readonly unknown[]): { data: string; mimeType: string }[] {
+	const found: { data: string; mimeType: string }[] = [];
+	for (const message of messages) {
+		const content = (message as { content?: unknown } | null)?.content;
+		if (!Array.isArray(content)) continue;
+		for (const block of content as Record<string, unknown>[])
+			if (block?.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string")
+				found.push({ data: block.data, mimeType: block.mimeType });
+	}
+	return found.reverse();
+}
+
+const BLOBS_MODULE = "./agent-control-blobs";
+
+/** The n-th newest picture (1 = newest) of this session's conversation; a blob reference is read from stock's store. */
+async function attachImage(n: number, env: ControlEnv): Promise<AttachmentWire> {
+	const images = conversationImages(env.session().messages);
+	const image = images[n - 1];
+	if (!image)
+		throw new Error(
+			`this conversation holds ${images.length} picture${images.length === 1 ? "" : "s"}, so there is no image ${n}`,
+		);
+	let bytes: Buffer;
+	if (image.data.startsWith("blob:")) {
+		// Stock's own store, as `read_image_blob` reads it. The specifier is a variable so the GUI's `tsc` (which has no
+		// omp to resolve) does not follow it; it is loaded only here, so the module stands on a fake `pi`.
+		const { readBlob } = (await import(BLOBS_MODULE)) as { readBlob(ref: string): Promise<Buffer | null> };
+		const stored = await readBlob(image.data);
+		if (!stored) throw new Error(`image ${n} is no longer in omp's picture store`);
+		bytes = stored;
+	} else {
+		if (image.data.length > Math.ceil(ATTACHMENT_MAX_BYTES / 3) * 4 + 4)
+			throw tooBig(Math.floor((image.data.length * 3) / 4));
+		bytes = Buffer.from(image.data, "base64");
+	}
+	if (bytes.length > ATTACHMENT_MAX_BYTES) throw tooBig(bytes.length);
+	const extension = IMAGE_EXTENSIONS[image.mimeType] ?? "bin";
+	return wire(`image-${n}.${extension}`, image.mimeType, bytes);
+}
+
 /** Report ids this process handed to stock (an aside is journaled only once the receiver's loop takes it). */
 const queuedMail = new Set<string>();
 
@@ -100,6 +201,19 @@ const queuedMail = new Set<string>();
  * tells "the omp I handed a message to, which still queues it" from "a new omp, whose predecessor's queue is gone".
  */
 const OMP_INSTANCE = `${process.pid}-${Math.round(performance.timeOrigin)}`;
+
+/** A report's content: text, or text blocks and picture blocks with some text in them; undefined when it holds none. */
+function mailContent(value: unknown): MailContent | undefined {
+	if (typeof value === "string") return value.trim() ? value : undefined;
+	if (!Array.isArray(value)) return undefined;
+	const blocks: Exclude<MailContent, string> = [];
+	for (const block of value as Record<string, unknown>[]) {
+		if (block?.type === "text" && typeof block.text === "string") blocks.push({ type: "text", text: block.text });
+		else if (block?.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string")
+			blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
+	}
+	return blocks.some(block => block.type === "text" && block.text.trim()) ? blocks : undefined;
+}
 
 export const methods: BridgeMethods = {
 	/**
@@ -112,8 +226,8 @@ export const methods: BridgeMethods = {
 	 */
 	"agent_control.mail": async (params, env) => {
 		const record = (params ?? {}) as Record<string, unknown>;
-		const content = typeof record.content === "string" ? record.content : "";
-		if (!content.trim()) throw new Error("agent_control.mail needs content");
+		const content = mailContent(record.content);
+		if (!content) throw new Error("agent_control.mail needs content");
 		if (!mailHost) throw new Error("This omp cannot receive reports (no extension sendMessage).");
 		const details = (record.details ?? {}) as Record<string, unknown>;
 		const id = typeof details.id === "string" ? details.id : undefined;
@@ -130,6 +244,25 @@ export const methods: BridgeMethods = {
 		const triggerTurn = record.triggerTurn === true;
 		mailHost.sendMessage(message, { triggerTurn, ...(deliverAs ? { deliverAs } : {}) });
 		return {};
+	},
+	/**
+	 * `{path}` or `{image}` → `{name, mimeType, dataBase64, sha256}`: one attachment of `ompdesk_session_send` /
+	 * `ompdesk_report`, read where this omp runs, so a caller on a paired host hands over its own computer's file or
+	 * its own conversation's picture (`image` n is the n-th newest, 1 = the newest). Refuses a folder, a missing
+	 * file, one over `ATTACHMENT_MAX_BYTES` and a picture the conversation does not hold.
+	 */
+	"agent_control.attachment": async (params, env) => {
+		const record = (params ?? {}) as Record<string, unknown>;
+		if (typeof record.path === "string" && record.path.trim() && record.image === undefined)
+			return attachFile(record.path, env);
+		if (
+			typeof record.image === "number" &&
+			Number.isInteger(record.image) &&
+			record.image >= 1 &&
+			record.path === undefined
+		)
+			return attachImage(record.image, env);
+		throw new Error("agent_control.attachment needs {path} or {image} (a whole number from 1), one of them");
 	},
 	/**
 	 * `{marks}` → `{instance, journaled}`: which of the message markers main sent (`[ompdesk dispatch d2:`, `[ompdesk

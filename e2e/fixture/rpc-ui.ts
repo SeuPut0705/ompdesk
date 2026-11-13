@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import JSZip from "jszip";
-import { hasMailEntry, journaledMarks } from "../../resources/gui-bridge/agent-control-contracts";
+import { hasMailEntry, journaledMarks, sniffImageType } from "../../resources/gui-bridge/agent-control-contracts";
 import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
 import type { ModelSetupFacts } from "../../resources/gui-bridge/model-setup-contracts";
 import {
@@ -1807,6 +1807,32 @@ export function runRpcUi(): void {
 		},
 		"agent_control.note": () => ({}),
 		"agent_control.worker": () => ({}),
+		// gui-bridge agent-control.ts `agent_control.attachment`: a file in this omp's folder, or its n-th newest picture.
+		"agent_control.attachment": params => {
+			const wire = (name: string, mimeType: string, bytes: Buffer) => ({
+				name,
+				mimeType,
+				dataBase64: bytes.toString("base64"),
+				sha256: createHash("sha256").update(bytes).digest("hex"),
+			});
+			if (typeof params.path === "string") {
+				const file = nodePath.resolve(process.cwd(), params.path);
+				const bytes = fs.readFileSync(file);
+				return wire(nodePath.basename(file), sniffImageType(bytes) ?? "application/octet-stream", bytes);
+			}
+			const pictures = entries
+				.flatMap(entry =>
+					entry.type === "message" ? ((entry.message as { content?: unknown }).content ?? []) : [],
+				)
+				.filter(
+					(block): block is { type: "image"; data: string; mimeType: string } =>
+						typeof block === "object" && block !== null && (block as { type?: unknown }).type === "image",
+				)
+				.reverse();
+			const picture = pictures[Number(params.image) - 1];
+			if (!picture) throw new Error(`this conversation holds ${pictures.length} pictures`);
+			return wire(`image-${params.image}.png`, picture.mimeType, Buffer.from(picture.data, "base64"));
+		},
 		"agent_control.turn": () => ({ person: personRun }),
 		// gui-bridge agent-control.ts: which markers of main's messages the journal holds, and this process. As stock,
 		// a follow-up queued while a turn runs lives only in this process (`lanes`): a quit loses it.

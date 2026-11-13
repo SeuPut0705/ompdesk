@@ -376,6 +376,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * whose `Model.identity.class` (the vendor lineage) differs from the session's own model (`AgentSession.model`).
 	 * Stored transcripts are read in the stock helper (`loadSessionMessagesReadOnly`, `stock-helper/sessions.ts`). A
 	 * no-turn report holds while `isStreaming` and goes to the same `sessionId` once the turn ended.
+	 * `agent_control.attachment` reads the live conversation's pictures (`AgentSession.messages`, a persisted one from
+	 * stock's blob store as `read_image_blob` does) and a file in the session's folder (`sessionManager.getCwd()`).
 	 */
 	agentControl: {
 		session: [
@@ -385,12 +387,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"model",
 			"modelRegistry.getApiKey()",
 			"modelRegistry.resolver()",
+			"messages",
+			"sessionManager.getCwd()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai": ["completeSimple()"],
 			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
 			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
 			[`${AGENT}/session/session-loader`]: ["loadSessionMessagesReadOnly()"],
+			[`${AGENT}/session/blob-store`]: ["BlobStore()", "BlobStore.prototype.get()", "parseBlobRef()"],
+			[UTILS]: ["getBlobsDir()"],
 		},
 	},
 	/**

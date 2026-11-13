@@ -58,3 +58,35 @@ export function journaledMarks(entries: readonly unknown[], marks: readonly stri
 	}
 	return marks.filter(mark => texts.some(text => text.includes(mark)));
 }
+
+/**
+ * The most one attachment of `ompdesk_session_send` / `ompdesk_report` may weigh. Its base64 (a third more) is one
+ * `agent_control.attachment` answer, and one `host.files.upload` frame, inside the link's 16 MiB frame.
+ */
+export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+
+/** The pictures a model reads inline (stock `prompt.images`, a mail's image blocks); any other file is landed by path. */
+export const ATTACHMENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+export type AttachmentImageType = (typeof ATTACHMENT_IMAGE_TYPES)[number];
+
+export function isAttachmentImageType(type: string): type is AttachmentImageType {
+	return (ATTACHMENT_IMAGE_TYPES as readonly string[]).includes(type);
+}
+
+/** The picture type a file's first bytes name (its extension may lie), or undefined for anything else. */
+export function sniffImageType(head: Uint8Array): AttachmentImageType | undefined {
+	const at = (offset: number, ...bytes: number[]): boolean => bytes.every((byte, i) => head[offset + i] === byte);
+	if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+	if (at(0, 0xff, 0xd8, 0xff)) return "image/jpeg";
+	if (at(0, 0x47, 0x49, 0x46, 0x38) && (head[4] === 0x37 || head[4] === 0x39) && head[5] === 0x61) return "image/gif";
+	if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp";
+	return undefined;
+}
+
+/** One attachment as the caller's omp read it (`agent_control.attachment`): where its owner's tools can find the bytes. */
+export interface AttachmentWire {
+	name: string;
+	mimeType: string;
+	dataBase64: string;
+	sha256: string;
+}

@@ -5,11 +5,15 @@
  * lists every host tool in the session's xd:// device notice.
  */
 import { z } from "zod";
+import { ATTACHMENT_MAX_BYTES } from "../../../resources/gui-bridge/agent-control-contracts";
 import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, type AgentControlToolName, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 import { GITHUB_EVENT_KINDS, GITHUB_REPO, SESSION_EVENT_KINDS } from "../../shared/schedules";
 import { MAIL_KINDS } from "./mail";
+
+/** An attachment as the tool takes it (exactly one field): a file where the caller's omp runs, or one of its conversation's pictures. */
+export type Attachment = { path?: string; image?: number };
 
 export type ReportArgs = {
 	kind: (typeof MAIL_KINDS)[number];
@@ -19,6 +23,7 @@ export type ReportArgs = {
 	to?: string;
 	dispatch?: string;
 	id?: string;
+	attachments?: Attachment[];
 };
 
 /** `ompdesk_session_result` waits at most this long by default, and never longer than the maximum. */
@@ -45,6 +50,28 @@ const DEVICE = {
 	description:
 		'A paired device (Settings › Devices) by name or id; "local" is this computer. ompdesk_sessions lists them.',
 } as const;
+/** The pictures and files `ompdesk_session_send` and `ompdesk_report` carry (attachments.ts). */
+const ATTACHMENTS = {
+	type: "array",
+	items: {
+		type: "object",
+		properties: {
+			path: {
+				type: "string",
+				description: "A file on the computer YOUR session runs on: absolute, or relative to your folder.",
+			},
+			image: {
+				type: "integer",
+				minimum: 1,
+				description:
+					"The n-th newest picture of YOUR conversation: 1 is the newest (the one the user just pasted, or a tool returned).",
+			},
+		},
+		additionalProperties: false,
+	},
+	description: `Pictures and files to send along; each item is {path} or {image}, exactly one. A picture reaches the session inline, any other file is put on its computer and the message names its path there. Each at most ${ATTACHMENT_MAX_BYTES / (1024 * 1024)} MiB; any number of items; the same bytes twice go once; nothing is sent if one cannot be read.`,
+} as const;
+
 const PLACEMENT = ["focus", "split-right", "split-down"] as const;
 
 const OPEN_ONE = {
@@ -166,7 +193,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Message OMPdesk session",
 		description:
 			"Send a message to another open session.\n" +
-			'Send a message to any other open session. An idle session starts on it; a running one reads it between its steps (steer, the default). follow_up holds it until that turn ends, and only for a session you opened: to queue its next task behind the one it works on, never for an answer, a result or news it needs now (the user sees a held message waiting in that session\'s queue). To a session you did not open it goes as steer. A session that shows the user a question card never takes a steer (it would close the card): the message queues behind the card, which stays open, and is read after the user answers. A session blocked in ompdesk_session_result with wait takes a steer at once: its wait returns early. The session sees it as sent by you, an agent: `<ompdesk-agent-message from="<your title>" session="<your saved id>">`, so it answers you by that saved id. The receipt names the session it reached (title, saved id, computer) and what it is doing, and what will actually happen to the message. It cannot answer that session\'s pending question: only the user does. See skill://ompdesk.',
+			'Send a message to any other open session. An idle session starts on it; a running one reads it between its steps (steer, the default). follow_up holds it until that turn ends, and only for a session you opened: to queue its next task behind the one it works on, never for an answer, a result or news it needs now (the user sees a held message waiting in that session\'s queue). To a session you did not open it goes as steer. A session that shows the user a question card never takes a steer (it would close the card): the message queues behind the card, which stays open, and is read after the user answers. A session blocked in ompdesk_session_result with wait takes a steer at once: its wait returns early. The session sees it as sent by you, an agent: `<ompdesk-agent-message from="<your title>" session="<your saved id>">`, so it answers you by that saved id. The receipt names the session it reached (title, saved id, computer) and what it is doing, and what will actually happen to the message. Pictures and files go along in attachments. It cannot answer that session\'s pending question: only the user does. See skill://ompdesk.',
 		parameters: {
 			type: "object",
 			properties: {
@@ -183,6 +210,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					description:
 						"Your id for this message; sending again with the same id never delivers it twice (returns the first receipt).",
 				},
+				attachments: ATTACHMENTS,
 			},
 			required: ["session", "message"],
 			additionalProperties: false,
@@ -193,13 +221,14 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Report to OMPdesk opener",
 		description:
 			"Report progress or results to the session that opened you.\n" +
-			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked; or tell a session working in the same checkout (the <shared-checkout> section names it) what you are about to do, or ask it to commit or hold off. Every report reaches a working session between its steps (its tool calls are not cut, a `wait` returns on it). kind: progress (a short status; coalesced; never wakes an idle session), done (the work is finished: summary, changed files, checks you ran; wakes it when idle), question or blocked (you need its decision; wakes it when idle; do not guess meanwhile), review (ready for its review; wakes it when idle), note (to a sibling or a session in the same checkout: e.g. 'I am committing src/a.ts'; never wakes an idle session). See skill://ompdesk.",
+			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked; or tell a session working in the same checkout (the <shared-checkout> section names it) what you are about to do, or ask it to commit or hold off. Every report reaches a working session between its steps (its tool calls are not cut, a `wait` returns on it). kind: progress (a short status; coalesced; never wakes an idle session), done (the work is finished: summary, changed files, checks you ran; wakes it when idle), question or blocked (you need its decision; wakes it when idle; do not guess meanwhile), review (ready for its review; wakes it when idle), note (to a sibling or a session in the same checkout: e.g. 'I am committing src/a.ts'; never wakes an idle session). A picture or file goes along in attachments. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
 				kind: { type: "string", enum: ["progress", "done", "blocked", "question", "review", "note"] },
 				text: { type: "string", description: "What to tell; for done, the summary." },
 				files: { type: "array", items: { type: "string" }, description: "done: files you changed." },
+				attachments: ATTACHMENTS,
 				checks: {
 					type: "array",
 					items: {
@@ -317,11 +346,12 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Answer OMPdesk session question",
 		description:
 			"Answer the question another session is waiting on.\n" +
-			"Answer the question another session is waiting on (shown by ompdesk_sessions as waiting for the user's answer or for plan approval). The answer is marked as given by an agent. A tool approval or a plan approval is approved only if the user allowed agents to (Settings), else the user must; deny and plan feedback always work. See skill://ompdesk.",
+			"Answer the question another session is waiting on (shown by ompdesk_sessions as waiting for the user's answer or for plan approval). The answer is marked as given by an agent. A tool approval or a plan approval is approved only if the user allowed agents to (Settings), else the user must; deny and plan feedback always work. attachments (a picture or file) reach that session first, as a note ahead of the answer; if one cannot be sent, nothing is. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
 				session: SESSION,
+				attachments: ATTACHMENTS,
 				request: { type: "string", description: "Request id when several wait; default the oldest." },
 				choice: {
 					type: "string",
@@ -611,6 +641,15 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	},
 ];
 
+const attachmentsArg = z.array(
+	z
+		.object({ path: z.string().trim().min(1).max(4096).optional(), image: z.number().int().min(1).optional() })
+		.strict()
+		.refine(item => (item.path === undefined) !== (item.image === undefined), {
+			message: "an attachment is {path} or {image}, exactly one",
+		}),
+);
+
 const sessionArg = z.string().trim().min(1).max(200);
 const deviceArg = z.string().trim().min(1).max(200);
 const placement = z.enum(PLACEMENT);
@@ -737,6 +776,7 @@ export const ARGS = {
 			message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS),
 			delivery: z.enum(["follow_up", "steer"]).optional(),
 			request_id: z.string().trim().min(1).max(200).optional(),
+			attachments: attachmentsArg.optional(),
 		})
 		.strict(),
 	[T.report]: z
@@ -750,6 +790,7 @@ export const ARGS = {
 			to: sessionArg.optional(),
 			dispatch: z.string().trim().min(1).max(100).optional(),
 			id: z.string().trim().min(1).max(200).optional(),
+			attachments: attachmentsArg.optional(),
 		})
 		.strict(),
 	[T.result]: z
@@ -789,6 +830,7 @@ export const ARGS = {
 						.strict(),
 				)
 				.optional(),
+			attachments: attachmentsArg.optional(),
 		})
 		.strict(),
 	[T.focus]: z.object({ session: sessionArg, how: placement.optional() }).strict(),

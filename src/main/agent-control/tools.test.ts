@@ -142,3 +142,56 @@ describe("arguments a model wrote as JSON text", () => {
 		expect(() => open({ message: "go", worktree: "{broken" })).toThrow();
 	});
 });
+
+describe("attachments of ompdesk_session_send and ompdesk_report", () => {
+	interface ItemSchema {
+		items: { properties: { image: { minimum: number }; path: object }; additionalProperties: boolean };
+		maxItems?: number;
+		description: string;
+	}
+	const schemaOf = (name: string): ItemSchema => {
+		const definition = AGENT_CONTROL_DEFINITIONS.find(entry => entry.name === name);
+		if (!definition) throw new Error(`no tool ${name}`);
+		const schema = definition.parameters as { properties: Record<string, ItemSchema> };
+		return schema.properties.attachments as ItemSchema;
+	};
+
+	it("states in both schemas what the parser enforces: an item is a path or a picture number from 1, any number, 10 MiB each", () => {
+		for (const name of [AGENT_CONTROL_TOOLS.send, AGENT_CONTROL_TOOLS.report]) {
+			const schema = schemaOf(name);
+			expect(schema.maxItems).toBeUndefined();
+			expect(schema.items.additionalProperties).toBe(false);
+			expect(schema.description).toContain("10 MiB");
+			const parse = (attachments: unknown[]) =>
+				name === AGENT_CONTROL_TOOLS.send
+					? ARGS[AGENT_CONTROL_TOOLS.send].parse({ session: "abcd", message: "m", attachments })
+					: ARGS[AGENT_CONTROL_TOOLS.report].parse({ kind: "note", text: "t", attachments });
+			const lowest = schema.items.properties.image.minimum;
+			expect(parse([{ image: lowest }]).attachments).toEqual([{ image: lowest }]);
+			expect(() => parse([{ image: lowest - 1 }])).toThrow();
+			expect(parse([{ path: "/a/b.pdf" }, { image: 2 }]).attachments).toHaveLength(2);
+			expect(parse(Array.from({ length: 200 }, (_, index) => ({ image: index + 1 }))).attachments).toHaveLength(200);
+		}
+	});
+
+	it("takes exactly one of path and image per item", () => {
+		const send = (attachments: unknown[]) =>
+			ARGS[AGENT_CONTROL_TOOLS.send].parse({ session: "abcd", message: "m", attachments });
+		expect(() => send([{}])).toThrow();
+		expect(() => send([{ path: "/a", image: 1 }])).toThrow();
+		expect(() => send([{ path: "" }])).toThrow();
+		expect(() => send([{ image: 1.5 }])).toThrow();
+		expect(() => send([{ url: "https://x" }])).toThrow();
+	});
+
+	it("reads a list a model wrote as JSON text", () => {
+		const parsed = ARGS[AGENT_CONTROL_TOOLS.send].parse(
+			looseArgs(AGENT_CONTROL_TOOLS.send, {
+				session: "abcd",
+				message: "m",
+				attachments: '[{"image":"1"},{"path":"/a/b.pdf"}]',
+			}),
+		);
+		expect(parsed.attachments).toEqual([{ image: 1 }, { path: "/a/b.pdf" }]);
+	});
+});

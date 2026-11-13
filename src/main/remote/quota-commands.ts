@@ -87,6 +87,9 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"agent_control_turn",
 	// Which messages a session's journal holds (main's durable sends): a journal read, no model.
 	"agent_control_sent",
+	// One attachment's bytes read where the session's omp runs (`ompdesk_session_send` / `ompdesk_report`): a file or
+	// conversation picture read, no model.
+	"agent_control_attachment",
 	"autopilot_bridge",
 	"agent_control_review",
 	"agent_control_family_edits",
