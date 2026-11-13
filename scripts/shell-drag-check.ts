@@ -42,7 +42,10 @@ async function drag(x: number, y: number, dx: number, dy: number): Promise<void>
 		const user32 = dlopen("user32.dll", {
 			SetProcessDpiAwarenessContext: { args: [FFIType.ptr], returns: FFIType.i32 },
 			SetCursorPos: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
-			mouse_event: { args: [FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u64], returns: FFIType.void },
+			mouse_event: {
+				args: [FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u64],
+				returns: FFIType.void,
+			},
 		}).symbols;
 		// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4: physical pixels, as the shell's window uses.
 		user32.SetProcessDpiAwarenessContext(-4 as unknown as never);
@@ -62,11 +65,17 @@ async function drag(x: number, y: number, dx: number, dy: number): Promise<void>
 		return;
 	}
 	if (process.platform === "darwin") {
-		const run = spawnSync("swift", [path.join(REPO, "scripts", "shell-drag-check.swift"), String(x), String(y), String(dx), String(dy)], {
-			encoding: "utf8",
-		});
+		const run = spawnSync(
+			"swift",
+			[path.join(REPO, "scripts", "shell-drag-check.swift"), String(x), String(y), String(dx), String(dy)],
+			{
+				encoding: "utf8",
+			},
+		);
 		if (run.status === 3)
-			throw new Error(`macOS refused to post pointer events (TCC Accessibility is not granted to this process): ${run.stderr.trim()}`);
+			throw new Error(
+				`macOS refused to post pointer events (TCC Accessibility is not granted to this process): ${run.stderr.trim()}`,
+			);
 		if (run.status !== 0) throw new Error(`the drag helper failed (${run.status}): ${run.stderr.trim()}`);
 		return;
 	}
@@ -74,12 +83,19 @@ async function drag(x: number, y: number, dx: number, dy: number): Promise<void>
 }
 
 interface Cdp {
-	send(method: string, params?: object): Promise<{ result?: { result?: { value?: unknown } }; error?: { message: string } }>;
+	send(
+		method: string,
+		params?: object,
+	): Promise<{ result?: { result?: { value?: unknown } }; error?: { message: string } }>;
 	close(): void;
 }
 
 async function connect(port: number): Promise<Cdp> {
-	const targets = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
+	const targets = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as Array<{
+		type: string;
+		url: string;
+		webSocketDebuggerUrl: string;
+	}>;
 	const page = targets.find(t => t.type === "page" && t.url.startsWith("app://ompdesk/"));
 	if (!page) throw new Error("the app page is not among the CDP targets");
 	const socket = new WebSocket(page.webSocketDebuggerUrl);
@@ -128,9 +144,12 @@ const FIND_POINT = `(() => {
 
 async function main(): Promise<void> {
 	const staged = stagedDir();
-	const exe = path.join(staged, binaryName());
+	// macOS runs the shell from its .app bundle (CEF finds its framework and helpers by that layout): the job assembles one
+	// (scripts/package-mac.ts) and names its executable here.
+	const exe = process.env.OMPDESK_SHELL_EXE || path.join(staged, binaryName());
 	if (!fs.existsSync(exe)) throw new Error(`${exe} is missing: run bun run build:shell`);
-	if (!fs.existsSync(path.join(REPO, "out", "main", "index.js"))) throw new Error("out/ is missing: run bun run build");
+	if (!fs.existsSync(path.join(REPO, "out", "main", "index.js")))
+		throw new Error("out/ is missing: run bun run build");
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "shell-drag-"));
 	const userData = path.join(root, "ud");
 	const profile = path.join(root, "profile");
@@ -160,7 +179,9 @@ async function main(): Promise<void> {
 	const startFailure = (what: string): Error => {
 		const log = path.join(userData, "shell-webview", "shell.log.jsonl");
 		const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8").slice(-2000) : "(no shell.log.jsonl)";
-		return new Error(`${what} (shell exit ${child.exitCode ?? "running"}, signal ${child.signalCode ?? "none"})\n--- shell output ---\n${shellOutput}\n--- shell.log.jsonl ---\n${logged}`);
+		return new Error(
+			`${what} (shell exit ${child.exitCode ?? "running"}, signal ${child.signalCode ?? "none"})\n--- shell output ---\n${shellOutput}\n--- shell.log.jsonl ---\n${logged}`,
+		);
 	};
 	let cdp: Cdp | undefined;
 	try {
@@ -181,8 +202,18 @@ async function main(): Promise<void> {
 		}
 		if (!cdp) throw new Error("no app page on the debugging port");
 		await sleep(2500);
-		await evaluate(cdp, "window.__dragClicks = 0; for (const t of ['click','mouseup','pointerup']) document.addEventListener(t, () => { window.__dragClicks++; }, true); true");
-		const found = await evaluate<{ x: number; y: number; tag: string; dpr: number; screenX: number; screenY: number } | null>(cdp, FIND_POINT);
+		await evaluate(
+			cdp,
+			"window.__dragClicks = 0; for (const t of ['click','mouseup','pointerup']) document.addEventListener(t, () => { window.__dragClicks++; }, true); true",
+		);
+		const found = await evaluate<{
+			x: number;
+			y: number;
+			tag: string;
+			dpr: number;
+			screenX: number;
+			screenY: number;
+		} | null>(cdp, FIND_POINT);
 		if (!found) throw new Error("no point of a -webkit-app-region: drag element is free of controls");
 		console.log(`drag point: ${JSON.stringify(found)}`);
 		// screenX/screenY and the point are in CSS px; the pointer works in the display's pixels on Windows, points on macOS.
@@ -199,10 +230,14 @@ async function main(): Promise<void> {
 		);
 		const movedX = after.screenX - found.screenX;
 		const movedY = after.screenY - found.screenY;
-		console.log(`window moved by (${movedX}, ${movedY}) CSS px; asked for (${distance}, ${distance / 2}); page saw ${after.clicks} click events`);
+		console.log(
+			`window moved by (${movedX}, ${movedY}) CSS px; asked for (${distance}, ${distance / 2}); page saw ${after.clicks} click events`,
+		);
 		const near = (actual: number, wanted: number) => Math.abs(actual - wanted) <= 4;
 		if (!near(movedX, distance) || !near(movedY, distance / 2))
-			throw new Error(`the window did not follow the drag: moved (${movedX}, ${movedY}), wanted (${distance}, ${distance / 2})`);
+			throw new Error(
+				`the window did not follow the drag: moved (${movedX}, ${movedY}), wanted (${distance}, ${distance / 2})`,
+			);
 		if (after.clicks !== 0) throw new Error(`the drag reached the page as ${after.clicks} click/mouseup events`);
 		console.log("shell-drag-check: ok");
 	} finally {
@@ -216,7 +251,8 @@ async function main(): Promise<void> {
 async function stop(child: ReturnType<typeof spawn>): Promise<void> {
 	if (child.exitCode !== null || child.pid === undefined) return;
 	const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
-	if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+	if (process.platform === "win32")
+		spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
 	else child.kill();
 	await Promise.race([exited, sleep(10_000)]);
 }
@@ -228,7 +264,10 @@ async function removeTree(dir: string): Promise<void> {
 			fs.rmSync(dir, { recursive: true, force: true });
 			return;
 		} catch (error) {
-			if (attempt === 19) console.warn(`shell-drag-check: could not remove ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+			if (attempt === 19)
+				console.warn(
+					`shell-drag-check: could not remove ${dir}: ${error instanceof Error ? error.message : String(error)}`,
+				);
 			else await sleep(500);
 		}
 	}

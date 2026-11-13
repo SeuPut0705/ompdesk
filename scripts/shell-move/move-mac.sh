@@ -5,8 +5,8 @@
 #  - the released app is copied out of its DMG into a temp "Applications" folder and re-signed with a throwaway certificate and
 #    the release's form of designated requirement (resign-mac.sh), so its keychain item is a release-signed one;
 #  - its profile is a temp --user-data-dir; HOME stays the runner's (the keychain is the job's own default keychain, never a
-#    test HOME, whose keychain would add a partition entry); the app is headless (OMP_GUI_HEADLESS, which the swap's `open -n`
-#    relaunch does not carry, so it is set in launchd for the run);
+#    test HOME, whose keychain would add a partition entry); the app is NOT headless: OMP_GUI_HEADLESS makes the released app use a
+#    mock keychain, which would skip the very keychain path under test (windows show on the throwaway runner);
 #  - its updater, unchanged, reaches feed.ts (--platform mac, GitHub's 302 to the storage host for `signedAssetUrl`) through
 #    Chromium's own switches, and is offered ompdesk-mac-arm64.dmg built by scripts/package-mac.ts, signed with the same
 #    certificate, as 0.200.0.
@@ -19,8 +19,7 @@
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
 . "$HERE/mac-common.sh"
 PORT=19230; FEEDPORT=18444
-launchctl setenv OMP_GUI_HEADLESS 1
-cleanup() { launchctl unsetenv OMP_GUI_HEADLESS; launchctl unsetenv OMP_GUI_TEST_USER_DATA_DIR; chmod -R u+w "$W" 2>/dev/null; kill $WATCH $FEED 2>/dev/null; }
+cleanup() { launchctl unsetenv OMP_GUI_TEST_USER_DATA_DIR; chmod -R u+w "$W" 2>/dev/null; kill $WATCH $FEED 2>/dev/null; }
 trap cleanup EXIT
 
 step "control: a prompt-free keychain read"
@@ -74,7 +73,7 @@ scenario() {
     (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts $PORT read) | tee "$W/$name-read.json"; check ${PIPESTATUS[0]} "S1: the shell's page answered"
     grep -q '"href":"app://ompdesk/' "$W/$name-read.json"; check $? "S1: the page loaded from app://ompdesk"
     grep -q '"draft":"a draft typed in Electron"' "$W/$name-read.json" && grep -q '"large":200000' "$W/$name-read.json"; check $? "S1: Local Storage reached the page"
-    grep -q '"hasStoredToken":true' "$W/$name-read.json" && grep -q '"droppedReason":null' "$W/$name-read.json"; check $? "S1: the seeded token was decrypted (a stored token, none dropped)"
+    grep -q '"source":"stored"' "$W/$name-read.json" && grep -q '"droppedReason":null' "$W/$name-read.json"; check $? "S1: the seeded token was decrypted (source stored, none dropped)"
     wait_for "has_line $UD 'swap result'" 60; update_lines "$UD" | grep -q '^swap result installed'; check $? "S1: swap result outcome installed"
     codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S1: the installed app verifies"
     evidence "S1 installed bundle: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist") ($(codesign -d -r- "$APPS/OMPdesk.app" 2>&1 | sed -n 's/^designated => //p'))"

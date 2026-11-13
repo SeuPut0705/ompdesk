@@ -73,14 +73,26 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - uses: ./.github/actions/install
-      - uses: ./.github/actions/shell
-      - run: bun run build
+      # Windows runs the staged shell; macOS runs it from an .app bundle (CEF finds its framework and helpers by that layout),
+      # ad-hoc signed, assembled by scripts/package-mac.ts.
+      - if: runner.os == 'Windows'
+        uses: ./.github/actions/install
+      - if: runner.os == 'Windows'
+        uses: ./.github/actions/shell
+      - if: runner.os == 'Windows'
+        run: bun run build
+      - if: runner.os == 'macOS'
+        uses: ./.github/actions/shell-mac-inputs
+      - if: runner.os == 'macOS'
+        name: The .app bundle
+        shell: bash
+        run: bun scripts/package-mac.ts --no-dmg --version 0.200.0 --sign-with -
       - name: The shell's title-bar drag check
         shell: bash
         run: |
           set -euo pipefail
           test -f scripts/shell-drag-check.ts || { echo "::error::scripts/shell-drag-check.ts is not there yet"; exit 1; }
+          if [ "$RUNNER_OS" = macOS ]; then export OMPDESK_SHELL_EXE="$PWD/dist/mac-arm64/OMPdesk.app/Contents/MacOS/OMPdesk"; fi
           bun scripts/shell-drag-check.ts
       - if: failure()
         shell: bash

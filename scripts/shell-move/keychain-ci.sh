@@ -38,8 +38,10 @@ evidence "release-form requirement of the released app: $(codesign -d -r- rel.ap
 start_feed 18443 "$W/rel.dmg"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:18443" --ignore-certificate-errors)
 
+# The released app is NOT headless here: OMP_GUI_HEADLESS makes its Chromium use a mock keychain (index.ts), so it would never
+# create or read "ompdesk Safe Storage"; the real users' path has no such variable. (A window appears on the throwaway runner.)
 seed_with() { # seed_with <app> <userData> <port>: the released app saves a token and Local Storage, then quits
-  OMP_GUI_HEADLESS=1 OMP_GUI_TEST_USER_DATA_DIR=$2 "$1/Contents/MacOS/OMPdesk" --user-data-dir="$2" --remote-debugging-port=$3 "${SWITCHES[@]}" >"$W/seed-$3.out" 2>&1 &
+  OMP_GUI_TEST_USER_DATA_DIR=$2 "$1/Contents/MacOS/OMPdesk" --user-data-dir="$2" --remote-debugging-port=$3 "${SWITCHES[@]}" >"$W/seed-$3.out" 2>&1 &
   (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts $3) | tee "$W/seed-$3.json"; local rc=${PIPESTATUS[0]}
   kill_apps "$1/Contents/MacOS"; return $rc
 }
@@ -54,11 +56,11 @@ START=$(date +%s)
 limit 60 "$SHELL_APP/Contents/MacOS/OMPdesk" --keychain-key "$UD" 2>/dev/null > "$W/key-a.json"
 evidence "A --keychain-key answered in $(( $(date +%s) - START )) s: $(sed 's/"password":"[^"]*"/"password":"<hidden>"/' "$W/key-a.json")"
 grep -q '"kind":"mac-v10"' "$W/key-a.json"; check $? "A: the shell's --keychain-key answered a mac-v10 key, no dialog"
-OMP_GUI_HEADLESS=1 OMP_GUI_TEST_USER_DATA_DIR=$UD "$SHELL_APP/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=19223 >"$W/shell-a.out" 2>&1 &
+OMP_GUI_TEST_USER_DATA_DIR=$UD "$SHELL_APP/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=19223 >"$W/shell-a.out" 2>&1 &
 (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts 19223 read) | tee "$W/read-a.json"; check ${PIPESTATUS[0]} "A: the shell's page answered"
 kill_apps "$SHELL_APP/Contents/MacOS"
 grep -q '"draft":"a draft typed in Electron"' "$W/read-a.json" && grep -q '"large":200000' "$W/read-a.json"; check $? "A: Local Storage came over (draft, Korean, 200 000 characters)"
-grep -q '"hasStoredToken":true' "$W/read-a.json" && grep -q '"droppedReason":null' "$W/read-a.json"; check $? "A: the shell decrypted the stand-in token (a stored token, none dropped)"
+grep -q '"source":"stored"' "$W/read-a.json" && grep -q '"droppedReason":null' "$W/read-a.json"; check $? "A: the shell decrypted the stand-in token (the token resolves from the stored file: source "stored", none dropped)"
 evidence "A page: $(cut -c1-400 "$W/read-a.json")"
 dialogs; check $? "A: no dialog (SecurityAgent) line"
 restore
@@ -78,7 +80,7 @@ restore
 step "C. a profile without ciphertext never reads the keychain"
 use_keychain c; UD=$W/ud-c; mkdir -p "$UD"
 ( while true; do ps -axo command | grep -- '--keychain-key' | grep -v grep >> "$W/keychain-runs.txt"; sleep 0.2; done ) & SAMPLER=$!
-OMP_GUI_HEADLESS=1 OMP_GUI_TEST_USER_DATA_DIR=$UD "$SHELL_APP/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=19225 >"$W/shell-c.out" 2>&1 &
+OMP_GUI_TEST_USER_DATA_DIR=$UD "$SHELL_APP/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=19225 >"$W/shell-c.out" 2>&1 &
 sleep 30; kill_apps "$SHELL_APP/Contents/MacOS"; kill $SAMPLER 2>/dev/null
 grep -q cef.ready "$UD/shell-webview/shell.log.jsonl"; check $? "C: the shell started on the profile without ciphertext (cef.ready)"
 [ ! -s "$W/keychain-runs.txt" ]; check $? "C: no --keychain-key process ran"

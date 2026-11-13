@@ -30,8 +30,11 @@ log stream --style compact --predicate 'process == "SecurityAgent" OR process ==
 # presents or asks (uiDelegate set, "present", "prompt", "dialog", "alert"). coreauthd's other chatter (a LocalAuthentication
 # context created and "Skipping processing of request" for a policy no biometry hardware answers) is what any keychain access
 # on a hosted runner logs: it is counted and printed as evidence, not failed on.
-dialog_lines() { grep -v -E '^(Filtering|Timestamp)' "$W/dialogs.log" | grep -E 'SecurityAgent|coreauthd.*(uiDelegate:[1-9a-zA-Z<]|[Pp]resent|[Pp]rompt|[Dd]ialog|[Aa]lert)' | grep -v 'uiDelegate:0'; }
-dialogs() { [ "$(dialog_lines | wc -l | tr -d ' ')" = 0 ]; }
+dialog_lines() { grep -v -E '^(Filtering|Timestamp)' "$W/dialogs.log" | grep -E 'SecurityAgent|coreauthd.*(uiDelegate:[1-9a-zA-Z<]|[Pp]resenting|[Pp]rompt|[Dd]ialog|[Aa]lert)' | grep -v 'uiDelegate:0'; }
+dialogs() {
+  evidence "log so far: $(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log") SecurityAgent/coreauthd lines ('Skipping processing of request': $(grep -c 'Skipping processing of request' "$W/dialogs.log")), dialog lines: $(dialog_lines | wc -l | tr -d ' ')"
+  [ "$(dialog_lines | wc -l | tr -d ' ')" = 0 ]
+}
 dialog_evidence() { evidence "dialog lines (SecurityAgent, or coreauthd presenting/asking): $(dialog_lines | wc -l | tr -d ' '); all SecurityAgent/coreauthd lines logged: $(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")"; dialog_lines | head -10; }
 
 # A fresh keychain as the default (the login keychain's slot); `restore` puts the runner's own back.
