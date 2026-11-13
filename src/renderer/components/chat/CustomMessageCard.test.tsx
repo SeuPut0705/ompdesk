@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { preloadMarkdownPipeline } from "../../lib/markdown";
 import { CustomMessageCard, MailNote, RecapCard, workNoteSummary } from "./CustomMessageCard";
 import { WorkNotes } from "./work/WorkNotes";
 
@@ -124,6 +125,17 @@ describe("standalone cards", () => {
 		expect(markup).toContain("Note 1.");
 		expect(markup).not.toContain("Note 5.");
 		expect(markup).toMatch(/<button[^>]*type="button"[^>]*>Show \d+ more notes?<\/button>/);
+	});
+
+	it("shows money in an advisor note as text, never as math", async () => {
+		await preloadMarkdownPipeline();
+		const note =
+			"월 $149 결론을 정정하세요. 공식 https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/ 에 'Always Free: 월 인터넷 전송 1TB, HTTP(S) 1천만 요청'이 있어 S3 1TB 보관 + $26/월이고, 무료분을 소진한 경우만 약 $149입니다";
+		const markup = card("advisor", { notes: [{ note, severity: "concern" }] });
+		expect(markup).not.toContain("katex");
+		expect(markup).toContain("월 $149 결론을 정정하세요.");
+		expect(markup).toContain("보관 + $26/월이고");
+		expect(markup).toContain("약 $149입니다");
 	});
 
 	it("names no skill rather than an English placeholder when stock sent none", () => {

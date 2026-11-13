@@ -157,6 +157,7 @@
 	line-height: 1.7;
 	color: var(--omp-text);
 	word-break: break-word;
+	overflow-wrap: anywhere;
 }
 .markdown-body > :first-child {
 	margin-top: 0;
@@ -184,6 +185,14 @@
 .markdown-body .katex-display > .katex {
 	width: max-content;
 	min-width: 100%;
+}
+/* Inline math is wider than a line when its one unbreakable run is long (KaTeX only
+   breaks between bases): the block holding it scrolls sideways inside its column
+   instead of running past a card's border. A list scrolls as a whole, since an
+   item's own box would clip its outside marker. */
+.markdown-body :is(p, .omp-md-p, h1, h2, h3, h4, h5, h6, ul, ol):has(.katex) {
+	max-width: 100%;
+	overflow: auto hidden;
 }
 .markdown-body h1,
 .markdown-body h2,
