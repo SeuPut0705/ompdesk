@@ -10,6 +10,7 @@
 # The parity sheet of a UI change, on a runner (a machine that must not run it, or one without a second app to pair):
 #   gh workflow run e2e-nightly.yml --ref <branch> -f parity="settings-device-switch"
 #   gh run download <run-id> -n parity   # <dir>/<surface>/{local,remote,phone,sheet}.png and parity.json
+#   gh workflow run e2e-nightly.yml --ref <branch> -f parity="--both-orders"   # the order check: <dir>/forward and <dir>/reverse
 name: e2e-nightly
 run-name: ${{ inputs.parity && format('parity {0}', inputs.parity) || inputs.specs && format('e2e {0}', inputs.specs) || 'e2e-nightly' }}
 
@@ -23,7 +24,7 @@ on:
         type: string
         default: ""
       parity:
-        description: "Parity surfaces to capture instead of the suite (ids, space or comma separated; sheets uploaded as `parity`)"
+        description: "Parity surfaces to capture instead of the suite (ids, space or comma separated, or --both-orders for the order check; sheets uploaded as `parity`)"
         type: string
         default: ""
 
@@ -96,6 +97,13 @@ jobs:
       - name: Capture
         run: |
           set -euo pipefail
+          if [ "$SURFACES" = "--both-orders" ]; then
+            # The order check (scripts/parity.ts --both-orders): every surface forward and reversed, into
+            # parity-out/forward and parity-out/reverse.
+            OMP_GUI_PARITY="$PWD/parity-out" OMP_GUI_PARITY_ORDERS=both \
+              bunx playwright test e2e/parity.e2e.ts --trace off --reporter line --output parity-out/results
+            exit 0
+          fi
           read -r -a IDS <<< "${SURFACES//,/ }"
           test "${#IDS[@]}" -gt 0
           for id in "${IDS[@]}"; do

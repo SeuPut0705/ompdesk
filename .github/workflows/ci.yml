@@ -74,10 +74,6 @@ on:
         description: "Release whose assisted-installer setup the installer check installs for all users first"
         type: string
         default: v0.26.0
-      parity:
-        description: "Also run the parity sheet for these surface ids (space-separated), or --both-orders, on macOS, with the sheets uploaded"
-        type: string
-        default: ""
 
 # A push to main keeps its own run to the end (its group is the commit): sessions land side by side, and with one
 # group for the branch each push cancelled the run before it, so no commit ever got a verdict while pushes kept coming.
@@ -642,38 +638,3 @@ jobs:
       - if: steps.changed.outputs.changed == 'true'
         name: Licenses list matches native/memory/Cargo.lock
         run: bun run licenses:check
-
-  # The parity sheet on a GitHub runner, on demand: `gh workflow run ci.yml --ref <branch> -f parity="usage-rotation"`
-  # then `gh run download <run-id> -n parity`. `bun run parity` (scripts/parity.ts) captures each surface on this
-  # computer's own window, a paired computer's view and the phone page at 390x844, side by side in one sheet; it needs
-  # a display and the machine-wide lock, which a developer's machine cannot always give. `parity` is a space-separated
-  # list of parity surface ids (e2e/responsive-surfaces.ts), or `--both-orders`, the order check a new surface passes.
-  parity:
-    if: inputs.parity != ''
-    runs-on: macos-latest
-    timeout-minutes: 60
-    env:
-      SURFACES: ${{ inputs.parity }}
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.4
-      - uses: ./.github/actions/install
-      # The phone's page is captured in Playwright's own Chromium, which a fresh runner lacks.
-      - name: Playwright browsers
-        run: bunx playwright install chromium
-      - name: Parity sheets
-        run: |
-          set -euo pipefail
-          # Only surface ids or the order check: the input becomes arguments of a script.
-          [[ "$SURFACES" =~ ^(--both-orders|[a-z0-9-]+( [a-z0-9-]+)*)$ ]] || { echo "::error::not a list of surface ids: $SURFACES"; exit 1; }
-          read -r -a LIST <<< "$SURFACES"
-          bun run parity -- "${LIST[@]}" --out parity-out
-      - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: parity
-          path: parity-out/
-          if-no-files-found: ignore
-          retention-days: 7
