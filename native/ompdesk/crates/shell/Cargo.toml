@@ -58,6 +58,8 @@ tray-icon = "0.21"
 # wc.frame: the latest painted frame of an offscreen page as JPEG or PNG.
 jpeg-encoder = "0.6"
 png = "0.17"
+# The Preview's address rules (preview_core::urls): the WHATWG parser the TypeScript's `new URL` was.
+url = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

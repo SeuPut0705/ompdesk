@@ -100,7 +100,7 @@ fn cut_utf16(text: &str, units: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::json;
 
     #[test]
     fn matches_the_typescript_tables() {
