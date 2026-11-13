@@ -107,22 +107,27 @@ describe.skipIf(!executable)("services against the shell", () => {
 		expect(await services.openOrReveal(file("a.js"))).toBe("opened");
 	});
 
-	it("closes a confirm card nobody answers once its time is up, and answers its cancelId (refused)", async () => {
-		const started = Date.now();
-		const response = await services.confirm(
-			undefined,
-			{
-				type: "question",
-				title: "Outside process",
-				message: "Allow?",
-				detail: "Outside process: test (self-declared)",
-				buttons: ["Allow", "Don't allow"],
-				defaultId: 1,
-				cancelId: 1,
-			},
-			500,
-		);
-		expect(response).toBe(1);
-		expect(Date.now() - started).toBeGreaterThanOrEqual(400);
-	}, 30_000);
+	// It shows a real message box for half a second, so it runs only on a GitHub runner, never on a person's desktop.
+	it.runIf(process.env.GITHUB_ACTIONS === "true")(
+		"closes a confirm card nobody answers once its time is up, and answers its cancelId (refused)",
+		async () => {
+			const started = Date.now();
+			const response = await services.confirm(
+				undefined,
+				{
+					type: "question",
+					title: "Outside process",
+					message: "Allow?",
+					detail: "Outside process: test (self-declared)",
+					buttons: ["Allow", "Don't allow"],
+					defaultId: 1,
+					cancelId: 1,
+				},
+				500,
+			);
+			expect(response).toBe(1);
+			expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+		},
+		30_000,
+	);
 });
