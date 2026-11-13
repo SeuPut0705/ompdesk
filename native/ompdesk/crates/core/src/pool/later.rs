@@ -102,6 +102,7 @@ impl Ctx {
     /// sidecar took it. False when the id is unknown. A shared tab's ask takes the first answer: `responder`'s closes
     /// the other windows' cards, and an answer from another window after it is refused (`already_answered`), even
     /// while the first is still on its way.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn route_side_channel(
         &self,
         token: u64,
