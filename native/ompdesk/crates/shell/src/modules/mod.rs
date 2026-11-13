@@ -89,6 +89,17 @@ impl Ctx {
         host::request(&self.full(name), params, bin, answer)
     }
 
+    /// `ask`, waited for on the calling thread up to `timeout` (a CEF callback that must decide before it returns, as
+    /// `wc.navigate` does). The reader thread answers it, so it never waits on itself; a timeout is `WireError`.
+    pub fn ask_blocking(
+        &self,
+        name: &str,
+        params: Value,
+        timeout: std::time::Duration,
+    ) -> Result<Value, WireError> {
+        host::request_blocking(&self.full(name), params, timeout)
+    }
+
     /// A request to `ompdesk-core`, relayed by Node (`core.call`, PROTOCOL.md §15.2): Node owns the core's process
     /// until the core moves under the shell, when only this body changes. `timeout_ms` replaces the core client's 30 s.
     /// A fault keeps the core's `code`. `answer` runs on the reader thread.

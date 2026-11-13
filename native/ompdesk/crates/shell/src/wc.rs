@@ -27,7 +27,14 @@ fn cs(text: &str) -> CefString {
 
 // ------------------------------------------------------------------ events and state pushes
 
+fn module_owned(wc_id: u64) -> bool {
+    wc(wc_id).is_some_and(|e| e.borrow().module_owned)
+}
+
 pub fn emit(wc_id: u64, name: &str, args: Value) {
+    if module_owned(wc_id) {
+        return crate::modules::preview::page_event(wc_id, name, &args);
+    }
     host::event(
         "wc.event",
         json!({ "wcId": wc_id, "name": name, "args": args }),
@@ -50,15 +57,20 @@ fn window_event(wc_id: u64, name: &str) {
     }
 }
 
-/// `wc.state` when anything changed since the last push.
+/// `wc.state` when anything changed since the last push (a Preview page's goes to its module).
 pub fn push_state(wc_id: u64) {
     let Some(entry) = wc(wc_id) else { return };
     let mut e = entry.borrow_mut();
     let json = e.state.json(wc_id);
     if e.sent_state.as_ref() != Some(&json) {
         e.sent_state = Some(json.clone());
+        let module = e.module_owned;
         drop(e);
-        host::event("wc.state", json);
+        if module {
+            crate::modules::preview::page_state(wc_id);
+        } else {
+            host::event("wc.state", json);
+        }
     }
 }
 
@@ -125,7 +137,7 @@ wrap_display_handler! {
             source: Option<&CefString>,
             line: i32,
         ) -> i32 {
-            let watching = wc(self.wc_id).map(|e| e.borrow().watch_events.contains("console-message")).unwrap_or(false);
+            let watching = wc(self.wc_id).map(|e| { let e = e.borrow(); e.module_owned || e.watch_events.contains("console-message") }).unwrap_or(false);
             if watching {
                 let level = match level {
                     LogSeverity::VERBOSE => "debug",
@@ -252,7 +264,11 @@ wrap_life_span_handler! {
             _no_javascript_access: Option<&mut i32>,
         ) -> i32 {
             // The app only ever denies (it opens the system browser or its own Preview tab itself): the request
-            // goes to Node for its side effects and the popup is cancelled at once, never waiting for the answer.
+            // goes to Node (or the Preview module) for its side effects and the popup is cancelled at once.
+            if module_owned(self.wc_id) {
+                crate::modules::preview::popup(self.wc_id, &target_url.map(|u| u.to_string()).unwrap_or_default());
+                return 1;
+            }
             host::request(
                 "wc.windowOpen",
                 json!({
@@ -344,6 +360,22 @@ wrap_request_handler! {
             is_redirect: i32,
         ) -> i32 {
             let Some(entry) = wc(self.wc_id) else { return 0 };
+            if entry.borrow().module_owned {
+                let (Some(frame), Some(request)) = (frame, request) else { return 0 };
+                let main = frame.is_main() != 0;
+                let url = string_of(&request.url());
+                if is_redirect == 0 {
+                    // The module's own loads and history steps are never its page's own move (Electron's
+                    // will-frame-navigate is renderer-initiated only).
+                    if main && std::mem::take(&mut entry.borrow_mut().programmatic) {
+                        return 0;
+                    }
+                    if main && !shell_core::transition::asks_node(transition_bits(request), &string_of(&frame.url()), &url) {
+                        return 0;
+                    }
+                }
+                return i32::from(!crate::modules::preview::may_navigate(self.wc_id, main, is_redirect != 0, &url));
+            }
             let kinds = entry.borrow().watch_nav.clone();
             if kinds.is_empty() {
                 return 0;
@@ -527,6 +559,15 @@ wrap_jsdialog_handler! {
                 callback.cont(0, Some(&cs("")));
                 return 1;
             };
+            if module_owned(self.wc_id) {
+                let channel = call.get("channel").and_then(Value::as_str).unwrap_or("").to_string();
+                let payload = call.get("payload").cloned().unwrap_or(Value::Null);
+                crate::modules::preview::sync_call(self.wc_id, &channel, payload, move |value| {
+                    let text = value.to_string();
+                    callback.cont(1, Some(&cs(&text)));
+                });
+                return 1;
+            }
             host::request(
                 "ipc.sendSync",
                 json!({
@@ -618,7 +659,7 @@ wrap_permission_handler! {
         ) -> i32 {
             let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
             if let Some(callback) = callback {
-                if session::permissions_denied(&partition) {
+                if module_owned(self.wc_id) || session::permissions_denied(&partition) {
                     callback.cancel();
                 } else {
                     callback.cont(requested);
@@ -637,7 +678,7 @@ wrap_permission_handler! {
         ) -> i32 {
             let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
             if let Some(callback) = callback {
-                callback.cont(if session::permissions_denied(&partition) { PermissionRequestResult::DENY } else { PermissionRequestResult::ACCEPT });
+                callback.cont(if module_owned(self.wc_id) || session::permissions_denied(&partition) { PermissionRequestResult::DENY } else { PermissionRequestResult::ACCEPT });
             }
             1
         }
@@ -792,7 +833,9 @@ wrap_render_handler! {
             let bgra = unsafe { std::slice::from_raw_parts(buffer, width as usize * height as usize * 4) }.to_vec();
             let watching = wc(self.wc_id).map(|e| e.borrow().watch_events.contains("paint")).unwrap_or(false);
             update(self.wc_id, |e| e.painted = Some(state::Painted { width, height, bgra: std::sync::Arc::new(bgra) }));
-            if watching {
+            if module_owned(self.wc_id) {
+                crate::modules::preview::painted(self.wc_id);
+            } else if watching {
                 host::event("wc.paint", json!({ "wcId": self.wc_id, "width": width, "height": height, "scale": 1.0 }));
             }
         }
@@ -1094,15 +1137,8 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
             })
         }
         "setZoomFactor" => {
-            let factor = args.get("factor").and_then(Value::as_f64).unwrap_or(1.0);
-            entry.borrow_mut().state.zoom_factor = factor;
-            with_browser(wc_id, move |b| {
-                if let Some(h) = b.host() {
-                    h.set_zoom_level(zoom_level(factor));
-                }
-                push_state(wc_id);
-                ok(call);
-            })
+            set_zoom_factor(wc_id, args.get("factor").and_then(Value::as_f64).unwrap_or(1.0));
+            with_browser(wc_id, move |_| ok(call))
         }
         "setUserAgent" => {
             let ua = args
@@ -1201,21 +1237,8 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
                 .and_then(Value::as_str)
                 .unwrap_or("default")
                 .to_string();
-            with_browser(wc_id, move |b| {
-                if let (Some(h), Some(value)) = (b.host(), value_create())
-                    && let Some(ctx) = h.request_context()
-                {
-                    value.set_string(Some(&cs(&policy)));
-                    let mut value = value;
-                    let mut error = CefString::default();
-                    ctx.set_preference(
-                        Some(&cs("webrtc.ip_handling_policy")),
-                        Some(&mut value),
-                        Some(&mut error),
-                    );
-                }
-                ok(call);
-            })
+            set_webrtc_policy(wc_id, &policy);
+            with_browser(wc_id, move |_| ok(call))
         }
         "setFrameRate" => {
             let fps = args.get("fps").and_then(Value::as_i64).unwrap_or(30) as i32;
@@ -1268,6 +1291,36 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
             format!("wc.op {other} is not implemented by this shell"),
         ),
     }
+}
+
+/// `setZoomFactor`: the page's zoom (Chromium's level is log base 1.2 of the factor).
+pub fn set_zoom_factor(wc_id: u64, factor: f64) {
+    update(wc_id, |e| e.state.zoom_factor = factor);
+    with_browser(wc_id, move |b| {
+        if let Some(h) = b.host() {
+            h.set_zoom_level(zoom_level(factor));
+        }
+        push_state(wc_id);
+    });
+}
+
+/// `setWebRTCIPHandlingPolicy`: the page's request context's `webrtc.ip_handling_policy`.
+pub fn set_webrtc_policy(wc_id: u64, policy: &str) {
+    let policy = policy.to_owned();
+    with_browser(wc_id, move |b| {
+        if let (Some(h), Some(value)) = (b.host(), value_create())
+            && let Some(ctx) = h.request_context()
+        {
+            value.set_string(Some(&cs(&policy)));
+            let mut value = value;
+            let mut error = CefString::default();
+            ctx.set_preference(
+                Some(&cs("webrtc.ip_handling_policy")),
+                Some(&mut value),
+                Some(&mut error),
+            );
+        }
+    });
 }
 
 /// Destroys a page: its browser closes (`on_before_close` removes the entry and tells Node).

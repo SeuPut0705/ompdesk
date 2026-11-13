@@ -25,8 +25,6 @@ pub fn request(call: Call) {
         "wc.cdp.attach" | "wc.cdp.detach" | "wc.cdp.send" | "wc.frame" => {
             crate::wc::cdp_request(call)
         }
-        "view.create" => crate::view::create(call),
-        "view.op" => crate::view::op(call),
         "session.create" => crate::session::create(call),
         "session.op" => crate::session::op(call),
         m if m.starts_with("menu.") => crate::menu::handle(call),

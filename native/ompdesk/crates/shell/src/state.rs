@@ -30,12 +30,17 @@ pub fn next_view_id() -> u64 {
 
 /// The app's places, set once at startup (`app.rs`).
 pub struct Paths {
+    /// The app's user-data folder (Electron's `userData`).
+    pub user_data: PathBuf,
     pub renderer_dir: PathBuf,
     pub preload_file: PathBuf,
     pub web_dir: PathBuf,
 }
 
 pub static PATHS: OnceLock<Paths> = OnceLock::new();
+
+/// The system's preferred languages (`facts.locale.preferredLanguages`), for pages that send them (the Preview).
+pub static PREFERRED_LANGUAGES: OnceLock<Vec<String>> = OnceLock::new();
 
 pub fn paths() -> &'static Paths {
     PATHS.get().expect("paths are set at startup")
@@ -153,6 +158,9 @@ pub struct WcEntry {
     pub committed: bool,
     /// Node started the next main-frame navigation itself (loadURL, reload, back, forward): never `will-navigate`.
     pub programmatic: bool,
+    /// A page the Preview module made: its events, state and questions go to the module, never to Node (PROTOCOL.md
+    /// §15.4 rule 4).
+    pub module_owned: bool,
 }
 
 impl WcEntry {
@@ -189,6 +197,7 @@ impl WcEntry {
             nav_started: false,
             committed: false,
             programmatic: false,
+            module_owned: false,
         }
     }
 }

@@ -254,6 +254,7 @@ fn browser(argv: Vec<String>) -> i32 {
         .map(Path::to_path_buf)
         .unwrap_or_else(|| located.app_dir.join("out"));
     let _ = PATHS.set(Paths {
+        user_data: user_data.clone(),
         renderer_dir: build_dir.join("renderer"),
         preload_file: build_dir.join("preload").join("shell.js"),
         web_dir: web_dir.clone(),
@@ -287,6 +288,7 @@ fn browser(argv: Vec<String>) -> i32 {
                 .collect()
         })
         .unwrap_or_default();
+    let _ = state::PREFERRED_LANGUAGES.set(languages.clone());
 
     // Node: it connects to the shell's socket with the token and speaks the host protocol.
     let token = random_hex(32);

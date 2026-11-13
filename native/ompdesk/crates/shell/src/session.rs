@@ -233,7 +233,7 @@ fn clear_app(call: Call, cookies: bool) {
 }
 
 /// Chromium's own user agent as Electron reported it, without the `Electron/…` token.
-fn default_user_agent() -> String {
+pub fn default_user_agent() -> String {
     let os = if cfg!(target_os = "macos") {
         "Macintosh; Intel Mac OS X 10_15_7"
     } else {
@@ -323,11 +323,7 @@ fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            with(|s| {
-                let list = s.preloads.entry(partition.to_string()).or_default();
-                list.retain(|(existing, _)| *existing != id);
-                list.push((id, source));
-            });
+            register_preload(partition, id, source);
         }
         "setUserAgent" => {
             let ua = args
@@ -339,18 +335,11 @@ fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
                 .get("acceptLanguages")
                 .and_then(Value::as_str)
                 .map(String::from);
-            with(|s| s.user_agents.insert(partition.to_string(), (ua, languages)));
+            set_user_agent(partition, ua, languages);
         }
         "setProxy" => {
-            if let (Some(context), Some(mut value)) =
-                (context_or_global(partition), proxy_value(args))
-            {
-                let mut error = CefString::default();
-                if context.set_preference(Some(&cs("proxy")), Some(&mut value), Some(&mut error))
-                    == 0
-                {
-                    return call.err("failed", format!("the proxy setting was refused: {error}"));
-                }
+            if let Err(message) = set_proxy(partition, args) {
+                return call.err("failed", message);
             }
         }
         "clearCache" | "clearStorageData" if is_app(partition) => {
@@ -442,6 +431,32 @@ fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
         }
     }
     call.ok(json!({}));
+}
+
+/// A script every frame's main world of `partition` runs before page scripts (`registerPreload`), replacing one of
+/// the same `id`.
+pub fn register_preload(partition: &str, id: String, source: String) {
+    with(|s| {
+        let list = s.preloads.entry(partition.to_string()).or_default();
+        list.retain(|(existing, _)| *existing != id);
+        list.push((id, source));
+    });
+}
+
+/// The user agent (and Accept-Language) every page of `partition` gets once its browser exists.
+pub fn set_user_agent(partition: &str, user_agent: String, languages: Option<String>) {
+    with(|s| s.user_agents.insert(partition.to_string(), (user_agent, languages)));
+}
+
+/// Chromium's `proxy` preference of `partition`'s request context (UI thread); `args` as `session.op setProxy`.
+pub fn set_proxy(partition: &str, args: &Value) -> Result<(), String> {
+    if let (Some(context), Some(mut value)) = (context_or_global(partition), proxy_value(args)) {
+        let mut error = CefString::default();
+        if context.set_preference(Some(&cs("proxy")), Some(&mut value), Some(&mut error)) == 0 {
+            return Err(format!("the proxy setting was refused: {error}"));
+        }
+    }
+    Ok(())
 }
 
 /// A page of a partition whose user agent was set (`session.setUserAgent`) gets it as soon as its browser exists.
