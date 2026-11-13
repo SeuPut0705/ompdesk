@@ -1,20 +1,24 @@
 /**
  * The work board's "Current work" rows, one line each: what the turn's own edit tools and the sessions it opened
  * changed (the last turn's while idle), what the session's branch has not landed in main yet, the session's newest
- * check (a failed one is its own section at the top), the dev servers running, the other sessions in the checkout,
- * and the memory and skills the turn used. `useSessionBoard` reads them all once; the section draws what it found.
+ * check (a failed one is its own section at the top), the hub run the session waits on (check control: a tap opens
+ * the Checks page on it), the dev servers running, the other sessions in the checkout, and the memory and skills the
+ * turn used. `useSessionBoard` reads them all once; the section draws what it found.
  */
-import { BookOpen, Brain, FileDiff, FlaskConical, GitBranch, Globe, Shield, Users } from "lucide-react";
+import { BookOpen, Brain, FileDiff, FlaskConical, GitBranch, Globe, Hourglass, Shield, Users } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { READ_ONLY_TOOLS } from "../../../../shared/agent-definition";
+import type { Run } from "../../../../shared/checks-contract";
 import type { RpcGitUnlanded } from "../../../../shared/rpc-types";
 import type { FamilyEdits, FamilyMemberEdits } from "../../../../shared/turn-edits";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
+import { runQueuedAt, runState, waitedRun } from "../../../lib/checks/view";
 import { formatDuration } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { useChecksStore } from "../../../stores/checks";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId, useTabCommand } from "../../../stores/session-runtime-context";
@@ -60,6 +64,7 @@ export type SessionRowModel =
 	| ({ kind: "changes" } & FamilyChangesSummary)
 	| ({ kind: "unlanded" } & UnlandedSummary)
 	| { kind: "check"; check: LastCheck }
+	| { kind: "hub-check"; run: Run }
 	| ({ kind: "dev-server" } & DevServer)
 	| ({ kind: "peers" } & PeersSummary)
 	| { kind: "recall"; titles: string[] }
@@ -341,6 +346,10 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 	const { outcome } = newest;
 	const check = useLastCheck(newest);
 	const jobs = useBackgroundJobs();
+	const sessionId = useSessionStore(state => state.sessionId);
+	const hubRun = useChecksStore(state =>
+		state.frame && sessionId ? waitedRun(state.frame.snapshot, sessionId) : null,
+	);
 	const peers = useSessionStore(state => state.checkoutPeers);
 	const messages = useMessagesStore(state => state.messages);
 	const servers = useMemo(() => devServers(jobs), [jobs]);
@@ -360,6 +369,7 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 		if (changes.files > 0) rows.push({ kind: "changes", ...changes });
 		if (unlanded) rows.push({ kind: "unlanded", ...unlanded });
 		if (check) rows.push({ kind: "check", check });
+		if (hubRun) rows.push({ kind: "hub-check", run: hubRun });
 		for (const server of servers) rows.push({ kind: "dev-server", ...server });
 		const company = summarizePeers(peers);
 		if (company) rows.push({ kind: "peers", ...company });
@@ -367,7 +377,7 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 		if (titles.length > 0) rows.push({ kind: "recall", titles });
 		if (skills.length > 0) rows.push({ kind: "skills", skills });
 		return { rows };
-	}, [changes, unlanded, check, servers, peers, protections, titles, skills]);
+	}, [changes, unlanded, check, hubRun, servers, peers, protections, titles, skills]);
 }
 
 const plural = (count: number) => (count === 1 ? "" : "s");
@@ -397,6 +407,8 @@ function rowWords(t: (key: string, params?: Record<string, string | number>) => 
 			});
 		case "check":
 			return checkWords(t, row.check);
+		case "hub-check":
+			return t("workBoard.session.hubCheck", { what: t(`workBoard.session.hubCheck.${row.run.lane}`) });
 		case "dev-server":
 			return row.host;
 		case "peers": {
@@ -453,6 +465,28 @@ function CheckRow({ check }: { check: LastCheck }) {
 			meta={meta}
 			onClick={check.state === "failed" && tabId && key ? () => requestRevealStep({ tabId, key }) : undefined}
 			title={check.command}
+		/>
+	);
+}
+
+/**
+ * The hub run this session waits on (check control): what lane it is in and how long it has waited. The session is
+ * woken when the result arrives, which the tooltip says; a tap opens the Checks page on the run.
+ */
+function HubCheckRow({ run }: { run: Run }) {
+	const t = useT();
+	const now = useNowTick(true);
+	const state = runState(run);
+	const queuedAt = runQueuedAt(run);
+	return (
+		<BoardRow
+			data={{ "data-board-session": "hub-check", "data-state": state }}
+			flipKey="session:hub-check"
+			label={t("workBoard.session.hubCheck", { what: t(`workBoard.session.hubCheck.${run.lane}`) })}
+			lead={<KindMark icon={Hourglass} tone={state === "running" ? "info" : "warning"} />}
+			meta={queuedAt === null ? undefined : elapsedLabel(now - queuedAt)}
+			onClick={() => useUiStore.getState().openChecks("now", run.id)}
+			title={t("workBoard.session.hubCheck.wakes", { state: t(`checks.run.state.${state}`) })}
 		/>
 	);
 }
@@ -696,6 +730,8 @@ function SessionRow({ row }: { row: SessionRowModel }) {
 			);
 		case "check":
 			return <CheckRow check={row.check} />;
+		case "hub-check":
+			return <HubCheckRow run={row.run} />;
 		case "dev-server":
 			return <DevServerRow command={row.command} host={row.host} url={row.url} />;
 		case "peers":
