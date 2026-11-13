@@ -98,7 +98,9 @@ pub trait LandQueue: Send + Sync {
 }
 
 /// What the merge queue asks of the hub, so a batch's run goes through the same admission as every run.
-pub trait QueueHost: Send + Sync {
+// queue.rs is its first user; until it lands nothing implements this.
+#[allow(dead_code)]
+pub(crate) trait QueueHost: Send + Sync {
     /// Starts one run for a batch's temporary branch in lane `land`; admission decides when and where.
     fn start_batch<'a>(
         &'a self,
@@ -112,6 +114,13 @@ pub trait QueueHost: Send + Sync {
 
     /// An entry's result (`result.run_id` is the id `enqueue` answered): its waits end and its session is woken.
     fn finished(&self, result: RunResult);
+
+    /// How git runs now (main's `gitRunner` from `checks.runners`), held to `scope`; None before main sent it or when
+    /// git is not installed.
+    fn git(&self, scope: Scope) -> Option<crate::git::run::Git>;
+
+    /// The folder the queue keeps its clones and its saved state in; it survives a restart.
+    fn queue_dir(&self) -> std::path::PathBuf;
 }
 
 /// The queue until `queue.rs` is built: nothing lands through it.

@@ -205,6 +205,24 @@ pub struct Pool {
     pub disk_free_gb: Option<f64>,
     pub as_of: Timestamp,
     pub state: PoolState,
+    /// Heavy work on that computer that holds none of its slots: shown and counted, never managed. Its load is
+    /// `running + foreign.len()` against `limit`. Empty for GitHub's pools.
+    pub foreign: Vec<ForeignLoad>,
+}
+
+/// Heavy work on a computer that holds none of its slots (another project's own lock, a plain terminal), seen among
+/// its processes. Shown and counted, never managed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignLoad {
+    /// `cargo`, `godot`, `vitest`, `playwright`.
+    pub kind: String,
+    /// The topmost process of the work.
+    pub pid: u32,
+    /// Its command line, cut to 200 characters.
+    pub command: String,
+    /// The processes of its tree that are that kind (a cargo and its rustc's).
+    pub processes: u32,
 }
 
 /// Who asked. Main-owned provenance, never read from text or tool arguments.
@@ -591,11 +609,16 @@ impl Snapshot {
 }
 
 /// What main knows and the hub cannot read itself; main says it again whenever it changes.
+///
+/// Read through `MainFactWire`, never serde's internally tagged form: that one buffers the object first, and a build
+/// of the whole workspace has serde_json's `arbitrary_precision` (the CLI asks for it), under which a buffered number
+/// is a map and a pool's free gigabytes fail to read (run 43493324223: "invalid type: map, expected f64").
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    try_from = "MainFactWire"
 )]
 pub enum MainFact {
     /// The repos to follow: those of the open sessions' checkouts. A start follows its repo by itself.
@@ -608,6 +631,39 @@ pub enum MainFact {
     Sessions {
         tags: std::collections::BTreeMap<String, Origin>,
     },
+}
+
+/// `MainFact` as it is read: one plain object, its fields by the kind.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MainFactWire {
+    kind: String,
+    repos: Option<Vec<RepoId>>,
+    pool: Option<super::sources::LocalPool>,
+    device: Option<DeviceId>,
+    tags: Option<std::collections::BTreeMap<String, Origin>>,
+}
+
+impl TryFrom<MainFactWire> for MainFact {
+    type Error = String;
+    fn try_from(wire: MainFactWire) -> Result<MainFact, String> {
+        let missing = |field: &str| format!("a {} fact needs {field}", wire.kind);
+        Ok(match wire.kind.as_str() {
+            "repos" => MainFact::Repos {
+                repos: wire.repos.clone().ok_or_else(|| missing("repos"))?,
+            },
+            "devicePool" => MainFact::DevicePool {
+                pool: wire.pool.clone().ok_or_else(|| missing("pool"))?,
+            },
+            "deviceOffline" => MainFact::DeviceOffline {
+                device: wire.device.clone().ok_or_else(|| missing("device"))?,
+            },
+            "sessions" => MainFact::Sessions {
+                tags: wire.tags.clone().ok_or_else(|| missing("tags"))?,
+            },
+            other => return Err(format!("no fact of kind {other:?}")),
+        })
+    }
 }
 
 /// The agent tool and its CLI twin (`ompdesk checks <op>`), by name.
@@ -689,6 +745,12 @@ pub(crate) mod samples {
             disk_free_gb: Some(41.5),
             as_of: 1_794_000_000_000,
             state: PoolState::Live,
+            foreign: vec![ForeignLoad {
+                kind: "cargo".into(),
+                pid: 4242,
+                command: "cargo build --release -p game".into(),
+                processes: 9,
+            }],
         }
     }
 
@@ -992,6 +1054,12 @@ pub(crate) mod samples {
             as_of: 1_794_000_700_000,
             offline: false,
             check_store_bytes: Some(6_800_000_000),
+            foreign: vec![ForeignLoad {
+                kind: "vitest".into(),
+                pid: 5150,
+                command: "node vitest run".into(),
+                processes: 4,
+            }],
         };
         types.insert("LocalPool".into(), of(vec![device_pool.clone()]));
         types.insert(
@@ -1066,6 +1134,31 @@ pub(crate) mod samples {
             "enums": enums,
             "types": types,
         })
+    }
+
+    /// Main's requests are read from text, as the wire reads them. In a build of the whole workspace serde_json has
+    /// `arbitrary_precision` (the CLI's), under which a tagged union serde buffers read a float as a map (run
+    /// 43493367345); the CI `native` job runs this under it.
+    #[test]
+    fn a_tagged_request_with_floats_reads_from_text() {
+        let pool = serde_json::to_string(&json!({
+            "op": "snapshot", "snapshot": snapshot()
+        }))
+        .unwrap();
+        let FakeOp::Snapshot { snapshot: read } = serde_json::from_str::<FakeOp>(&pool).unwrap()
+        else {
+            panic!("not a snapshot")
+        };
+        assert_eq!(read, snapshot());
+        let fact = serde_json::to_string(&MainFact::DevicePool {
+            pool: serde_json::from_value(all()["types"]["LocalPool"][0].clone()).unwrap(),
+        })
+        .unwrap();
+        assert!(matches!(
+            serde_json::from_str::<MainFact>(&fact).unwrap(),
+            MainFact::DevicePool { pool } if pool.volumes[0].free_gb == 18.9
+        ));
+        assert!(serde_json::from_str::<MainFact>(r#"{"kind":"repos"}"#).is_err());
     }
 
     #[test]
