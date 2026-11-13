@@ -160,9 +160,9 @@ pub fn refused_command(method: &str, params: &Value, block_loopback: bool) -> Op
     }
     // DevTools' resource loader (source maps): only what the page could fetch from the web, never a local file.
     if method == "Network.loadNetworkResource"
-        && !field("url")
+        && field("url")
             .and_then(Value::as_str)
-            .is_some_and(|url| preview_url(url).is_some())
+            .is_none_or(|url| preview_url(url).is_none())
     {
         return Some("OMPdesk's preview only loads http(s) resources".to_owned());
     }

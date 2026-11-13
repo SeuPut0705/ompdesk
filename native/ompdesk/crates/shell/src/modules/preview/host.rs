@@ -1341,10 +1341,8 @@ pub(super) fn page_event(wc_id: u64, name: &str, args: &Value) {
     match name {
         "console-message" => console_message(&page, args.get(0).unwrap_or(&Value::Null)),
         "unresponsive" => publish(&host, &page, |s| s.notice = Some(Notice::Unresponsive)),
-        "responsive" => {
-            if page.borrow().state.notice == Some(Notice::Unresponsive) {
-                publish(&host, &page, |s| s.notice = None);
-            }
+        "responsive" if page.borrow().state.notice == Some(Notice::Unresponsive) => {
+            publish(&host, &page, |s| s.notice = None);
         }
         // Real input reaching the page; a script's `dispatchEvent` never does. The agent's CDP input may, so `choose`
         // also refuses while the agent or any debugger holds the page.
