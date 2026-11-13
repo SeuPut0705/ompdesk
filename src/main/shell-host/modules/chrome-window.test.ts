@@ -5,6 +5,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { BrowserWindow } from "electron";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ShellClient } from "../client";
 import { createElectron, type ElectronShim } from "../electron/create";
@@ -47,6 +48,13 @@ async function start(
 	return { client: shell.client, userData: shell.userData };
 }
 
+/** A window the shell made: the parity cases below open with no quit approved, so null is a failure. */
+async function made(manager: WindowManager, cwd: string): Promise<BrowserWindow> {
+	const win = await manager.createWindow({ cwd });
+	if (!win) throw new Error(`chrome.open refused ${cwd}`);
+	return win;
+}
+
 function nextEvent<T>(client: ShellClient, name: string, match: (data: T) => boolean = () => true): Promise<T> {
 	const seen = Promise.withResolvers<T>();
 	const stop = client.on(name, (data: T) => {
@@ -63,8 +71,8 @@ describe.skipIf(!executable)("chrome window (real shell)", () => {
 		const adopted: number[] = [];
 		client.on("win.adopted", ({ winId }: { winId: number }) => adopted.push(winId));
 		const manager = new WindowManager();
-		const first = await manager.createWindow({ cwd: "/work/a" });
-		const second = await manager.createWindow({ cwd: "/work/b" });
+		const first = await made(manager, "/work/a");
+		const second = await made(manager, "/work/b");
 		expect(adopted).toEqual([first.id, second.id]);
 		expect(first.id).toBeGreaterThanOrEqual(2 ** 32);
 		expect(holder.electron?.BrowserWindow.fromId(first.id)).toBe(first);
@@ -77,7 +85,7 @@ describe.skipIf(!executable)("chrome window (real shell)", () => {
 		const { client, userData } = await start(saved);
 		const adopted = nextEvent<{ options: Record<string, unknown> }>(client, "win.adopted");
 		const manager = new WindowManager();
-		const win = await manager.createWindow({ cwd: "/work" });
+		const win = await made(manager, "/work");
 		expect((await adopted).options).toMatchObject({ x: 120, y: 140, width: 1000, height: 700 });
 		const closed = nextEvent<{ name: string }>(client, "win.event", data => data.name === "closed");
 		// `destroy`: a close that is no person's (a quit's), which the close-to-tray rule never holds.
@@ -87,10 +95,26 @@ describe.skipIf(!executable)("chrome window (real shell)", () => {
 		expect(store.windowState).toMatchObject({ width: expect.any(Number), isMaximized: false });
 	});
 
+	// interrupted-work › Close to tray: after an approved quit nothing rebuilds a window. The approval is an event the
+	// shell takes on its reader thread at once, the open a request it carries out on its UI thread: sent back to back,
+	// the open is decided after the approval landed, as an open queued behind other UI work would be.
+	it("opens no window once a quit is approved, even an open sent right behind the approval", async () => {
+		const { client } = await start();
+		const adopted: number[] = [];
+		client.on("win.adopted", ({ winId }: { winId: number }) => adopted.push(winId));
+		const manager = new WindowManager();
+		const approve = client.event("chrome.approve", {});
+		const opened = manager.createWindow({ cwd: "/work" });
+		await approve;
+		expect(await opened).toBeNull();
+		expect(adopted).toEqual([]);
+		expect(holder.electron?.BrowserWindow.getAllWindows()).toEqual([]);
+	});
+
 	it("hides the last shown window a person closes instead of closing it (close to tray)", async () => {
 		const { client } = await start();
 		const manager = new WindowManager();
-		const win = await manager.createWindow({ cwd: "/work" });
+		const win = await made(manager, "/work");
 		await client.call("win.op", { winId: win.id, op: "show", args: {} });
 		const hidden = nextEvent<{ winId: number }>(client, "chrome.hiddenToTray");
 		// A close nobody approved: the person's (the caption button, ⌘W).

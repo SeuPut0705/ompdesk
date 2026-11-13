@@ -717,7 +717,9 @@ async function spawnWindowWithLayout(layout: PersistedTabLayout): Promise<Browse
 	if (!active) return null;
 	// The window record keeps a path on this machine; a paired host's cwd means nothing here.
 	const win = await windowManager.createWindow({ cwd: active.device ? resolveInitialCwd() : active.cwd });
-	// The window took a round trip to the shell: a quit approved meanwhile leaves nothing to restore its tabs on.
+	// Null: the shell refused, a quit was approved meanwhile. One approved after the window was made leaves nothing to
+	// restore its tabs on.
+	if (!win) return null;
 	if (!quitApproved() && sidecarPool.restoreLayout(win, layout) > 0) return win;
 	win.close();
 	return null;
@@ -738,6 +740,7 @@ async function spawnWindow(
 	if (quitApproved()) return null;
 	if (device && cwd) {
 		const win = await windowManager.createWindow({ cwd: resolveInitialCwd() });
+		if (!win) return null;
 		if (quitApproved()) {
 			win.close();
 			return null;
@@ -778,6 +781,7 @@ async function spawnWindow(
 	// The tab's omp starts on the session file (`--session`), as a tab spawn's does: the renderer's boot switch it
 	// used to wait for never ran in a window whose tab list had not named its tab yet.
 	const win = await windowManager.createWindow({ cwd: target.cwd });
+	if (!win) return null;
 	if (quitApproved()) {
 		win.close();
 		return null;

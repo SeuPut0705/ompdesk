@@ -8,6 +8,7 @@ import { BrowserWindow } from "electron";
 import type { RunProgressState, SessionKind } from "../../../shared/ipc-types";
 import type { WindowPresence } from "../../update-log-core";
 import type { ClientWindow } from "../../web/client-window";
+import { HostError } from "../client";
 import { chrome } from "./chrome";
 
 export interface WindowSpec {
@@ -75,9 +76,18 @@ export class WindowManager {
 		return () => this.#windowClosedListeners.delete(listener);
 	}
 
-	/** Opens an app window in the shell, its page loading; resolves with the adopted `BrowserWindow`. */
-	async createWindow(opts: { cwd: string }): Promise<BrowserWindow> {
-		const made = await chrome().call("open", { cwd: opts.cwd, presence: this.launchPresence });
+	/**
+	 * Opens an app window in the shell, its page loading; resolves with the adopted `BrowserWindow`, or null when the
+	 * shell refused because a quit is approved (it builds no window then, however late the open reached it).
+	 */
+	async createWindow(opts: { cwd: string }): Promise<BrowserWindow | null> {
+		let made: WindowSpec["calls"]["open"]["result"];
+		try {
+			made = await chrome().call("open", { cwd: opts.cwd, presence: this.launchPresence });
+		} catch (error) {
+			if (error instanceof HostError && error.code === "quitting") return null;
+			throw error;
+		}
 		const win = BrowserWindow.fromId(made.winId);
 		if (!win) throw new Error(`chrome.open: window ${made.winId} was not adopted`);
 		const record: WindowRecord = { win, id: made.wcId, cwd: opts.cwd, mica: made.mica, slot: made.slot };

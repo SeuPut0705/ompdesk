@@ -695,7 +695,7 @@ asks), joined by `chrome.ts`.
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
-| `chrome.open` | Node | `{cwd, presence: "hidden"\|"minimized"\|"behind"\|null}` | `{winId, wcId, slot, mica}` — makes an app window: geometry from `<userData>/window-state.json`, cascade, chrome, icon, the renderer URL, first show by `presence`. The ids are the shell's (2^32 up); the shell emits `win.adopted` first (§15.4 rule 4). |
+| `chrome.open` | Node | `{cwd, presence: "hidden"\|"minimized"\|"behind"\|null}` | `{winId, wcId, slot, mica}` — makes an app window: geometry from `<userData>/window-state.json`, cascade, chrome, icon, the renderer URL, first show by `presence`. The ids are the shell's (2^32 up); the shell emits `win.adopted` first (§15.4 rule 4). Once a quit is approved it answers `error.code "quitting"` and makes nothing, decided on the UI thread so an approval that overtook a queued open still refuses it; `createWindow` then resolves null. |
 | `chrome.cwd` (post) | Node | `{winId, cwd}` | the window's project changed (deep links and New Window read it). |
 | `chrome.runProgress` (post) | Node | `{state: "idle"\|"working"\|"waiting"}` | Dock badge and every window's progress bar. |
 | `chrome.closeToTray` (post) | Node | `{on: boolean}` | the `closeToTray` pref (Settings › General › Window): the last shown window hides instead of closing while on. |

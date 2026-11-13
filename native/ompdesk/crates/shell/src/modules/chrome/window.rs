@@ -45,6 +45,8 @@ thread_local! {
 }
 
 static CTX: OnceLock<Ctx> = OnceLock::new();
+/// `chrome.open`'s error code for an open refused because a quit is approved (PROTOCOL.md §15.5).
+const QUITTING: &str = "quitting";
 /// Settings › General › Window: only an explicit `false` turns it off (`closeToTrayEnabled`).
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 /// The renderer entry's identity when this run started (packaged runs: an update replaces it).
@@ -708,6 +710,12 @@ fn initial_state(options: &Value) -> Value {
 
 /// `chrome.open` (UI thread).
 fn open(ctx: Ctx, call: Call) {
+    // After an approved quit nothing rebuilds a window (interrupted-work › Close to tray). Checked here, on the UI
+    // thread, not when the request arrived: `chrome.approve` sets the latch on the reader thread at once, so it can
+    // overtake an open already queued behind other UI work. No id is taken and nothing reaches the shim.
+    if quit::approved() || crate::lifecycle::EXITING.load(Ordering::SeqCst) {
+        return call.err(QUITTING, "the app is quitting: no window is opened");
+    }
     let cwd = call.str("cwd").unwrap_or_default();
     let presence = call.str("presence");
     let saved = rules::parse_saved(std::fs::read_to_string(store_path()).ok().as_deref());
