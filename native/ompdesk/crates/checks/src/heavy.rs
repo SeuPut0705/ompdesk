@@ -638,7 +638,9 @@ mod tests {
                 "./e2e/a.spec.ts".into(),
             ])
             .collect();
-        let v = Volumes::of_work(&cwd, &argv, &|k| (k == "TMPDIR").then(|| "/".to_string()));
+        let v = Volumes::of_work(&cwd, &argv, &|k| {
+            matches!(k, "TMPDIR" | "TEMP").then(|| "/".to_string())
+        });
         assert_eq!(v.paths[0], cwd);
         assert_eq!(v.paths[1], PathBuf::from("/"));
         assert!(
