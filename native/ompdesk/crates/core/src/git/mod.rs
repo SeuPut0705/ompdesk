@@ -6,15 +6,17 @@
 //! (`unlanded.ts`): `unlanded.rs`; a folder's project facts (`origin.ts`): `origin.rs`; a session worktree's standing,
 //! merge and safe removal (`agent-control/branches.ts`): `branches.rs`; orphaned worktrees (`worktree-orphans.ts`):
 //! `orphans.rs`; a fresh worktree's seeding from `.worktreeinclude` and its hook's lookup (`worktree-seed.ts`):
-//! `seed.rs`. Every request carries `git`, how main runs git (`gitRunner` in `exec.ts`: binary, environment,
-//! timeout, output cap), so this side decides none of it, and runs under the request's scope: a cancelled request
-//! starts no git and ends the one it runs. Failures are faults whose message is what the TypeScript threw (git's
-//! stderr, node's error text, `spawn <bin> ENOENT`, `-c timed out after 60000ms`); a refusal the TypeScript coded
-//! carries that code.
+//! `seed.rs`; reading a remote branch's tip, building a merge as a commit object and pushing one sha, never forced,
+//! shared by Autopilot's landing and check control's merge queue: `land.rs`. Every request carries `git`, how main
+//! runs git (`gitRunner` in `exec.ts`: binary, environment, timeout, output cap), so this side decides none of it, and
+//! runs under the request's scope: a cancelled request starts no git and ends the one it runs. Failures are faults
+//! whose message is what the TypeScript threw (git's stderr, node's error text, `spawn <bin> ENOENT`, `-c timed out
+//! after 60000ms`); a refusal the TypeScript coded carries that code.
 
 pub mod branches;
 mod checkout;
 pub(crate) mod freshness;
+pub(crate) mod land;
 mod origin;
 mod orphans;
 pub(crate) mod parse;
