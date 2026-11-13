@@ -449,6 +449,13 @@ export async function acquireHeavy(locks: Locks, who: Who): Promise<HeavyLease |
 		waitingHolds.delete(child);
 	}
 	if (child.pid === undefined) throw new Error("ompdesk heavy hold has no pid");
+	// Once held, the hold must not keep this process alive: a script that takes the lock and simply ends (build-cache's
+	// build path) would otherwise wait for the hold forever while the hold waits for this process's stdin to close
+	// (13 Nov 2026: a measurement held a heavy slot and the build slot for six hours). The slot is given back when this
+	// process exits, as before: the exit handler releases it and the OS closes the hold's stdin.
+	child.unref();
+	for (const stream of [child.stdin, child.stdout, child.stderr])
+		(stream as unknown as { unref?: () => void } | null)?.unref?.();
 	return {
 		pid: child.pid,
 		waitedMs: performance.now() - started,
