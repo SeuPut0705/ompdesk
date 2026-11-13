@@ -40,6 +40,19 @@ use_keychain() {
   security create-keychain -p $PW "$KC" && security unlock-keychain -p $PW "$KC" && security set-keychain-settings "$KC"
   security default-keychain -d user -s "$KC"; security list-keychains -d user -s "$KC" "$KC0" $ORIG_LIST
 }
+# The control that makes the coreauthd rule provable: a keychain access that cannot raise a prompt (an item this job made, in
+# the keychain it made, read by the `security` tool that created it, whose ACL names it) is run first; the coreauthd lines it
+# logs are the runner's background chatter ("Skipping processing of request"), so the same lines in a scenario are not a dialog.
+control_chatter() {
+  security add-generic-password -a control -s ompdesk-control -w control -T /usr/bin/security -U "$KC0" >/dev/null 2>&1
+  security unlock-keychain -p $PW "$KC0" >/dev/null 2>&1
+  local before after; before=$(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")
+  security find-generic-password -s ompdesk-control -w "$KC0" >/dev/null 2>&1; local rc=$?
+  sleep 3; after=$(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")
+  evidence "control: a prompt-free keychain read (security find-generic-password, exit $rc) logged $((after - before)) SecurityAgent/coreauthd lines; 'Skipping processing of request' among them: $(grep -c 'Skipping processing of request' "$W/dialogs.log"); dialog lines: $(dialog_lines | wc -l | tr -d ' ')"
+  grep 'coreauthd' "$W/dialogs.log" | head -3 | cut -c1-200 | sed 's/^/EVIDENCE: control line: /'
+  security delete-generic-password -s ompdesk-control "$KC0" >/dev/null 2>&1
+}
 # The item is looked up through the search list (where Chromium puts it is the default keychain of the user session: the one
 # `use_keychain` made, or, if the session ignored that, the runner's login keychain); `item_where` says which. `restore` removes
 # it from wherever it went, so the next scenario starts with none (the runner is throwaway).

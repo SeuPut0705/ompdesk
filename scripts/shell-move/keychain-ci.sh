@@ -19,6 +19,9 @@
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
 . "$HERE/mac-common.sh"
 
+step "control: a prompt-free keychain read"
+control_chatter
+
 step "the shell bundle (scripts/package-mac.ts, signed with the throwaway identity)"
 (cd "$REPO" && bun scripts/package-mac.ts --no-dmg --version 0.200.0 --sign-with "$ID" --keychain "$KC0"); check $? "package-mac built and signed OMPdesk.app"
 SHELL_APP=$REPO/dist/mac-arm64/OMPdesk.app

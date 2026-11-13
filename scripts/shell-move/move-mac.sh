@@ -23,6 +23,9 @@ launchctl setenv OMP_GUI_HEADLESS 1
 cleanup() { launchctl unsetenv OMP_GUI_HEADLESS; launchctl unsetenv OMP_GUI_TEST_USER_DATA_DIR; chmod -R u+w "$W" 2>/dev/null; kill $WATCH $FEED 2>/dev/null; }
 trap cleanup EXIT
 
+step "control: a prompt-free keychain read"
+control_chatter
+
 step "the new shell bundle and its DMG (scripts/package-mac.ts, signed with the throwaway identity)"
 (cd "$REPO" && bun scripts/package-mac.ts --version 0.200.0 --sign-with "$ID" --keychain "$KC0"); check $? "package-mac built the signed bundle and the DMG"
 DMG=$(ls "$REPO"/dist/ompdesk-0.200.0-arm64.dmg 2>/dev/null | head -1); test -f "$DMG"; check $? "dist/ompdesk-0.200.0-arm64.dmg exists ($(stat -f %z "$DMG" 2>/dev/null) bytes)"
