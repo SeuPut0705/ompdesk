@@ -52,8 +52,11 @@ function templateRoot(): Promise<string> {
 
 const built = new Map<string, Promise<string>>();
 
-/** The template `name`, built by `build` into a fresh folder the first time it is asked for. */
-function template(name: string, build: (dir: string) => Promise<void>): Promise<string> {
+/**
+ * The template `name`, built by `build` into a fresh folder the first time this test process asks for it; a test
+ * takes a copy (`copyTemplate`) so a fixture of dozens of git processes costs them once per file.
+ */
+export function template(name: string, build: (dir: string) => Promise<void>): Promise<string> {
 	let pending = built.get(name);
 	if (!pending) {
 		pending = templateRoot().then(async root => {
@@ -65,14 +68,15 @@ function template(name: string, build: (dir: string) => Promise<void>): Promise<
 	return pending;
 }
 
-const copy = (from: string, to: string) => fs.cp(from, to, { recursive: true, preserveTimestamps: true });
+export const copyTemplate = (from: string, to: string) =>
+	fs.cp(from, to, { recursive: true, preserveTimestamps: true });
 
 /** A repository with one commit and an ignored `.env`. */
 export async function initRepo(dir: string): Promise<void> {
 	// A folder that already holds files gets them committed too, as `git add .` always did.
 	const entries = await fs.readdir(dir).catch(() => [] as string[]);
 	if (entries.length > 0) return buildRepo(dir);
-	await copy(await template("repo", buildRepo), dir);
+	await copyTemplate(await template("repo", buildRepo), dir);
 }
 
 /**
@@ -89,8 +93,8 @@ export async function initRepoWithRemote(main: string, remote: string): Promise<
 		gitSync(path.join(dir, "main"), "push", "-q", "origin", "main");
 		gitSync(path.join(dir, "main"), "fetch", "-q", "origin");
 	});
-	await copy(path.join(from, "main"), main);
-	await copy(path.join(from, "remote.git"), remote);
+	await copyTemplate(path.join(from, "main"), main);
+	await copyTemplate(path.join(from, "remote.git"), remote);
 	gitSync(main, "remote", "set-url", "origin", remote);
 }
 
