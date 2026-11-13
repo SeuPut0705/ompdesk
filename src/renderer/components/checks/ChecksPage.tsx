@@ -57,6 +57,8 @@ export function ChecksPage() {
 	const tab = useUiStore(state => state.checksTab);
 	const openChecks = useUiStore(state => state.openChecks);
 	const frame = useChecksStore(state => state.frame);
+	// Last run's frame, painted until main answers: a quiet note, shown only if the answer takes a moment.
+	const remembered = useChecksStore(state => state.remembered);
 	const fresh = frame ? freshness(frame) : "live";
 	const phone = useShellMode() === "phone";
 
@@ -65,6 +67,15 @@ export function ChecksPage() {
 			actions={
 				frame && (
 					<>
+						{remembered && (
+							<span
+								className="omp-updating-hint text-sc-xs text-(--sc-text-muted)"
+								data-checks-remembered
+								role="status"
+							>
+								{t("checks.updating")}
+							</span>
+						)}
 						{!phone && (
 							<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-muted)">
 								<Eye aria-hidden className="size-3.5" />
