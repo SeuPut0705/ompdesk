@@ -157,7 +157,7 @@ export function createFakeChecksHub(): FakeChecksHub {
 	};
 }
 
-const SESSION: Origin = { kind: "session", session: "0a1b2c3d", device: "local", goal: "goal-7" };
+const SESSION: Origin = { kind: "session", session: "0a1b2c3d", device: "local", goal: "Ship release 2" };
 
 /** A red run's answer, as an agent would receive it. */
 export function sampleAnswer(runId = "run-41"): Answer {
