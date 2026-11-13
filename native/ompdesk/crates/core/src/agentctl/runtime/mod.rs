@@ -146,7 +146,9 @@ pub fn start(control: AgentControl, port: u64, config: RuntimeConfig) -> Arc<Run
                     () = &mut ended => break,
                     _ = sweeps.tick() => {
                         let control = control.clone();
-                        let _ = tokio::task::spawn_blocking(move || control.sweep_attachments());
+                        drop(tokio::task::spawn_blocking(move || {
+                            control.sweep_attachments()
+                        }));
                     }
                     _ = ticks.tick() => {
                         // What the pass reads of main is main as it is at the tick, not as it last pushed.

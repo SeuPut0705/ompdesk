@@ -317,11 +317,14 @@ pub fn move_paths_deep(value: &Value, moved: &[(String, String)]) -> Value {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Problem(pub String);
 
+/// The bytes held in memory by their SHA-256, and when each was kept.
+type Held = HashMap<String, (Arc<Vec<u8>>, f64)>;
+
 /// Content-addressed bytes of what stored messages carry: in a folder (0600), or in memory without one.
 pub struct AttachmentStore {
     dir: Option<PathBuf>,
     now: Clock,
-    memory: Mutex<HashMap<String, (Arc<Vec<u8>>, f64)>>,
+    memory: Mutex<Held>,
 }
 
 impl AttachmentStore {
@@ -337,7 +340,7 @@ impl AttachmentStore {
         }
     }
 
-    fn memory(&self) -> std::sync::MutexGuard<'_, HashMap<String, (Arc<Vec<u8>>, f64)>> {
+    fn memory(&self) -> std::sync::MutexGuard<'_, Held> {
         self.memory
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
