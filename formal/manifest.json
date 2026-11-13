@@ -198,7 +198,7 @@
 			"covers": [
 				"native/ompdesk/crates/core/src/checks/queue.rs"
 			],
-			"syncCommit": "63260db8843bc10b273d4a84b3b030477b890fd1",
+			"syncCommit": "154088d05a1bd6db79ef9460106e47d2b8dca549",
 			"verifySkill": ".omp/skills/checks-queue-verify/SKILL.md"
 		},
 		{
