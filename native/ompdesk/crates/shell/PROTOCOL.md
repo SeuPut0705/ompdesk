@@ -27,6 +27,8 @@ The core's wire (`crates/core/src/wire.rs`), over the named pipe / unix socket t
   `view.create`: Electron's constructors return at once with `win.id` and `win.webContents.id` readable, so they
   cannot wait for an answer. The shell processes requests in arrival order, so an op sent right after a `create`
   finds its target; a request about an id the shell does not know answers `gone`.
+  The ids of an app window the shell opens itself (`chrome.open`) start at 2^32 and reach Node with `win.adopted`
+  (§15.4 rule 4).
 - Requests that need CEF (`win.*`, `wc.*`, `view.*`, `session.*`, `dialog.*`, `clipboard.*`,
   `shell.*`, `notification.*`, `theme.*`, `power.*`, `shortcut.*`, `net.*`, `system.*`) are sent by the shim only
   **after `app.ready`** (it holds earlier calls, in order); `hello` and `app.*` are never held. The shell therefore
@@ -91,14 +93,8 @@ Display = { id, label, bounds: Rect, workArea: Rect, scaleFactor, rotation: 0|90
 | `app.setBadge` | Node | `{text}` | macOS Dock badge (`app.dock.setBadge`); no-op elsewhere. |
 | `app.setDockIcon` | Node | `{}` + `bin` PNG | macOS `app.dock.setIcon`. |
 | `app.setAppUserModelId` | Node | `{id}` | Windows AppUserModelID (also in `app.init`). |
-| `app.setAsDefaultProtocolClient` | Node | `{protocol}` | `{ok: boolean}` — registers the shell's own exe: Windows `HKCU\Software\Classes\<protocol>` (`shell\open\command` = `"exe" "%1"`), macOS LaunchServices (`LSSetDefaultHandlerForURLScheme`). The shell's exe only: dev runs register the dev shell. |
 | `app.showAboutPanel` | Node | `{}` | macOS standard about panel using the init `aboutPanel` options; Windows: no-op. |
 | `app.getGPUInfo` | Node | `{kind: "basic"\|"complete"}` | `{info: {gpuDevice: [{vendorId, deviceId, active, driverVendor?, driverVersion?, deviceString?}]}, features: Record<string,string>}`. `features` is Electron's `getGPUFeatureStatus()` (`gpu_compositing` is `"enabled"`, `"disabled_software"`, …); the shim serves the sync `getGPUFeatureStatus()` from the last answer. Resolves once the GPU process reported (CEF `GetGPUInfo`/the `chrome://gpu` feature status), never earlier. |
-| `app.secondInstance` (event) | shell→Node | `{argv: string[], cwd: string}` | another launch for the same userData handed over and exited 0. `argv[0]` is that launch's exe. |
-| `app.openUrl` (event) | shell→Node | `{url}` | macOS `kAEGetURL` (and Windows protocol launches arrive as `secondInstance`). |
-| `app.openFile` (event) | shell→Node | `{path}` | macOS `kAEOpenDocuments`. |
-| `app.quitRequested` (event) | shell→Node | `{}` | macOS ⌘Q / Dock › Quit: the shim runs `app.quit()` (before-quit, window closes, will-quit, quit), which ends in `app.exit`. |
-| `app.activate` (event) | shell→Node | `{hasVisibleWindows: boolean}` | macOS Dock click. |
 | `app.childProcessGone` (event) | shell→Node | `{type: "GPU"\|"Utility"\|"Renderer"\|…, reason, exitCode, name?, serviceName?}` | CEF helper process ended abnormally (the GPU one drives the software fallback). Renderer crashes are `wc.event render-process-gone` instead. |
 
 `Scheme = {scheme, privileges: {standard?, secure?, bypassCSP?, allowServiceWorkers?, supportFetchAPI?, corsEnabled?, stream?, codeCache?}}`
@@ -383,8 +379,9 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **Ids**: Node's `winId`/`wcId`/`viewId` are used as sent; the shell's own counters only serve a create that omits them.
 - **`app.exit`**: windows close without `win.closeRequested`; browsers that have not closed after 4 s do not hold the quit.
   Node dying unexpectedly: the shell exits 1 after logging it on stderr.
-- **`app.secondInstance`** is sent for a second launch of the same user-data folder (named pipe, unix socket on macOS: `$TMPDIR/ompdesk-<16 hex of SHA-256(userData)>-shell.sock`, `/tmp/…` when TMPDIR is long, 0600; the host socket Node gets is `…-host-<pid>.sock` beside it);
-  `app.openUrl`, `app.openFile`, `app.activate` are macOS only and unverified.
+- **Second launch** of the same user-data folder (named pipe, unix socket on macOS: `$TMPDIR/ompdesk-<16 hex of SHA-256(userData)>-shell.sock`, `/tmp/…` when TMPDIR is long, 0600; the host socket Node gets is `…-host-<pid>.sock` beside it)
+  hands `argv` over and exits 0; the `chrome` module's deep-link area takes it (`deep_link::second_instance`, §15.5).
+  Open URL, open file and the Dock click on macOS are unverified.
 - **`wc.navigate`**: for main-frame navigations Node did not start itself. A click on a `file:` link is reported by the
   injected preload (`POST /__shell/will-navigate`) and the request is sent without waiting for the answer: Blink refuses
   that navigation before the browser process sees it, so it is always blocked.
@@ -517,7 +514,8 @@ What the Rust shell does differently from this table or from Electron. README.md
   `%TEMP%/ompdesk-shell-panic.log`.
 - **Popup menus** (`menu::popup_with`): a popup requested while another is open is a dismissal (Windows).
 - **macOS**: `facts.safeStorage` is `{kind: "mac-v10-lazy"}` (the key is fetched with `--keychain-key <userData>`, never at
-  launch); every CEF process runs with `--use-mock-keychain`; Cmd-Q sends `app.quitRequested`. All macOS code is
+  launch); every CEF process runs with `--use-mock-keychain`; Cmd-Q, `open` events and the Dock click are the `chrome`
+  module's (§15.5). All macOS code is
   unverified on a Mac.
 
 ## 15. Moved subsystems (batch SX: the shell port)
@@ -660,14 +658,14 @@ on GitHub's runners.
    Text Node already sends in a request (menu templates, dialog options) stays in that request.
 3. **Parity suites reach Rust through the real shell over the wire**, never through a second test binary or an FFI
    (§15.3 step 1). Pure Rust tests and `captured.json` are added coverage.
-4. **App windows: the shell creates them once SX1 lands, and Node adopts them.** The shell's `chrome` module makes
+4. **App windows: the shell creates them, and Node adopts them.** The shell's `chrome` module makes
    every app window with ids from `state.rs` (2^32 up) and sends `win.adopted {winId, wcId, options, state: WinState}`
    before any other frame about it; the shim then holds a `BrowserWindow` and its `webContents` over those ids exactly
    as after a `win.create` it sent (`fromWebContents`, `getAllWindows`, `wc.send`, `win.state`, the IPC caller's
    `win` all work), and never sends `win.create` for them. Node keeps `win.create` for what it still makes until its
    last caller moves (rule 6). A page a module makes that Node never needs (the Preview's views and offscreen pages
-   once SX2 lands) is the module's alone: the shell sends no `win.*`/`wc.*`/`view.*` frame about it. SX1 adds
-   `win.adopted` (shell and shim) with its first window; until then every window is Node's.
+   once SX2 lands) is the module's alone: the shell sends no `win.*`/`wc.*`/`view.*` frame about it. SX1 added
+   `win.adopted` (shell and shim) with its app windows.
 5. **Page IPC always goes through Node.** `ipc.invoke`/`ipc.send`/`ipc.sendSync` stay shell→Node, and main's
    `IpcRegistry` (`web/ipc-registry.ts`, `IPC_POLICY`) stays the one dispatch table for the window and the paired web
    page alike: a moved channel's handler stays registered in Node and calls the module's client. Pushes to pages go the
@@ -686,39 +684,80 @@ The shell owns the app windows' life (geometry, chrome, first show, close to tra
 links), the application menu, the tray, the quit's approval, confirmation and watchdog, deep links and launch paths,
 the GPU fallback with the launch history, and the main-thread watchdog. Node keeps what only it has: the windows' tabs
 and sidecars (`spawn`), the run inventory for the quit, its own teardown, the updater (SX4), the runtime log (SX3) and
-the text (SX5): until those land, the shell gets them through the asks and posts below. Text arrives as templates and
-the shell fills `{name}` itself (`chrome_core::fill`, pinned to `fillText`).
+the text (SX5). The text reaches the shell through `i18n.labels` (§15.2: `shell_core::labels`, which fills `{name}`
+itself, pinned to `fillText`); a language change rebuilds the menus. The shell writes runtime log lines through
+`log.runtime`. The launch's own argv is parsed in the shell (`chrome_core::launch`, was `parseLaunchArgv`). The
+TypeScript behind this slice was captured before it was deleted (`chrome_core/captured/<area>.json`: window 197, menu
+287, tray 321, quit 441, deeplink 339, gpu 814, hang 40 steps) and the Rust tests replay it; the parity suites
+`src/main/shell-host/modules/chrome-{window,menu,tray,quit,deep-link,gpu,hang}.test.ts` run against the real shell.
+Node's side is `src/main/shell-host/modules/chrome-<area>.ts`, one typed client per area (`Spec`: calls, posts, events,
+asks), joined by `chrome.ts`.
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
-| `chrome.labels` (post) | Node | `{language, text: {key: template}, tray: {key: template}, accelerators: {sessionNew, windowNew, windowClose, sessionExportHtml}}` | Every `i18n-text.ts` key the module shows (`menu.*`, `quit.*`, `restart.*`, `crash.*`, `updates.restartWork.*`, `tray.keepsRunning*`) and `TRAY_LABELS`, in the UI language; sent before the first window and again on a language change (the menus are rebuilt then). |
-| `chrome.settings` (post) | Node | `{closeToTray: boolean, resumes: boolean}` | prefs the close and the quit read; sent at start and on change. |
-| `chrome.open` | Node | `{winId, wcId, cwd, presence: "hidden"\|"minimized"\|"behind"\|null}` | `{slot, mica, state: WinState}` — makes an app window under Node's ids (Node's shim object exists already, `shellWindow` in the shim): geometry from `<userData>/window-state.json`, cascade, chrome, icon, the renderer URL, first show by `presence`. |
+| `chrome.open` | Node | `{cwd, presence: "hidden"\|"minimized"\|"behind"\|null}` | `{winId, wcId, slot, mica}` — makes an app window: geometry from `<userData>/window-state.json`, cascade, chrome, icon, the renderer URL, first show by `presence`. The ids are the shell's (2^32 up); the shell emits `win.adopted` first (§15.4 rule 4). |
 | `chrome.cwd` (post) | Node | `{winId, cwd}` | the window's project changed (deep links and New Window read it). |
 | `chrome.runProgress` (post) | Node | `{state: "idle"\|"working"\|"waiting"}` | Dock badge and every window's progress bar. |
+| `chrome.closeToTray` (post) | Node | `{on: boolean}` | the `closeToTray` pref (Settings › General › Window): the last shown window hides instead of closing while on. |
 | `chrome.spawn` | shell→Node | `{cwd?: string}` | `{winId: number \| null}` — open a window with its tab (menu, tray, deep link, Dock with no window); `null`: none (a quit is underway). |
 | `chrome.hiddenToTray` (event) | shell→Node | `{winId}` | the last shown window hid instead of closing (Node shows the one-time notice). |
+| `chrome.menu` (post) | Node | `{appName, sessionNew, windowNew, windowClose, sessionExportHtml}` | the app's name and the chords the menu shows, as Electron accelerators. The menu's text comes from the label table (`i18n.labels`); a language change rebuilds it. |
 | `chrome.menuAction` (event) | shell→Node | `{winId, action}` | a menu item for the page: Node sends `MENU_ACTION` to that window (the shell spawned one first when none was open). |
-| `chrome.tray` (post) | Node | `{state: TrayState \| null, update: UpdateStatus}` | the renderer's tray snapshot and the updater's status; the tooltip and menu follow (a menu open is never replaced). |
+| `chrome.menuProbe` | Node | `{menu: "application"\|"tray"\|"context", params?, click?}` | `{items}` — test seam: what the menu shows now and, with `click`, what choosing that item id does (`context` is a dry run for `params`). |
+| `chrome.tray` (post) | Node | `{state?: TrayState \| null, update?: UpdateStatus}` | the renderer's tray snapshot (`null`: none) and the updater's status; the tooltip and menu follow (a menu open is never replaced). |
 | `chrome.updateAction` (event) | shell→Node | `{action: "check"\|"download"\|"apply"}` | the tray's update item was clicked. |
-| `chrome.quit` | Node | `{approved: boolean}` | `{}` — `approved`: `requestQuit()` (the approval is the caller's); else a quit nobody approved yet (Node's `before-quit` saw one): the shell asks first when it must. |
+| `chrome.quit` | Node | `{}` | `{approved: boolean}` — a quit nobody approved yet (Node's `before-quit` saw one): the shell asks first when it must. |
+| `chrome.approve` (post) | Node | `{}` | `requestQuit()`: the caller approved the quit. |
 | `chrome.confirmQuit` | Node | `{}` | `{ok}` — `confirmQuit()`. |
 | `chrome.confirmUpdateRestart` | Node | `{}` | `{ok}` — `confirmUpdateRestart()`; the shell asks `chrome.backgroundWork` when it must. |
-| `chrome.quitFacts` | shell→Node | `{}` | `{workingTabs, totalTabs, workingWindows}` (`assessQuitRisk` over the tab inventory). |
+| `chrome.activate` | Node | `{}` | the Dock click (test seam for the e2e specs). |
+| `chrome.quitFacts` | shell→Node | `{}` | `{workingTabs, totalTabs, workingWindows, resumes}` (`assessQuitRisk` over the tab inventory; `resumes`: Continue interrupted work is on). |
 | `chrome.backgroundWork` | shell→Node | `{}` | `{has: boolean, sentence: string}` (`backgroundWorkSentence` in the UI language). |
-| `chrome.approved` (event) | shell→Node | `{run: boolean}` | the quit is approved (Node's `quitApproved()` mirror); `run`: the shell approved it (a confirmation, the menu, the tray, the last window), so Node runs `app.quit()`. |
+| `chrome.approved` (event) | shell→Node | `{run: boolean}` | the quit is approved (Node's mirror); `run`: the shell approved it (a confirmation, the menu, the tray, the last window), so Node runs `app.quit()`. |
 | `chrome.committed` (post) | Node | `{reason: "quit"\|"update"}` | the teardown ran: the shell arms the 30 s exit watchdog. |
 | `chrome.disarm` (post) | Node | `{reason?: "quit"\|"update"}` | an install that failed keeps the app: the watchdog stops. |
 | `chrome.forcedExit` | shell→Node | `{reason, timeoutMs}` | `{}` — the watchdog fired: Node runs its forced-exit hooks; the shell then exits 0 whether or not Node answered (2 s). |
+| `chrome.linksReady` (post) | Node | `{register: boolean}` | Node's startup windows exist: the shell registers the `omp://` protocol (when `register`) and replays the links that arrived. |
 | `chrome.deepLink` (event) | shell→Node | `{winId, payload: DeepLinkPayload}` | delivered once the window's page loaded (Node sends `DEEP_LINK`). |
-| `chrome.launch` | Node | `{}` | `{safeMode, software, request: LaunchRequest}` — this launch's safe mode and software rendering (decided before CEF started) and what its own argv asked for (`parseLaunchArgv`). |
+| `chrome.safeMode` | Node | `{}` | `{safeMode, software}` — this launch's safe mode (the last three launches ended within 20 s) and whether it renders in software, both decided before CEF started. |
 | `chrome.rendering` | Node | `{}` | `{software}` — whether pages composite in software (asked once the GPU process reported). |
 | `chrome.stable` (post) | Node | `{}` | the launch quit cleanly (`will-quit`): it ends no crash loop. |
-| `chrome.heartbeat` (post) | Node | `{}` | every 1 s while the watchdog runs (`chrome.launch` says whether: packaged or `OMP_GUI_HANG_WATCHDOG=1`). |
-| `chrome.step` (post) | Node | `{phase, step}` | `markMainStep`. |
-| `chrome.log` (event) | shell→Node | `{report: RuntimeLogReport, context?: {windowId, cwd}}` | a `gui-runtime.jsonl` line (Node writes it until SX3 moves the runtime log). |
+| `chrome.heartbeat` (post) | Node | `{pid}` | every 1 s while the watchdog runs (Node's client decides: packaged or `OMP_GUI_HANG_WATCHDOG=1`, never under vitest); the first one starts the watch. `pid` is Node's. |
+| `chrome.step` (post) | Node | `{phase, step}` | `markMainStep`: main is about to run `step` of `phase`. |
+| `chrome.unwatch` (post) | Node | `{}` | `will-quit`: Node stops beating, the watch ends. |
+| `chrome.testGpuGone` (post) | Node | `{}` | test seam, served only with `OMP_GUI_TEST_GPU_GONE=1`: the shell treats the GPU process as gone. |
 
 Deviations:
+
+- **Windows**: the renderer entry's identity on Windows is size, mtime and creation time (`std` has no inode); the
+  `launchInode` of the launch log is the creation time there. `chrome.open` makes the window asynchronously
+  (`spawnWindow` and `createWindow` are async in Node); a quit approved during the round trip closes the new window.
+  A Node `win.close()` of an app window goes through the shell's close rules (close to tray), as Electron's `close`
+  event did; `destroy()` never does.
+- **Deep links** restore a minimized window (`window::show`). Links that arrive before Node's startup windows exist are
+  queued (at most 64) until `chrome.linksReady`, instead of until `setupDeepLinks`. The dialog's owner is the focused
+  app window. Links are read with the `url` crate, as `new URL` read them.
+- **Quit watchdog** fires in the shell: the forced-exit hooks are asked of Node (`chrome.forcedExit`, 2 s), then the shell
+  exits 0. A failed `chrome.quitFacts` or `chrome.backgroundWork` lets the quit go on. Test seams:
+  `OMP_GUI_TEST_QUIT_WATCHDOG_MS` shortens the 30 s watchdog; `OMP_GUI_TEST_QUIT_DIALOG=<button>` answers the quit
+  dialog.
+- **Menu**: the tray's labels follow the label table's language (`i18n.labels`), not `TrayState.language`. The context
+  menu is shown from the UI thread without a Node round trip; role items act on `window::target()`. "Add to
+  dictionary" works (`wc.op addWordToDictionary`), and the context-menu event carries `hasImageContents`. About is a
+  no-op on Windows, as before.
+- **GPU**: the adapter's identity comes from the registry on Windows only (no `driverDate`); macOS lists no adapter, so
+  only the 7-day cool-off brings hardware back there. Software compositing is inferred from the launch decision and the
+  GPU process's command line. A GPU process's end comes from the shell's one child watcher (`childwatch.rs`, polled
+  every second; macOS reads no exit status there, so any GPU process that disappears while the app runs counts as a
+  crash, exit code -1). `upMs` counts from the shell's start. Markers are written atomically (`shell_core::atomic::write`).
+- **Hang watchdog** is a shell thread, not a worker: it keeps watching while Node is blocked, and it detects the resume
+  itself. The `pid` in the marker is Node's, from the heartbeat.
+- **Notifications**: under `OMP_GUI_HEADLESS=1` the shell posts none and emits no `show`; Windows toasts carry the app
+  icon (`resources/brand/app-icon.png`) by default.
+- **Contract additions** this slice made: `log.runtime` takes `cwd?` (`Ctx::runtime_log_in`); `Call::local` and
+  `Call::fire` (`host.rs`); `shell_core::atomic::write`; `startTestShell(exe, {env, args, prepare})` with
+  `shell.userData`; `state::paths()` gained `user_data`, `app_dir`, `resources` and `packaged`; `theme::dark()`;
+  `sys::system::os_release()`.
 
 ### 15.6 `preview.*` (SX2)
 

@@ -61,8 +61,9 @@ ompdesk-shell(.exe)          the shell; also every CEF helper (same exe, `--type
 2. User-data folder: `--user-data-dir`, else `OMP_GUI_TEST_USER_DATA_DIR`, else Electron's own rule
    (`FOLDERID_RoamingAppData\ompdesk`, `~/Library/Application Support/ompdesk`).
 3. One instance per user-data folder: named pipe `\\.\pipe\ompdesk-shell-<16 hex of SHA-256(lower-cased path)>` (unix
-   socket `$TMPDIR/ompdesk-<16 hex of SHA-256(userData)>-shell.sock` on macOS, `/tmp/…` when TMPDIR is long: `sun_path` holds 104 bytes; mode 0600). A second launch hands `{argv, cwd}` over and exits 0; the first emits
-   `app.secondInstance`.
+   socket `$TMPDIR/ompdesk-<16 hex of SHA-256(userData)>-shell.sock` on macOS, `/tmp/…` when TMPDIR is long: `sun_path` holds 104 bytes; mode 0600). A second launch hands `{argv, cwd}` over and exits 0; the first gives them to the `chrome` module's deep-link area (`deep_link::second_instance`), which opens a window or a link.
+   The GPU fallback and the crash-loop guard (`modules/chrome/gpu.rs`) decide software rendering right after the lock,
+   before CEF reads its switches.
 4. Electron's `file://` Local Storage is exported once (`migrate/local_storage.rs`, read from a copy of the LevelDB);
    the injected preload copies it into the `app://ompdesk` origin before any page script and the shell marks it done.
 5. Facts (paths, locale, displays, theme, `safeStorage` key) are read from the OS and answer `hello`; Node is started
@@ -83,6 +84,7 @@ ompdesk-shell(.exe)          the shell; also every CEF helper (same exe, `--type
 | `src/window.rs`, `view.rs`, `wc.rs`, `cdp.rs`, `wcframe.rs`, `session.rs` | windows, Preview views, pages and their events, DevTools protocol, offscreen frames, request contexts |
 | `src/scheme.rs`, `ipc.rs`, `protocol.rs` | `app://ompdesk` (files, range requests, `/__ipc/`, `/__shell/`), the page ⇄ Node relay, schemes served by Node |
 | `src/{menu,tray,dialog,clipboard,shellops,notification,screen,theme,power,shortcut,system,net}.rs` | the remaining namespaces |
+| `src/modules/chrome/`, `src/chrome_core/` | the `chrome` module (windows, menu, tray, quit, deep links, GPU fallback, hang watchdog) and its CEF-free rules, with `captured/<area>.json` from the TypeScript it replaced |
 | `build.rs`, `app.manifest`, `cef-pin.json` | Windows manifest and icon resource, the CEF pin |
 | `../../../../src/preload/shell.ts` | `window.omp`, built to `out/preload/shell.js` (IIFE) by `electron.vite.config.ts` |
 
@@ -129,11 +131,19 @@ file name).
 - **Dialogs** run on a thread of their own so their modal loop does not block CEF's UI thread; macOS `messageBox` is
   an app-modal alert, not a sheet.
 - **Notifications** are WinRT toasts keyed on the AppUserModelID; an unpackaged run without a Start-menu shortcut with
-  that id may show nothing (the `show` event is still sent).
+  that id may show nothing (the `show` event is still sent). Under `OMP_GUI_HEADLESS=1` the shell posts none and emits
+  no `show`; Windows toasts carry the app icon (`app-icon.png`) by default.
 - **Locales**: only `en-US` and `ko` ship; any other OS language falls back to `en-US` pak resources (`app.getLocale()`
   still reports the OS locale).
 - **Windows caption buttons** are one native popup window (138 × 48 DIP) owned by the top-level window, in
   `titleBarOverlay`'s colours; `setProgressBar` drives the taskbar button's progress.
+- **Chrome module** (PROTOCOL.md §15.5): the shell, not Node, makes the app windows, builds the application menu, the
+  text field's context menu and the tray, approves and confirms quits (30 s exit watchdog), takes deep links and second
+  launches, decides the GPU fallback before CEF starts and watches Node's main thread for hangs. Windows closed through
+  Node's `win.close()` follow the close-to-tray rule; macOS Dock clicks and `open` events are the module's too. Test
+  seams: `OMP_GUI_TEST_QUIT_WATCHDOG_MS` (shortens the quit watchdog), `OMP_GUI_TEST_QUIT_DIALOG=<button>` (answers the
+  quit dialog), `OMP_GUI_TEST_GPU_GONE=1` (serves `chrome.testGpuGone`), `OMP_GUI_HANG_WATCHDOG=1` (starts the hang
+  watchdog in an unpackaged run), `OMP_GUI_LAUNCH_GUARD=1` (records the launch in an unpackaged run).
 
 ## macOS: written here, not run here
 
