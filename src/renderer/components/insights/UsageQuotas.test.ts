@@ -52,6 +52,7 @@ describe("the line saying why a session is on its account", () => {
 		subagents: true,
 		cold: true,
 		"no-choice": true,
+		"target-limited": true,
 		"pin-refused": true,
 		mode: true,
 		"unknown-provenance": true,

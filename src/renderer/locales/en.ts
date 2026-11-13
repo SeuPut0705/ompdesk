@@ -1327,6 +1327,7 @@ export const en: Record<string, string> = {
 	"usage.rotation.subagents": "Stays: a subagent of this session is running on it.",
 	"usage.rotation.cold": "Idle for over an hour: the next request picks the best account again.",
 	"usage.rotation.no-choice": "Stays: no other account can serve this model right now.",
+	"usage.rotation.target-limited": "Stays: the other account's limit for this model is spent or nearly full.",
 	"usage.rotation.pin-refused": "Stays: the account couldn't be changed.",
 	"usage.rotation.mode": "Even rotation: this session keeps its account until it is blocked.",
 	"usage.rotation.unknown-provenance": "Left to omp: how this session got its account couldn't be read.",

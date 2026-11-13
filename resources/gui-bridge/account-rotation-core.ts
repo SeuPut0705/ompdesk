@@ -292,6 +292,12 @@ export interface AccountFacts {
 	primaryUsed?: number;
 	/** Stock's `allowanceSpent`: the renewable allowance is gone, so the account only serves on paid overage. */
 	spent: boolean;
+	/**
+	 * A window that applies to this request's model is exhausted or full (`MODEL_WINDOW_FULL`): a model's own weekly
+	 * cap (Claude's Fable) counts, which stock's gating trusts only with a live reset time. Such an account answers
+	 * 429 to this model whatever its other windows say, so it is never a move target.
+	 */
+	limited: boolean;
 	/** Stock's required drain (headroom per hour to reset) of the short and the long window. */
 	primaryDrain?: number;
 	secondaryDrain?: number;
@@ -331,6 +337,7 @@ export type RerankSkip =
 	| "blocked"
 	| "subagents"
 	| "no-choice"
+	| "target-limited"
 	| "same"
 	| "usage-unreadable"
 	| "within-margin"
@@ -359,9 +366,18 @@ export const HOT_PRIMARY_FRACTION = 0.85;
  */
 export const MID_TURN_DRAIN_MARGIN = 8;
 
+/**
+ * Used fraction at which a model's own window (a non-shared row, Claude's Fable weekly cap) counts as full for a
+ * move target. Stock hard-blocks such a row only at 100% with a live reset time and calls the counters "notoriously
+ * unreliable short of the cap" (pi-ai usage/claude.ts), while the provider answers 429 from the cap on: 11 Nov 14:05
+ * a session moved onto an account whose Fable window stock still read as usable and was refused on the first request.
+ * A choice, not a measurement.
+ */
+export const MODEL_WINDOW_FULL = 0.98;
+
 /** The account's allowance is spent or its short window is at stock's demotion step: a block is near. */
 function nearLimit(facts: AccountFacts): boolean {
-	return facts.spent || (facts.primaryUsed ?? 0) >= HOT_PRIMARY_FRACTION;
+	return facts.spent || facts.limited || (facts.primaryUsed ?? 0) >= HOT_PRIMARY_FRACTION;
 }
 
 /** The top pick's drain as a multiple of the pin's, on the first window both are measured in (stock compares the long one first). */
@@ -381,6 +397,7 @@ function drainRatio(pin: AccountFacts, top: AccountFacts): number | undefined {
  * | phase      | usage read | pin / top                                   | answer                         |
  * | ---------- | ---------- | ------------------------------------------- | ------------------------------ |
  * | either     | one unread | -                                           | stay `usage-unreadable`        |
+ * | either     | both       | top's window for the model spent or full    | stay `target-limited`          |
  * | either     | both       | pin near limit, top not                     | move `near-limit`              |
  * | turn-start | both       | stock ranks top first after the 2x margin   | move `better`                  |
  * | turn-start | both       | otherwise                                   | stay `within-margin`           |
@@ -395,9 +412,10 @@ export function decideMove(
 	read: RankRead,
 ):
 	| { move: true; why: MoveWhy }
-	| { move: false; why: "usage-unreadable" | "within-margin" | "mid-turn" | "no-better" } {
+	| { move: false; why: "usage-unreadable" | "target-limited" | "within-margin" | "mid-turn" | "no-better" } {
 	const { pin, top } = read;
 	if (!pin || !top) return { move: false, why: "usage-unreadable" };
+	if (top.limited) return { move: false, why: "target-limited" };
 	if (nearLimit(pin) && !nearLimit(top)) return { move: true, why: "near-limit" };
 	if (phase === "turn-start") {
 		return read.topFirstWithMargin ? { move: true, why: "better" } : { move: false, why: "within-margin" };

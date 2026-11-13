@@ -539,10 +539,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			"@oh-my-pi/pi-ai/auth/rank": ["orderUsageRankedCandidates()", "planPriority()"],
 			"@oh-my-pi/pi-ai/auth/usage-report": [
+				"isUsageLimitExhausted()",
 				"normalizeUsageFraction()",
 				"remainingUsageFraction()",
+				"scopedUsageLimits()",
 				"windowRequiredDrain()",
 			],
+			"@oh-my-pi/pi-ai": ["resolveUsedFraction()"],
 			"@oh-my-pi/pi-ai/usage/registry": ["defaultRankingStrategy()"],
 			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],
 		},

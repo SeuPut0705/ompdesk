@@ -51,6 +51,7 @@ const ROTATION_REASONS: ReadonlySet<string> = new Set([
 	"subagents",
 	"cold",
 	"no-choice",
+	"target-limited",
 	"pin-refused",
 	"mode",
 	"unknown-provenance",

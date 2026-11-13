@@ -63,7 +63,11 @@ export default function (pi) {
      return {
       provider: "anthropic",
       fetchedAt: Date.now(),
-      limits: [limit("anthropic:5h", "5h", s.used5, 5 * H, 3), limit("anthropic:7d", "7d", s.used7, 168 * H, s.resetH)],
+     limits: [
+      limit("anthropic:5h", "5h", s.used5, 5 * H, 3),
+      limit("anthropic:7d", "7d", s.used7, 168 * H, s.resetH),
+      ...(s.fable ? [{ id: "anthropic:7d:fable", label: "Claude 7 Day (Fable)", scope: { provider: "anthropic", windowId: "7d", tier: "fable" }, amount: { usedFraction: s.fable.used, unit: "percent" }, window: { id: "7d", label: "7 Day", durationMs: 168 * H, ...(s.fable.resetH === undefined ? {} : { resetsAt: Date.now() + s.fable.resetH * H }) } }] : []),
+     ],
       metadata: { email: params.credential.email, accountId: "acc-" + params.credential.email },
      };
     },
@@ -74,9 +78,9 @@ export default function (pi) {
    const handlers = [];
    install({ on: (event, handler) => { if (event === "before_agent_start") handlers.push(handler); }, pi: pi.pi, logger: pi.logger });
    const sid = session.sessionId;
-   const contextAs = kind => {
+   const contextAs = (kind, withModel) => {
     const base = session.extensionRunner.createContext(model);
-    return Object.create(base, { agent: { value: { ...base.agent, kind } } });
+    return Object.create(base, { agent: { value: { ...base.agent, kind } }, ...(withModel ? { model: { value: withModel } } : {}) });
    };
    const turnStart = async kind => handlers[0]({ type: "before_agent_start", prompt: "hello", systemPrompt: [] }, contextAs(kind ?? "main"));
    const pinOf = sessionId => auth.oauth.accounts("anthropic", sessionId).find(entry => entry.active)?.credentialId ?? null;
@@ -148,6 +152,24 @@ export default function (pi) {
    state.a = account(0.85, 3 * D0, 20);
    await refresh();
    out.stock85 = await fresh();
+   // A model's own window: B's Fable weekly cap reads 99% with no live reset time, so stock neither gates nor counts it as
+   // spent (100% would make stock rank B behind A itself), and A is at the 85% step, so stock's selector picks B for a
+   // Fable request. The pin must stay on A; with room left on B it moves.
+   const fableModel = { ...model, id: "claude-fable-5-2" };
+   const fableTurn = async label => {
+    await refresh();
+    await handlers[0]({ type: "before_agent_start", prompt: "hello", systemPrompt: [] }, contextAs("main", fableModel));
+    sequence.push({ label, pin: pinOf(sid) === ids.a ? "a" : pinOf(sid) === ids.b ? "b" : pinOf(sid), explicit: explicitOf(sid) ?? null });
+   };
+   state.a = account(0.9, 0.46 / 97.5, 97.5);
+   state.b = account(0.1, D0, 77);
+   state.b.fable = { used: 0.99, resetH: undefined };
+   pinned(ids.a, Date.now() - 5 * 60_000);
+   await fableTurn("fable-spent-target");
+   out.fableDecision = decisionOf(sid);
+   state.b.fable = { used: 0.5, resetH: 100 };
+   await fableTurn("fable-room-target");
+   state.b = account(0.1, D0, 77);
    // Explicit pin on A, B far better: stays.
    state.a = account(0.04, 0.46 / 97.5, 97.5);
    pinned(ids.a);
@@ -222,6 +244,7 @@ describe.skipIf(!existsSync(omp))("bridge quota re-rank on stock's selector", ()
 				stock849: string;
 				stock85: string;
 				decisionAfterMid: { why: string; moved: boolean; phase: string };
+				fableDecision: { why: string; moved: boolean; phase: string };
 			};
 			// The user's numbers: B's 7d drain 2.7x A's.
 			expect(probe.ratio).toBeGreaterThan(2.6);
@@ -239,6 +262,8 @@ describe.skipIf(!existsSync(omp))("bridge quota re-rank on stock's selector", ()
 				"a-hot-to-b": "b",
 				"mid-below-85": "a",
 				"mid-at-86": "b",
+				"fable-spent-target": "a",
+				"fable-room-target": "b",
 				"explicit-stays": "a",
 				"cold-left-to-stock": "a",
 			});
@@ -247,6 +272,8 @@ describe.skipIf(!existsSync(omp))("bridge quota re-rank on stock's selector", ()
 			expect(probe.stock85).toBe("b");
 			// Every decision is remembered for the usage view, the move included: why, that it moved, and between calls.
 			expect(probe.decisionAfterMid).toMatchObject({ why: "near-limit", moved: true, phase: "mid-turn" });
+			// A spent Fable window on the account stock would pick is never a move target; with room left it is.
+			expect(probe.fableDecision).toMatchObject({ why: "target-limited", moved: false, phase: "turn-start" });
 			// Every move is an automatic pin, never an explicit one; the explicit one is still explicit afterwards.
 			for (const step of probe.sequence) {
 				expect(step.explicit, step.label).toBe(step.label === "explicit-stays");

@@ -22,7 +22,7 @@
  * `credentialSourceSessionId`), so they already have an account and never re-rank.
  */
 import * as fs from "node:fs";
-import type { UsageReport } from "@oh-my-pi/pi-ai";
+import { resolveUsedFraction, type UsageReport } from "@oh-my-pi/pi-ai";
 import {
 	ACCOUNT_POLICY_BLOCK_SCOPE,
 	AUTH_BLOCK_SCOPE,
@@ -30,13 +30,20 @@ import {
 	providerTypeKey,
 } from "@oh-my-pi/pi-ai/auth/blocks";
 import { orderUsageRankedCandidates, planPriority, type RankedOAuthCandidate } from "@oh-my-pi/pi-ai/auth/rank";
-import { normalizeUsageFraction, remainingUsageFraction, windowRequiredDrain } from "@oh-my-pi/pi-ai/auth/usage-report";
+import {
+	isUsageLimitExhausted,
+	normalizeUsageFraction,
+	remainingUsageFraction,
+	scopedUsageLimits,
+	windowRequiredDrain,
+} from "@oh-my-pi/pi-ai/auth/usage-report";
 import { defaultRankingStrategy } from "@oh-my-pi/pi-ai/usage/registry";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { credentialPinHash } from "@oh-my-pi/pi-coding-agent/session/credential-pin";
 import {
 	type AccountFacts,
 	lastDecision,
+	MODEL_WINDOW_FULL,
 	parseLedger,
 	type QuotaRerankPrompt,
 	type QuotaRerankStock,
@@ -185,8 +192,18 @@ function quotaStock(ctx: ExtensionContext, onRead?: (read: RankRead) => void): Q
 					orderPos,
 				};
 				const measured = { primary: primary !== undefined, secondary: secondary !== undefined };
+				// The windows that apply to this model, as stock ranks it (a model's own cap included, unconfirmed or not).
+				const inScope =
+					strategy.scopeLimitsForReserve?.(usage, rankingContext) ??
+					scopedUsageLimits(strategy, usage, rankingContext);
+				const limited = inScope.some(
+					limit =>
+						isUsageLimitExhausted(limit) ||
+						(limit.scope.shared !== true && (resolveUsedFraction(limit) ?? 0) >= MODEL_WINDOW_FULL),
+				);
 				const facts: AccountFacts = {
 					spent: candidate.allowanceSpent,
+					limited,
 					...(measured.primary
 						? { primaryUsed: candidate.primaryUsed, primaryDrain: candidate.primaryRequiredDrain }
 						: {}),

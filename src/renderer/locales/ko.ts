@@ -1314,6 +1314,7 @@ export const ko: Record<string, string> = {
 	"usage.rotation.subagents": "그대로예요. 이 세션의 서브에이전트가 이 계정으로 일하고 있어요.",
 	"usage.rotation.cold": "한 시간 넘게 쉬었어요. 다음 요청이 가장 나은 계정을 다시 골라요.",
 	"usage.rotation.no-choice": "그대로예요. 지금 이 모델을 처리할 다른 계정이 없어요.",
+	"usage.rotation.target-limited": "그대로예요. 다른 계정은 이 모델의 한도를 다 썼거나 거의 찼어요.",
 	"usage.rotation.pin-refused": "그대로예요. 계정을 바꾸지 못했어요.",
 	"usage.rotation.mode": "균등 순환이에요. 이 세션은 막힐 때까지 계정을 유지해요.",
 	"usage.rotation.unknown-provenance": "omp에 맡겼어요. 이 세션이 계정을 받은 경위를 읽지 못했어요.",

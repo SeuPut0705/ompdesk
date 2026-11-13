@@ -324,7 +324,7 @@ function quotaAuth(world: QuotaWorld = {}) {
 }
 
 /** One account's report as a cool, measured account: the facts the move rule reads. */
-const COOL: AccountFacts = { primaryUsed: 0.3, spent: false, primaryDrain: 0.1, secondaryDrain: 0.01 };
+const COOL: AccountFacts = { primaryUsed: 0.3, spent: false, limited: false, primaryDrain: 0.1, secondaryDrain: 0.01 };
 
 /** Stock's ranking, scripted: its pick, and its reports (`read`: `true`/`false` = whether stock still ranks that pick first past the margin). */
 function quotaStock(top: number | undefined, read: boolean | Partial<RankRead>) {
@@ -577,6 +577,60 @@ describe("the move rule (decideMove), as a table", () => {
 		expect(decideMove(phase, read)).toEqual(expected);
 	});
 
+	// A model's own window (Claude's Fable weekly cap) that is spent or full: stock gates it only at 100% with a live reset.
+	const limited: AccountFacts = { ...COOL, limited: true };
+	it.each<[string, RerankPhase, RankRead, { move: boolean; why: string }]>([
+		[
+			"turn start: stock ranks the other account first but its model window is spent",
+			"turn-start",
+			{ pin: COOL, top: limited, topFirstWithMargin: true },
+			{ move: false, why: "target-limited" },
+		],
+		[
+			"turn start: the pin is at the 85% step, the other account's model window is spent",
+			"turn-start",
+			{ pin: pinHot, top: limited, topFirstWithMargin: true },
+			{ move: false, why: "target-limited" },
+		],
+		[
+			"mid-turn: the pin is at the 85% step, the other account's model window is spent",
+			"mid-turn",
+			{ pin: pinHot, top: limited, topFirstWithMargin: true },
+			{ move: false, why: "target-limited" },
+		],
+		[
+			"mid-turn: 8x the drain, but the other account's model window is spent",
+			"mid-turn",
+			{ pin: drain(0.01), top: { ...limited, secondaryDrain: 0.08 }, topFirstWithMargin: true },
+			{ move: false, why: "target-limited" },
+		],
+		[
+			"the pin's own model window is spent and the other account's is not: it leaves",
+			"mid-turn",
+			{ pin: limited, top: COOL, topFirstWithMargin: true },
+			{ move: true, why: "near-limit" },
+		],
+		[
+			"an unreadable pin outranks the target's limit: nothing is known",
+			"turn-start",
+			{ pin: undefined, top: limited, topFirstWithMargin: true },
+			{ move: false, why: "usage-unreadable" },
+		],
+	])("%s", (_name, phase, read, expected) => {
+		expect(decideMove(phase, read)).toEqual(expected);
+	});
+
+	it("never moves a session onto an account whose model window is spent, through the whole step", async () => {
+		const { auth, pins } = quotaAuth({ pin: WARM_PIN });
+		const { stock } = quotaStock(9, { pin: pinHot, top: limited, topFirstWithMargin: true });
+		const step = await rerankBeforePrompt(
+			() => ({ auth, provider: "anthropic", modelId: "claude-fable-5-2", sessionId: "s1" }),
+			stock,
+			NOW,
+		);
+		expect(step).toEqual({ move: false, why: "target-limited" });
+		expect(pins).toEqual([]);
+	});
 	it("mirrors stock's 85% step and keeps the mid-turn margin well above the turn-start one", () => {
 		expect(HOT_PRIMARY_FRACTION).toBe(0.85);
 		expect(MID_TURN_DRAIN_MARGIN).toBeGreaterThan(RERANK_DRAIN_MARGIN);
