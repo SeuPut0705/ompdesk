@@ -1118,7 +1118,19 @@ fn execute(rt: &mut Runtime, forced_full: bool) -> i32 {
                 }
                 lease = Some(l);
             }
-            Err(e) => rt.say(&format!("no heavy slot ({e}); running without one")),
+            // Fail closed: an admission that cannot be decided (a full disk refuses the queue's own files, the pool
+            // folder cannot be written) never lets the command start, or the disk rule is lost exactly when it matters.
+            Err(e) => {
+                rt.say(&format!(
+                    "cannot take a heavy slot ({e}); the command does not start (free space, or the pool folder {}?)",
+                    heavy::pool_dir(&lookup).display()
+                ));
+                rt.run.state = State::Error;
+                rt.run.ended = Some(now_ms());
+                rt.run.summary = Some(format!("not started: no heavy slot ({e})"));
+                rt.save();
+                return 1;
+            }
         }
         rt.run.state = State::Running;
         rt.save();
