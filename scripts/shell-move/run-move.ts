@@ -510,12 +510,11 @@ function setupLogText(): string {
 async function verifyRolledBack(reason: "swap" | "start", final: boolean): Promise<void> {
 	// `start` waits for the old app too: the setup has to see the new one fail (it leaves at once when nothing of it runs).
 	let result: LogLine | undefined;
-	const before = updateLines().length;
+	// The setup starts the old app at once, so its line may be there before this looks: every `swap result` of the run counts
+	// (the first launch of the harness's own, before the update, logs none).
 	for (let waited = 0; waited < 150 && !result; waited += 2) {
 		await sleep(2000);
-		result = updateLines()
-			.slice(before)
-			.find(line => line.message === "swap" && line.details?.event === "result");
+		result = updateLines().find(line => line.message === "swap" && line.details?.event === "result");
 	}
 	evidence.swapResult = result?.details ?? null;
 	// The old app the SETUP started (through the launcher) reads the profile and says what came of the move.
