@@ -188,7 +188,6 @@ describe("SidebarProjects", () => {
 			],
 			removed: [],
 			worktrees: {},
-			byRecorded: true,
 		});
 		await h.projects.sync();
 		expect(h.projects.state().projects).toEqual([
@@ -207,7 +206,6 @@ describe("SidebarProjects", () => {
 			],
 			removed: [],
 			worktrees: {},
-			byRecorded: true,
 		});
 		h.gone.add("/work/beta");
 		h.gone.add("/home/me/.omp/wt/gui-agent-m41hj7-5a1b2c3");
@@ -285,7 +283,6 @@ describe("SidebarProjects", () => {
 			],
 			removed: [],
 			worktrees: {},
-			byRecorded: true,
 		});
 		h.gone.add(F07);
 		h.gone.add(STRAY);
@@ -326,26 +323,23 @@ describe("SidebarProjects", () => {
 		expect(paths(h.projects)).toEqual(["/work/beta", "/work/gamma", "/work/alpha"]);
 	});
 
-	it("drops an older OMPdesk's unpinned projects with no session once, then keeps what the person adds", async () => {
+	// The owner's rule: a project the person opened stays with no session. A list an older OMPdesk stored records no
+	// origin, so none of its projects can be told from the person's: they all stay, even with no session left.
+	it("keeps every project an older OMPdesk listed, with no session or not, and drops only one sessions brought in", async () => {
 		const h = harness({
 			projects: [
 				{ path: "/work/alpha", addedAt: 1 },
 				{ path: "/work/beta", addedAt: 2 },
-				{ path: "/work/gamma", addedAt: 3 },
 			],
 			removed: [],
 			worktrees: {},
 		});
-		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z")]);
-		h.setPinned(["/work/gamma"]);
+		h.setSessions([session("/work/gamma", "2026-10-03T00:00:00Z")]);
 		await h.projects.sync();
-		expect(paths(h.projects)).toEqual(["/work/alpha", "/work/gamma"]);
-		expect(h.projects.state().byRecorded).toBe(true);
-		// A list that records origins keeps the person's empty project.
-		await h.projects.command({ action: "add", path: "/work/beta" });
-		h.setPinned([]);
+		expect(paths(h.projects)).toEqual(["/work/alpha", "/work/beta", "/work/gamma"]);
+		h.setSessions([]);
 		await h.projects.sync();
-		expect(paths(h.reopen())).toEqual(["/work/alpha", "/work/gamma", "/work/beta"]);
+		expect(paths(h.reopen())).toEqual(["/work/alpha", "/work/beta"]);
 	});
 
 	it("drops nothing while the sessions cannot be read", async () => {
@@ -357,7 +351,6 @@ describe("SidebarProjects", () => {
 		h.setSessions(null);
 		await h.projects.sync();
 		expect(paths(h.projects)).toEqual(["/work/alpha"]);
-		expect(h.projects.state().byRecorded).toBeUndefined();
 	});
 
 	it("drops a removed project for good until the person opens the folder again", async () => {
@@ -384,7 +377,7 @@ describe("SidebarProjects", () => {
 	});
 
 	it("keeps a project whose folder went missing, marked, and unmarks it when it comes back", async () => {
-		const h = harness({ projects: [{ path: "/work/alpha", addedAt: 1 }], removed: [], byRecorded: true });
+		const h = harness({ projects: [{ path: "/work/alpha", addedAt: 1 }], removed: [] });
 		h.gone.add("/work/alpha");
 		await h.projects.command({ action: "get" });
 		expect(h.projects.state().projects).toEqual([{ path: "/work/alpha", addedAt: 1, missing: true }]);
@@ -406,7 +399,6 @@ describe("SidebarProjects", () => {
 		const h = harness({
 			projects: many.map(path => ({ path, addedAt: 1 })),
 			removed: many.map(path => `${path}-removed`),
-			byRecorded: true,
 		});
 		expect(h.projects.state().projects).toHaveLength(600);
 		await h.projects.command({ action: "add", path: "/work/p600" });

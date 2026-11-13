@@ -63,11 +63,6 @@ export interface SidebarProjectsState {
 	 * sessions leave, a gone project's stay under it, dimmed). Absent from an older host.
 	 */
 	gone?: string[];
-	/**
-	 * The list records `by` (OMPdesk 0.128 on). A list an older OMPdesk stored has no origins: its first pass drops
-	 * every unpinned project with no session once, then sets this.
-	 */
-	byRecorded?: true;
 }
 
 export type SidebarProjectsRequest =
@@ -145,7 +140,6 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 		...(Object.keys(worktreeKinds).length > 0 ? { worktreeKinds } : {}),
 		...(Object.keys(autopilotRuns).length > 0 ? { autopilotRuns } : {}),
 		...(gone.length > 0 ? { gone } : {}),
-		...(record.byRecorded === true ? { byRecorded: true as const } : {}),
 	};
 }
 

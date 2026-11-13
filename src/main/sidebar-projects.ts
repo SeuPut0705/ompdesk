@@ -276,16 +276,15 @@ export class SidebarProjects {
 			);
 		}
 		if (this.#disposed) return;
-		// A project only sessions brought in leaves with its last one (unless pinned); a list an older OMPdesk stored,
-		// which knows no origins, drops every unpinned project with no session once. Never on a list that could not be read.
+		// A project only sessions brought in leaves with its last one, unless pinned. One with no recorded origin (an older
+		// OMPdesk listed it) may be the person's, so it stays. Never on a list that could not be read.
 		const pinned = new Set(this.#deps.pinned?.() ?? []);
-		const legacy = !this.#state.byRecorded;
 		const ended = new Set(
 			sessions === null
 				? []
 				: this.#state.projects
-						.filter(entry => !moved.has(entry.path) && !found.has(entry.path) && !pinned.has(entry.path))
-						.filter(entry => entry.by === "sessions" || legacy)
+						.filter(entry => entry.by === "sessions" && !moved.has(entry.path) && !found.has(entry.path))
+						.filter(entry => !pinned.has(entry.path))
 						.map(entry => entry.path),
 		);
 		const listed = new Set(this.#state.projects.filter(entry => !moved.has(entry.path)).map(entry => entry.path));
@@ -294,16 +293,7 @@ export class SidebarProjects {
 			if (listed.has(path) || this.#state.removed.includes(path)) continue;
 			added.push({ path, addedAt: addedAt || this.#now(), by: "sessions" });
 		}
-		await this.#checkFolders(
-			added,
-			ended,
-			worktrees,
-			worktreeKinds,
-			autopilotRuns,
-			moved,
-			gone.sort(),
-			sessions !== null,
-		);
+		await this.#checkFolders(added, ended, worktrees, worktreeKinds, autopilotRuns, moved, gone.sort());
 	}
 
 	/**
@@ -336,7 +326,7 @@ export class SidebarProjects {
 
 	/**
 	 * Marks each listed project whose folder is gone (and unmarks one that came back); commits with `added` in and
-	 * `ended` out. `read`: the sessions were read, so the list now records origins.
+	 * `ended` out.
 	 */
 	async #checkFolders(
 		added: readonly SidebarProject[],
@@ -346,7 +336,6 @@ export class SidebarProjects {
 		autopilotRuns: Record<string, AutopilotRun>,
 		moved: ReadonlyMap<string, string>,
 		gone: readonly string[],
-		read: boolean,
 	): Promise<void> {
 		const exists = this.#deps.exists ?? folderExists;
 		const before = this.#state;
@@ -363,12 +352,10 @@ export class SidebarProjects {
 			.filter(entry => !(entry.missing && isOmpdeskWorktreeFolder(entry.path)));
 		// Something else changed the list meanwhile: the next pass checks again.
 		if (this.#disposed || this.#state !== before) return;
-		const recorded = before.byRecorded || read;
 		const changed =
 			added.length > 0 ||
 			ended.size > 0 ||
 			moved.size > 0 ||
-			recorded !== Boolean(before.byRecorded) ||
 			checked.length !== kept.length + added.length ||
 			checked.some((entry, index) => entry.missing !== kept[index]?.missing) ||
 			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees) ||
@@ -382,7 +369,6 @@ export class SidebarProjects {
 				worktreeKinds: Object.keys(worktreeKinds).length > 0 ? worktreeKinds : undefined,
 				autopilotRuns: Object.keys(autopilotRuns).length > 0 ? autopilotRuns : undefined,
 				...(gone.length > 0 ? { gone: [...gone] } : { gone: undefined }),
-				...(recorded ? { byRecorded: true as const } : {}),
 			});
 	}
 

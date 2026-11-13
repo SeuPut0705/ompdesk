@@ -4481,7 +4481,7 @@ describe("Sidebar device sections", () => {
 			);
 			const removed = new Set<string>();
 			const host = new SidebarProjects({
-				read: () => ({ projects: [{ path: APP, addedAt: 1 }], removed: [], byRecorded: true }),
+				read: () => ({ projects: [{ path: APP, addedAt: 1 }], removed: [] }),
 				write: () => {},
 				sessions: async () => hostSessions,
 				defaultWorkspace: () => "/Users/kim/.omp/work",

@@ -3973,7 +3973,7 @@ describe("LocalHostServices host.* calls", () => {
 		const y = new FakeConnection(peer("device-y"));
 		// This computer's real list: what a device adds or removes is the one its own sidebar shows.
 		const list = new SidebarProjects({
-			read: () => ({ projects: [{ path: "/srv/app", addedAt: 1 }], removed: [], byRecorded: true }),
+			read: () => ({ projects: [{ path: "/srv/app", addedAt: 1 }], removed: [] }),
 			write: () => {},
 			sessions: async () => [],
 			defaultWorkspace: () => "/srv/work",
@@ -3987,17 +3987,11 @@ describe("LocalHostServices host.* calls", () => {
 			projects: [{ path: "/srv/app", addedAt: 1 }],
 			removed: [],
 			worktrees: {},
-			byRecorded: true,
 		});
 		await services.call(y.peer, "host.projects.command", { request: { action: "get" } }, y);
 		await services.call(x.peer, "host.projects.command", { request: { action: "add", path: "/srv/new" } }, x);
 		await services.call(y.peer, "host.projects.command", { request: { action: "remove", path: "/srv/app" } }, y);
-		const latest = {
-			projects: [{ path: "/srv/new", addedAt: 7 }],
-			removed: ["/srv/app"],
-			worktrees: {},
-			byRecorded: true,
-		};
+		const latest = { projects: [{ path: "/srv/new", addedAt: 7 }], removed: ["/srv/app"], worktrees: {} };
 		expect(list.state()).toEqual(latest);
 		for (const conn of [x, y])
 			expect(conn.events.filter(entry => entry.event === PROJECTS_EVENT).map(entry => entry.data)).toEqual([
@@ -4008,7 +4002,6 @@ describe("LocalHostServices host.* calls", () => {
 					],
 					removed: [],
 					worktrees: {},
-					byRecorded: true,
 				},
 				latest,
 			]);

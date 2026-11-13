@@ -122,7 +122,7 @@ function sidebarProjectsOn(
 ) {
 	const pushes: SidebarProjectsState[] = [];
 	const list = new SidebarProjects({
-		read: () => ({ projects, removed: [], byRecorded: true }),
+		read: () => ({ projects, removed: [] }),
 		write: () => {},
 		sessions: async () => [],
 		defaultWorkspace: () => "/work",
