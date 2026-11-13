@@ -20,9 +20,9 @@ use tokio::task::AbortHandle;
 use super::admission::{self, Admission, Ask, Ended, Key, Limit, Stage};
 use super::answer::{self, Judged};
 use super::contract::{
-    Answer, JobState, Lane, MainFact, Next, Origin, Purpose, QueueEntry, RepoId, Rerun, RunId,
-    RunResult, RunVerdict, Sha, Snapshot, StartDecision, StartReply, StartRequest, StartScope,
-    StatusRequest, Until, WaitRequest, Where,
+    Answer, Decision, DecisionWhy, JobState, Lane, MainFact, Next, Origin, PolicyAction, Purpose,
+    QueueEntry, RepoId, Rerun, RunId, RunResult, RunVerdict, Sha, Snapshot, StartDecision,
+    StartReply, StartRequest, StartScope, StatusRequest, Until, WaitRequest, Where, WhyCode,
 };
 use super::policy::{self, Plan};
 use super::poller::Poller;
@@ -168,6 +168,8 @@ const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
 const SETTLE_EVERY: Duration = Duration::from_secs(30);
 /// The answers the snapshot keeps for the board.
 const ANSWERS_SHOWN: usize = 50;
+/// The decisions the snapshot keeps for the board's "Decided automatically" log.
+const DECISIONS_SHOWN: usize = 100;
 const PAUSE_FILE: &str = "admission.json";
 
 /// What the hub recorded of a run it started.
@@ -510,6 +512,32 @@ impl Core {
                 false
             }
         }
+    }
+
+    /// One line of the "Decided automatically" log (the newest `DECISIONS_SHOWN`).
+    fn decide(
+        &self,
+        policy: &str,
+        run: &str,
+        action: PolicyAction,
+        reason: String,
+        why: DecisionWhy,
+    ) {
+        let decision = Decision {
+            policy: policy.into(),
+            run: run.into(),
+            action,
+            reason,
+            why,
+            at: clock::now_ms(),
+        };
+        self.snapshot.send_modify(|current| {
+            let mut next = Snapshot::clone(current);
+            next.decisions.push(decision);
+            let over = next.decisions.len().saturating_sub(DECISIONS_SHOWN);
+            next.decisions.drain(..over);
+            *current = Arc::new(next);
+        });
     }
 
     /// Keeps a run's answer, tells every subscriber (main wakes the session that started it) and the board.
@@ -886,6 +914,18 @@ impl Core {
             },
             now,
         );
+        for old in &started.superseded {
+            self.decide(
+                "cancel-superseded",
+                old,
+                PolicyAction::CancelSuperseded,
+                format!("{id} is a newer run of the same ref and workflow"),
+                DecisionWhy {
+                    run: Some(id.clone()),
+                    ..DecisionWhy::new(WhyCode::NewerRun)
+                },
+            );
+        }
         for old in &started.cancel {
             if let Some((repo, run)) = self.poller.github_of(old) {
                 // A cancel that fails leaves the old run going; the poller still sees it end.
@@ -909,6 +949,16 @@ impl Core {
                     Some(green) => answer::reused(&id, green, &from, 0, now),
                     None => answer::unknown(&id, now, Next::Wait, format!("{from} was green")),
                 };
+                self.decide(
+                    "reuse-green",
+                    &id,
+                    PolicyAction::Reuse,
+                    format!("{from} ran the same commit, workflow and inputs green"),
+                    DecisionWhy {
+                        run: Some(from.clone()),
+                        ..DecisionWhy::new(WhyCode::GreenOnSameInputs)
+                    },
+                );
                 self.finish(&id, answer);
                 return Ok(StartReply {
                     run_id: Some(id),
@@ -942,13 +992,41 @@ impl Core {
                     lane = lane.word()
                 ),
             ),
-            Some(Stage::Held) => reply(
-                StartDecision::Held,
-                format!(
-                    "{pool} has no free place: held in OMPdesk's queue ({lane} lane) and dispatched when one frees{replaced}",
-                    lane = lane.word()
-                ),
-            ),
+            Some(Stage::Held) => {
+                let (running, limit) = locked(&self.admission).load(pool);
+                let full = running >= limit;
+                self.decide(
+                    if full {
+                        "wait-when-full"
+                    } else {
+                        "release-first"
+                    },
+                    &id,
+                    PolicyAction::Hold,
+                    if full {
+                        format!("{pool} is full ({running} of {limit})")
+                    } else {
+                        "a release run ahead holds the account's last place".to_owned()
+                    },
+                    DecisionWhy {
+                        pool: Some(pool.into()),
+                        running: Some(running),
+                        limit: Some(limit),
+                        ..DecisionWhy::new(if full {
+                            WhyCode::PoolFull
+                        } else {
+                            WhyCode::ReleaseAhead
+                        })
+                    },
+                );
+                reply(
+                    StartDecision::Held,
+                    format!(
+                        "{pool} has no free place: held in OMPdesk's queue ({lane} lane) and dispatched when one frees{replaced}",
+                        lane = lane.word()
+                    ),
+                )
+            }
             _ => Ok(StartReply {
                 run_id: Some(id.clone()),
                 decision: StartDecision::Refused,

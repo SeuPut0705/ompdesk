@@ -373,6 +373,11 @@ impl Admission {
     pub fn pause(&mut self, paused: bool) {
         self.paused = paused;
     }
+
+    /// A pool's places taken (its own runs and those it does not govern) and its limit, for the decision log.
+    pub fn load(&self, pool: &str) -> (u32, u32) {
+        (self.places(pool), self.limit(pool).places)
+    }
 }
 
 /// One pump pass: admit under the lock, then send the dispatch with the lock released and record its answer. Returns

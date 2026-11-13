@@ -95,12 +95,18 @@ async fn a_start_dispatches_only_the_inputs_the_workflow_declares_and_a_newer_on
         .await
         .unwrap();
     assert_eq!(newer.decision, StartDecision::Started);
+    let older = older.run_id.unwrap();
     assert!(
-        newer
-            .reason
-            .ends_with(&format!("; it replaces {}", older.run_id.unwrap())),
+        newer.reason.ends_with(&format!("; it replaces {older}")),
         "{}",
         newer.reason
+    );
+    // The board's log says so, with a code it translates.
+    let decisions = hub.watch().borrow().decisions.clone();
+    let last = decisions.last().unwrap();
+    assert_eq!(
+        (last.run.as_str(), last.why.code, last.why.run.clone()),
+        (older.as_str(), WhyCode::NewerRun, newer.run_id)
     );
 }
 
@@ -157,6 +163,12 @@ async fn macos_is_for_listed_branches_one_unit_at_a_time_and_the_dispatch_carrie
         .unwrap();
     assert_eq!(held.decision, StartDecision::Held, "{}", held.reason);
     assert_eq!(dispatches(&github).len(), 1);
+    let decisions = hub.watch().borrow().decisions.clone();
+    let why = &decisions.last().unwrap().why;
+    assert_eq!(
+        (why.code, why.pool.as_deref(), why.running, why.limit),
+        (WhyCode::PoolFull, Some("github-macos"), Some(1), Some(1))
+    );
 }
 
 #[tokio::test]
