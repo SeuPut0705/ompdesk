@@ -79,7 +79,9 @@ describe("resources/installer.nsh and the test seams", () => {
 		// electron-builder includes getProcessInfo.nsh (and declares $pid) only while it has no such macro of ours to use.
 		expect(shipping).toMatch(/^!include "getProcessInfo\.nsh"\nVar pid$/m);
 		// electron-builder's own check first, then the old folder is set aside.
-		expect(shipping).toMatch(/!insertmacro _CHECK_APP_RUNNING\n\s+!insertmacro ompKeepOldFolder/);
+		expect(shipping).toMatch(
+			/!insertmacro _CHECK_APP_RUNNING\n\s+!insertmacro ompSkipRepeatedFailure\n\s+!insertmacro ompKeepOldFolder/,
+		);
 		expect(shipping).toContain('Rename "$INSTDIR" "$ompBackup"');
 		expect(shipping).toContain("!macro customInstall");
 		for (const needed of ["libcef.dll", "resources\\node\\node.exe", "resources\\app\\out\\main\\index.js"]) {
@@ -118,6 +120,22 @@ describe("resources/installer.nsh and the test seams", () => {
 		);
 	});
 
+	it("counts start failures in userData and skips an automatic update of a version that already failed", () => {
+		// The record's shape is release 1's (`{"version","count","at"}`, one line, `at` in epoch milliseconds).
+		expect(shipping).toContain('StrCpy $ompFailed "$ompUserData\\update-start-failed.json"');
+		expect(shipping).toMatch(/\$\{StdUtils\.Time\} \$R6[\s\S]*\$\\"at\$\\":\$R6000\}/);
+		// The skip comes before the old folder is touched, only for an automatic update, and exits 2 with the old app started.
+		expect(shipping).toMatch(
+			/!insertmacro _CHECK_APP_RUNNING\n\s+!insertmacro ompSkipRepeatedFailure\n\s+!insertmacro ompKeepOldFolder/,
+		);
+		expect(shipping).toMatch(
+			/!macro ompSkipRepeatedFailure[\s\S]*\$\{if\} \$\{isUpdated\}[\s\S]*start-failed-before: skipped[\s\S]*SetErrorLevel 2\n\s+Quit/,
+		);
+		// A proof of start removes the record; a failure writes it before the old app is restored.
+		expect(shipping).toMatch(/RMDir \/r "\$ompBackup"\n\s+Delete "\$ompFailed"/);
+		expect(shipping).toMatch(/!insertmacro ompRecordFailure\n\s+!insertmacro ompLog "start-failed:/);
+	});
+
 	it("never defines OMP_MOVE_TEST itself, and only the dry run's include does", () => {
 		expect(shipping).not.toMatch(/^!define OMP_MOVE_TEST/m);
 		expect(seams).toMatch(/^!define OMP_MOVE_TEST/m);
@@ -142,7 +160,7 @@ describe("resources/installer.nsh and the test seams", () => {
 		expect(shipping).toContain('$\\"version$\\":$\\"${VERSION}$\\"');
 		// The proof removes the backup; the lack of it kills the new app's processes, restores and exits 2, no dialog.
 		expect(shipping).toMatch(
-			/\$\{if\} \$ompSeen == "1"\n\s+RMDir \/r "\$ompBackup"\n\s+\$\{else\}\n\s+!insertmacro ompLog "start-failed:[^\n]*\n\s+!insertmacro KILL_PROCESS "\$\{APP_EXECUTABLE_FILENAME\}" 1\n\s+Sleep 3000\n\s+!insertmacro ompRestoreOldFolder "start-failed"/,
+			/\$\{if\} \$ompSeen == "1"\n\s+RMDir \/r "\$ompBackup"\n\s+Delete "\$ompFailed"\n\s+\$\{else\}\n\s+!insertmacro ompRecordFailure\n\s+!insertmacro ompLog "start-failed:[^\n]*\n\s+!insertmacro KILL_PROCESS "\$\{APP_EXECUTABLE_FILENAME\}" 1\n\s+Sleep 3000\n\s+!insertmacro ompRestoreOldFolder "start-failed"/,
 		);
 		// Neither check removes the backup before the proof, and `start-failed` shows no dialog.
 		expect(shipping).toMatch(/!if "\$\{REASON\}" == "incomplete"\n\s+\$\{IfNot\} \$\{Silent\}/);

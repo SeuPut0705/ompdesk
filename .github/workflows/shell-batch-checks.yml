@@ -14,7 +14,8 @@
 #              v0.127.0 updates itself through its unchanged updater into the real shell (the success run: the main's
 #              app-started.json of the new version appears and the old folder's backup is gone), an unpack made incomplete
 #              puts the Electron app back, and a new shell that exits after CEF init (OMP_GUI_TEST_SHELL_FAIL_START=1)
-#              gets Electron back too, started, `swap result outcome rolled back`, no window, no dialog.
+#              gets Electron back too, started, `swap result outcome rolled back`, no window, no dialog; and the same
+#              version offered again after that failure is not swapped in (`start-failed-before: skipped`).
 #  keychain    S's landing gate for the macOS keychain (scripts/shell-move/keychain-ci.sh): a release-signed item read by the
 #              shell, an ad-hoc item never asked about, a profile without ciphertext never reading; no SecurityAgent or
 #              coreauthd line. macOS 27 has no hosted runner: the owner's Mac covers it.
@@ -167,6 +168,9 @@ jobs:
       - name: A move whose new shell does not start
         shell: bash
         run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at start 2>&1 | tee move-win-fail-start.log
+      - name: A new shell that does not start, twice in a row (the second round is skipped)
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at start-twice 2>&1 | tee move-win-fail-start-twice.log
       - name: Evidence lines
         if: always()
         shell: bash

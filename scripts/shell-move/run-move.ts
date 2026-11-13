@@ -2,7 +2,7 @@
  * The dry run of the update from the released Electron app (v0.127.0) to the CEF shell, on this PC, never touching the
  * person's install (native-rust › S):
  *
- *   bun scripts/shell-move/run-move.ts [--label success] [--fail-at swap|start] [--work <dir>] [--keep] [--stand-in <project>]
+ *   bun scripts/shell-move/run-move.ts [--label success] [--fail-at swap|start|start-twice] [--work <dir>] [--keep] [--stand-in <project>]
  *
  * `--stand-in <project>` packs a project of the same shape (package.json, out/, a staged shell) in place of this
  * checkout, without the package check: the harness's own dry test while the real shell is not built yet.
@@ -31,6 +31,9 @@
  *    `app-started.json` of the new version, ends what the new app started, puts the old folder and uninstall entry
  *    back, starts the old app (logging `start-failed`, exit 2, no dialog) and that app logs `swap result … rolled back`.
  *    The success run checks the other side: the marker names the new version and the backup of the old folder is gone.
+ * 7. `--fail-at start-twice`: `start`, then the old app runs again with its updater and offers the same version once
+ *    more: the setup finds `update-start-failed.json` naming that version (the first failure wrote it), does not swap
+ *    (`start-failed-before: skipped` in the setup's log, exit 2), and the old app is started again at once, no window.
  *
  * What protects the person's data: the old Electron runs with `OMP_GUI_TEST_USER_DATA_DIR=<temp profile>`,
  * `OMP_GUI_HEADLESS=1` (no `omp://` registration, no focus) and a temp HOME, APPDATA and LOCALAPPDATA (its updater's
@@ -184,7 +187,7 @@ function testEnv(): Record<string, string> {
 		OMP_MOVE_SILENT: "1",
 		OMP_MOVE_HOME: home,
 		OMP_MOVE_DEBUG_PORT: String(debugPort),
-		...(failAt ? { OMP_MOVE_FAIL: failAt } : {}),
+		...(failAt ? { OMP_MOVE_FAIL: failAt === "start-twice" ? "start" : failAt } : {}),
 	};
 	assertTestEnv(env);
 	return env;
@@ -372,7 +375,7 @@ async function main(): Promise<void> {
 	);
 
 	if (!failAt) await verifyMoved();
-	else await verifyRolledBack(failAt);
+	else await verifyRolledBack(failAt === "swap" ? "swap" : "start", failAt !== "start-twice");
 }
 
 async function verifyMoved(): Promise<void> {
@@ -504,7 +507,7 @@ function setupLogText(): string {
 	return existsSync(file) ? readFileSync(file, "utf8") : "";
 }
 
-async function verifyRolledBack(reason: "swap" | "start"): Promise<void> {
+async function verifyRolledBack(reason: "swap" | "start", final: boolean): Promise<void> {
 	// `start` waits for the old app too: the setup has to see the new one fail (it leaves at once when nothing of it runs).
 	let result: LogLine | undefined;
 	const before = updateLines().length;
@@ -554,6 +557,80 @@ async function verifyRolledBack(reason: "swap" | "start"): Promise<void> {
 		"the Electron app is running again from the test folder, with nothing of the shell left",
 		running,
 	);
+	if (final) {
+		if (!values.keep) {
+			await stopTestProcesses();
+			await uninstallQuiet(entry);
+		}
+		return;
+	}
+	await verifyNotTriedAgain(entry);
+}
+
+/**
+ * The second round of a start that failed: the old app (this time started by the harness, with the feed's switches) offers
+ * the same version again, and the setup, finding the first failure's record, leaves the old app where it is.
+ */
+async function verifyNotTriedAgain(entry: string): Promise<void> {
+	const failedFile = join(profile, "update-start-failed.json");
+	const record = existsSync(failedFile)
+		? (JSON.parse(readFileSync(failedFile, "utf8")) as { version?: string; count?: number; at?: number })
+		: null;
+	evidence.startFailedRecord = record;
+	expect(
+		record?.version === OFFERED_VERSION && (record.count ?? 0) >= 1 && typeof record.at === "number",
+		`the first failure left update-start-failed.json naming ${OFFERED_VERSION}`,
+		record,
+	);
+	await stopTestProcesses();
+	rmSync(join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log"), { force: true });
+	const helpersBefore = updateLines().filter(
+		line => line.message === "swap" && line.details?.event === "helper",
+	).length;
+	const started = Date.now();
+	const second = Bun.spawn([join(TEST_DIR, "OMPdesk.exe"), `--user-data-dir=${profile}`, ...switches(feedPort)], {
+		env: testEnv(),
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	note("released app started again, its updater offers the same version", { pid: second.pid });
+	let skipped = false;
+	for (let waited = 0; waited < 600 && !skipped; waited += 2) {
+		await sleep(2000);
+		await noWindows();
+		skipped = setupLogText().includes("start-failed-before: skipped");
+	}
+	const seconds = Math.round((Date.now() - started) / 1000);
+	evidence.secondRoundSeconds = seconds;
+	const text = setupLogText();
+	expect(
+		skipped,
+		"the second setup skipped the swap (`start-failed-before: skipped` in %TEMP%\\ompdesk-setup.log)",
+		text.trim(),
+	);
+	expect(
+		updateLines().filter(line => line.message === "swap" && line.details?.event === "helper").length > helpersBefore,
+		"the old app's updater started that setup (a second `swap helper`)",
+	);
+	expect(
+		!text.includes("putting the old app back") && !text.includes("start-failed: no app-started.json"),
+		"it did not swap anything (no backup, no restore)",
+		text.trim(),
+	);
+	// The old app the setup started again.
+	let running = false;
+	for (let waited = 0; waited < 60 && !running; waited += 2) {
+		await sleep(2000);
+		running = (await processesUnder(TEST_DIR)).some(process_ => process_.name.toLowerCase() === "ompdesk");
+	}
+	expect(running, "the Electron app is running (started again by the skipped setup)");
+	expect(
+		regValue(await regValues(TEST_UNINSTALL_KEY), "DisplayVersion") === RELEASED_VERSION &&
+			existsSync(join(TEST_DIR, "resources", "app.asar")) &&
+			!existsSync(`${TEST_DIR}.move-backup`),
+		`nothing was replaced: the entry still says ${RELEASED_VERSION}, the folder is the Electron app, no backup`,
+	);
+	expect(await noWindows(), "no window appeared in the second round either");
 	if (!values.keep) {
 		await stopTestProcesses();
 		await uninstallQuiet(entry);

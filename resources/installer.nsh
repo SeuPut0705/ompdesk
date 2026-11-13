@@ -91,6 +91,8 @@ Var pid
   Var /GLOBAL ompSeen
   Var /GLOBAL ompWaited
   Var /GLOBAL ompScan
+  Var /GLOBAL ompFailed
+  Var /GLOBAL ompCount
 !endif
 
 !macro ompKeepOldFolder
@@ -211,6 +213,29 @@ Var pid
   !endif
 !macroend
 
+; The app's userData folder: the test profile when the setup's environment names one, else Electron's default.
+!macro ompUserDataDir
+  !ifndef BUILD_UNINSTALLER
+    ReadEnvStr $ompUserData OMP_GUI_TEST_USER_DATA_DIR
+    ${if} $ompUserData == ""
+      StrCpy $ompUserData "$APPDATA\ompdesk"
+    ${endIf}
+    StrCpy $ompFailed "$ompUserData\update-start-failed.json"
+  !endif
+!macroend
+
+; The text of FILE (its first line, 4096 characters) in $R7, empty when it is not there.
+!macro ompReadText FILE
+  StrCpy $R7 ""
+  ${if} ${FileExists} "${FILE}"
+    FileOpen $R8 "${FILE}" r
+    ${if} $R8 != ""
+      FileRead $R8 $R7 4096
+      FileClose $R8
+    ${endIf}
+  ${endIf}
+!macroend
+
 ; Does the start marker (userData\app-started.json, one line {version, pid, at}, written by the main once the first window's page
 ; loaded) carry NEEDLE? Sets $ompSeen to 1 when it does.
 !macro ompMarkerHas NEEDLE
@@ -246,10 +271,7 @@ Var pid
     ${endIf}
     ${if} $ompBackupMode != ""
     ${andIf} $ompStart == "1"
-      ReadEnvStr $ompUserData OMP_GUI_TEST_USER_DATA_DIR
-      ${if} $ompUserData == ""
-        StrCpy $ompUserData "$APPDATA\ompdesk"
-      ${endIf}
+      !insertmacro ompUserDataDir
       StrCpy $ompMarker "$ompUserData\app-started.json"
       Delete "$ompMarker"
       ${if} ${isUpdated}
@@ -287,7 +309,9 @@ Var pid
       ${Next}
       ${if} $ompSeen == "1"
         RMDir /r "$ompBackup"
+        Delete "$ompFailed"
       ${else}
+        !insertmacro ompRecordFailure
         !insertmacro ompLog "start-failed: no app-started.json for ${VERSION} in $ompUserData (waited $ompWaited s)"
         !insertmacro KILL_PROCESS "${APP_EXECUTABLE_FILENAME}" 1
         Sleep 3000
@@ -295,6 +319,60 @@ Var pid
       ${endIf}
     ${elseIf} $ompBackupMode != ""
       RMDir /r "$ompBackup"
+    ${endIf}
+  !endif
+!macroend
+
+; A version that already failed to start on this machine is not tried again by an automatic update: the record
+; `update-start-failed.json` ({"version","count","at"}, one line; release 1's main writes the same file) names the version
+; this setup installs, so the setup leaves the old app where it is, starts it and exits 2 (`start-failed-before:
+; skipped`). A person's own run of the setup installs anyway. A record of another version is stale and goes.
+!macro ompSkipRepeatedFailure
+  !ifndef BUILD_UNINSTALLER
+    ${if} ${isUpdated}
+      !insertmacro ompUserDataDir
+      !insertmacro ompReadText "$ompFailed"
+      StrCpy $ompSeen "0"
+      !insertmacro ompMarkerHas '$\"version$\":$\"${VERSION}$\"'
+      ${if} $ompSeen == "1"
+        !insertmacro ompLog "start-failed-before: skipped (${VERSION} failed to start earlier); the previous app stays"
+        !ifdef OMP_MOVE_TEST
+          !insertmacro ompMoveTestAfterInstall
+          ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" ""
+        !else
+          ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" ""
+        !endif
+        SetErrorLevel 2
+        Quit
+      ${elseIf} ${FileExists} "$ompFailed"
+        Delete "$ompFailed"
+      ${endIf}
+    ${endIf}
+  !endif
+!macroend
+
+; The failure of this version is written down before the old app comes back: count + 1 when the record names this version.
+!macro ompRecordFailure
+  !ifndef BUILD_UNINSTALLER
+    !insertmacro ompReadText "$ompFailed"
+    StrCpy $ompCount 1
+    StrCpy $ompSeen "0"
+    !insertmacro ompMarkerHas '$\"version$\":$\"${VERSION}$\"'
+    ${if} $ompSeen == "1"
+      StrCpy $ompSeen "0"
+      !insertmacro ompMarkerHas '$\"count$\":'
+      ${if} $ompSeen == "1"
+        IntOp $R5 $ompScan + 8
+        StrCpy $R6 $R7 4 $R5
+        IntOp $ompCount $R6 + 1
+      ${endIf}
+    ${endIf}
+    ${StdUtils.Time} $R6
+    CreateDirectory "$ompUserData"
+    FileOpen $R8 "$ompFailed" w
+    ${if} $R8 != ""
+      FileWrite $R8 '{$\"version$\":$\"${VERSION}$\",$\"count$\":$ompCount,$\"at$\":$R6000}'
+      FileClose $R8
     ${endIf}
   !endif
 !macroend
@@ -320,6 +398,7 @@ Var pid
 !macro customCheckAppRunning
   !insertmacro IS_POWERSHELL_AVAILABLE
   !insertmacro _CHECK_APP_RUNNING
+  !insertmacro ompSkipRepeatedFailure
   !insertmacro ompKeepOldFolder
 !macroend
 
