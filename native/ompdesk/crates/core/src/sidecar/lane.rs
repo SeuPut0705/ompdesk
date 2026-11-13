@@ -1553,7 +1553,8 @@ impl Lane {
             return;
         }
         ready.negotiated = Some(answered);
-        if answered && self.is_live(generation) && self.running.is_some() {
+        let live = self.is_live(generation) && self.running.is_some();
+        if answered && live {
             let events = self.event_filter.clone();
             self.internal(
                 json!({ "type": "set_event_filter", "events": events }),
@@ -1566,15 +1567,18 @@ impl Lane {
                 Waiter::Ignore,
                 Some(COMMAND_TIMEOUT),
             );
-            // GUI-executed tools: main's launch answer named the set that is on. They go before `get_state`, the omp's
-            // first answer, after which the tab reads ready.
-            if let Some(tools) = self.host_tools.clone() {
-                self.internal(
-                    json!({ "type": "set_host_tools", "tools": tools }),
-                    Waiter::Ignore,
-                    Some(COMMAND_TIMEOUT),
-                );
-            }
+        }
+        // GUI-executed tools: main's launch answer named the set that is on. They go before `get_state`, the omp's
+        // first answer, after which the tab reads ready. A negotiation that timed out (an omp starting slowly under
+        // load) registers them too: they are no part of the protocol, and a tab without them reads ready with no
+        // OMPdesk control tools until its omp restarts (13 Nov 2026: a coordinating session lost every `ompdesk_*`
+        // tool for an hour).
+        if live && let Some(tools) = self.host_tools.clone() {
+            self.internal(
+                json!({ "type": "set_host_tools", "tools": tools }),
+                Waiter::Ignore,
+                Some(COMMAND_TIMEOUT),
+            );
         }
         self.try_announce();
     }

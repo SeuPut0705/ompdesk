@@ -101,6 +101,10 @@ fn fake_omp(mode: &str) {
         if mode == "silent" {
             continue;
         }
+        // An omp starting slowly under load: its answer to the protocol negotiation comes after the lane gave up.
+        if mode == "slow-negotiate" && ty == "negotiate_protocol" {
+            continue;
+        }
         let reply = |data: Value| {
             say(&json!({ "type": "response", "id": id, "command": ty, "success": true, "data": data }).to_string());
         };
@@ -658,6 +662,27 @@ async fn a_started_tab_negotiates_answers_get_state_and_reads_ready() {
             .as_str()
             .unwrap()
             .starts_with("gui-")
+    );
+    finish(rig).await;
+}
+
+/// 13 Nov 2026: a coordinating session lost every `ompdesk_*` host tool for an hour. An omp that answers the protocol
+/// negotiation after the lane's deadline (it starts slowly under load) read ready with no host tools at all, because
+/// the lane registered them only on an answered negotiation, and nothing sent them again until the omp restarted.
+#[tokio::test]
+async fn host_tools_are_registered_when_the_protocol_negotiation_times_out() {
+    let mut rig = Rig::new("slow-negotiate", "slow-negotiate").await;
+    let _open = rig.open(no_queue());
+    rig.tab_call("sidecar.start", json!({})).await.unwrap();
+    rig.status("ready").await;
+    let text = log(&rig);
+    let host_tools = text
+        .find("\"type\":\"set_host_tools\"")
+        .expect("host tools set");
+    assert!(text.contains("terminal_read"), "{text}");
+    assert!(
+        host_tools < text.find("\"type\":\"get_state\"").expect("get_state"),
+        "{text}"
     );
     finish(rig).await;
 }
