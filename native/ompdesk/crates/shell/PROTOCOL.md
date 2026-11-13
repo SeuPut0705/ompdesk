@@ -475,8 +475,12 @@ What the Rust shell does differently from this table or from Electron. README.md
   a second and reports a gone non-renderer, non-crashpad child. Windows: ToolHelp plus `--type=` from the command line, the
   exit code from the process handle; reasons come from the NTSTATUS table in `shell_core::childproc::reason` (exit code 1 is
   `killed`). macOS (UNVERIFIED): children from `proc_listpids(PROC_PPID_ONLY)`, `--type=` read once from `KERN_PROCARGS2`,
-  liveness by `kill(pid, 0)`, only for the GPU process and the long-lived utility services (network, audio, storage: other utilities finish normally); the helpers are Chromium's to reap, so no status is readable and a helper that disappears is
-  `reason: "crashed"`, `exitCode: -1`. A helper that lives under a second is missed, and nothing is reported once the shell
+  only for the GPU process and the long-lived utility services (network, audio, storage: other utilities finish
+  normally); each is followed by a kqueue (`EVFILT_PROC`, `NOTE_EXIT | NOTE_EXITSTATUS`) that hands over its wait status
+  without reaping it: exit 0 is `clean-exit`, another code `abnormal-exit`, SIGINT/SIGKILL/SIGTERM `killed`, any other
+  signal `crashed` (`exitCode` the code or the signal), so a GPU process that ends cleanly never triggers the software
+  relaunch. A helper that lives under a second, or ends before it could be watched, is missed, and nothing is reported
+  once the shell
   is exiting (an app quit).
 - **`win.event`** `unresponsive`/`responsive` is sent for a window's main page in addition to its `wc.event`; views and
   Preview pages produce only the `wc.event`.
