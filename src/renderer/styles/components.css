@@ -4199,6 +4199,14 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 .omp-todo-reminder-phase {
 	color: var(--sc-text-muted);
 }
+.omp-todo-reminder-answer {
+	margin: 0 0 var(--sc-space-1);
+	padding-inline-start: var(--sc-space-5);
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-sm);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
 .omp-work-notes-item--arriving {
 	animation: omp-work-notes-fade var(--sc-duration-fast) var(--sc-ease-standard);
 }

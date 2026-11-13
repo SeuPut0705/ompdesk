@@ -3763,6 +3763,7 @@ export const ko: Record<string, string> = {
 	"todoPanel.noTasks": "할 일 없음",
 	"todoPanel.reminder": "할 일 알림",
 	"todoPanel.reminderCount": "확인이 필요한 할 일 {count}개",
+	"todoPanel.reminderRepeat": "같은 답이 한 번 더 나와 접어 뒀어요",
 	"todoPanel.dismissReminder": "알림 닫기",
 
 	// Log panel

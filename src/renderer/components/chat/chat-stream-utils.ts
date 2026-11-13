@@ -8,13 +8,14 @@ import { elementScroll, type VirtualItem, type Virtualizer } from "@tanstack/rea
 import { asyncResultJobs } from "../../../shared/async-results";
 import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
 import { messageIdentity } from "../../lib/message-identity";
-import { isRenderableMessageText, messageDisplayText, splitReaction } from "../../lib/messages";
+import { isRenderableMessageText, messageDisplayText, messageText, splitReaction } from "../../lib/messages";
 import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
 import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
 import { completionFailureCount, deliveredJobCalls, isCompletionMessage, isRestartNotice } from "./completion-events";
+import { repeatsAnswer } from "./repeated-answer";
 import { parseTodoReminder } from "./todo-reminder";
 import { isSilentAbort, isWorkReply, messageTimestampMs, presentNarrationAsAnswer } from "./work/work-turn";
 import { skillPromptName } from "./work/work-view";
@@ -290,6 +291,12 @@ export function claimRowEntrances(state: RowEntranceState, pass: RowEntrancePass
 	return claims;
 }
 
+/** A todo reminder and the answer to it that said nothing the answer above did not (`foldRepeatedAnswers`). */
+export interface FoldedRepeat {
+	reminder: AgentMessage;
+	answer: AgentMessage;
+}
+
 export type HistoryRow =
 	| {
 			kind: "message";
@@ -301,6 +308,8 @@ export type HistoryRow =
 			 * card above stays the live one until the next reply streams, notes still join the run, and the turn stays one.
 			 */
 			inRun?: true;
+			/** Reminder turns that only repeated this answer: shown as one folded line under it, not as answers. */
+			repeats?: FoldedRepeat[];
 	  }
 	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
 	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta)
@@ -755,7 +764,10 @@ export function buildHistoryRows(
 	return chargeJobFailures(
 		foldJobDeliveries(
 			foldTodoReminders(
-				foldWorkNotes(stops.size ? rows.filter((_, index) => !stops.has(index)) : rows, duringRunNotes),
+				foldRepeatedAnswers(
+					foldWorkNotes(stops.size ? rows.filter((_, index) => !stops.has(index)) : rows, duringRunNotes),
+					reminders,
+				),
 				reminders,
 			),
 			messages,
@@ -915,6 +927,55 @@ function foldWorkNotes(rows: readonly HistoryRow[], duringRunNotes: ReadonlyMap<
 			notes: [...(work.notes ?? []), row.message],
 		};
 		removed.add(index);
+	}
+	return folded.filter((_, index) => !removed.has(index));
+}
+
+/**
+ * A reminder turn that adds nothing is not a new answer. Stock's reminder wakes a session that stopped with open items;
+ * one that only waits writes "still waiting" again. When the turn after a reminder is text only (no tool call: its
+ * rows are the answer, and at most a thinking-only card) and the text is close to an answer above it in the same turn
+ * (`repeatsAnswer`), the reminder and its answer fold under that answer as `repeats`. A reminder turn that called a
+ * tool, or said something different, stays as it is.
+ */
+function foldRepeatedAnswers(rows: readonly HistoryRow[], reminders: ReadonlySet<AgentMessage>): HistoryRow[] {
+	if (reminders.size === 0) return rows as HistoryRow[];
+	const folded = rows.slice();
+	const removed = new Set<number>();
+	for (const [index, row] of rows.entries()) {
+		if (row.kind !== "message" || !reminders.has(row.message)) continue;
+		const dropped = [index];
+		let at = index + 1;
+		while (at < rows.length) {
+			const next = rows[at];
+			if (
+				next?.kind !== "process" ||
+				next.messages.some(message => messageContent(message).some(block => block.type === "toolCall"))
+			)
+				break;
+			dropped.push(at++);
+		}
+		const answer = rows[at];
+		if (
+			answer?.kind !== "message" ||
+			answer.inRun ||
+			answer.message.role !== "assistant" ||
+			answer.message.errorMessage ||
+			answer.message.stopReason === "aborted"
+		)
+			continue;
+		let earlier = index - 1;
+		while (earlier >= 0 && (removed.has(earlier) || rows[earlier]?.kind !== "message")) earlier--;
+		const above = folded[earlier];
+		if (above?.kind !== "message" || above.message.role !== "assistant") continue;
+		const said = [above.message, ...(above.repeats ?? []).map(repeat => repeat.answer)].map(messageText);
+		const text = messageText(answer.message);
+		if (!isRenderableMessageText(text) || !repeatsAnswer(text, said)) continue;
+		folded[earlier] = {
+			...above,
+			repeats: [...(above.repeats ?? []), { reminder: row.message, answer: answer.message }],
+		};
+		for (const drop of [...dropped, at]) removed.add(drop);
 	}
 	return folded.filter((_, index) => !removed.has(index));
 }

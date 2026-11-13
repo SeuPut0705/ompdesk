@@ -3771,6 +3771,7 @@ export const en: Record<string, string> = {
 	"todoPanel.noTasks": "No todos",
 	"todoPanel.reminder": "Todo reminder",
 	"todoPanel.reminderCount": "Needs attention: {count} todo{plural}",
+	"todoPanel.reminderRepeat": "Answered the same again, folded",
 	"todoPanel.dismissReminder": "Dismiss reminder",
 
 	// Log panel

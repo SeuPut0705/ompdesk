@@ -82,6 +82,7 @@ import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
 import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { FoldedReminders } from "./TodoReminderNote";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
 import { estimateRowSize, RowSizeLearner, rowSizeKey } from "./transcript-row-estimate";
 import { ChildrenAtWork, useHasChildrenAtWork } from "./work/ChildrenAtWork";
@@ -1130,12 +1131,15 @@ function SessionTranscript() {
 								>
 									<div className="omp-transcript-row w-full">
 										{row.kind === "message" ? (
-											<MessageBubble
-												clockRepeats={repeatedClocks.has(row)}
-												message={row.message}
-												reaction={row.reaction}
-												runningIndicator="dot"
-											/>
+											<>
+												<MessageBubble
+													clockRepeats={repeatedClocks.has(row)}
+													message={row.message}
+													reaction={row.reaction}
+													runningIndicator="dot"
+												/>
+												{row.repeats && <FoldedReminders repeats={row.repeats} />}
+											</>
 										) : row.kind === "readGroup" ? (
 											<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
 										) : row.kind === "process" ? (

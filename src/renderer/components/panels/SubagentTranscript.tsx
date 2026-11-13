@@ -47,6 +47,7 @@ import {
 	workTurns,
 } from "../chat/chat-stream-utils";
 import { MessageBubble } from "../chat/MessageBubble";
+import { FoldedReminders } from "../chat/TodoReminderNote";
 import { Banner, Button, EmptyState, JumpToLatest, SkeletonRows } from "../common";
 import { ToolImage } from "../tools/media/ToolImage";
 import { ToolResultMedia } from "../tools/media/ToolMedia";
@@ -281,7 +282,10 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 									key={key}
 								>
 									{row.kind === "message" ? (
-										<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
+										<>
+											<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
+											{row.repeats && <FoldedReminders repeats={row.repeats} />}
+										</>
 									) : row.kind === "readGroup" ? (
 										<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
 									) : row.kind === "process" ? (

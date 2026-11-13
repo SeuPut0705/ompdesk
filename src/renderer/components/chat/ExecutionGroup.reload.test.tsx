@@ -25,6 +25,7 @@ Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: ()
 // React DOM must initialize after linkedom globals; static imports initialize it too early.
 const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
+const { FoldedReminders } = await import("./TodoReminderNote");
 const { MessageBubble } = await import("./MessageBubble");
 const { buildHistoryRows } = await import("./chat-stream-utils");
 const { workNarrative } = await import("./work/work-view");
@@ -224,6 +225,102 @@ describe("stock todo reminder after a reload", () => {
 			await act(async () => root?.unmount());
 			container.remove();
 		}
+	});
+});
+
+describe("a reminder turn that only repeats the answer above", () => {
+	const at = reminder.timestamp as number;
+	const waiting = "Still waiting for the inquiry tab to reply about the build. Nothing to do until it answers.";
+	const again = "I am still waiting for the inquiry tab's reply about the build; nothing to do until it answers.";
+	const wake = (offset: number): AgentMessage => ({ ...reminder, timestamp: at + offset });
+
+	it("folds under that answer instead of standing as a second answer", () => {
+		const second = reply(again, at + 1_000);
+		const rows = buildHistoryRows(
+			[user("Ask the inquiry tab about the build", at - 3_000), reply(waiting, at - 1_000), reminder, second],
+			"compact",
+		);
+		expect(rows.map(row => (row.kind === "message" ? row.message.role : row.kind))).toEqual(["user", "assistant"]);
+		const answer = rows[1];
+		expect(answer?.kind === "message" ? answer.repeats : undefined).toEqual([{ reminder, answer: second }]);
+	});
+
+	it("folds every repeat of a session that is woken again and again, thinking or not", () => {
+		const thinking: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "Nothing has changed, I only wait." },
+				{ type: "text", text: again },
+			],
+			stopReason: "stop",
+			timestamp: at + 2_000,
+		};
+		const rows = buildHistoryRows(
+			[
+				user("Ask the inquiry tab about the build", at - 3_000),
+				reply(waiting, at - 1_000),
+				wake(500),
+				reply(again, at + 1_000),
+				wake(3_000),
+				thinking,
+			],
+			"compact",
+		);
+		expect(rows.map(row => row.kind)).toEqual(["message", "message"]);
+		const answer = rows[1];
+		expect(answer?.kind === "message" ? answer.repeats?.length : undefined).toBe(2);
+	});
+
+	it("keeps an answer that says something new", () => {
+		const rows = buildHistoryRows(
+			[
+				user("Fix it", at - 3_000),
+				reply("The build passes.", at - 1_000),
+				reminder,
+				reply("I also fixed the sidebar label in ChatStream and added a test for it.", at + 1),
+			],
+			"compact",
+		);
+		expect(rows.map(row => (row.kind === "message" ? row.message.role : row.kind))).toEqual([
+			"user",
+			"assistant",
+			"developer",
+			"assistant",
+		]);
+		expect(rows.some(row => row.kind === "message" && row.repeats)).toBe(false);
+	});
+
+	it("keeps a reminder turn that called a tool, whatever it then said", () => {
+		const rows = buildHistoryRows(
+			[
+				user("Ask the inquiry tab about the build", at - 3_000),
+				reply(waiting, at - 1_000),
+				reminder,
+				call("b1", "bash", { command: "gh run view" }, at + 1_000),
+				result("b1", "bash", "queued", at + 2_000),
+				reply(again, at + 3_000),
+			],
+			"compact",
+		);
+		expect(rows.some(row => row.kind === "message" && row.repeats)).toBe(false);
+		expect(rows.some(row => row.kind === "process")).toBe(true);
+	});
+
+	it("shows as one folded line under the answer that opens to the todos and the repeat, in Korean too", async () => {
+		const second = reply(again, at + 1_000);
+		setLanguage("ko");
+		await mount(<FoldedReminders repeats={[{ reminder, answer: second }]} />);
+		const line = container.querySelector<HTMLButtonElement>("[data-folded-reminders] [data-todo-reminder-repeat]");
+		expect(line?.textContent).toContain(ko["todoPanel.reminder"]);
+		expect(line?.textContent).toContain(ko["todoPanel.reminderRepeat"]);
+		expect(container.textContent).not.toMatch(RAW);
+		await act(async () => line?.click());
+		expect(line?.getAttribute("aria-expanded")).toBe("true");
+		expect(container.querySelector(".omp-todo-reminder-answer")?.textContent).toBe(again);
+		expect([...container.querySelectorAll(".omp-todo-reminder-list li li")].map(item => item.textContent)).toEqual([
+			"Count",
+			"Report",
+		]);
 	});
 });
 
