@@ -1,0 +1,828 @@
+{
+  "tool": "ompdesk_checks",
+  "ops": [
+    "start",
+    "wait",
+    "status"
+  ],
+  "limits": {
+    "waitDefaultSeconds": 600,
+    "waitMaxSeconds": 3600
+  },
+  "wire": {
+    "open": "checks.open",
+    "close": "checks.close",
+    "start": "checks.start",
+    "wait": "checks.wait",
+    "status": "checks.status",
+    "watch": "checks.watch",
+    "pause": "checks.pause",
+    "fake": "checks.fake",
+    "snapshot": "checks.snapshot",
+    "result": "checks.result"
+  },
+  "enums": {
+    "Os": [
+      "macos",
+      "windows",
+      "linux"
+    ],
+    "PoolState": [
+      "live",
+      "stale",
+      "offline"
+    ],
+    "Lane": [
+      "release",
+      "land",
+      "branch",
+      "local"
+    ],
+    "Trigger": [
+      "push",
+      "pull_request",
+      "dispatch",
+      "queue",
+      "local"
+    ],
+    "RunVerdict": [
+      "green",
+      "red",
+      "cancelled"
+    ],
+    "JobState": [
+      "held",
+      "queued",
+      "running",
+      "passed",
+      "failed",
+      "cancelled",
+      "reused"
+    ],
+    "GateVerdict": [
+      "green",
+      "red",
+      "running",
+      "waiting"
+    ],
+    "PolicyAction": [
+      "cancel-superseded",
+      "hold",
+      "reuse",
+      "place",
+      "batch",
+      "quarantine",
+      "rerun-failed"
+    ],
+    "PolicyMode": [
+      "enforce",
+      "advise"
+    ],
+    "QueueState": [
+      "waiting",
+      "testing",
+      "ready",
+      "landing",
+      "failed",
+      "removed"
+    ],
+    "Outcome": [
+      "pass",
+      "fail",
+      "skip"
+    ],
+    "TestState": [
+      "active",
+      "quarantined",
+      "cleared"
+    ],
+    "AnswerVerdict": [
+      "green",
+      "red",
+      "unknown"
+    ],
+    "Next": [
+      "fix",
+      "rerun-failed",
+      "wait",
+      "land",
+      "ask-owner"
+    ],
+    "Purpose": [
+      "branch",
+      "release",
+      "land"
+    ],
+    "StartScope": [
+      "changed",
+      "full"
+    ],
+    "Rerun": [
+      "failed"
+    ],
+    "StartDecision": [
+      "started",
+      "reused",
+      "held",
+      "refused"
+    ],
+    "Until": [
+      "result",
+      "any"
+    ],
+    "StatusScope": [
+      "mine",
+      "repo",
+      "all"
+    ]
+  },
+  "types": {
+    "Where": [
+      {
+        "kind": "device",
+        "deviceId": "macbook"
+      },
+      {
+        "kind": "github-hosted"
+      },
+      {
+        "kind": "self-hosted",
+        "runnerId": "mini-1"
+      }
+    ],
+    "Origin": [
+      {
+        "kind": "session",
+        "session": "0a1b2c3d",
+        "device": "local",
+        "goal": "goal-7"
+      },
+      {
+        "kind": "person"
+      },
+      {
+        "kind": "outside",
+        "claimedName": "cli"
+      },
+      {
+        "kind": "foreign"
+      }
+    ],
+    "Pool": [
+      {
+        "id": "github-macos",
+        "os": "macos",
+        "where": {
+          "kind": "github-hosted"
+        },
+        "limit": 5,
+        "running": 5,
+        "queued": 3,
+        "oldestWaitMs": 540000,
+        "diskFreeGb": 41.5,
+        "asOf": 1794000000000,
+        "state": "live"
+      }
+    ],
+    "Job": [
+      {
+        "id": "job-1",
+        "os": "macos",
+        "pool": "github-macos",
+        "state": "running",
+        "queuedAt": 1794000000000,
+        "startedAt": 1794000060000,
+        "endedAt": 1794000660000,
+        "billedMin": 10.5
+      }
+    ],
+    "Run": [
+      {
+        "id": "run-1",
+        "repo": "example/app",
+        "ref": "omp/agent/feature",
+        "sha": "0123456789abcdef0123456789abcdef01234567",
+        "lane": "branch",
+        "trigger": "dispatch",
+        "origin": {
+          "kind": "session",
+          "session": "0a1b2c3d",
+          "device": "local",
+          "goal": "goal-7"
+        },
+        "gate": "gate-mac",
+        "jobs": [
+          {
+            "id": "job-1",
+            "os": "macos",
+            "pool": "github-macos",
+            "state": "running",
+            "queuedAt": 1794000000000,
+            "startedAt": 1794000060000,
+            "endedAt": 1794000660000,
+            "billedMin": 10.5
+          }
+        ],
+        "verdict": "red",
+        "reusedFrom": "run-0",
+        "supersededBy": "run-2",
+        "digest": "sha256:ab12"
+      }
+    ],
+    "Gate": [
+      {
+        "id": "gate-mac",
+        "release": "v1.0.0",
+        "jobs": {
+          "workflow": "ci.yml",
+          "jobs": [
+            "mac-smoke",
+            "mac-native"
+          ]
+        },
+        "required": true
+      }
+    ],
+    "Policy": [
+      {
+        "id": "release-first",
+        "scope": "global",
+        "when": "a macOS slot is free and a release job is held",
+        "action": "hold",
+        "mode": "enforce",
+        "ownerOverride": false
+      }
+    ],
+    "TestResult": [
+      {
+        "test": "t-91ac",
+        "run": "run-1",
+        "outcome": "fail",
+        "durationMs": 6300,
+        "digest": "sha256:ab12",
+        "attempt": 2
+      }
+    ],
+    "TestHistory": [
+      {
+        "test": "t-91ac",
+        "name": "e2e/smoke.e2e.ts › opens a tab",
+        "p50Ms30d": 4200,
+        "state": "quarantined",
+        "quarantinedBy": {
+          "kind": "session",
+          "session": "0a1b2c3d",
+          "device": "local",
+          "goal": "goal-7"
+        },
+        "cleanSince": 2
+      }
+    ],
+    "Answer": [
+      {
+        "runId": "run-1",
+        "verdict": "red",
+        "asOf": 1794000700000,
+        "counts": {
+          "passed": 1143,
+          "failed": 1
+        },
+        "failed": [
+          {
+            "test": "src/main/a.test.ts > saves the file",
+            "firstError": "AssertionError: expected 1 to be 2",
+            "knownFlaky": true,
+            "history": "failed 3 of the last 20 runs on unchanged inputs"
+          }
+        ],
+        "blocksRelease": {
+          "gate": "gate-mac"
+        },
+        "expectedWaitMin": 18,
+        "reused": {
+          "from": "run-0",
+          "savedMin": 12
+        },
+        "next": "rerun-failed",
+        "notes": [
+          "1 rerun left for this run"
+        ]
+      }
+    ],
+    "StartRequest": [
+      {
+        "purpose": "branch",
+        "scope": "changed",
+        "rerun": "failed",
+        "repo": "example/app",
+        "ref": "omp/agent/feature",
+        "cwd": "/work/app"
+      }
+    ],
+    "StartReply": [
+      {
+        "runId": "run-1",
+        "decision": "held",
+        "placement": {
+          "kind": "github-hosted"
+        },
+        "expectedStartMin": 9,
+        "reason": "macOS is full (5 of 5); 3 release jobs are ahead"
+      }
+    ],
+    "WaitRequest": [
+      {
+        "runId": "run-1",
+        "until": "result",
+        "timeoutSeconds": 600
+      }
+    ],
+    "StatusRequest": [
+      {
+        "scope": "repo",
+        "repo": "example/app",
+        "cwd": "/work/app"
+      }
+    ],
+    "RunResult": [
+      {
+        "runId": "run-1",
+        "origin": {
+          "kind": "session",
+          "session": "0a1b2c3d",
+          "device": "local",
+          "goal": "goal-7"
+        },
+        "answer": {
+          "runId": "run-1",
+          "verdict": "red",
+          "asOf": 1794000700000,
+          "counts": {
+            "passed": 1143,
+            "failed": 1
+          },
+          "failed": [
+            {
+              "test": "src/main/a.test.ts > saves the file",
+              "firstError": "AssertionError: expected 1 to be 2",
+              "knownFlaky": true,
+              "history": "failed 3 of the last 20 runs on unchanged inputs"
+            }
+          ],
+          "blocksRelease": {
+            "gate": "gate-mac"
+          },
+          "expectedWaitMin": 18,
+          "reused": {
+            "from": "run-0",
+            "savedMin": 12
+          },
+          "next": "rerun-failed",
+          "notes": [
+            "1 rerun left for this run"
+          ]
+        }
+      }
+    ],
+    "Snapshot": [
+      {
+        "asOf": 1794000700000,
+        "paused": false,
+        "pools": [
+          {
+            "id": "github-macos",
+            "os": "macos",
+            "where": {
+              "kind": "github-hosted"
+            },
+            "limit": 5,
+            "running": 5,
+            "queued": 3,
+            "oldestWaitMs": 540000,
+            "diskFreeGb": 41.5,
+            "asOf": 1794000000000,
+            "state": "live"
+          }
+        ],
+        "runs": [
+          {
+            "id": "run-1",
+            "repo": "example/app",
+            "ref": "omp/agent/feature",
+            "sha": "0123456789abcdef0123456789abcdef01234567",
+            "lane": "branch",
+            "trigger": "dispatch",
+            "origin": {
+              "kind": "session",
+              "session": "0a1b2c3d",
+              "device": "local",
+              "goal": "goal-7"
+            },
+            "gate": "gate-mac",
+            "jobs": [
+              {
+                "id": "job-1",
+                "os": "macos",
+                "pool": "github-macos",
+                "state": "running",
+                "queuedAt": 1794000000000,
+                "startedAt": 1794000060000,
+                "endedAt": 1794000660000,
+                "billedMin": 10.5
+              }
+            ],
+            "verdict": "red",
+            "reusedFrom": "run-0",
+            "supersededBy": "run-2",
+            "digest": "sha256:ab12"
+          }
+        ],
+        "gates": [
+          {
+            "gate": {
+              "id": "gate-mac",
+              "release": "v1.0.0",
+              "jobs": {
+                "workflow": "ci.yml",
+                "jobs": [
+                  "mac-smoke",
+                  "mac-native"
+                ]
+              },
+              "required": true
+            },
+            "state": "running",
+            "run": "run-1"
+          }
+        ],
+        "queue": [
+          {
+            "id": "q-1",
+            "repo": "example/app",
+            "base": "main",
+            "pr": 12,
+            "sha": "0123456789abcdef0123456789abcdef01234567",
+            "lane": "land",
+            "position": 1,
+            "batch": "batch-3",
+            "state": "testing"
+          }
+        ],
+        "decisions": [
+          {
+            "policy": "cancel-superseded",
+            "run": "run-0",
+            "action": "cancelled",
+            "reason": "run-1 is a newer run of the same ref and workflow",
+            "at": 1794000100000
+          }
+        ],
+        "answers": [
+          {
+            "runId": "run-1",
+            "origin": {
+              "kind": "session",
+              "session": "0a1b2c3d",
+              "device": "local",
+              "goal": "goal-7"
+            },
+            "answer": {
+              "runId": "run-1",
+              "verdict": "red",
+              "asOf": 1794000700000,
+              "counts": {
+                "passed": 1143,
+                "failed": 1
+              },
+              "failed": [
+                {
+                  "test": "src/main/a.test.ts > saves the file",
+                  "firstError": "AssertionError: expected 1 to be 2",
+                  "knownFlaky": true,
+                  "history": "failed 3 of the last 20 runs on unchanged inputs"
+                }
+              ],
+              "blocksRelease": {
+                "gate": "gate-mac"
+              },
+              "expectedWaitMin": 18,
+              "reused": {
+                "from": "run-0",
+                "savedMin": 12
+              },
+              "next": "rerun-failed",
+              "notes": [
+                "1 rerun left for this run"
+              ]
+            }
+          }
+        ],
+        "adoption": {
+          "started": 14,
+          "refused": 2,
+          "polls": 0,
+          "wrongGreens": 0
+        },
+        "trends": {
+          "tests": [
+            {
+              "test": "t-91ac",
+              "name": "e2e/smoke.e2e.ts › opens a tab",
+              "p50Ms30d": 4200,
+              "state": "quarantined",
+              "quarantinedBy": {
+                "kind": "session",
+                "session": "0a1b2c3d",
+                "device": "local",
+                "goal": "goal-7"
+              },
+              "cleanSince": 2
+            }
+          ],
+          "slowdowns": [
+            {
+              "test": "t-91ac",
+              "name": "e2e/smoke.e2e.ts › opens a tab",
+              "p50Ms30d": 4200,
+              "lastMs": [
+                5900,
+                6100,
+                6300
+              ]
+            }
+          ],
+          "minutes": [
+            {
+              "os": "macos",
+              "month": "2026-11",
+              "minutes": 412.5
+            }
+          ],
+          "queueDepth": [
+            {
+              "at": 1794000000000,
+              "pool": "github-macos",
+              "queued": 3
+            }
+          ]
+        }
+      }
+    ],
+    "FakeOp": [
+      {
+        "op": "snapshot",
+        "snapshot": {
+          "asOf": 1794000700000,
+          "paused": false,
+          "pools": [
+            {
+              "id": "github-macos",
+              "os": "macos",
+              "where": {
+                "kind": "github-hosted"
+              },
+              "limit": 5,
+              "running": 5,
+              "queued": 3,
+              "oldestWaitMs": 540000,
+              "diskFreeGb": 41.5,
+              "asOf": 1794000000000,
+              "state": "live"
+            }
+          ],
+          "runs": [
+            {
+              "id": "run-1",
+              "repo": "example/app",
+              "ref": "omp/agent/feature",
+              "sha": "0123456789abcdef0123456789abcdef01234567",
+              "lane": "branch",
+              "trigger": "dispatch",
+              "origin": {
+                "kind": "session",
+                "session": "0a1b2c3d",
+                "device": "local",
+                "goal": "goal-7"
+              },
+              "gate": "gate-mac",
+              "jobs": [
+                {
+                  "id": "job-1",
+                  "os": "macos",
+                  "pool": "github-macos",
+                  "state": "running",
+                  "queuedAt": 1794000000000,
+                  "startedAt": 1794000060000,
+                  "endedAt": 1794000660000,
+                  "billedMin": 10.5
+                }
+              ],
+              "verdict": "red",
+              "reusedFrom": "run-0",
+              "supersededBy": "run-2",
+              "digest": "sha256:ab12"
+            }
+          ],
+          "gates": [
+            {
+              "gate": {
+                "id": "gate-mac",
+                "release": "v1.0.0",
+                "jobs": {
+                  "workflow": "ci.yml",
+                  "jobs": [
+                    "mac-smoke",
+                    "mac-native"
+                  ]
+                },
+                "required": true
+              },
+              "state": "running",
+              "run": "run-1"
+            }
+          ],
+          "queue": [
+            {
+              "id": "q-1",
+              "repo": "example/app",
+              "base": "main",
+              "pr": 12,
+              "sha": "0123456789abcdef0123456789abcdef01234567",
+              "lane": "land",
+              "position": 1,
+              "batch": "batch-3",
+              "state": "testing"
+            }
+          ],
+          "decisions": [
+            {
+              "policy": "cancel-superseded",
+              "run": "run-0",
+              "action": "cancelled",
+              "reason": "run-1 is a newer run of the same ref and workflow",
+              "at": 1794000100000
+            }
+          ],
+          "answers": [
+            {
+              "runId": "run-1",
+              "origin": {
+                "kind": "session",
+                "session": "0a1b2c3d",
+                "device": "local",
+                "goal": "goal-7"
+              },
+              "answer": {
+                "runId": "run-1",
+                "verdict": "red",
+                "asOf": 1794000700000,
+                "counts": {
+                  "passed": 1143,
+                  "failed": 1
+                },
+                "failed": [
+                  {
+                    "test": "src/main/a.test.ts > saves the file",
+                    "firstError": "AssertionError: expected 1 to be 2",
+                    "knownFlaky": true,
+                    "history": "failed 3 of the last 20 runs on unchanged inputs"
+                  }
+                ],
+                "blocksRelease": {
+                  "gate": "gate-mac"
+                },
+                "expectedWaitMin": 18,
+                "reused": {
+                  "from": "run-0",
+                  "savedMin": 12
+                },
+                "next": "rerun-failed",
+                "notes": [
+                  "1 rerun left for this run"
+                ]
+              }
+            }
+          ],
+          "adoption": {
+            "started": 14,
+            "refused": 2,
+            "polls": 0,
+            "wrongGreens": 0
+          },
+          "trends": {
+            "tests": [
+              {
+                "test": "t-91ac",
+                "name": "e2e/smoke.e2e.ts › opens a tab",
+                "p50Ms30d": 4200,
+                "state": "quarantined",
+                "quarantinedBy": {
+                  "kind": "session",
+                  "session": "0a1b2c3d",
+                  "device": "local",
+                  "goal": "goal-7"
+                },
+                "cleanSince": 2
+              }
+            ],
+            "slowdowns": [
+              {
+                "test": "t-91ac",
+                "name": "e2e/smoke.e2e.ts › opens a tab",
+                "p50Ms30d": 4200,
+                "lastMs": [
+                  5900,
+                  6100,
+                  6300
+                ]
+              }
+            ],
+            "minutes": [
+              {
+                "os": "macos",
+                "month": "2026-11",
+                "minutes": 412.5
+              }
+            ],
+            "queueDepth": [
+              {
+                "at": 1794000000000,
+                "pool": "github-macos",
+                "queued": 3
+              }
+            ]
+          }
+        }
+      },
+      {
+        "op": "startReply",
+        "reply": {
+          "runId": null,
+          "decision": "refused",
+          "placement": null,
+          "expectedStartMin": null,
+          "reason": "paused by the owner"
+        }
+      },
+      {
+        "op": "finish",
+        "result": {
+          "runId": "run-1",
+          "origin": {
+            "kind": "session",
+            "session": "0a1b2c3d",
+            "device": "local",
+            "goal": "goal-7"
+          },
+          "answer": {
+            "runId": "run-1",
+            "verdict": "red",
+            "asOf": 1794000700000,
+            "counts": {
+              "passed": 1143,
+              "failed": 1
+            },
+            "failed": [
+              {
+                "test": "src/main/a.test.ts > saves the file",
+                "firstError": "AssertionError: expected 1 to be 2",
+                "knownFlaky": true,
+                "history": "failed 3 of the last 20 runs on unchanged inputs"
+              }
+            ],
+            "blocksRelease": {
+              "gate": "gate-mac"
+            },
+            "expectedWaitMin": 18,
+            "reused": {
+              "from": "run-0",
+              "savedMin": 12
+            },
+            "next": "rerun-failed",
+            "notes": [
+              "1 rerun left for this run"
+            ]
+          }
+        }
+      },
+      {
+        "op": "calls"
+      }
+    ],
+    "FakeCall": [
+      {
+        "op": "wait",
+        "origin": {
+          "kind": "session",
+          "session": "0a1b2c3d",
+          "device": "local",
+          "goal": "goal-7"
+        },
+        "request": {
+          "runId": "run-1",
+          "until": "result"
+        }
+      }
+    ]
+  }
+}

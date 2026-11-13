@@ -268,6 +268,7 @@ pub fn registry() -> Registry {
     crate::stock::register(&mut registry);
     crate::upkeep::register(&mut registry);
     crate::care::register(&mut registry);
+    crate::checks::register(&mut registry);
     crate::sidecar::register(&mut registry);
     crate::ipc::register(&mut registry);
     crate::web::bytes::register(&mut registry);
@@ -375,6 +376,7 @@ where
     crate::control::close_all(&ending).await;
     crate::ssh::close_all(&ending);
     crate::schedules::close_all(&ending);
+    crate::checks::close_all(&ending);
     crate::aimemory::service::close_all(&ending);
     crate::stock::close_all(&ending).await;
     crate::sidecar::close_all(&ending).await;
@@ -383,6 +385,7 @@ where
         crate::control::close_all(&ending).await;
         crate::ssh::close_all(&ending);
         crate::schedules::close_all(&ending);
+        crate::checks::close_all(&ending);
         crate::aimemory::service::close_all(&ending);
         crate::stock::close_all(&ending).await;
         crate::sidecar::close_all(&ending).await;

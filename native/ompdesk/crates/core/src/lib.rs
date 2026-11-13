@@ -7,6 +7,7 @@ pub mod aimemory;
 pub mod autopilot;
 pub mod browsers;
 pub mod care;
+pub mod checks;
 pub mod clock;
 pub mod control;
 pub mod disk;
