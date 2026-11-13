@@ -74,8 +74,8 @@
 		{
 			"name": "requeue-a-failed-dispatch",
 			"why": "A dispatch that failed or timed out puts its entry back in the queue: it is admitted and dispatched a second time, although the first dispatch may have started the run.",
-			"search": "    /\\ state' = [state EXCEPT ![j] = \"failed\"]",
-			"replace": "    /\\ state' = [state EXCEPT ![j] = \"held\"]",
+			"search": "IF @ \\in {\"dispatching\", \"cancelling\"} THEN \"failed\" ELSE @",
+			"replace": "IF @ \\in {\"dispatching\", \"cancelling\"} THEN \"held\" ELSE @",
 			"breaks": "AdmittedOnce"
 		},
 		{
