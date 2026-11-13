@@ -12,6 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
+import { withoutAwsCredentials } from "./test-bridge-probe";
 
 const tempDirs: string[] = [];
 const children: ChildProcessWithoutNullStreams[] = [];
@@ -146,8 +147,13 @@ auth.close();`,
 	it("counts an agent dir holding only an MCP sign-in as not signed in to any model", async () => {
 		const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-accounts-mcp-"));
 		tempDirs.push(agentDir);
-		// No model key from the developer's environment: only PATH and a private HOME.
-		const base = { PATH: process.env.PATH, HOME: agentDir, USERPROFILE: agentDir };
+		// No model key from the developer's environment: only PATH and a private HOME, and no AWS host's instance role.
+		const base: Record<string, string | undefined> = {
+			PATH: process.env.PATH,
+			HOME: agentDir,
+			USERPROFILE: agentDir,
+		};
+		withoutAwsCredentials(base, agentDir);
 		const env = { PI_CODING_AGENT_DIR: agentDir, PI_CONFIG_DIR: "omp-config", OMP_PROFILE: "", PI_PROFILE: "" };
 		const seed = spawnSync(
 			"bun",

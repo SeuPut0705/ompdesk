@@ -30,6 +30,24 @@ export function configDirName(folder: string, home = homedir()): string {
 }
 
 /**
+ * Takes every AWS credential source out of `env`, an environment a test hands the installed omp as "no provider but
+ * the fake key it adds". Stock counts Amazon Bedrock as signed in on any host that has one (pi-ai
+ * `registry/aws.ts` `hasAwsCredentialSource`): `AWS_*` keys, the shared files under the home folder and, on an EC2
+ * instance, its instance role, which it finds by the machine's DMI ids (`isEc2Host`). CI's runners are sometimes
+ * hosted on AWS ("Cloud: AWS" in the job log), where a probe's smol role then resolved to `amazon-bedrock/…` and
+ * `accounts.signedIn` read true (run 43366738799, attempt 1). `AWS_EC2_METADATA_DISABLED` is stock's own switch for
+ * the instance role; the shared files are pointed into `folder`, where none exist.
+ */
+export function withoutAwsCredentials(env: Record<string, string | undefined>, folder: string): void {
+	for (const key of Object.keys(env)) {
+		if (key.startsWith("AWS_")) Reflect.deleteProperty(env, key);
+	}
+	env.AWS_EC2_METADATA_DISABLED = "true";
+	env.AWS_SHARED_CREDENTIALS_FILE = join(folder, "no-aws-credentials");
+	env.AWS_CONFIG_FILE = join(folder, "no-aws-config");
+}
+
+/**
  * Runs `source` as a bridge extension (beside a copy of resources/gui-bridge, so `./settings` imports resolve) on
  * the installed omp in an empty private agent dir, and returns the JSON it prints to stderr as `<name>=…`.
  * `OPENAI_API_KEY` is the only credential unless `env` adds one: it gives the catalog models, nothing is prompted
@@ -59,6 +77,7 @@ export function runBridgeProbe(
 		for (const key of [...credentials, "OPENROUTER_API_KEY", "TYPESAFE_API_KEY"]) {
 			if (!(key in env)) Reflect.deleteProperty(spawnEnv, key);
 		}
+		withoutAwsCredentials(spawnEnv, isolated);
 		const result = spawnSync(
 			OMP_COMMAND.file,
 			[
