@@ -355,6 +355,7 @@ export async function cargoInShell(args: string[], options: { quiet?: boolean } 
 			fs.copyFileSync(archive, linked);
 		}
 	}
+	dropIncompleteExtraction();
 	const server = serveArchive(pin, key, archive);
 	try {
 		const env = cargoEnv();
@@ -381,12 +382,28 @@ export async function cargoInShell(args: string[], options: { quiet?: boolean } 
 	}
 }
 
-/** The extracted CEF folder `cef-dll-sys` made: Release files and Resources merged (Windows) or the framework's parent (macOS). */
-function cefDir(): string {
+/** Where `cef-dll-sys` extracts the archive: Release files and Resources merged (Windows) or the framework's parent (macOS). */
+function extractedCefDir(): string {
 	const pin = readPin();
 	const system = process.platform === "win32" ? "windows" : "macos";
 	const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
-	const dir = path.join(SHELL_DIR, "target", "cef-bin", pin.cefVersion, `cef_${system}_${arch}`);
+	return path.join(SHELL_DIR, "target", "cef-bin", pin.cefVersion, `cef_${system}_${arch}`);
+}
+
+/**
+ * A restored build cache (CI's rust-cache prunes files) can keep the extracted folder without the `archive.json`
+ * `cef-dll-sys` reads to trust it, and its build script then fails instead of extracting again: such a folder is removed,
+ * so the archive in place is extracted afresh.
+ */
+function dropIncompleteExtraction(): void {
+	const dir = extractedCefDir();
+	if (fs.existsSync(dir) && !fs.existsSync(path.join(dir, "archive.json")))
+		fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/** The extracted CEF folder `cef-dll-sys` made. */
+function cefDir(): string {
+	const dir = extractedCefDir();
 	if (!fs.existsSync(dir)) throw new BuildError(`${dir} is missing: cef-dll-sys did not extract the archive.`);
 	return dir;
 }

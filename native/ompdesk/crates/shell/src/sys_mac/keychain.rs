@@ -53,6 +53,7 @@ fn make_item() -> Result<Vec<u8>, String> {
 pub fn key_json(_user_data: &Path) -> Value {
     // Held until the read is over; dropping it restores the previous setting.
     let _no_dialogs = SecKeychain::disable_user_interaction().ok();
+    let interaction_off = _no_dialogs.is_some();
     let found = match get_generic_password(SERVICE, ACCOUNT) {
         Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => make_item().map_err(Err),
         Ok(password) => Ok(password),
@@ -64,6 +65,10 @@ pub fn key_json(_user_data: &Path) -> Value {
         Err(Ok(error)) => {
             let why = match error.code() {
                 ERR_SEC_INTERACTION_NOT_ALLOWED => WOULD_ASK.to_string(),
+                // With dialogs off, an item whose access list does not name this process answers "authorization
+                // failed" instead of asking (seen on macOS 15 for an ad-hoc signed item): the read was refused
+                // without a prompt, which is what `keychain-would-ask` says.
+                ERR_SEC_AUTH_FAILED if interaction_off => WOULD_ASK.to_string(),
                 ERR_SEC_USER_CANCELED | ERR_SEC_AUTH_FAILED => {
                     format!("access to the keychain item \"{SERVICE}\" was denied")
                 }
