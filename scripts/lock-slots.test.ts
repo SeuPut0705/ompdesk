@@ -4,9 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { configureNativeBin, nativeBinPath } from "../src/main/native-bin";
+import { removeWhenFree } from "../src/main/test-folders";
 import { ensureNative } from "./build-native";
 import {
-import { removeWhenFree } from "../src/main/test-folders";
 	acquireHeavy,
 	acquireHold,
 	acquireSlot,
