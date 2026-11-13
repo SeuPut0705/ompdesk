@@ -192,6 +192,37 @@ describe("what main tells the checks hub", () => {
 		]);
 	});
 
+	it("tells the runners again when a tool moved or the environment it runs with changed", async () => {
+		const { told, hub } = recorder();
+		const w = world();
+		w.hosts = [];
+		let runners = { gh: GH, git: GIT, home: "/Users/me" };
+		const facts = new ChecksFacts({ ...deps(hub, w), runners: async () => runners });
+		stops.push(facts.start());
+		await settle();
+		const sent = () => told.filter(fact => fact.kind === "runners").length;
+		expect(sent()).toBe(1);
+
+		runners = { ...runners, gh: { ...GH, bin: "/opt/homebrew/bin/gh" } };
+		facts.runnersChanged();
+		await settle();
+		expect(sent()).toBe(2);
+
+		runners = { ...runners, gh: { ...runners.gh, env: { GH_TOKEN: "gho_other" } } };
+		facts.runnersChanged();
+		await settle();
+		expect(sent()).toBe(3);
+
+		runners = { ...runners, git: { ...GIT, env: { GIT_SSH_COMMAND: "ssh -i key" } } };
+		facts.runnersChanged();
+		await settle();
+		expect(sent()).toBe(4);
+
+		facts.runnersChanged();
+		await settle();
+		expect(sent()).toBe(4);
+	});
+
 	it("tries a fact the hub refused again at the next change, and logs the refusal once", async () => {
 		const w = world();
 		w.hosts = [];
