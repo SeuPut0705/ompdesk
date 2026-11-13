@@ -7,6 +7,7 @@ pub mod release;
 pub mod rules;
 pub mod secret;
 pub mod semver;
+pub mod spawn;
 pub mod status;
 
 #[cfg(all(test, unix))]

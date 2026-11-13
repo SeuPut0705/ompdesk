@@ -21,6 +21,7 @@ use shell_core::labels;
 use shell_core::updater_core::release::{self, FeedError, Platform, PlatformRelease};
 use shell_core::updater_core::rules::{self, DOWNLOAD_IDLE_TIMEOUT_MS};
 use shell_core::updater_core::semver;
+use shell_core::updater_core::spawn;
 use shell_core::updater_core::status::{Access, Mode, Status};
 
 use super::fetch::{self, Fail, Redirect};
@@ -1112,9 +1113,7 @@ impl Service {
                 self.note_helper("nsis", trigger, presence, Map::new());
                 // Started off the reader thread (Defender scans a fresh unsigned setup inside `CreateProcess`); the quit
                 // follows once the attempt ended, started or not.
-                if let Err(error) =
-                    platform::start_installer(&installer, &["--updated", "--force-run"])
-                {
+                if let Err(error) = platform::start_installer(&installer, &spawn::RESTART_ARGS) {
                     self.broadcast(Failure::Raw(error.to_string()).status("updates.failed", false));
                 }
                 json!({ "then": "quit-for-update" })
@@ -1164,7 +1163,7 @@ impl Service {
                 if let Some(installer) = installer {
                     // The install at quit runs silently and must start before the shell is gone: `shutdown` joins it.
                     let handle = std::thread::spawn(move || {
-                        let _ = platform::start_installer(&installer, &["--updated", "/S"]);
+                        let _ = platform::start_installer(&installer, &spawn::QUIT_ARGS);
                     });
                     self.lock().helpers.push(handle);
                 }

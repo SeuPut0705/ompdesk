@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use shell_core::updater_core::rules::{self, SWAP_SCRIPT};
+use shell_core::updater_core::spawn;
+pub use shell_core::updater_core::spawn::start_installer;
 
 /// `access(path, W_OK)`: what the TypeScript asked of the bundle and its folder.
 #[cfg(unix)]
@@ -184,35 +186,8 @@ pub fn launch_swap(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    detach(&mut command);
+    spawn::detach(&mut command);
     command.spawn().map(drop)
-}
-
-/// The Windows installer, detached (it outlives the app): electron-updater's `--updated` arguments.
-pub fn start_installer(installer: &Path, args: &[&str]) -> std::io::Result<()> {
-    let mut command = Command::new(installer);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    detach(&mut command);
-    command.spawn().map(drop)
-}
-
-#[cfg(unix)]
-fn detach(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    // Its own session, as Node's `detached: true`: the app's exit does not take it along.
-    command.process_group(0);
-}
-
-#[cfg(windows)]
-fn detach(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
 }
 
 /// Reveals and opens the manual installer (Finder mounts the DMG).

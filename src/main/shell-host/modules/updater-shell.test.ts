@@ -55,7 +55,7 @@ type Spec = {
 		authInfo: { params: Record<string, never>; result: UpdateAuthInfo };
 		authTest: { params: { token?: string }; result: UpdateAuthTestResult };
 	};
-	posts: Record<never, never>;
+	posts: { quit: { trigger: "auto" | "user click" | "quit" } };
 	events: { status: State };
 	asks: { loginEnv: { params: Record<string, never>; result: { token?: string; path: string } } };
 };
@@ -113,8 +113,13 @@ interface Hit {
 }
 
 /** GitHub's release payload for `version`, its metadata comment naming `sha` as the installers' SHA-512. */
-function releaseOf(origin: string, version: string, options: { body?: string; sha?: string } = {}): Reply {
-	const file = (name: string) => ({ name, size: PAYLOAD.length, sha512: options.sha ?? sha512(PAYLOAD) });
+function releaseOf(
+	origin: string,
+	version: string,
+	options: { body?: string; sha?: string; payload?: Buffer } = {},
+): Reply {
+	const payload = options.payload ?? PAYLOAD;
+	const file = (name: string) => ({ name, size: payload.length, sha512: options.sha ?? sha512(payload) });
 	const metadata = {
 		version,
 		releaseDate: "2026-01-02T03:04:05Z",
@@ -131,7 +136,7 @@ function releaseOf(origin: string, version: string, options: { body?: string; sh
 			assets: Object.values(ASSET_FILES).map(({ id, name }) => ({
 				id,
 				name,
-				size: PAYLOAD.length,
+				size: payload.length,
 				url: `${origin}${API_PATH}/releases/assets/${id}`,
 			})),
 		},
@@ -144,6 +149,8 @@ interface Stand {
 	readonly hits: Feed<Hit>;
 	repo: (authorization: string | undefined) => Reply;
 	latest: (authorization: string | undefined) => Reply | Promise<Reply>;
+	/** The bytes the CDN serves for every asset (a release built with `releaseOf(…, {payload})` names the same). */
+	payload: Buffer;
 	hitsOf(path: string): Hit[];
 	close(): Promise<void>;
 }
@@ -165,6 +172,7 @@ async function startStand(): Promise<Stand> {
 		hits,
 		repo: () => ({ status: 200, json: {} }),
 		latest: () => releaseOf(origin, "1.0.0"),
+		payload: PAYLOAD,
 		hitsOf: p => hits.items.filter(hit => hit.path === p),
 		close() {
 			const closed = Promise.withResolvers<void>();
@@ -188,11 +196,12 @@ async function startStand(): Promise<Stand> {
 		if (pathname.startsWith("/cdn/")) {
 			const range = /^bytes=(\d+)-$/.exec(req.headers.range ?? "");
 			const from = range ? Number(range[1]) : 0;
-			const body = PAYLOAD.subarray(from);
+			const payload = stand.payload;
+			const body = payload.subarray(from);
 			res.writeHead(range ? 206 : 200, {
 				"content-type": "application/octet-stream",
 				"content-length": body.length,
-				...(range ? { "content-range": `bytes ${from}-${PAYLOAD.length - 1}/${PAYLOAD.length}` } : {}),
+				...(range ? { "content-range": `bytes ${from}-${payload.length - 1}/${payload.length}` } : {}),
 			});
 			return void res.end(body);
 		}
@@ -226,6 +235,10 @@ interface Rig {
 	readonly downloads: string;
 	/** Windows: electron-updater's cache of the installer. */
 	readonly pending: string;
+	/** The shell's profile (`update-install.json` lands here). */
+	readonly userData: string;
+	/** Node's `app.exit`, then the shell's exit (its `shutdown` joins the install at quit); once. */
+	close(): Promise<void>;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -256,7 +269,12 @@ async function boot(extraEnv: Record<string, string> = {}): Promise<Rig> {
 		...extraEnv,
 	};
 	const shell: TestShell = await withEnv(env, () => startTestShell(executable));
-	cleanups.push(() => shell.close());
+	let closing: Promise<void> | undefined;
+	const close = (): Promise<void> => {
+		closing ??= shell.close();
+		return closing;
+	};
+	cleanups.push(close);
 	if (ON_MAC) expect(shell.facts.paths.downloads).toBe(downloads);
 
 	const updater = shellModule<Spec>("updater", () => shell.client);
@@ -275,6 +293,8 @@ async function boot(extraEnv: Record<string, string> = {}): Promise<Rig> {
 		token: undefined,
 		downloads,
 		pending: path.join(localAppData, "ompdesk-updater", "pending"),
+		userData: shell.facts.paths.userData,
+		close,
 	};
 	// An empty folder as `PATH`: `gh auth token` is never found, whatever the runner has installed.
 	updater.serve("loginEnv", () => ({ path: noTools, ...(rig.token ? { token: rig.token } : {}) }));
@@ -498,5 +518,57 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 		});
 		const installed = await rig.updater.call("install", { trigger: "user click" });
 		expect(installed.then).toBe("quit");
+	});
+
+	// The installer the shell starts is a real process (was installer-spawn.test.ts and nsis-updater.test.ts): the stand
+	// serves the bytes of Windows' own cmd.exe as the setup, which starts with `--updated …`, reads nothing and ends.
+	describe.skipIf(process.platform !== "win32")("the Windows installer, a real process", () => {
+		const SYSTEM_EXE = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe");
+
+		/** Finds 2.0.0, its "installer" `payload`, and downloads it by itself (automatic mode). */
+		async function downloaded(payload: Buffer): Promise<Rig> {
+			const rig = await boot();
+			rig.stand.payload = payload;
+			rig.stand.latest = () => releaseOf(rig.stand.origin, "2.0.0", { payload });
+			await rig.updater.call("start", { version: "1.0.0" });
+			await rig.updater.call("check", {});
+			await rig.statuses.until(item => item.status.state === "downloaded" && item.installable);
+			expect(readFileSync(path.join(rig.pending, ASSET_FILES.windows.name)).equals(payload)).toBe(true);
+			return rig;
+		}
+
+		const marker = (rig: Rig): Record<string, unknown> =>
+			JSON.parse(readFileSync(path.join(rig.userData, "update-install.json"), "utf8"));
+
+		it("Restart & install starts the downloaded installer, then Node quits for the update", TIMEOUT, async () => {
+			const rig = await downloaded(readFileSync(SYSTEM_EXE));
+			const installed = await rig.updater.call("install", { trigger: "user click" });
+			expect(installed.then).toBe("quit-for-update");
+			// Started: no failure status after the install, and the marker says which install began.
+			expect(rig.statuses.items.some(isState("error"))).toBe(false);
+			expect(marker(rig)).toMatchObject({ from: "1.0.0", to: "2.0.0", mode: "nsis", trigger: "user click" });
+			await rig.logs.until(isLog("swap", "helper"));
+		});
+
+		it("an installer Windows refuses to run fails the install, and Node still quits", TIMEOUT, async () => {
+			const rig = await downloaded(Buffer.from("MZ, but no program at all"));
+			const installed = await rig.updater.call("install", { trigger: "user click" });
+			// As electron-updater: the quit follows the attempt, started or not; the failure reaches the status.
+			expect(installed.then).toBe("quit-for-update");
+			const [failed] = await rig.statuses.until(isState("error"));
+			expect(failed?.status).toMatchObject({ state: "error", key: "updates.failed" });
+		});
+
+		it(
+			"an approved quit installs silently, and the shell ends only after the installer started",
+			TIMEOUT,
+			async () => {
+				const rig = await downloaded(readFileSync(SYSTEM_EXE));
+				await rig.updater.post("quit", { trigger: "quit" });
+				await rig.logs.until(isLog("swap", "helper"));
+				await rig.close();
+				expect(marker(rig)).toMatchObject({ to: "2.0.0", mode: "nsis", trigger: "quit" });
+			},
+		);
 	});
 });
