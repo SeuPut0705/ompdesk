@@ -38,14 +38,15 @@
 	}
 }
 
-/* A release's gates: two columns once the card has room for them. */
+/* A release's gates: two columns once each has room for its name beside where it runs (the card sits in the main
+   column, so this counts the page's width). */
 .omp-checks-gates {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	column-gap: var(--sc-space-6);
 }
 
-@container omp-checks (min-width: 44rem) {
+@container omp-checks (min-width: 84rem) {
 	.omp-checks-gates {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
