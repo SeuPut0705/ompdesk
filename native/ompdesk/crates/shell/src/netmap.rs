@@ -328,6 +328,106 @@ pub fn endpoints_json(addresses: &[String]) -> Value {
     json!({ "endpoints": endpoints })
 }
 
+/// An HTTP authentication challenge CEF raises for a fetch (server 401 or proxy 407).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Challenge {
+    pub is_proxy: bool,
+    pub scheme: String,
+    pub host: String,
+    pub port: i32,
+    pub realm: String,
+}
+
+/// The params of the `net.login` request to Node.
+pub fn login_params(req_id: u64, challenge: &Challenge) -> Value {
+    json!({
+        "reqId": req_id,
+        "isProxy": challenge.is_proxy,
+        "scheme": challenge.scheme,
+        "host": challenge.host,
+        "port": challenge.port,
+        "realm": challenge.realm,
+    })
+}
+
+/// What Node's `net.login` answer does to the challenge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoginAnswer {
+    Credentials { username: String, password: String },
+    Cancel,
+}
+
+/// `{username, password}` continues with them; `{cancel: true}`, anything else, and a failed request (`None`: Node
+/// answered with an error or is gone) cancel.
+pub fn login_answer(answer: Option<&Value>) -> LoginAnswer {
+    let Some(answer) = answer else {
+        return LoginAnswer::Cancel;
+    };
+    if answer.get("cancel").and_then(Value::as_bool) == Some(true) {
+        return LoginAnswer::Cancel;
+    }
+    match (
+        answer.get("username").and_then(Value::as_str),
+        answer.get("password").and_then(Value::as_str),
+    ) {
+        (Some(username), Some(password)) => LoginAnswer::Credentials {
+            username: username.to_string(),
+            password: password.to_string(),
+        },
+        _ => LoginAnswer::Cancel,
+    }
+}
+
+/// Electron's `net.resolveHost` option `cacheUsage`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CacheUsage {
+    /// Chromium's host cache may answer (the default).
+    Allowed,
+    /// A stale entry may answer too. CEF's resolver cannot be asked for that, so it behaves as `Allowed`.
+    StaleAllowed,
+    /// A fresh lookup, never the cache.
+    Disallowed,
+}
+
+/// `cacheUsage` as Electron names it (`allowed`, `staleAllowed`, `disallowed`; `disabled` is accepted as a synonym of
+/// `disallowed`, ignoring case); absent means `allowed`. Anything else is an error text.
+pub fn cache_usage(value: Option<&str>) -> Result<CacheUsage, String> {
+    let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(CacheUsage::Allowed);
+    };
+    match value.to_ascii_lowercase().as_str() {
+        "allowed" => Ok(CacheUsage::Allowed),
+        "staleallowed" => Ok(CacheUsage::StaleAllowed),
+        "disallowed" | "disabled" => Ok(CacheUsage::Disallowed),
+        _ => Err(format!(
+            "invalid cacheUsage \"{value}\" (allowed, staleAllowed or disallowed)"
+        )),
+    }
+}
+
+/// A fresh lookup through the OS resolver (`getaddrinfo`), which neither Chromium's host cache nor its DNS
+/// configuration is part of. Blocks for as long as the OS takes: never call it on the UI thread. The addresses are
+/// text, in the resolver's order, without duplicates; `Err` is Chromium's error code (`-105`, name not resolved).
+pub fn resolve_system(host: &str) -> Result<Vec<String>, i32> {
+    use std::net::ToSocketAddrs;
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.is_empty() {
+        return Err(-105);
+    }
+    let found = (host, 0u16).to_socket_addrs().map_err(|_| -105)?;
+    let mut addresses: Vec<String> = Vec::new();
+    for socket in found {
+        let text = socket.ip().to_string();
+        if !addresses.contains(&text) {
+            addresses.push(text);
+        }
+    }
+    if addresses.is_empty() {
+        return Err(-105);
+    }
+    Ok(addresses)
+}
+
 /// Chromium's `net_error_list.h` as the cef crate names it (`cef_errorcode_t`), ascending by code.
 const ERROR_NAMES: &[(i32, &str)] = &[
     (-906, "ERR_BLOB_REFERENCED_FILE_UNAVAILABLE"),
@@ -835,5 +935,70 @@ mod tests {
                 { "address": "2606:2800:220:1::1", "family": "ipv6" },
             ] })
         );
+    }
+
+    #[test]
+    fn cache_usage_takes_electrons_names_and_disabled() {
+        assert_eq!(cache_usage(None), Ok(CacheUsage::Allowed));
+        assert_eq!(cache_usage(Some("")), Ok(CacheUsage::Allowed));
+        assert_eq!(cache_usage(Some("allowed")), Ok(CacheUsage::Allowed));
+        assert_eq!(
+            cache_usage(Some("staleAllowed")),
+            Ok(CacheUsage::StaleAllowed)
+        );
+        assert_eq!(cache_usage(Some("disallowed")), Ok(CacheUsage::Disallowed));
+        assert_eq!(cache_usage(Some("disabled")), Ok(CacheUsage::Disallowed));
+        assert_eq!(
+            cache_usage(Some(" Disallowed ")),
+            Ok(CacheUsage::Disallowed)
+        );
+        assert!(cache_usage(Some("never")).unwrap_err().contains("never"));
+    }
+
+    #[test]
+    fn a_system_lookup_of_a_literal_needs_no_network() {
+        assert_eq!(
+            resolve_system("127.0.0.1"),
+            Ok(vec!["127.0.0.1".to_string()])
+        );
+        assert_eq!(resolve_system("[::1]"), Ok(vec!["::1".to_string()]));
+        assert_eq!(resolve_system("  "), Err(-105));
+    }
+
+    #[test]
+    fn a_challenge_becomes_login_params() {
+        let challenge = Challenge {
+            is_proxy: true,
+            scheme: "basic".into(),
+            host: "proxy.corp".into(),
+            port: 8080,
+            realm: "corp".into(),
+        };
+        assert_eq!(
+            login_params(7, &challenge),
+            json!({ "reqId": 7, "isProxy": true, "scheme": "basic", "host": "proxy.corp", "port": 8080, "realm": "corp" })
+        );
+    }
+
+    #[test]
+    fn a_login_answer_continues_only_with_both_credentials() {
+        let creds = json!({ "username": "ann", "password": "" });
+        assert_eq!(
+            login_answer(Some(&creds)),
+            LoginAnswer::Credentials {
+                username: "ann".into(),
+                password: "".into()
+            }
+        );
+        assert_eq!(
+            login_answer(Some(&json!({ "cancel": true }))),
+            LoginAnswer::Cancel
+        );
+        assert_eq!(
+            login_answer(Some(&json!({ "username": "ann" }))),
+            LoginAnswer::Cancel
+        );
+        assert_eq!(login_answer(Some(&json!({}))), LoginAnswer::Cancel);
+        assert_eq!(login_answer(None), LoginAnswer::Cancel);
     }
 }

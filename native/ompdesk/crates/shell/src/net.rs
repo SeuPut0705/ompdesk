@@ -13,20 +13,27 @@
 //!   client nothing earlier. A response that stays silent after its headers shows no head until then.
 //! - `statusText` of an HTTP/2 response (which carries none) is the standard reason phrase.
 //! - Chunks are not paced: a Node side that reads slower than the network lets them queue in the writer.
-//! - `net.resolveHost`'s `cacheUsage` is ignored (CEF's resolver has no such option); `bypassCustomProtocolHandlers`
+//! - `net.resolveHost`'s `cacheUsage: "disallowed"` (or `"disabled"`) skips Chromium's host cache by asking the OS
+//!   resolver (`getaddrinfo`, on a worker thread, answered after at most 15 s as `ERR_NAME_NOT_RESOLVED`) instead of
+//!   CEF's: that lookup ignores Chromium's own DNS configuration (secure DNS, custom servers) and the OS resolver's own
+//!   cache still applies. `staleAllowed` behaves as `allowed`. `bypassCustomProtocolHandlers`
 //!   fails a custom-scheme URL with `net::ERR_UNKNOWN_URL_SCHEME`, which is what Chromium would answer without handlers.
 //! - The request headers `Content-Length`, `Host`, `Connection` and `Transfer-Encoding` are Chromium's to compute and
 //!   are not forwarded.
-//! - HTTP authentication prompts are not answered (a 401 with a challenge is returned as the response).
+//! - HTTP authentication (server 401 or proxy 407) is asked of Node as a `net.login` request; credentials from Node go
+//!   back to CEF, `{cancel: true}`, an error, Node's absence or an aborted fetch cancel the challenge and the 401/407 is
+//!   the response. CEF asks again after wrong credentials, so Node sees each retry; there is no timeout on the shell's
+//!   side beyond the request's own end.
 #![allow(unsafe_code)]
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use cef::*;
 use serde_json::{Value, json};
-use shell_core::netmap::{self, FetchParams, Redirect};
+use shell_core::netmap::{self, CacheUsage, FetchParams, Redirect};
 
 use crate::host::{self, Call};
 use crate::log::log;
@@ -57,6 +64,10 @@ struct Fetch {
     finished: bool,
     /// Node cancelled it (`{cancel}` or `net.cancel`): it hears nothing more about it.
     aborted: bool,
+    /// The challenge CEF waits on (answered by Node's `net.login`), with the number of the question it belongs to: an
+    /// answer to an earlier question is ignored.
+    login: Option<(u64, AuthCallback)>,
+    login_seq: u64,
 }
 
 type Shared = Rc<RefCell<Fetch>>;
@@ -91,11 +102,14 @@ fn abort(req_id: u64) {
     let Some((request, fetch)) = entry else {
         return;
     };
-    let finished = {
+    let (finished, login) = {
         let mut f = fetch.borrow_mut();
         f.aborted = true;
-        f.finished
+        (f.finished, f.login.take())
     };
+    if let Some((_, callback)) = login {
+        callback.cancel();
+    }
     if !finished {
         // No borrow is held: CEF may report the cancellation from inside this call.
         request.cancel();
@@ -192,6 +206,8 @@ fn start(call: Call, params: &FetchParams, body: Option<Vec<u8>>) {
         stopped_at_redirect: false,
         finished: false,
         aborted: false,
+        login: None,
+        login_seq: 0,
     }));
     let mut client = FetchClient::new(state.clone());
     let mut context = session::context_for(&params.partition);
@@ -372,6 +388,78 @@ wrap_urlrequest_client! {
                 forward(request, &self.fetch, data, data_length);
             }
         }
+
+        fn auth_credentials(
+            &self,
+            is_proxy: ::std::os::raw::c_int,
+            host: Option<&CefString>,
+            port: ::std::os::raw::c_int,
+            realm: Option<&CefString>,
+            scheme: Option<&CefString>,
+            callback: Option<&mut AuthCallback>,
+        ) -> ::std::os::raw::c_int {
+            let Some(callback) = callback else { return 0 };
+            let text = |value: Option<&CefString>| value.map(CefString::to_string).unwrap_or_default();
+            let challenge = netmap::Challenge {
+                is_proxy: is_proxy != 0,
+                scheme: text(scheme),
+                host: text(host),
+                port,
+                realm: text(realm),
+            };
+            ask_login(&self.fetch, challenge, callback.clone());
+            1
+        }
+    }
+}
+
+/// Hands a challenge to Node (`net.login`); the answer comes back on the reader thread and is applied on the UI thread.
+fn ask_login(fetch: &Shared, challenge: netmap::Challenge, callback: AuthCallback) {
+    let (req_id, seq, stale) = {
+        let mut f = fetch.borrow_mut();
+        if f.aborted || f.finished {
+            drop(f);
+            return callback.cancel();
+        }
+        f.login_seq += 1;
+        let seq = f.login_seq;
+        (f.req_id, seq, f.login.replace((seq, callback)))
+    };
+    if let Some((_, callback)) = stale {
+        callback.cancel();
+    }
+    host::request(
+        "net.login",
+        netmap::login_params(req_id, &challenge),
+        None,
+        move |result, _| {
+            let answer = netmap::login_answer(result.as_ref().ok());
+            ui::post(move || answer_login(req_id, seq, answer));
+        },
+    );
+}
+
+/// Applies Node's answer to the challenge `seq` of fetch `req_id` (UI thread). A fetch that is gone or has moved on to
+/// a later challenge has nothing waiting any more.
+fn answer_login(req_id: u64, seq: u64, answer: netmap::LoginAnswer) {
+    let fetch = ACTIVE.with(|active| active.borrow().get(&req_id).map(|(_, fetch)| fetch.clone()));
+    let Some(fetch) = fetch else { return };
+    let callback = {
+        let mut f = fetch.borrow_mut();
+        match f.login.take() {
+            Some((waiting, callback)) if waiting == seq => Some(callback),
+            other => {
+                f.login = other;
+                None
+            }
+        }
+    };
+    let Some(callback) = callback else { return };
+    match answer {
+        netmap::LoginAnswer::Credentials { username, password } => {
+            callback.cont(Some(&cs(&username)), Some(&cs(&password)));
+        }
+        netmap::LoginAnswer::Cancel => callback.cancel(),
     }
 }
 
@@ -379,6 +467,13 @@ fn resolve_host(call: Call) {
     let Some(host_name) = call.str("host").filter(|h| !h.trim().is_empty()) else {
         return call.err("invalid", "net.resolveHost needs a host");
     };
+    let usage = match netmap::cache_usage(call.params.get("cacheUsage").and_then(Value::as_str)) {
+        Ok(usage) => usage,
+        Err(message) => return call.err("invalid", message),
+    };
+    if usage == CacheUsage::Disallowed {
+        return resolve_fresh(call, host_name);
+    }
     let partition = call.str("partition").unwrap_or_default();
     ui::run(move || {
         let slot = Rc::new(RefCell::new(Some(call)));
@@ -396,6 +491,41 @@ fn resolve_host(call: Call) {
             Some(&mut callback),
         );
     });
+}
+
+/// How long a fresh OS lookup may take before the call is answered as unresolved (the worker thread then finishes on
+/// its own and its answer is dropped).
+const FRESH_RESOLVE_DEADLINE_MS: i64 = 15_000;
+
+type FreshSlot = Arc<Mutex<Option<Call>>>;
+
+/// `cacheUsage: "disallowed"`: the OS resolver on a worker thread (it blocks), never the UI thread.
+fn resolve_fresh(call: Call, host_name: String) {
+    let slot: FreshSlot = Arc::new(Mutex::new(Some(call)));
+    let late = slot.clone();
+    ui::post_delayed(FRESH_RESOLVE_DEADLINE_MS, move || {
+        answer_fresh(&late, Err(-105));
+    });
+    let worker = slot.clone();
+    let spawned = std::thread::Builder::new()
+        .name("net-resolve".into())
+        .spawn(move || answer_fresh(&worker, netmap::resolve_system(&host_name)));
+    if let Err(error) = spawned {
+        let call = slot.lock().unwrap().take();
+        if let Some(call) = call {
+            call.err("failed", format!("could not start a lookup: {error}"));
+        }
+    }
+}
+
+/// Answers the call if nobody has yet (the lookup and the deadline race for it).
+fn answer_fresh(slot: &FreshSlot, result: Result<Vec<String>, i32>) {
+    let call = slot.lock().unwrap().take();
+    let Some(call) = call else { return };
+    match result {
+        Ok(addresses) => call.ok(netmap::endpoints_json(&addresses)),
+        Err(code) => call.err("failed", netmap::error_text(code)),
+    }
 }
 
 wrap_resolve_callback! {
