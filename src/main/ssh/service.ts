@@ -29,6 +29,9 @@ import { writeFileAtomic } from "../atomic-file";
 import { CoreError } from "../core/process";
 import { SshCore, type SshFailure, type SshRun } from "./client";
 
+/** How often, and how far apart, the local port is asked for again behind this forward's own ssh that just closed. */
+const OWN_PORT_RELEASE_ASKS = 30;
+const OWN_PORT_RELEASE_MS = 100;
 /** Waits before reconnect attempt 1, 2, 3, …; the last repeats. */
 const RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000, 60_000];
 
@@ -324,12 +327,20 @@ export class SshTools {
 			runtime.timer = null;
 			this.#status(runtime, { kind: "connecting" });
 			// A halted ssh still holds the local port until it has closed.
+			const afterOwnSsh = runtime.exits.size > 0;
 			while (runtime.exits.size > 0) await Promise.all([...runtime.exits]);
 			if (stale()) return;
 			const { forward } = runtime;
-			// The saved local port may have been taken while it was down.
-			const free =
-				(await this.#core.plan(forward.target, forward.remotePort, forward.localPort)) === forward.localPort;
+			// The saved local port may have been taken while it was down. Behind an ssh of this forward that just closed
+			// it may still read taken for a moment (Windows frees a dead process's listener a little after its exit, ci
+			// run 43432214532): ask again for a short while before calling it someone else's.
+			let free = false;
+			for (let ask = 0; !free && ask <= (afterOwnSsh ? OWN_PORT_RELEASE_ASKS : 0); ask++) {
+				if (ask > 0) await new Promise(done => setTimeout(done, OWN_PORT_RELEASE_MS));
+				if (stale()) return;
+				free =
+					(await this.#core.plan(forward.target, forward.remotePort, forward.localPort)) === forward.localPort;
+			}
 			if (stale()) return;
 			if (!free) {
 				runtime.active = false;
