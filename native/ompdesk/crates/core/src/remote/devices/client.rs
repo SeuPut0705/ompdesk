@@ -349,6 +349,10 @@ impl Client {
             }
             self.log("attempt", details);
         }
+        // The address lookup is a step of its own: a `peer` wake while it runs measures against it, never against
+        // the last dial of an earlier attempt, whose age would end this attempt before it dialed (run 43496522688).
+        inner.step += 1;
+        inner.step_at = clock::now_ms();
         self.set_state(inner, LinkState::Connecting);
         let cancel = Scope::detached();
         inner.cancel = Some(cancel.clone());
