@@ -6,7 +6,8 @@
  * session's `getActiveToolNames()` before it counts a reminder, and a list without `todo` makes it reset and return
  * false (stock's own "todo is off" path). So `checkCompletion` is wrapped only to say "the check is running now", and
  * the session's `getActiveToolNames` answers without `todo` once, during that window, when the session waits. Nothing
- * else sees a different list. An upstream option (a host callback or setting the tracker consults) would be cleaner.
+ * else sees a different list. An upstream option (a host callback or setting the tracker consults) would be cleaner;
+ * asked for in https://github.com/can1357/oh-my-pi/issues/19151, and this wrapper goes when stock has one.
  *
  * Feature-detected: an omp without either method keeps stock's reminder (`todoWait` in capabilities.ts).
  */
