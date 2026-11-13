@@ -517,15 +517,15 @@ async function pressUntilVisible(page: Page, shortcut: string, target: Locator):
  */
 async function openPageTab(
 	page: Page,
-	command: "stats" | "agents",
-	tab: "session" | "usage" | "live" | null,
+	command: "stats" | "agents" | "checks",
+	tab: "session" | "usage" | "live" | "now" | "queue" | "tests" | null,
 ): Promise<void> {
 	// The palette's own field: another dialog a harness page left open has a combobox too.
 	const search = page.locator('[role="dialog"]:has([data-palette-index]) [role="combobox"]');
 	await pressUntilVisible(page, "ControlOrMeta+k", search);
 	await search.fill(command);
 	await search.press("Enter");
-	const section = page.locator(`section[data-destination="${command === "stats" ? "insights" : "agents"}"]`);
+	const section = page.locator(`section[data-destination="${command === "stats" ? "insights" : command}"]`);
 	await section.waitFor({ state: "visible", timeout: 15_000 });
 	if (!tab) return;
 	await section.locator(`[role="tab"][data-tab-id="${tab}"]`).click();
@@ -1011,6 +1011,16 @@ export const SURFACES: readonly Surface[] = [
 		parity: { session: "work", available: () => process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "many" },
 	},
 	{
+		id: "sidebar-checks",
+		area: "A",
+		title: "Session list with the Checks block over the usage block: a gauge per pool that has work and the release's gates",
+		open: openDrawer,
+		ready: "[data-sidebar-checks]",
+		// The harness page answers the hub fake's sample frame; a real host shows it only when started with it.
+		query: "checks=busy",
+		parity: { session: "work", available: () => process.env.OMP_GUI_TEST_CHECKS === "busy" },
+	},
+	{
 		id: "sidebar-usage-end",
 		area: "A",
 		title: "The same usage block scrolled to its last account: the block scrolls inside its cap, the sidebar does not",
@@ -1452,6 +1462,19 @@ export const SURFACES: readonly Surface[] = [
 		settle: 900,
 		parity: { session: "work" },
 	},
+	...(["now", "queue", "tests"] as const).map(
+		(tab): Surface => ({
+			id: tab === "now" ? "checks-page" : `checks-page-${tab}`,
+			area: "B",
+			title: `Checks › ${tab === "now" ? "Now" : tab === "queue" ? "Merge queue" : "Tests and cost"}`,
+			// The page keeps its last tab, so each surface names its own.
+			open: page => openPageTab(page, "checks", tab),
+			ready: `section[data-destination="checks"] [data-checks-tab="${tab}"]`,
+			query: "checks=busy",
+			settle: 600,
+			parity: { session: "work", available: () => process.env.OMP_GUI_TEST_CHECKS === "busy" },
+		}),
+	),
 	{
 		id: "usage-rotation",
 		area: "B",
