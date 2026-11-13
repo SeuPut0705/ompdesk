@@ -506,8 +506,6 @@ export const IPC_COMMANDS = {
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
 	/** Keep a device that uses this computer out: block its Tailscale node, forget it, close its connections */
 	REMOTE_BLOCK_PEER: "remote:block-peer",
-	/** Publish this computer's check-control admission key to a repo (`owner/name`): its secret and the device list */
-	CHECKS_PUBLISH_ADMISSION_KEY: "checks:publish-admission-key",
 	/** Set a paired client device's daily model-use limits ({deviceId, limits}) */
 	REMOTE_SET_PEER_LIMITS: "remote:set-peer-limits",
 	/** Rename a paired host ({deviceId, name}): the host sets its own device name */

@@ -37,6 +37,7 @@ import {
 	reviewFromDevice,
 } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
+import { CHECKS_PUBLISH_ADMISSION_KEY } from "../shared/checks-admission";
 import { COMPUTER_USE_PREF, isComputerUseEngine } from "../shared/computer-use";
 import { CREDIT_SPEND_PREF } from "../shared/credit-spend";
 import {
@@ -2776,7 +2777,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, (_caller, name: unknown) => remoteDevices.setDeviceName(name));
 	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipc.handle(IPC_COMMANDS.REMOTE_BLOCK_PEER, (_caller, deviceId: unknown) => remoteDevices.blockPeer(deviceId));
-	ipc.handle(IPC_COMMANDS.CHECKS_PUBLISH_ADMISSION_KEY, async (_caller, repo: unknown) =>
+	ipc.handle(CHECKS_PUBLISH_ADMISSION_KEY, async (_caller, repo: unknown) =>
 		publishWithGh(repo, await appChecksAdmission()),
 	);
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));

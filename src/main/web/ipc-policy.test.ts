@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import * as checksAdmission from "../../shared/checks-admission";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import * as mailAccounts from "../../shared/mail-accounts";
 import * as mobileWeb from "../../shared/mobile-web";
@@ -17,6 +18,7 @@ import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 
 const MAIN = path.join(__dirname, "..");
 const NAMED: Record<string, unknown> = {
+	...checksAdmission,
 	...mailAccounts,
 	...mobileWeb,
 	...preview,

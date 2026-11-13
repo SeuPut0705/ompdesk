@@ -10,6 +10,7 @@
  * unchanged; `transform` = the host rewrites it for a web page; `client` = the page makes it itself.
  */
 import { AGENT_CONTROL_APP, AGENT_CONTROL_REVIEW, AGENT_CONTROL_VIEW } from "../../shared/agent-control";
+import { CHECKS_PUBLISH_ADMISSION_KEY } from "../../shared/checks-admission";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import { MAIL_ACCOUNTS_COMMAND } from "../../shared/mail-accounts";
 import {
@@ -69,6 +70,7 @@ export type IpcChannel =
 	| typeof PREVIEW_VISUAL
 	| typeof SCHEDULES_COMMAND
 	| typeof MAIL_ACCOUNTS_COMMAND
+	| typeof CHECKS_PUBLISH_ADMISSION_KEY
 	| typeof SCHEDULES_LOG
 	| typeof SCHEDULES_STATE
 	| typeof SIDEBAR_PROJECTS_COMMAND
@@ -488,7 +490,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.REMOTE_REVOKE_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_BLOCK_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	// A credential this computer writes to GitHub with its own gh (the key itself never leaves this computer's main).
-	[C.CHECKS_PUBLISH_ADMISSION_KEY]: { dir: "invoke", permission: "accounts-admin", mode: "pass" },
+	[CHECKS_PUBLISH_ADMISSION_KEY]: { dir: "invoke", permission: "accounts-admin", mode: "pass" },
 	[C.REMOTE_SET_PEER_LIMITS]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_HOST]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
