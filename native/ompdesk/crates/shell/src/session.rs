@@ -25,6 +25,8 @@ struct Sessions {
     user_agents: HashMap<String, (String, Option<String>)>,
     /// What `setSpellCheckerLanguages` set, by partition (normalised).
     spell: HashMap<String, Vec<String>>,
+    /// Why a partition's last `proxy` setting did not take, by partition (one that waited for its context included).
+    proxy_refused: HashMap<String, String>,
 }
 
 static SESSIONS: Mutex<Option<Sessions>> = Mutex::new(None);
@@ -104,8 +106,12 @@ pub fn context_for(partition: &str) -> Option<RequestContext> {
         persist_session_cookies: i32::from(!cache_path.is_empty()),
         ..Default::default()
     };
-    let context = request_context_create_context(Some(&settings), None)?;
-    ui_state(|u| u.contexts.insert(partition.to_string(), context.clone()));
+    let mut ready = ContextReady::new(partition.to_string());
+    let context = request_context_create_context(Some(&settings), Some(&mut ready))?;
+    ui_state(|u| {
+        u.contexts.insert(partition.to_string(), context.clone());
+        u.context_waiters.insert(partition.to_string(), Vec::new());
+    });
     crate::theme::apply_scheme_to_new_context(&context);
     log(
         "session.created",
@@ -116,6 +122,52 @@ pub fn context_for(partition: &str) -> Option<RequestContext> {
 
 fn context_or_global(partition: &str) -> Option<RequestContext> {
     context_for(partition).or_else(request_context_get_global_context)
+}
+
+wrap_request_context_handler! {
+    struct ContextReady {
+        partition: String,
+    }
+    impl RequestContextHandler {
+        fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
+            let Some(context) = request_context else { return };
+            // A partition forgotten and made again while this one started has a new context with its own waiters.
+            let waiting = ui_state(|u| {
+                let current = u.contexts.get(&self.partition).is_some_and(|c| c.is_same(Some(&mut context.clone())) != 0);
+                if current { u.context_waiters.remove(&self.partition) } else { None }
+            });
+            for act in waiting.unwrap_or_default() {
+                act(context);
+            }
+        }
+    }
+}
+
+/// Runs `act` on `partition`'s request context once CEF has initialized it (UI thread): at once when it has, else from
+/// `OnRequestContextInitialized`. A new context makes its profile asynchronously and refuses preferences until then
+/// (`VerifyBrowserContext`, with no error text). Its pages wait too, and later: CEF creates a browser only after the
+/// context's own initialized callback has posted that handler call (`ExecuteWhenBrowserContextInitialized`), so what is
+/// queued here is in place before a page of the partition loads.
+fn when_initialized(partition: &str, act: impl FnOnce(&RequestContext) + 'static) {
+    let Some(context) = context_or_global(partition) else {
+        return;
+    };
+    let act: state::ContextWaiter = Box::new(act);
+    let now = ui_state(|u| match u.context_waiters.get_mut(partition) {
+        Some(waiting) => {
+            waiting.push(act);
+            None
+        }
+        None => Some(act),
+    });
+    if let Some(act) = now {
+        act(&context);
+    }
+}
+
+/// Why `partition`'s last `proxy` setting did not take, if it did not.
+pub fn proxy_refusal(partition: &str) -> Option<String> {
+    with(|s| s.proxy_refused.get(partition).cloned())
 }
 
 /// A page of `partition` that has its browser (UI thread): for `app`, the first window's page.
@@ -342,14 +394,29 @@ fn run_op(call: Call, partition: &str, name: &str, args: &Value) {
             with(|s| s.user_agents.insert(partition.to_string(), (ua, languages)));
         }
         "setProxy" => {
-            if let (Some(context), Some(mut value)) =
-                (context_or_global(partition), proxy_value(args))
-            {
-                let mut error = CefString::default();
-                if context.set_preference(Some(&cs("proxy")), Some(&mut value), Some(&mut error))
-                    == 0
-                {
-                    return call.err("failed", format!("the proxy setting was refused: {error}"));
+            // A context still initializing gets it once it is ready (`when_initialized`), before any page of it loads; a
+            // refusal then is kept for `proxy_refusal` and answers the next call.
+            if let Some(mut value) = proxy_value(args) {
+                with(|s| s.proxy_refused.remove(partition));
+                let name = partition.to_owned();
+                when_initialized(partition, move |context| {
+                    let mut error = CefString::default();
+                    if context.set_preference(
+                        Some(&cs("proxy")),
+                        Some(&mut value),
+                        Some(&mut error),
+                    ) == 0
+                    {
+                        let reason = format!("the proxy setting was refused: {error}");
+                        log(
+                            "session.proxy_refused",
+                            json!({ "partition": name, "reason": reason }),
+                        );
+                        with(|s| s.proxy_refused.insert(name, reason));
+                    }
+                });
+                if let Some(reason) = proxy_refusal(partition) {
+                    return call.err("failed", reason);
                 }
             }
         }
