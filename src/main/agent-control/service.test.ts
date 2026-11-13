@@ -22,6 +22,7 @@ import type {
 } from "../../shared/schedules";
 import type { SessionSummary } from "../../shared/session-summary";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
+import { CoreChecksHub } from "../checks/client";
 import { RpcTimeoutError } from "../rpc-client";
 import type { Pace } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
@@ -6367,5 +6368,40 @@ describe("a message to a saved session whose holder this app cannot see", () => 
 		expect(result.isError).toBe(true);
 		expect(result.text).toContain(`This computer's list of saved sessions could not be read (${broken})`);
 		expect(result.text).toContain("nothing was done");
+	});
+});
+
+describe("ompdesk_checks", () => {
+	it("asks the checks hub as the calling session and says how to wait, and says so when there is none", async () => {
+		const hub = new CoreChecksHub({ fake: true });
+		try {
+			await hub.apply({
+				op: "startReply",
+				reply: {
+					runId: "run-7",
+					decision: "held",
+					placement: { kind: "github-hosted" },
+					expectedStartMin: 4,
+					reason: "github-macos has no free place",
+				},
+			});
+			const host = new FakeHost({ tabId: "main0001", title: "Boss", cwd: "/repo" });
+			const service = new AgentControl(host, { files: host.files, tuning: SHORT_WAITS, checks: hub });
+			opened.push(service);
+			const result = await service.run("main0001", T.checks, { op: "start", purpose: "release" });
+			expect(result.isError, result.text).toBe(false);
+			expect(result.text).toContain("Checks held: run run-7");
+			expect(result.text).toContain("Never poll gh");
+			const calls = (await hub.apply({ op: "calls" })) ?? [];
+			const start = calls.find(call => call.op === "start");
+			expect(start?.origin).toMatchObject({ kind: "session", device: "local" });
+			expect(start?.request).toMatchObject({ purpose: "release", cwd: "/repo" });
+			const without = control(new FakeHost({ tabId: "main0001", title: "Boss", cwd: "/repo" }));
+			const refused = await without.run("main0001", T.checks, { op: "status" });
+			expect(refused.isError).toBe(true);
+			expect(refused.text).toContain("Check control is not available");
+		} finally {
+			await hub.close();
+		}
 	});
 });
