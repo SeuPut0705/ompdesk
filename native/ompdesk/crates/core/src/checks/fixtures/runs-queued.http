@@ -1,0 +1,25 @@
+HTTP/2.0 200 OK
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Date: Fri, 13 Nov 2026 19:03:50 GMT
+Etag: W/"d8913bad45d7f7427659d5cf01a9f3e8248418828f43ae8e468729110530c487"
+Referrer-Policy: origin-when-cross-origin, strict-origin-when-cross-origin
+Server: github.com
+Strict-Transport-Security: max-age=31536000; includeSubdomains; preload
+Vary: Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With
+X-Content-Type-Options: nosniff
+X-Frame-Options: deny
+X-Github-Api-Version-Selected: 2022-11-28
+X-Github-Edge-Region: koreacentral
+X-Github-Media-Type: github.v3; format=json
+X-Ratelimit-Limit: 5000
+X-Ratelimit-Remaining: 3800
+X-Ratelimit-Reset: 1794598857
+X-Ratelimit-Resource: core
+X-Ratelimit-Used: 1200
+X-Xss-Protection: 0
+
+{"total_count":4,"workflow_runs":[{"actor":"SeuPut0705","conclusion":null,"created_at":"2026-11-13T18:59:52Z","display_title":"ci [batch ]","event":"workflow_dispatch","head_branch":"omp/agent/usage-lazy","head_sha":"7c0a5eafcc3026e6153909ca68b97a80085159dd","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43487947733","id":43487947733,"name":"ci [batch ]","path":".github/workflows/ci.yml","run_attempt":1,"run_number":2256,"run_started_at":"2026-11-13T18:59:52Z","status":"queued","triggering_actor":"SeuPut0705","updated_at":"2026-11-13T19:00:28Z","workflow_id":376546584},{"actor":"SeuPut0705","conclusion":null,"created_at":"2026-11-13T18:59:13Z","display_title":"ci [batch ]","event":"workflow_dispatch","head_branch":"omp/agent/shell-port-chrome","head_sha":"a088a7fd41efc6c03edd9cffe992b5aa1af298be","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43487847957","id":43487847957,"name":"ci [batch ]","path":".github/workflows/ci.yml","run_attempt":1,"run_number":2255,"run_started_at":"2026-11-13T18:59:13Z","status":"queued","triggering_actor":"SeuPut0705","updated_at":"2026-11-13T19:00:05Z","workflow_id":376546584},{"actor":"SeuPut0705","conclusion":null,"created_at":"2026-11-13T18:58:48Z","display_title":"ci [batch ]","event":"workflow_dispatch","head_branch":"omp/agent/shell-port-updater","head_sha":"41b2c379ea2ae3ce2150357f4768cb559c85f5fb","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43487785919","id":43487785919,"name":"ci [batch ]","path":".github/workflows/ci.yml","run_attempt":1,"run_number":2254,"run_started_at":"2026-11-13T18:58:48Z","status":"queued","triggering_actor":"SeuPut0705","updated_at":"2026-11-13T18:58:56Z","workflow_id":376546584},{"actor":"SeuPut0705","conclusion":null,"created_at":"2026-11-11T20:25:44Z","display_title":"feat(core): worktrees and the rest of local/git's reads run in the Ru…","event":"push","head_branch":"main","head_sha":"7c8497e0d40f7fd32e0b14f1bdeb4c3493fd0d86","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43095994358","id":43095994358,"name":"ci","path":".github/workflows/ci.yml","run_attempt":1,"run_number":1898,"run_started_at":"2026-11-11T20:25:44Z","status":"queued","triggering_actor":"SeuPut0705","updated_at":"2026-11-11T20:25:44Z","workflow_id":376546584}]}

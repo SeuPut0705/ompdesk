@@ -8,6 +8,15 @@ import { z } from "zod";
 import { ATTACHMENT_MAX_BYTES } from "../../../resources/gui-bridge/agent-control-contracts";
 import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, type AgentControlToolName, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
+import {
+	CHECKS_LIMITS,
+	CHECKS_OPS,
+	PURPOSES,
+	RERUNS,
+	START_SCOPES,
+	STATUS_SCOPES,
+	UNTILS,
+} from "../../shared/checks-contract";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 import { GITHUB_EVENT_KINDS, GITHUB_REPO, SESSION_EVENT_KINDS } from "../../shared/schedules";
 import { MAIL_KINDS } from "./mail";
@@ -639,6 +648,58 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 			additionalProperties: false,
 		},
 	},
+	{
+		name: T.checks,
+		label: "OMPdesk checks",
+		description:
+			"Start CI checks, wait for their result without polling, or see what is running.\n" +
+			"Start checks on GitHub's runners, wait for a run's result, or read what runs where; it replaces gh workflow run, gh run watch and gh run view, which you never use for checks. op start: OMPdesk decides whether and where it runs (you give no placement) and answers started, reused (a green result already covers these inputs), held (it waits in OMPdesk's queue and starts by itself) or refused, with the reason and the run id. op wait: ends when the run's result arrives, polls nothing and costs no turns meanwhile; the answer carries the judgment (green, red or unknown; each failing test with its first error line and whether it is known flaky; whether it blocks a release gate; what to do next), so you read no logs. unknown means there is no trustworthy result yet: never report it as green. A message that reaches you ends the wait early. If you end your turn instead of waiting, you are woken with the result. op status: pools (is macOS full?) and runs, from OMPdesk's own cache.",
+		parameters: {
+			type: "object",
+			properties: {
+				op: { type: "string", enum: [...CHECKS_OPS], description: "start, wait or status." },
+				purpose: {
+					type: "string",
+					enum: [...PURPOSES],
+					description:
+						"start: why. branch (default): a branch being worked on. release: a release's gate. land: land this branch through the merge queue.",
+				},
+				scope: {
+					type: "string",
+					enum: [...START_SCOPES, ...STATUS_SCOPES],
+					description:
+						"start: changed (default: what the change needs) or full (every check). status: mine (default: runs you started), repo (the repository's) or all.",
+				},
+				rerun: {
+					type: "string",
+					enum: [...RERUNS],
+					description: "start: run again only what failed in this ref's last run.",
+				},
+				repo: {
+					type: "string",
+					description: "start, status: owner/name. Default: the repository of your folder.",
+				},
+				ref: {
+					type: "string",
+					description: "start: the branch. Default: your folder's branch. It must be pushed.",
+				},
+				run: { type: "string", description: "wait: the run id a start answered." },
+				until: {
+					type: "string",
+					enum: [...UNTILS],
+					description: "wait: result (default: the run's verdict) or any (the run's first change).",
+				},
+				timeout_seconds: {
+					type: "integer",
+					minimum: 1,
+					maximum: CHECKS_LIMITS.waitMaxSeconds,
+					description: `wait: how long at most, default ${CHECKS_LIMITS.waitDefaultSeconds}. A wait that runs out answers unknown, and waiting again is free.`,
+				},
+			},
+			required: ["op"],
+			additionalProperties: false,
+		},
+	},
 ];
 
 const attachmentsArg = z.array(
@@ -954,6 +1015,45 @@ export const ARGS = {
 		.object({ area: z.string().trim().max(60).optional(), query: z.string().trim().max(200).optional() })
 		.strict(),
 	[T.app]: z.object({ action: z.string().trim().min(1).max(100), args: z.record(z.unknown()).optional() }).strict(),
+	[T.checks]: z.discriminatedUnion("op", [
+		z
+			.object({
+				op: z.literal("start"),
+				purpose: z.enum(PURPOSES).optional(),
+				scope: z.enum(START_SCOPES).optional(),
+				rerun: z.enum(RERUNS).optional(),
+				repo: z.string().trim().regex(GITHUB_REPO, "repo is owner/name").optional(),
+				ref: z.string().trim().min(1).max(250).optional(),
+				// The CLI's `--workflow` (scripts/ci-run.ts); not in the tool's schema: policy picks an agent's workflow.
+				workflow: z
+					.object({
+						file: z
+							.string()
+							.trim()
+							.regex(/^[\w.-]+\.ya?ml$/, "workflow is a file name such as ci.yml"),
+						inputs: z.record(z.string().regex(/^[\w-]+$/), z.string().max(1000)),
+						macos: z.boolean(),
+					})
+					.strict()
+					.optional(),
+			})
+			.strict(),
+		z
+			.object({
+				op: z.literal("wait"),
+				run: z.string().trim().min(1).max(200),
+				until: z.enum(UNTILS).optional(),
+				timeout_seconds: z.number().int().min(1).max(CHECKS_LIMITS.waitMaxSeconds).optional(),
+			})
+			.strict(),
+		z
+			.object({
+				op: z.literal("status"),
+				scope: z.enum(STATUS_SCOPES).optional(),
+				repo: z.string().trim().regex(GITHUB_REPO, "repo is owner/name").optional(),
+			})
+			.strict(),
+	]),
 } as const;
 
 /** The slice of a tool's JSON schema `looseArgs` reads. */

@@ -2,7 +2,7 @@
 
 Same control as the host tools, from any shell: inside an OMPdesk session or outside it (a terminal, a script, another agent CLI). It needs OMPdesk running on this computer. `ompdesk help` lists the commands; `ompdesk help <command>` its flags.
 
-Commands: `sessions`, `open`, `send`, `wait`, `state`, `result`, `read`, `answer`, `stop`, `show`, `notify`, `compare`, `merge`, `report`, `schedule`, `autopilot`, `app list`, `app <action> [json]`, `call <tool> [json]` (any tool, raw args), `events` (one line per event until interrupted).
+Commands: `sessions`, `open`, `send`, `wait`, `state`, `result`, `read`, `answer`, `stop`, `show`, `notify`, `compare`, `merge`, `report`, `schedule`, `autopilot`, `checks start|wait|status` (CI checks: skill://ompdesk/references/checks.md), `app list`, `app <action> [json]`, `call <tool> [json]` (any tool, raw args), `events` (one line per event until interrupted).
 
 - A message argument of `-` reads stdin: `echo "..." | ompdesk open -`.
 - `ompdesk send <session> "..." --wait` sends and returns when the turn ended; `ompdesk wait <session> --until idle|blocked|done|any [--timeout SECONDS]` waits without sending.

@@ -553,6 +553,17 @@ async fn a_wait_that_finds_nothing_ends_with_a_fresh_read() {
 
 type Asked = Arc<Mutex<Vec<(String, Value)>>>;
 
+/// The args of every `method` main was asked or told so far.
+fn names(asked: &Asked, method: &str) -> Vec<Value> {
+    asked
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name == method)
+        .map(|(_, args)| args.clone())
+        .collect()
+}
+
 /// Plays main: answers each ask with `reply(method, args)` and records it.
 fn play_main(
     port: Arc<Port<HostState>>,
@@ -959,4 +970,221 @@ async fn a_device_is_found_by_id_name_or_a_unique_part_and_waited_for_while_it_c
     );
     control.host.port().close();
     impatient.host.port().close();
+}
+
+// ---- ompdesk_checks ------------------------------------------------------------------------------------------------
+
+/// A service on port `id` whose `ompdesk_checks` asks the fake hub opened as the same id; main answers mail.
+fn checks_rig(id: u64) -> (AgentControl, Asked, Arc<crate::checks::fake::FakeHub>) {
+    let state = state_with(
+        vec![
+            session_tab("a", "/s/2026-11-14_a1b2c3d4.jsonl"),
+            session_tab("b", "/s/2026-11-14_e5f6a7b8.jsonl"),
+        ],
+        &[("a", "w"), ("b", "w")],
+    );
+    let (control, asked) = rig(id, state, Files::default(), |method, args| match method {
+        "mail" => Ok(json!({})),
+        other => plain_main(other, args),
+    });
+    let hub = crate::checks::open_fake(id);
+    control.checks.set(id).unwrap();
+    (control, asked, hub)
+}
+
+fn red_result(run: &str, session: &str) -> crate::checks::contract::RunResult {
+    use crate::checks::contract::*;
+    RunResult {
+        run_id: run.into(),
+        origin: Origin::Session {
+            session: session.into(),
+            device: "local".into(),
+            goal: None,
+        },
+        answer: Answer {
+            run_id: run.into(),
+            verdict: AnswerVerdict::Red,
+            as_of: 1_794_000_000_000,
+            counts: Counts {
+                passed: 41,
+                failed: 1,
+            },
+            failed: vec![FailedTest {
+                test: "src/a.test.ts > saves once".into(),
+                first_error: "AssertionError: expected 1 to be 2".into(),
+                known_flaky: false,
+                history: "on linux: failed 1 of 9 runs in 7 days".into(),
+            }],
+            blocks_release: Some(BlocksRelease {
+                gate: "gate-mac".into(),
+            }),
+            expected_wait_min: None,
+            reused: None,
+            next: Next::Fix,
+            notes: vec![],
+        },
+    }
+}
+
+#[tokio::test]
+async fn a_start_asks_the_hub_as_the_calling_session_and_says_how_to_wait() {
+    let (control, _, hub) = checks_rig(7_951);
+    let started = control
+        .run(
+            "a",
+            "ompdesk_checks",
+            json!({ "op": "start", "purpose": "release" }),
+            None,
+        )
+        .await;
+    assert!(!started.is_error, "{}", started.text);
+    assert!(
+        started.text.starts_with("Checks started: run fake-1.")
+            && started
+                .text
+                .contains(r#"ompdesk_checks {"op":"wait","run":"fake-1"}"#),
+        "{}",
+        started.text
+    );
+    let calls = hub.apply(crate::checks::fake::FakeOp::Calls);
+    assert_eq!(calls[0]["op"], "start");
+    // Who asks is the service's word: the session's saved id, never an argument.
+    assert_eq!(
+        calls[0]["origin"],
+        json!({ "kind": "session", "session": "a1b2c3d4", "device": "local" })
+    );
+    assert_eq!(calls[0]["request"]["purpose"], "release");
+    assert_eq!(calls[0]["request"]["cwd"], "/w");
+    crate::checks::close_fake(7_951);
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn a_wait_ends_with_the_judgment_and_tells_no_one_twice() {
+    let (control, asked, hub) = checks_rig(7_952);
+    let waiting = {
+        let control = control.clone();
+        tokio::spawn(async move {
+            control
+                .run(
+                    "a",
+                    "ompdesk_checks",
+                    json!({ "op": "wait", "run": "fake-1" }),
+                    None,
+                )
+                .await
+        })
+    };
+    while !control.is_blocked("a") {
+        tokio::task::yield_now().await;
+    }
+    hub.apply(crate::checks::fake::FakeOp::Finish {
+        result: red_result("fake-1", "a1b2c3d4"),
+    });
+    let answer = waiting.await.unwrap();
+    assert!(!answer.is_error, "{}", answer.text);
+    for part in [
+        "Run fake-1: red",
+        "41 passed, 1 failed.",
+        "- src/a.test.ts > saves once\n  AssertionError: expected 1 to be 2\n  (not known flaky: on linux: failed 1 of 9 runs in 7 days)",
+        "Blocks the release gate gate-mac.",
+        "Next: fix the failures",
+    ] {
+        assert!(
+            answer.text.contains(part),
+            "{part:?} not in {}",
+            answer.text
+        );
+    }
+    // The wait delivered it: no waking note follows.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(names(&asked, "mail").is_empty());
+    crate::checks::close_fake(7_952);
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn a_message_ends_a_checks_wait_early() {
+    let (control, _, _hub) = checks_rig(7_953);
+    let waiting = {
+        let control = control.clone();
+        tokio::spawn(async move {
+            control
+                .run(
+                    "a",
+                    "ompdesk_checks",
+                    json!({ "op": "wait", "run": "fake-1", "timeout_seconds": 600 }),
+                    None,
+                )
+                .await
+        })
+    };
+    while !control.is_blocked("a") {
+        tokio::task::yield_now().await;
+    }
+    control.arrive("a");
+    let answer = waiting.await.unwrap();
+    assert!(
+        answer
+            .text
+            .starts_with("Returned early: a message reached you"),
+        "{}",
+        answer.text
+    );
+    assert!(!control.is_blocked("a"));
+    crate::checks::close_fake(7_953);
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn a_result_wakes_the_session_that_started_it_when_it_does_not_wait() {
+    let (control, asked, hub) = checks_rig(7_954);
+    // The first call follows the hub's results.
+    let status = control
+        .run("b", "ompdesk_checks", json!({ "op": "status" }), None)
+        .await;
+    assert!(status.text.starts_with("Checks as of "), "{}", status.text);
+    hub.apply(crate::checks::fake::FakeOp::Finish {
+        result: red_result("fake-9", "e5f6a7b8"),
+    });
+    let mut mails = Vec::new();
+    for _ in 0..200 {
+        mails = names(&asked, "mail");
+        if !mails.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(mails.len(), 1, "one waking note");
+    assert_eq!(mails[0]["tabId"], "b");
+    let text = mails[0]["content"].as_str().unwrap_or_default();
+    assert!(
+        text.contains("The checks you started have a result") && text.contains("Run fake-9: red"),
+        "{text}"
+    );
+    assert_eq!(mails[0]["delivery"]["triggerTurn"], true);
+    // The same result again tells nobody again.
+    hub.apply(crate::checks::fake::FakeOp::Finish {
+        result: red_result("fake-9", "e5f6a7b8"),
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(names(&asked, "mail").len(), 1);
+    crate::checks::close_fake(7_954);
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn without_a_hub_the_tool_says_check_control_is_unavailable() {
+    let state = state_with(vec![session_tab("a", "/s/x_1.jsonl")], &[("a", "w")]);
+    let (control, _) = rig(7_955, state, Files::default(), plain_main);
+    let outcome = control
+        .run("a", "ompdesk_checks", json!({ "op": "status" }), None)
+        .await;
+    assert!(outcome.is_error);
+    assert!(
+        outcome.text.starts_with("Check control is not available"),
+        "{}",
+        outcome.text
+    );
+    control.host.port().close();
 }

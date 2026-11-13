@@ -361,6 +361,60 @@ fn build_notify(p: &Parsed) -> Result<Built, String> {
     Ok(tool("ompdesk_notify", a))
 }
 
+/// `checks start|wait|status`: `ompdesk_checks` from a terminal or another agent CLI.
+fn build_checks(p: &Parsed) -> Result<Built, String> {
+    let op = p.pos(0).unwrap_or_default();
+    let mut a = Map::new();
+    a.insert("op".into(), op.into());
+    match op {
+        "start" => {
+            one_of(p.str("purpose"), &["branch", "release", "land"], "purpose")?;
+            one_of(p.str("scope"), &["changed", "full"], "scope")?;
+            if p.bool("rerun-failed") {
+                a.insert("rerun".into(), "failed".into());
+            }
+            p.args_into(&mut a, &["purpose", "scope", "repo", "ref"]);
+            match p.str("workflow") {
+                Some(file) => {
+                    let mut inputs = Map::new();
+                    for pair in p.list("input").unwrap_or_default() {
+                        let Some((key, value)) = pair.split_once('=') else {
+                            return Err(format!("--input takes KEY=VALUE, not {pair:?}"));
+                        };
+                        inputs.insert(key.into(), value.into());
+                    }
+                    let macos = p.bool("macos");
+                    a.insert(
+                        "workflow".into(),
+                        json!({ "file": file, "inputs": inputs, "macos": macos }),
+                    );
+                }
+                None if p.list("input").is_some() || p.bool("macos") => {
+                    return Err("--input and --macos go with --workflow FILE".into());
+                }
+                None => {}
+            }
+        }
+        "wait" => {
+            one_of(p.str("until"), &["result", "any"], "until")?;
+            let Some(run) = p.pos(1) else {
+                return Err("checks wait needs RUN (the id a start answered)".into());
+            };
+            a.insert("run".into(), run.into());
+            p.args_into(&mut a, &["until"]);
+            if let Some(timeout) = p.num("timeout") {
+                a.insert("timeout_seconds".into(), to_json(timeout));
+            }
+        }
+        "status" => {
+            one_of(p.str("scope"), &["mine", "repo", "all"], "scope")?;
+            p.args_into(&mut a, &["scope", "repo"]);
+        }
+        other => return Err(format!("checks takes start, wait or status, not {other:?}")),
+    }
+    Ok(tool("ompdesk_checks", a))
+}
+
 fn build_compare(p: &Parsed) -> Result<Built, String> {
     let mut a = Map::new();
     if !p.pos.is_empty() {
@@ -640,6 +694,26 @@ pub static SPECS: &[Spec] = &[
         min: 1,
         max: 1,
         build: build_notify,
+    },
+    Spec {
+        name: "checks",
+        usage: "checks start [--purpose branch|release|land] [--scope changed|full] [--rerun-failed] [--repo OWNER/NAME] [--ref BRANCH] [--workflow FILE [--input KEY=VALUE]... [--macos]] | checks wait RUN [--until result|any] [--timeout SECONDS] | checks status [--scope mine|repo|all] [--repo OWNER/NAME]",
+        summary: "Start checks on CI, wait for their result, or see what runs (ompdesk_checks).",
+        flags: &[
+            ("purpose", S),
+            ("scope", S),
+            ("rerun-failed", B),
+            ("repo", S),
+            ("ref", S),
+            ("workflow", S),
+            ("input", M),
+            ("macos", B),
+            ("until", S),
+            ("timeout", N),
+        ],
+        min: 1,
+        max: 2,
+        build: build_checks,
     },
     Spec {
         name: "compare",
@@ -1049,6 +1123,41 @@ mod tests {
             (
                 &["state", "s1"],
                 json!({ "method": "state", "session": "s1" }),
+            ),
+            (
+                &["checks", "start", "--purpose", "release", "--rerun-failed"],
+                tool(
+                    "ompdesk_checks",
+                    json!({ "op": "start", "rerun": "failed", "purpose": "release" }),
+                ),
+            ),
+            (
+                &[
+                    "checks",
+                    "start",
+                    "--workflow",
+                    "ci.yml",
+                    "--input",
+                    "batch=true",
+                    "--input",
+                    "mac=true",
+                    "--macos",
+                ],
+                tool(
+                    "ompdesk_checks",
+                    json!({ "op": "start", "workflow": { "file": "ci.yml", "inputs": { "batch": "true", "mac": "true" }, "macos": true } }),
+                ),
+            ),
+            (
+                &["checks", "wait", "run-7", "--timeout", "90"],
+                tool(
+                    "ompdesk_checks",
+                    json!({ "op": "wait", "run": "run-7", "timeout_seconds": 90 }),
+                ),
+            ),
+            (
+                &["checks", "status", "--scope", "all"],
+                tool("ompdesk_checks", json!({ "op": "status", "scope": "all" })),
             ),
             (
                 &["result", "a"],

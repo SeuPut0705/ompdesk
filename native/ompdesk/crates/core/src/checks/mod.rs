@@ -5,11 +5,10 @@
 //! - `hub`: the `ChecksHub` trait and the real `Hub` over the two fact adapters.
 //! - `sources`: `GithubSource` and `LocalSource`, with their in-memory fakes.
 //! - `fake`: a scripted `ChecksHub` for tests and the dev harness.
-//! - The real hub's parts, one file each so they are built side by side, every one declared here from the start (an
-//!   empty file until its part lands) so no part edits this file: `admission` (what a start decides), `answer` (a
-//!   run's result as an agent reads it), `poller` (the one reader of GitHub and the pools, and the real sources),
-//!   `queue` (the merge queue), `results` (test reports into test results), `trends` (flaky tests, slowdowns, cost)
-//!   and `place` (local or runner).
+//! - The real hub's parts, one file each: `admission` (when a start runs), `policy` (what it dispatches), `ticket`
+//!   (the dispatch's admission ticket), `answer` (a run's result as an agent reads it), `poller` (the one reader of
+//!   GitHub and the pools, and the real sources), `queue` (the merge queue), `results` (test reports into test
+//!   results), `trends` (flaky tests, slowdowns, cost) and `place` (local or runner).
 //!
 //! The wire, each a request of main's with `hub`, main's id for the hub it opened:
 //! `checks.open {hub, fake?}`, `checks.close {hub}`, `checks.start {hub, origin, request}` → `StartReply`,
@@ -28,10 +27,12 @@ pub mod contract;
 pub mod fake;
 pub mod hub;
 pub mod place;
+pub mod policy;
 pub mod poller;
 pub mod queue;
 pub mod results;
 pub mod sources;
+pub mod ticket;
 pub mod trends;
 
 use std::collections::HashMap;
@@ -87,6 +88,28 @@ pub fn hub(id: u64) -> Option<Arc<dyn ChecksHub>> {
     locked(&HUBS).get(&id).map(|entry| Arc::clone(&entry.hub))
 }
 
+/// A fake hub opened as `id`, for a test of code that asks `hub(id)` in-process; `close_fake` it at the test's end.
+#[cfg(test)]
+pub(crate) fn open_fake(id: u64) -> Arc<FakeHub> {
+    let fake = Arc::new(FakeHub::default());
+    let (events, frames, _) = Events::capture();
+    std::mem::forget(frames);
+    let entry = Arc::new(Entry {
+        hub: fake.clone(),
+        fake: Some(fake.clone()),
+        events,
+        results: tokio::spawn(async {}).abort_handle(),
+        watching: Mutex::new(None),
+    });
+    locked(&HUBS).insert(id, entry);
+    fake
+}
+
+#[cfg(test)]
+pub(crate) fn close_fake(id: u64) {
+    locked(&HUBS).remove(&id);
+}
+
 /// Closes every hub whose events go to `events`' output, or to none any more (`serve` calls it when its input ended).
 pub fn close_all(events: &Events) {
     locked(&HUBS).retain(|_, entry| entry.events.reaches_another(events));
@@ -110,19 +133,31 @@ struct OpenParams {
     /// A scripted hub (`fake.rs`) instead of the real one.
     #[serde(default)]
     fake: bool,
+    /// The owner's admission key in hex, from main's keychain (`ticket.rs`); absent: dispatches carry no ticket.
+    #[serde(default)]
+    key: Option<String>,
+}
+
+/// Where the real hub keeps its state: beside the check journals (`<cache>/ompdesk/checks/hub`).
+fn hub_dir() -> Option<std::path::PathBuf> {
+    poller::local::store_root(&|name| std::env::var(name).ok()).map(|root| root.join("hub"))
 }
 
 async fn open(call: Call) -> Result<Reply, Fault> {
     let params: OpenParams = call.params()?;
-    if !params.fake {
-        // The real hub needs its sources, which are not built yet (`hub.rs`).
-        return Err(Fault::new(
-            "not_built",
-            "check control: only a fake hub can be opened yet",
-        ));
-    }
-    let fake = Arc::new(FakeHub::default());
-    let hub: Arc<dyn ChecksHub> = fake.clone();
+    let (hub, fake): (Arc<dyn ChecksHub>, Option<Arc<FakeHub>>) = if params.fake {
+        let fake = Arc::new(FakeHub::default());
+        (fake.clone(), Some(fake))
+    } else {
+        let real = hub::Hub::real(hub_dir());
+        real.set_key(
+            params
+                .key
+                .as_deref()
+                .and_then(ticket::AdmissionKey::from_hex),
+        );
+        (Arc::new(real), None)
+    };
     let (id, events) = (params.hub, call.events.clone());
     let mut results = hub.results();
     let results = tokio::spawn(async move {
@@ -144,7 +179,7 @@ async fn open(call: Call) -> Result<Reply, Fault> {
     .abort_handle();
     let entry = Arc::new(Entry {
         hub,
-        fake: Some(fake),
+        fake,
         events: call.events,
         results,
         watching: Mutex::new(None),

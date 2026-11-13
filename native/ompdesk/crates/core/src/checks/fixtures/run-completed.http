@@ -1,0 +1,25 @@
+HTTP/2.0 200 OK
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Date: Fri, 13 Nov 2026 19:03:58 GMT
+Etag: W/"61fd01d5422c4717865243049f06b09179c0f5f64cbc9a452b9982ebd674cb0b"
+Referrer-Policy: origin-when-cross-origin, strict-origin-when-cross-origin
+Server: github.com
+Strict-Transport-Security: max-age=31536000; includeSubdomains; preload
+Vary: Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With
+X-Content-Type-Options: nosniff
+X-Frame-Options: deny
+X-Github-Api-Version-Selected: 2022-11-28
+X-Github-Edge-Region: koreacentral
+X-Github-Media-Type: github.v3; format=json
+X-Ratelimit-Limit: 5000
+X-Ratelimit-Remaining: 3780
+X-Ratelimit-Reset: 1794598857
+X-Ratelimit-Resource: core
+X-Ratelimit-Used: 1220
+X-Xss-Protection: 0
+
+{"actor":"SeuPut0705","conclusion":"success","created_at":"2026-11-13T18:45:28Z","display_title":"formal repo-lock-core fast stamp","event":"workflow_dispatch","head_branch":"omp/agent/rust-batch-shell","head_sha":"ce7e4980a55edbd4ecee24e9b7a663bbfceb1fc7","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485704044","id":43485704044,"name":"formal repo-lock-core fast stamp","path":".github/workflows/formal.yml","run_attempt":1,"run_number":39,"run_started_at":"2026-11-13T18:45:28Z","status":"completed","triggering_actor":"SeuPut0705","updated_at":"2026-11-13T18:46:30Z","workflow_id":416951265}

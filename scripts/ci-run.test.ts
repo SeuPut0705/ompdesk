@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asksForMac, decide, type LaneRun, laneOf, parseArgs, refAllowed } from "./ci-run";
-
-const run = (id: number, workflow: string, branch: string, ...statuses: string[]): LaneRun => ({
-	id,
-	workflow,
-	branch,
-	jobs: statuses.map(status => ({ status, labels: status === "pending" ? [] : ["macos-latest"] })),
-});
+import { asksForMac, hubArgs, parseArgs, route } from "./ci-run";
 
 describe("ci-run arguments", () => {
 	it("reads the workflow, the ref and every -f field", () => {
@@ -14,8 +7,6 @@ describe("ci-run arguments", () => {
 			workflow: "ci",
 			ref: "feat/x",
 			inputs: { batch: "true", win_e2e_grep: "@smoke a=b" },
-			wait: false,
-			replace: false,
 			dryRun: false,
 		});
 	});
@@ -35,56 +26,56 @@ describe("ci-run arguments", () => {
 		expect(asksForMac("flake-probe", {})).toBe(true);
 		expect(asksForMac("formal", {})).toBe(false);
 	});
+
+	it("asks the hub for the named workflow with its inputs and says when it takes macOS", () => {
+		const args = parseArgs(["ci", "-f", "batch=true", "-f", "mac=true"]);
+		if (typeof args === "string") throw new Error(args);
+		expect(hubArgs(args, "omp/agent/x")).toEqual([
+			"checks",
+			"start",
+			"--workflow",
+			"ci.yml",
+			"--input",
+			"batch=true",
+			"--input",
+			"mac=true",
+			"--macos",
+			"--ref",
+			"omp/agent/x",
+		]);
+	});
 });
 
-describe("ci-run admission", () => {
-	it("lets main and the listed branches ask for macOS, by exact name", () => {
-		expect(refAllowed("main", "")).toBe(true);
-		expect(refAllowed("a/b", "a/b c")).toBe(true);
-		expect(refAllowed("c", "a/b,c")).toBe(true);
-		expect(refAllowed("a", "a/b")).toBe(false);
-		expect(refAllowed("a/b", "")).toBe(false);
-	});
+describe("ci-run route", () => {
+	const answered = (out: string) => ({ code: 0, out, err: "" });
 
-	it("refuses macOS to a branch outside MAC_REFS, and asks nothing of a run without macOS", () => {
-		const lane = laneOf([], { workflow: "ci", branch: "x" });
-		const refused = decide({ workflow: "ci", inputs: { mac: "true" }, replace: false }, "x", "y", lane);
-		expect(refused).toMatchObject({ go: false, code: 2 });
-		expect(decide({ workflow: "ci", inputs: { batch: "true" }, replace: false }, "x", "y", lane)).toEqual({
-			go: true,
+	it("prints the hub's answer, a refusal as exit 2", () => {
+		expect(route(true, answered("Checks held: run chk-1 waits.\n"))).toEqual({
+			via: "hub",
+			code: 0,
+			text: "Checks held: run chk-1 waits.",
+		});
+		expect(route(false, answered("Checks refused: nothing was started.\nWhy: paused by the owner"))).toMatchObject({
+			via: "hub",
+			code: 2,
 		});
 	});
-});
 
-describe("ci-run lane", () => {
-	const mine = { workflow: "ci", branch: "mine" };
-
-	it("counts queued and running macOS jobs as the holder and pending ones as waiting, for dispatched runs", () => {
-		const lane = laneOf([run(1, "ci", "a", "in_progress", "queued"), run(2, "e2e-nightly", "b", "pending")], mine);
-		expect(lane.holders.map(r => r.id)).toEqual([1]);
-		expect(lane.waiting.map(r => r.id)).toEqual([2]);
-		expect(lane.openJobs).toBe(2);
+	it("dispatches without macOS directly when OMPdesk does not answer, and refuses macOS then", () => {
+		const down = { code: 3, out: "", err: "ompdesk: OMPdesk is not running" };
+		expect(route(false, down)).toEqual({ via: "direct", why: "ompdesk: OMPdesk is not running" });
+		expect(route(false, undefined)).toEqual({ via: "direct", why: "no ompdesk command found" });
+		expect(route(true, down)).toMatchObject({
+			via: "refused",
+			code: 2,
+			why: expect.stringContaining("open OMPdesk"),
+		});
+		expect(route(true, undefined)).toMatchObject({ via: "refused", code: 2 });
 	});
 
-	it("leaves out the run this dispatch replaces, and jobs that are not macOS", () => {
-		const own = run(3, "ci", "mine", "in_progress");
-		const linux: LaneRun = {
-			id: 4,
-			workflow: "ci",
-			branch: "c",
-			jobs: [{ status: "queued", labels: ["ubuntu-latest"] }],
-		};
-		expect(laneOf([own, linux], mine)).toEqual({ holders: [], waiting: [], openJobs: 0 });
-	});
-
-	it("refuses to replace a waiting request unless told to, and notes a busy lane otherwise", () => {
-		const args = { workflow: "ci", inputs: { mac: "true" }, replace: false };
-		const full = laneOf([run(1, "ci", "a", "in_progress"), run(2, "ci", "b", "pending")], mine);
-		const refused = decide(args, "mine", "mine", full);
-		expect(refused).toMatchObject({ go: false, code: 3 });
-		expect(refused.go === false && refused.why).toContain("1 (ci, a)");
-		expect(decide({ ...args, replace: true }, "mine", "mine", full)).toMatchObject({ go: true });
-		const held = laneOf([run(1, "ci", "a", "in_progress")], mine);
-		expect(decide(args, "mine", "mine", held)).toMatchObject({ go: true, note: expect.stringContaining("run 1") });
+	it("never sends macOS work around a hub that answered with an error", () => {
+		const broken = { code: 1, out: "", err: "ompdesk: checks_source: gh is not signed in" };
+		expect(route(true, broken)).toMatchObject({ via: "refused", code: 1, why: expect.stringContaining("signed in") });
+		expect(route(false, broken)).toMatchObject({ via: "direct", why: expect.stringContaining("signed in") });
 	});
 });

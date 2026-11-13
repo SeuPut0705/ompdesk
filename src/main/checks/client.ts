@@ -65,6 +65,15 @@ export class CoreChecksHub implements FakeChecksHub {
 		this.#fake = options.fake === true;
 	}
 
+	/**
+	 * The id the core knows this hub by, opening it first: what code in the core that asks the hub in-process is given
+	 * (the agent tool's body, `agentControl.open {checks}`). It changes when the hub is opened again after a core ended.
+	 */
+	async id(): Promise<number> {
+		await this.#open();
+		return this.#id;
+	}
+
 	start(origin: Origin, request: StartRequest): Promise<StartReply> {
 		return this.#call(CHECKS_WIRE.start, { origin, request });
 	}
@@ -195,4 +204,15 @@ export class CoreChecksHub implements FakeChecksHub {
 			throw error;
 		}
 	}
+}
+
+let appHub: CoreChecksHub | null = null;
+
+/**
+ * The app's one checks hub: the agent tool, the page's relay and what main tells the hub all go through this one, so
+ * every session and screen reads the same pools and runs. Opened in the core on its first use.
+ */
+export function appChecksHub(): CoreChecksHub {
+	appHub ??= new CoreChecksHub();
+	return appHub;
 }

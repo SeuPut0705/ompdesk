@@ -18,6 +18,7 @@
 //! `tokio::spawn`, which would drop the scope).
 
 pub mod attach;
+pub mod checks;
 pub mod fail;
 pub mod host;
 pub mod js;
@@ -165,6 +166,12 @@ pub struct Mem {
     pub last_spend: HashMap<String, Spend>,
     /// Closed children's last turns (`familyEdits`), by device, session file and close (`#closedTurns`).
     pub closed_turns: HashMap<String, Shared<Value>>,
+    /// The runs each session is inside an `ompdesk_checks` wait for, by tab id: that wait delivers their result.
+    pub checks_waiting: HashMap<String, Vec<String>>,
+    /// The results a session was told, as `(tab id, run)`: told once, by its wait or by a waking note.
+    pub checks_told: HashSet<(String, String)>,
+    /// Whether the checks hub's results are followed (`follow_checks`).
+    pub checks_followed: bool,
 }
 
 /// A session inside a blocking wait main owns; counted until this drops, however the wait ends.
@@ -199,6 +206,8 @@ pub struct Inner {
     pub mailbox: Mailbox,
     /// `ompdesk_app`'s control, built at its first use over this service's own ports (`work`'s `ServicePorts`).
     pub(crate) app: std::sync::OnceLock<crate::agentctl::app::AppControl<work::ServicePorts>>,
+    /// The checks hub main opened (`crate::checks::hub`), when it told one at the open.
+    pub(crate) checks: std::sync::OnceLock<u64>,
 }
 
 /// The agent-control service of one app: cheap to clone, every clone is the same service.
@@ -324,6 +333,7 @@ impl AgentControl {
             mem: Mutex::new(Mem::default()),
             arrived: tokio::sync::Notify::new(),
             app: std::sync::OnceLock::new(),
+            checks: std::sync::OnceLock::new(),
         }))
     }
 
@@ -973,6 +983,7 @@ impl AgentControl {
             }
             Tool::AppList => self.app_list(typed(args(tool)?, tool)?).await,
             Tool::App => self.app(&caller, typed(args(tool)?, tool)?).await,
+            Tool::Checks => self.checks_tool(&caller, typed(args(tool)?, tool)?).await,
         }
     }
 
@@ -1032,6 +1043,9 @@ struct OpenParams {
     /// Main's own runtime (the sweep of the opened sessions, review pushes, redelivery); a bare service has none.
     #[serde(default)]
     runtime: Option<crate::agentctl::runtime::RuntimeConfig>,
+    /// Main's id of the checks hub it opened (`checks.open`); absent: `ompdesk_checks` answers that it is unavailable.
+    #[serde(default)]
+    checks: Option<u64>,
 }
 
 async fn open(call: Call) -> Result<Reply, Fault> {
@@ -1044,6 +1058,9 @@ async fn open(call: Call) -> Result<Reply, Fault> {
         params.tuning,
         system_clock(),
     );
+    if let Some(hub) = params.checks {
+        let _ = control.checks.set(hub);
+    }
     if let Some(config) = params.runtime {
         crate::agentctl::runtime::start(control.clone(), params.port, config);
     }

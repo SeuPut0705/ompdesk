@@ -263,6 +263,7 @@ pub fn mutates(tool: Tool, args: &Value) -> bool {
         Tool::Open | Tool::Send | Tool::Answer | Tool::Stop | Tool::Merge | Tool::App => true,
         Tool::Schedule => action != Some("list"),
         Tool::Autopilot => action != Some("status"),
+        Tool::Checks => args.get("op").and_then(Value::as_str) == Some("start"),
         _ => false,
     }
 }

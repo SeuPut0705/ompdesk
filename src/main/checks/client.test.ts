@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Origin, RunResult, Snapshot } from "../../shared/checks-contract";
 import { createFakeChecksHub, type FakeChecksHub, sampleAnswer, sampleSnapshot } from "../../shared/checks-fixture";
-import { CoreError } from "../core/process";
 import { advanceCoreTimers, fakeCoreTimers, realCoreTimers } from "../core/test-clock";
 import { CoreChecksHub } from "./client";
 
@@ -146,12 +145,11 @@ describe.each(HUBS)("a scripted checks hub: %s", (_name, { make, fakeTimers, adv
 });
 
 describe("the core's checks hub", () => {
-	it("opens only a fake hub until the real one is built", async () => {
+	it("opens the real hub, whose status costs no GitHub request", async () => {
 		const hub = new CoreChecksHub();
 		opened.push(hub);
-		const refused = await hub.status(SESSION, { scope: "all" }).catch(error => error);
-		expect(refused).toBeInstanceOf(CoreError);
-		expect((refused as CoreError).code).toBe("not_built");
+		const snapshot = await hub.status(SESSION, { scope: "all" });
+		expect(snapshot).toMatchObject({ paused: false, queue: [], answers: [] });
 	});
 
 	it("takes how gh and git run and keeps nothing of their environment", async () => {

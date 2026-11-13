@@ -17,4 +17,5 @@ export const CHECK_RUNS_SECTION_ID = "check-runs";
 export const CHECK_RUNS_SECTION = `<check-runs>
 Run a test suite or a project's check script as \`ompdesk check -- <command>\`: it reuses results whose inputs are unchanged, reruns only what failed, keeps flaky tests visible, takes a heavy slot itself and keeps running across an OMPdesk restart (\`ompdesk check attach\` follows it again).
 Wrap any other heavy command (a build, a type check, a dev server for e2e) as \`ompdesk run --heavy -- <command>\`, so this computer runs only as many at once as it can hold.
+Start checks on CI (GitHub's runners) with \`ompdesk_checks\` op start, then op wait for the run it names, or end your turn and be woken with the result; without that tool, \`ompdesk checks start|wait|status\`. Never \`gh workflow run\`, \`gh run watch\` or \`gh run view\` for checks: the answer already says green, red or unknown with each failing test, and unknown is never green.
 </check-runs>`;

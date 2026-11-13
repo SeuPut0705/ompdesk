@@ -22,7 +22,7 @@ export const READY_LOG_REASON =
 	"OMPdesk: ready.log can never match — the command sends its stdout to a file, so the log line is never seen and the call would wait the whole ready.timeout (measured 55 min lost in one session). Run it with async: true and `wait`, or keep stdout visible (`| tee file`).";
 
 export const POLL_HINT =
-	"OMPdesk: this polled. A backgrounded job (async: true, or a bash that outlives 60 s) delivers its result by itself; `wait` blocks until then; for a CI run `gh run watch` under async, or ompdesk_schedule {on: github}. Each look costs a model call.";
+	"OMPdesk: this polled. A backgrounded job (async: true, or a bash that outlives 60 s) delivers its result by itself; `wait` blocks until then; for CI checks ompdesk_checks op wait (or `ompdesk checks wait`), which wakes you with the result. Each look costs a model call.";
 
 export const EDIT_HINT =
 	"OMPdesk: this edit was refused. Edit only lines shown by the latest read of that file; after a grep hit or an elided or declarations-only read, read the exact range first. Copy the `[FILE#TAG]` from that read or the last edit's response, never invent one; after each edit use the tags and line numbers its response returns.";

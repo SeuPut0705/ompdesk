@@ -151,6 +151,7 @@ import {
 	readCheckoutClaims,
 	readCheckoutPlace,
 } from "./checkout-peers";
+import { appChecksHub } from "./checks/client";
 import { createControlBackend } from "./control-socket/backend";
 import { startControlSocket } from "./control-socket/index";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -1420,6 +1421,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
 		sendOutboxFile: path.join(app.getPath("userData"), "send-outbox.json"),
 		attachmentsDir: path.join(app.getPath("userData"), "agent-attachments"),
+		checks: appChecksHub(),
 		uploads: deps.uploads,
 		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
 		sessionFatesFile: path.join(app.getPath("userData"), "agent-session-fates.json"),

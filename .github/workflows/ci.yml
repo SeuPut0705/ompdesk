@@ -93,6 +93,10 @@ on:
         description: "Run even when this commit already has a green run with these inputs (otherwise the run cancels itself)"
         type: boolean
         default: false
+      ticket:
+        description: "The admission ticket OMPdesk's checks hub minted for a macOS dispatch (queue-gate.yml); not in the run name"
+        type: string
+        default: ""
 
 # Main: one run going and the newest push waiting. A push that finds a run going waits (cancel-in-progress false), and a
 # newer push replaces the one waiting, so main never holds more than two runs, no run is cancelled once it started and
@@ -122,6 +126,9 @@ jobs:
       mac: ${{ inputs.mac || inputs.e2e }}
       mac-refs: ${{ vars.MAC_REFS }}
       force: ${{ inputs.force }}
+      ticket: ${{ inputs.ticket }}
+    secrets:
+      admission-key: ${{ secrets.CHECKS_ADMISSION_KEY }}
 
   # Pre-flight: the same blocking checks release.yml runs (types, biome, surface
   # policy, vitest, Windows `test:platform`, macOS @smoke, `native` and
