@@ -29,6 +29,19 @@ export const POLICY_ACTIONS = [
 	"rerun-failed",
 ] as const;
 export const POLICY_MODES = ["enforce", "advise"] as const;
+/** Why a policy acted, as a code the screens translate (`DecisionWhySchema`). */
+export const WHY_CODES = [
+	"newer-run",
+	"pool-full",
+	"release-ahead",
+	"paused",
+	"green-on-same-inputs",
+	"placed-on",
+	"batched",
+	"flaky",
+	"failed-jobs",
+	"other",
+] as const;
 export const QUEUE_STATES = ["waiting", "testing", "ready", "landing", "failed", "removed"] as const;
 export const OUTCOMES = ["pass", "fail", "skip"] as const;
 export const TEST_STATES = ["active", "quarantined", "cleared"] as const;
@@ -56,6 +69,7 @@ export const CHECKS_ENUMS = {
 	GateVerdict: GATE_VERDICTS,
 	PolicyAction: POLICY_ACTIONS,
 	PolicyMode: POLICY_MODES,
+	WhyCode: WHY_CODES,
 	QueueState: QUEUE_STATES,
 	Outcome: OUTCOMES,
 	TestState: TEST_STATES,
@@ -221,12 +235,28 @@ export const PolicySchema = z.strictObject({
 });
 export type Policy = z.infer<typeof PolicySchema>;
 
+/** Why a policy acted: what a screen shows, translated from its code (`reason` stays English for agents and logs). */
+export const DecisionWhySchema = z.discriminatedUnion("code", [
+	z.strictObject({ code: z.literal("newer-run"), run: z.string() }),
+	z.strictObject({ code: z.literal("pool-full"), pool: z.string(), running: Count, limit: Count }),
+	z.strictObject({ code: z.literal("release-ahead"), pool: z.string(), running: Count, limit: Count }),
+	z.strictObject({ code: z.literal("paused") }),
+	z.strictObject({ code: z.literal("green-on-same-inputs"), run: z.string() }),
+	z.strictObject({ code: z.literal("placed-on"), pool: z.string() }),
+	z.strictObject({ code: z.literal("batched"), batch: z.string() }),
+	z.strictObject({ code: z.literal("flaky"), fails: Count, runs: Count }),
+	z.strictObject({ code: z.literal("failed-jobs"), count: Count }),
+	z.strictObject({ code: z.literal("other") }),
+]);
+export type DecisionWhy = z.infer<typeof DecisionWhySchema>;
+
 /** One line of the "Decided automatically" log. */
 export const DecisionSchema = z.strictObject({
 	policy: z.string(),
 	run: z.string(),
 	action: z.enum(POLICY_ACTIONS),
 	reason: z.string(),
+	why: DecisionWhySchema,
 	at: Timestamp,
 });
 export type Decision = z.infer<typeof DecisionSchema>;
@@ -455,6 +485,7 @@ export const CHECKS_SCHEMAS = {
 	Run: RunSchema,
 	Gate: GateSchema,
 	Policy: PolicySchema,
+	DecisionWhy: DecisionWhySchema,
 	TestResult: TestResultSchema,
 	TestHistory: TestHistorySchema,
 	Answer: AnswerSchema,
