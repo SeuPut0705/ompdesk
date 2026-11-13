@@ -89,9 +89,19 @@ export function parsePendingInstall(raw: string): PendingInstall | undefined {
 	};
 }
 
-/** The lines the swap script ends an entry with (`SWAP_SCRIPT` in updater-state.ts). */
+/**
+ * The lines the swap script closes an entry with (`SWAP_SCRIPT` in updater-state.ts). A relaunch swap prints two:
+ * `installed` once the bundle is exchanged, then how the new app's start ended (`started`, or one of the
+ * `start failed` lines, which also say what is in place now). The last one wins. The new shell's launcher appends its
+ * own entry (`swap <date>: start check <bundle> -> <bundle>`) ending `started`, `start failed; the swap restores`,
+ * `start failed; previous app restored` or `start failed; restore failed: <why>`.
+ */
 const SWAP_OUTCOMES: readonly string[] = [
 	"installed",
+	"started",
+	"start failed; previous app restored",
+	"start failed; previous app lost",
+	"start failed; the swap restores",
 	"install failed; previous app restored",
 	"copy failed",
 	"cannot move old app",
@@ -99,10 +109,15 @@ const SWAP_OUTCOMES: readonly string[] = [
 	"app still running; swap skipped",
 ];
 
+/** The new macOS shell's launcher ends a failed restore with its reason after this prefix. */
+const RESTORE_FAILED_PREFIX = "start failed; restore failed:";
+
+const isSwapOutcome = (line: string): boolean => SWAP_OUTCOMES.includes(line) || line.startsWith(RESTORE_FAILED_PREFIX);
+
 export interface SwapLogEntry {
 	/** The date the script printed when it started. */
 	at: string;
-	/** The script's closing line, or `unknown` when it printed none (killed, or still running). */
+	/** The script's last closing line, or `unknown` when it printed none (killed, or still running). */
 	outcome: string;
 }
 
@@ -115,10 +130,64 @@ export function lastSwapEntry(log: string): SwapLogEntry | undefined {
 		const outcome = lines
 			.slice(start + 1)
 			.map(line => line.trim())
-			.find(line => SWAP_OUTCOMES.includes(line));
+			.findLast(isSwapOutcome);
 		return { at: header[1] ?? "", outcome: outcome ?? "unknown" };
 	}
 	return undefined;
+}
+
+/** A version whose start failed after an install (`<userData>/update-start-failed.json`): the automatic install leaves it. */
+export interface StartFailure {
+	version: string;
+	/** Failed starts reported for this version (the NSIS setup of the Rust shell shares the file). */
+	count: number;
+	/** Epoch ms the last failed start was reported. */
+	at: number;
+}
+
+export const START_FAILED_FILE = "update-start-failed.json";
+
+/**
+ * The first launch after an install ended on a start failure: not the version the install should have produced,
+ * and the last `swap.log` outcome says the new app did not start (`start failed; …`: the swap helper's, or the new
+ * shell's launcher, which appends the same lines). Returns what to remember so the automatic install does not try that
+ * version again (`count`: how many starts of it failed, one more than the file already holds for that version);
+ * `undefined` for a good install, an install the log says nothing about, or one that failed to copy.
+ */
+export function startFailureOf(
+	pending: PendingInstall,
+	currentVersion: string,
+	swap: SwapLogEntry | undefined,
+	at: number,
+	earlier?: StartFailure,
+): StartFailure | undefined {
+	if (!swap?.outcome.startsWith("start failed")) return undefined;
+	if (currentVersion === pending.to || pending.to === "unknown") return undefined;
+	return { version: pending.to, count: earlier?.version === pending.to ? earlier.count + 1 : 1, at };
+}
+
+export function parseStartFailure(raw: string): StartFailure | undefined {
+	try {
+		const value: unknown = JSON.parse(raw);
+		if (!value || typeof value !== "object") return undefined;
+		const { version, count, at } = value as Record<string, unknown>;
+		if (typeof version !== "string" || typeof at !== "number") return undefined;
+		return { version, count: typeof count === "number" && count >= 1 ? Math.floor(count) : 1, at };
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The start mark (`<userData>/app-started.json`): main writes it once per launch, after the first window's page
+ * loaded. A macOS swap helper that reopened the new app polls for it (`SWAP_SCRIPT`), and puts the previous app back
+ * when the expected version never marks. The helper reads the version with a fixed-string match on
+ * `"version":"<x>"`, so the JSON stays compact.
+ */
+export const START_MARK_FILE = "app-started.json";
+
+export function startMarkJson(version: string, pid: number, at: number): string {
+	return JSON.stringify({ version, pid, at });
 }
 
 /**

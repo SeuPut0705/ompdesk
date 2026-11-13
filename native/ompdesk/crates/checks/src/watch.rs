@@ -23,7 +23,6 @@ pub const DANGER: u64 = 3 * GIB;
 /// How often the volumes are read.
 const EVERY: Duration = Duration::from_secs(5);
 /// How long a stopped command has between SIGTERM and SIGKILL (Windows ends the tree at once).
-#[cfg_attr(windows, allow(dead_code))]
 pub const GRACE: Duration = Duration::from_secs(10);
 /// Output kept from the start of a command, and from its end, when it prints more than both.
 pub const HEAD: usize = 32 * 1024 * 1024;
@@ -61,6 +60,7 @@ impl Watch {
         let every = every.unwrap_or(EVERY);
         let handle = std::thread::spawn(move || {
             let begun = Instant::now();
+            let danger = volumes.danger;
             let first: Vec<(String, u64)> = volumes
                 .read()
                 .into_iter()
@@ -99,22 +99,22 @@ impl Watch {
                         gb(rate.max(0.0) as u64),
                         gb(since_start)
                     );
-                    if disk.free < DANGER && stop_command.is_none() && !warned_danger {
+                    if disk.free < danger && stop_command.is_none() && !warned_danger {
                         warned_danger = true;
                         say(&format!(
                             "only {} left on {} (under {}), {pace}: stop the heavy command holding this slot now",
                             gb(disk.free),
                             disk.path,
-                            gb(DANGER)
+                            gb(danger)
                         ));
-                    } else if disk.free < DANGER {
+                    } else if disk.free < danger {
                         if let Some(stop_now) = stop_command.take() {
                             stopped.store(true, Ordering::Relaxed);
                             say(&format!(
                                 "stopping the command: {} left on {} (under {}), {pace}; its log and results stay",
                                 gb(disk.free),
                                 disk.path,
-                                gb(DANGER)
+                                gb(danger)
                             ));
                             std::thread::spawn(stop_now);
                         }
@@ -125,7 +125,7 @@ impl Watch {
                             gb(disk.free),
                             disk.path,
                             gb(disk.need),
-                            gb(DANGER)
+                            gb(danger)
                         ));
                     } else if !disk.low() {
                         low.retain(|p| *p != disk.path);

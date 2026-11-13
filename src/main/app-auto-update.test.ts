@@ -259,6 +259,36 @@ describe("AutoInstallScheduler", () => {
 
 // 12 Nov 2026: the update was verified at 06:12:58, a question card was open and the owner asleep; the scheduler waited
 // on the card for 110 minutes, until he clicked the restart himself at 08:02:34.
+describe("AutoInstallScheduler and a version that failed to start", () => {
+	it("never announces or installs it, says so once, and goes on with another version", () => {
+		const t = setup({ startFailedBefore: true, focused: false });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS * 2);
+		t.advance(HOUR);
+		expect(t.calls).toEqual([]);
+		expect(t.logs).toEqual(["withdrawn reason=start failed before"]);
+		// A newer version (the fact goes false): the usual decision, and the line is owed again for a later failure.
+		t.facts.startFailedBefore = false;
+		t.advance(MINUTE);
+		expect(t.calls).toEqual([ANNOUNCE]);
+		t.facts.startFailedBefore = true;
+		t.advance(0);
+		expect(t.calls).toEqual([ANNOUNCE, "withdraw"]);
+		expect(t.logs.filter(line => line === "withdrawn reason=start failed before")).toHaveLength(2);
+	});
+
+	it("says it once per round: the update gone and back logs it again", () => {
+		const t = setup({ startFailedBefore: true });
+		t.advance(0);
+		t.advance(MINUTE);
+		t.facts.installable = false;
+		t.advance(MINUTE);
+		t.facts.installable = true;
+		t.advance(MINUTE);
+		expect(t.logs).toEqual(["withdrawn reason=start failed before", "withdrawn reason=start failed before"]);
+	});
+});
+
 describe("AutoInstallScheduler and a card nobody answers", () => {
 	it("gives way to an ask or approval card after ten minutes with no input: the countdown, then the install", () => {
 		expect(AUTO_INSTALL_CARD_HOLD_MS).toBe(CARD_HOLD);

@@ -3,8 +3,44 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach } from "vitest";
-import { type AuditScope, type AuditSnapshot, auditCycle, takeSnapshot } from "./autopilot-audit";
+import { coreGit } from "./local/git/exec";
 import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
+
+/**
+ * The audit is the core's (`crates/core/src/autopilot/audit.rs`); these are its typed clients for the parity suites, over
+ * the requests the core serves for them (`autopilot.snapshot`, `autopilot.audit`).
+ */
+export interface AuditSnapshot {
+	refs: Record<string, string>;
+	config: string | null;
+	checkout: string | null;
+}
+
+export interface AuditScope {
+	branch: string;
+	childBranches: readonly string[];
+	remote: string;
+	defaultBranch: string;
+	release: boolean;
+	expectedRefs: readonly string[];
+	checkoutMayMove: boolean;
+	configMayChange: boolean;
+}
+
+export interface AuditViolation {
+	kind: "ref" | "history" | "config" | "checkout";
+	detail: string;
+}
+
+export const takeSnapshot = (root: string, checkoutRoot?: string): Promise<AuditSnapshot> =>
+	coreGit("autopilot.snapshot", { root, ...(checkoutRoot ? { checkoutRoot } : {}) }, 2);
+
+export const auditCycle = (
+	root: string,
+	before: AuditSnapshot,
+	after: AuditSnapshot,
+	scope: AuditScope,
+): Promise<AuditViolation[]> => coreGit("autopilot.audit", { root, before, after, scope }, 20);
 
 export let tmp = "";
 export let main = "";

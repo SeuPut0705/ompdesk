@@ -159,7 +159,7 @@ Init ==
 
 \* @code native/ompdesk/crates/core/src/resume/machine.rs:2230-2366 Inst::launch: launch(): the marker finds its tab (layout, unwritten, opened) and is kept as a launch marker (#pending)
 \* @code native/ompdesk/crates/core/src/resume/machine.rs:2338-2364 Inst::launch[hold-or-run]: each marker's continuation holds (offline) or runs (online) with the tab's session file and `touched` (HeldWait.since / #run's `since`)
-\* @code src/main/autopilot.ts:1133-1134 #onReady: a launch marker means the run waits for the continuation's goalSettled (`apWait`)
+\* @code native/ompdesk/crates/core/src/autopilot/cycle.rs:1146 Coordinator::on_ready: a launch marker means the run waits for the continuation's goalSettled (`apWait`)
 Launch(t) ==
     /\ Idle /\ ~launched /\ ~online /\ nStarts = 0 /\ run[t] = "idle" /\ ~awaiting[t]
     /\ launched' = TRUE

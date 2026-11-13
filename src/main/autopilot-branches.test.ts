@@ -2,9 +2,29 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { branchProblem, viaWorkBranch } from "../shared/autopilot-branch";
-import { readBranchEntries, readBranchInfo } from "./autopilot-branches";
+import { coreGit } from "./local/git/exec";
 import { gitSync, initRepo } from "./local/git/test-repos";
+
+// The branch reads are the core's (`crates/core/src/autopilot/branches.rs`: `autopilot.branchEntries`,
+// `autopilot.branchInfo`); the rules over them (what a run may take, the picker's order) are pinned there against the
+// tables captured from the TypeScript they replaced.
+interface Entry {
+	name: string;
+	local: boolean;
+	remote: boolean;
+	default: boolean;
+	current: boolean;
+	checkedOutAt?: string;
+}
+
+const readBranchEntries = (cwd: string, remote: string) =>
+	coreGit<{ entries: Entry[]; defaultBranch: string | null }>("autopilot.branchEntries", { cwd, remote }, 2);
+const readBranchInfo = (cwd: string, input: { toplevel: string; remote: string }) =>
+	coreGit<{ repo: string; remote: string; defaultBranch: string | null; current: string | null }>(
+		"autopilot.branchInfo",
+		{ cwd, ...input },
+		2,
+	);
 
 let tmp: string;
 let main: string;
@@ -59,18 +79,13 @@ describe("the repository's branches as the picker sees them", () => {
 		expect(at("main")).toBe(main);
 		expect(at("held")).toBe(path.join(tmp, "wt-held"));
 		expect(at("free")).toBeUndefined();
-		// None of them is refused: a branch held elsewhere is a push target (`viaWorkBranch`).
-		for (const name of ["main", "held", "free"]) {
-			expect(branchProblem({ kind: "existing", name }, entries)).toBeNull();
-		}
-		expect(viaWorkBranch({ kind: "existing", name: "main" }, entries)).toBe("main");
-		expect(viaWorkBranch({ kind: "existing", name: "free" }, entries)).toBeNull();
 	});
 
 	it("allows the default branch once the folder has moved off it", async () => {
 		gitSync(main, "switch", "-q", "-c", "dev");
 		const { entries } = await readBranchEntries(main, "origin");
-		expect(branchProblem({ kind: "existing", name: "main" }, entries)).toBeNull();
+		expect(entries.find(entry => entry.name === "main")).toMatchObject({ current: false });
+		expect(entries.find(entry => entry.name === "main")).not.toHaveProperty("checkedOutAt");
 	});
 
 	it("finds the default branch without a remote HEAD, and none in a repository without main or master", async () => {

@@ -248,12 +248,13 @@ struct WorktreeParams {
     worktree: branches::WorktreeRef,
 }
 
-/// `diff`: whether the caller reads the diff at all.
+/// `diffChars`: the diff's budget in UTF-16 units; 0 reads no diff.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EvidenceParams {
     git: Runner,
     worktree: branches::WorktreeRef,
-    diff: bool,
+    diff_chars: usize,
 }
 
 #[derive(Deserialize)]
@@ -813,10 +814,17 @@ pub fn register(registry: &mut Registry) {
             let EvidenceParams {
                 git,
                 worktree,
-                diff,
+                diff_chars,
             } = call.params()?;
             let git = Git::new(git, call.scope);
-            Reply::json(&branches::evidence(&git, &worktree, diff).await?)
+            Reply::json(&branches::evidence(&git, &worktree, diff_chars).await?)
+        })
+    });
+    registry.add("git.mergeCheck", |call| {
+        Box::pin(async move {
+            let WorktreeParams { git, worktree } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::merge_check(&git, &worktree).await?)
         })
     });
     registry.add("git.predictMerge", |call| {

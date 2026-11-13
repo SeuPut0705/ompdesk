@@ -887,7 +887,7 @@ describe("workflows", () => {
 		};
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("installer_check");
 		const job = ci.jobs["installer-check"];
-		expect(job?.if).toBe("inputs.installer_check");
+		expect(job?.if).toBe("!cancelled() && inputs.installer_check");
 		expect(job?.["runs-on"]).toBe("windows-latest");
 		const runs = job?.steps.map(step => step.run ?? "").join("\n") ?? "";
 		expect(runs).toContain("ompdesk-windows-setup.exe");
@@ -944,7 +944,7 @@ describe("workflows", () => {
 		};
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("win_e2e");
 		const job = ci.jobs["win-e2e"];
-		expect(job?.if).toBe("inputs.win_e2e");
+		expect(job?.if).toBe("!cancelled() && inputs.win_e2e");
 		expect(job?.["runs-on"]).toBe("windows-latest");
 		const manual = job?.steps.map(step => step.run ?? "") ?? [];
 		expect(manual).toContain("bun scripts/omp-update-lock-check.ts");
@@ -955,19 +955,20 @@ describe("workflows", () => {
 	it("gives a manual batch run every Linux and Windows job a push to main runs, and the macOS jobs only with mac", () => {
 		const ci = parse(workflows.find(entry => entry.name === "ci.yml")?.text ?? "") as {
 			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
-			jobs: Record<string, { if?: string; strategy?: { matrix?: { include?: string } } }>;
+			jobs: Record<string, { if?: string; uses?: string; strategy?: { matrix?: { include?: string } } }>;
 		};
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("batch");
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("mac");
 		expect(ci.jobs["win-platform"]?.if).toContain("inputs.batch");
-		for (const job of ["mac-smoke", "mac-native", "memory"]) {
-			expect(ci.jobs[job]?.if, job).toContain("inputs.mac");
-			expect(ci.jobs[job]?.if, job).not.toContain("inputs.batch");
-		}
-		// The native job's Windows leg comes with batch, its macOS leg with mac; Linux always runs.
+		// mac-smoke, mac-native, memory and `native` on macOS are one unit (mac-checks.yml): a push to main starts it, a
+		// dispatch only with mac (and the queue gate's admission, see ci-queue.test.ts).
+		expect(ci.jobs.mac?.uses).toBe("./.github/workflows/mac-checks.yml");
+		expect(ci.jobs.mac?.if).toContain("inputs.mac");
+		expect(ci.jobs.mac?.if).not.toContain("inputs.batch");
+		// The native job's Windows leg comes with batch; Linux always runs; the macOS leg is in mac-checks.yml.
 		const legs = ci.jobs.native?.strategy?.matrix?.include ?? "";
 		expect(legs).toMatch(/inputs\.batch\) && ',\{"os":"windows-latest"/);
-		expect(legs).toMatch(/inputs\.mac\) && ',\{"os":"macos-latest"/);
+		expect(legs).not.toContain("macos");
 		for (const job of ["static", "check", "build", "native"]) {
 			expect(ci.jobs[job]?.if ?? "", job).not.toContain("workflow_dispatch'");
 		}

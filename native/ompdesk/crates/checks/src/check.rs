@@ -171,21 +171,47 @@ pub fn start(opts: Start) -> i32 {
     let root = inputs::root_of(&cwd);
     let key = key_of(&root, &cwd, &opts.argv);
 
-    if let Some(running) = store
+    let detected = runner::detect(&opts.argv, &cwd);
+    let running = store
         .of_key(&key)
         .into_iter()
-        .find(|r| matches!(r.state, State::Waiting | State::Running) && store.runner_alive(&r.id))
-    {
+        .find(|r| matches!(r.state, State::Waiting | State::Running) && store.runner_alive(&r.id));
+    if let Some(running) = running {
+        // Follow it only when its results answer this request: the same inputs as now (an edit since it started
+        // makes them stale) and the same kind of run (a `--full` or `--release` request is not answered by another).
+        let now = input_set(
+            &root,
+            &cwd,
+            &opts.argv,
+            &command_env(),
+            detected.kind,
+            &store,
+        )
+        .0
+        .digest();
+        let same_inputs = running.inputs.as_deref() == Some(now.as_str());
+        if same_inputs && !opts.full && running.release == opts.release {
+            eprintln!(
+                "ompdesk check: run {} of this check is already under way on the same inputs (started {}); following \
+                 it instead of starting another.",
+                running.id,
+                store::utc(running.started)
+            );
+            return attach_id(&store, &running.id);
+        }
         eprintln!(
-            "ompdesk check: run {} of this check is already under way (started {}); following it instead of starting \
-             another. Its results hold for the inputs as of its start.",
+            "ompdesk check: run {} of this check is under way, but {}; starting another",
             running.id,
-            store::utc(running.started)
+            if !same_inputs {
+                "on other inputs (or still reading them)"
+            } else if opts.full {
+                "this run asks for a full run"
+            } else {
+                "it is not the same kind of run (release or not)"
+            }
         );
-        return attach_id(&store, &running.id);
     }
 
-    let detected = runner::detect(&opts.argv, &cwd);
     let id = store::new_id(now_ms());
     let run = Run {
         id: id.clone(),
@@ -564,6 +590,9 @@ struct Runtime<'a> {
     store: &'a Store,
     run: Run,
     log: fs::File,
+    /// Why the command was stopped by the check itself (a full disk): the run ends `error` whatever the command's
+    /// exit code, and `decide` never reuses it.
+    resource_stop: Option<String>,
 }
 
 impl Runtime<'_> {
@@ -674,10 +703,13 @@ fn decide(
     if forced_full {
         return full("asked for a full run (--full)".into(), Vec::new(), plain());
     }
+    // A run the check stopped itself (a full disk) or that never started is no evidence for any result.
     let earlier: Vec<Run> = store
         .of_key(&run.key)
         .into_iter()
-        .filter(|r| r.id != run.id && r.state.finished() && r.inputs.is_some())
+        .filter(|r| {
+            r.id != run.id && r.state.finished() && r.state != State::Error && r.inputs.is_some()
+        })
         .collect();
     // A run on exactly these inputs first (an edit undone brings its results back), else the newest one.
     let Some(prev) = earlier
@@ -795,10 +827,14 @@ fn decide(
         }
     }
 
-    if same && prev.state == State::Passed {
+    // Whole reuse only when every result of that run passed: a run can pass with a quarantined test failing, and that
+    // test runs again, under `--release` too.
+    let all_passed = records
+        .iter()
+        .all(|(r, _)| matches!(r.status.as_str(), "passed" | "skipped"));
+    if same && prev.state == State::Passed && all_passed {
         let reused: Vec<Reused> = records
             .iter()
-            .filter(|(r, _)| REUSABLE.contains(&r.status.as_str()) || r.status == "skipped")
             .map(|(r, o)| Reused {
                 record: r.clone(),
                 origin: o.clone(),
@@ -1015,6 +1051,7 @@ pub fn run_runner(id: &str) -> i32 {
         store: &store,
         run,
         log,
+        resource_stop: None,
     };
     rt.save();
     #[cfg(unix)]
@@ -1123,31 +1160,42 @@ fn execute(rt: &mut Runtime, forced_full: bool) -> i32 {
             weight: 1,
         };
         let log = &mut rt.log;
+        let cancel_file = rt.store.file(&rt.run.id, "cancel");
         let taken = heavy::Pool::new(heavy::pool_dir(&lookup), heavy::machine_size(&lookup))
             .and_then(|mut pool| {
                 pool.volumes = heavy::Volumes::of_work(&cwd, &argv, &lookup);
-                pool.acquire(1, owner, |w| {
-                    let line = if w.low_disk.is_empty() {
-                        format!(
-                            "waiting for a heavy slot ({} ahead, {} in use)",
-                            w.ahead,
-                            w.holders.len()
-                        )
-                    } else {
-                        let disks: Vec<String> = w
-                            .low_disk
-                            .iter()
-                            .map(|d| {
-                                format!("{} free on {} (needs {})", gb(d.free), d.path, gb(d.need))
-                            })
-                            .collect();
-                        format!(
-                            "waiting for disk space before starting: {}",
-                            disks.join(", ")
-                        )
-                    };
-                    let _ = writeln!(log, "ompdesk check: {line}");
-                })
+                pool.acquire_unless(
+                    1,
+                    owner,
+                    |w| {
+                        let line = if w.low_disk.is_empty() {
+                            format!(
+                                "waiting for a heavy slot ({} ahead, {} in use)",
+                                w.ahead,
+                                w.holders.len()
+                            )
+                        } else {
+                            let disks: Vec<String> = w
+                                .low_disk
+                                .iter()
+                                .map(|d| {
+                                    format!(
+                                        "{} free on {} (needs {})",
+                                        gb(d.free),
+                                        d.path,
+                                        gb(d.need)
+                                    )
+                                })
+                                .collect();
+                            format!(
+                                "waiting for disk space before starting: {}",
+                                disks.join(", ")
+                            )
+                        };
+                        let _ = writeln!(log, "ompdesk check: {line}");
+                    },
+                    &|| cancel_file.exists(),
+                )
             });
         match taken {
             Ok(l) => {
@@ -1159,6 +1207,14 @@ fn execute(rt: &mut Runtime, forced_full: bool) -> i32 {
             }
             // Fail closed: an admission that cannot be decided (a full disk refuses the queue's own files, the pool
             // folder cannot be written) never lets the command start, or the disk rule is lost exactly when it matters.
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                rt.say("cancelled while waiting for a heavy slot; the command never started");
+                rt.run.state = State::Cancelled;
+                rt.run.ended = Some(now_ms());
+                rt.run.summary = Some("cancelled before it started".into());
+                rt.save();
+                return 130;
+            }
             Err(e) => {
                 rt.say(&format!(
                     "cannot take a heavy slot ({e}); the command does not start (free space, or the pool folder {}?)",
@@ -1193,6 +1249,14 @@ fn execute(rt: &mut Runtime, forced_full: bool) -> i32 {
     }
     rt.save();
 
+    if rt.store.file(&rt.run.id, "cancel").exists() {
+        rt.say("cancelled before the command started");
+        rt.run.state = State::Cancelled;
+        rt.run.ended = Some(now_ms());
+        rt.run.summary = Some("cancelled before it started".into());
+        rt.save();
+        return 130;
+    }
     #[cfg(target_os = "macos")]
     let keychains_before = keychains();
     let started = Instant::now();
@@ -1336,7 +1400,7 @@ fn stop_tree(pid: u32) {
         crate::sys::signal_group(pid, libc::SIGKILL);
     }
     #[cfg(windows)]
-    crate::cli::stop_process(pid);
+    crate::cli::stop_process(pid, crate::watch::GRACE);
 }
 
 /// Runs the check's command with its output through the log's cap and its volumes watched; its exit code.
@@ -1412,7 +1476,9 @@ fn run_command(
         ));
     }
     if stopped_for_disk {
-        rt.say("the command was stopped because the disk was nearly full; what it recorded before stays");
+        let why = "the command was stopped because the disk was nearly full; what it recorded before stays";
+        rt.say(why);
+        rt.resource_stop = Some(why.into());
     }
     #[cfg(unix)]
     return crate::cli::exit_code(status);
@@ -1513,6 +1579,8 @@ fn finish(
     let exit_explained = exit_code == 0 || (!quarantined.is_empty() && blocking.is_empty());
     rt.run.state = if cancelled {
         State::Cancelled
+    } else if rt.resource_stop.is_some() {
+        State::Error
     } else if blocking.is_empty() && exit_explained && !release_blocked {
         State::Passed
     } else {
@@ -1667,5 +1735,48 @@ mod tests {
         );
         assert_eq!(test_suffix("src/index.ts"), None);
         assert_eq!(test_suffix(".eslintrc.js"), None);
+    }
+
+    fn earlier_run(store: &Store, id: &str, state: &str, digest: &str) -> Run {
+        let run: Run = serde_json::from_value(serde_json::json!({
+            "id": id, "key": "k", "root": "/r", "cwd": "/r", "argv": ["vitest", "run"], "runner": "vitest",
+            "state": state, "pid": 0, "started": 1, "ended": 2, "exit_code": 0, "head": null, "dirty": false,
+            "inputs": digest, "changed_during": [], "plan": {"mode": "full", "reason": "", "from": null, "evidence": []},
+            "reused": 0, "ran": 2, "failed": 0, "saved_ms": 0, "light": false, "summary": null
+        }))
+        .unwrap();
+        store.create(&run).unwrap();
+        run
+    }
+
+    #[test]
+    fn a_pass_with_a_quarantined_failure_is_not_reused_whole() {
+        let dir = std::env::temp_dir().join(format!("ompdesk-decide-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let store = Store::open(dir.clone()).unwrap();
+        let prev = earlier_run(&store, "0001", "passed", "same");
+        for (title, status) in [("steady", "passed"), ("quarantined", "failed")] {
+            let line = serde_json::json!({
+                "runner": "vitest", "kind": "test", "project": "", "file": "a.test.ts", "titles": [title],
+                "status": status, "ms": 5
+            });
+            store
+                .append(&prev.id, "results.jsonl", &line.to_string())
+                .unwrap();
+        }
+        let mut now = earlier_run(&store, "0002", "running", "same");
+        now.state = State::Running;
+        let detected = Detected {
+            kind: Kind::Vitest,
+            needs_dashdash: false,
+            script: None,
+        };
+        let decision = decide(&store, &now, &detected, &InputSet::default(), "same", false);
+        assert_ne!(decision.plan.mode, "reused", "{:?}", decision.plan);
+        assert!(
+            !decision.reused.iter().any(|r| r.record.status == "failed"),
+            "a failed result was carried over as reused"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 }

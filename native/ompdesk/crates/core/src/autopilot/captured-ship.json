@@ -1,0 +1,201 @@
+{
+ "classify": [
+  {
+   "input": "",
+   "out": "rejected"
+  },
+  {
+   "input": "fatal: unable to access 'https://x/': Could not resolve host: x",
+   "out": "network"
+  },
+  {
+   "input": "remote: Permission denied",
+   "out": "rejected"
+  },
+  {
+   "input": "! [remote rejected] main -> main (protected branch hook declined)",
+   "out": "rejected"
+  },
+  {
+   "input": "ssh: connect to host x port 22: Connection timed out",
+   "out": "network"
+  },
+  {
+   "input": "fatal: Authentication failed",
+   "out": "rejected"
+  },
+  {
+   "input": "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+   "out": "rejected"
+  },
+  {
+   "input": "fatal: unable to access: Connection refused",
+   "out": "network"
+  },
+  {
+   "input": "error: failed to push some refs",
+   "out": "rejected"
+  },
+  {
+   "input": "fatal: 'origin' does not appear to be a git repository\nfatal: Could not read from remote repository.",
+   "out": "network"
+  },
+  {
+   "input": "Network is unreachable",
+   "out": "network"
+  },
+  {
+   "input": "no route to host",
+   "out": "network"
+  },
+  {
+   "input": "TIMED OUT",
+   "out": "network"
+  },
+  {
+   "input": "rejected: connection reset",
+   "out": "rejected"
+  },
+  {
+   "input": "something else entirely",
+   "out": "rejected"
+  }
+ ],
+ "brief": [
+  {
+   "input": "",
+   "out": "failed"
+  },
+  {
+   "input": "one",
+   "out": "one"
+  },
+  {
+   "input": "a\nb\nc\nd\ne",
+   "out": "c · d · e"
+  },
+  {
+   "input": "  x  \n\n  y  ",
+   "out": "x · y"
+  },
+  {
+   "input": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "out": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz..."
+  },
+  {
+   "input": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\nq",
+   "out": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww..."
+  },
+  {
+   "input": "\n\n\n",
+   "out": "failed"
+  },
+  {
+   "input": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "out": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé..."
+  },
+  {
+   "input": "a\nb\nc",
+   "out": "a · b · c"
+  },
+  {
+   "input": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkx",
+   "out": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkx"
+  },
+  {
+   "input": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+   "out": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+  },
+  {
+   "input": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+   "out": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk..."
+  }
+ ],
+ "behind": [
+  {
+   "remote": "origin",
+   "dest": "main",
+   "outcome": {
+    "kind": "behind",
+    "ahead": null,
+    "conflicts": null
+   },
+   "out": "origin/main moved on; not landed: merge it first"
+  },
+  {
+   "remote": "origin",
+   "dest": "main",
+   "outcome": {
+    "kind": "behind",
+    "ahead": 1,
+    "conflicts": null
+   },
+   "out": "origin/main has 1 commit this run lacks; not landed: merge it first"
+  },
+  {
+   "remote": "origin",
+   "dest": "main",
+   "outcome": {
+    "kind": "behind",
+    "ahead": 3,
+    "conflicts": []
+   },
+   "out": "origin/main has 3 commits this run lacks; not landed: it merges cleanly, merge it first"
+  },
+  {
+   "remote": "origin",
+   "dest": "main",
+   "outcome": {
+    "kind": "behind",
+    "ahead": 3,
+    "conflicts": [
+     "a.ts",
+     "b.ts"
+    ]
+   },
+   "out": "origin/main has 3 commits this run lacks; not landed: a merge conflicts in a.ts, b.ts"
+  },
+  {
+   "remote": "up",
+   "dest": "dev",
+   "outcome": {
+    "kind": "behind",
+    "ahead": 0,
+    "conflicts": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5",
+     "6"
+    ]
+   },
+   "out": "up/dev has 0 commits this run lacks; not landed: a merge conflicts in 1, 2, 3, 4, 5 and 1 more"
+  },
+  {
+   "remote": "origin",
+   "dest": "main",
+   "outcome": {
+    "kind": "behind",
+    "ahead": null,
+    "conflicts": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5"
+    ]
+   },
+   "out": "origin/main moved on; not landed: a merge conflicts in 1, 2, 3, 4, 5"
+  },
+  {
+   "remote": "origin",
+   "dest": "main",
+   "outcome": {
+    "kind": "landed",
+    "sha": "x"
+   },
+   "out": ""
+  }
+ ]
+}

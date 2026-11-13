@@ -255,14 +255,39 @@ fn hash_file(path: &Path) -> io::Result<String> {
 /// as the cache saw them with new bytes: git's "racy clean" case. Its hash is not cached, so the next look hashes it.
 const RACY: Duration = Duration::from_secs(3);
 
+type Found = Vec<(String, PathBuf, Option<Stat>, Option<String>)>;
+
+/// A file of the input set: its stat, and its hash when the cache vouches for it (an older stat-equal hash).
+fn record_file(
+    found: &mut Found,
+    racy: &mut std::collections::HashSet<String>,
+    cache: &StatCache,
+    racy_after: std::time::SystemTime,
+    child: String,
+    path: PathBuf,
+    meta: &fs::Metadata,
+) {
+    let stat = stat_of(meta);
+    if meta.modified().map_or(true, |m| m >= racy_after) {
+        racy.insert(child.clone());
+    }
+    let known = cache
+        .map
+        .get(&child)
+        .filter(|(s, _)| *s == stat)
+        .map(|(_, h)| h.clone());
+    found.push((child, path, Some(stat), known));
+}
+
 /// Walks the checkout and hashes what the cache cannot vouch for; the cache learns the new hashes.
 pub fn snapshot(root: &Path, ignored: Option<&[String]>, cache: &mut StatCache) -> Files {
     let racy_after = std::time::SystemTime::now()
         .checked_sub(RACY)
         .unwrap_or(std::time::UNIX_EPOCH);
     let mut racy: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut found: Vec<(String, PathBuf, Option<Stat>, Option<String>)> = Vec::new();
+    let mut found: Found = Vec::new();
     let mut stack = vec![(root.to_path_buf(), String::new())];
+    let mut followed: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     while let Some((dir, rel)) = stack.pop() {
         let Ok(entries) = fs::read_dir(&dir) else {
             continue;
@@ -286,26 +311,42 @@ pub fn snapshot(root: &Path, ignored: Option<&[String]>, cache: &mut StatCache) 
                     stack.push((path, child));
                 }
             } else if kind.is_symlink() {
+                // The link itself (a retargeted link is a change) and what it points to, by content: a linked
+                // `node_modules` or config is as much an input as a real one.
                 let target = fs::read_link(&path)
                     .map(|t| t.to_string_lossy().into_owned())
                     .unwrap_or_default();
                 found.push((
-                    child,
-                    path,
+                    format!("{child}@link"),
+                    path.clone(),
                     None,
                     Some(format!("link:{}", sha256_hex(target.as_bytes()))),
                 ));
-            } else if let Ok(meta) = entry.metadata() {
-                let stat = stat_of(&meta);
-                if meta.modified().map_or(true, |m| m >= racy_after) {
-                    racy.insert(child.clone());
+                match fs::metadata(&path) {
+                    Ok(meta) if meta.is_dir() => {
+                        let real = fs::canonicalize(&path).ok();
+                        let parent = fs::canonicalize(&dir).ok();
+                        // A link to a folder that holds it would walk forever; one seen through another link once.
+                        // An excluded alias never claims the target, or a later included alias of it would be skipped.
+                        let loops = match (&real, &parent) {
+                            (Some(real), Some(parent)) => parent.starts_with(real),
+                            _ => true,
+                        };
+                        if !loops
+                            && !excluded_dir(&path, &child, &name, ignored)
+                            && real.as_ref().is_some_and(|r| followed.insert(r.clone()))
+                        {
+                            stack.push((path, child));
+                        }
+                    }
+                    Ok(meta) => {
+                        record_file(&mut found, &mut racy, cache, racy_after, child, path, &meta)
+                    }
+                    // A dangling link: its text is all there is.
+                    Err(_) => {}
                 }
-                let known = cache
-                    .map
-                    .get(&child)
-                    .filter(|(s, _)| *s == stat)
-                    .map(|(_, h)| h.clone());
-                found.push((child, path, Some(stat), known));
+            } else if let Ok(meta) = entry.metadata() {
+                record_file(&mut found, &mut racy, cache, racy_after, child, path, &meta);
             }
         }
     }
@@ -364,9 +405,19 @@ pub fn snapshot(root: &Path, ignored: Option<&[String]>, cache: &mut StatCache) 
     Files { files }
 }
 
-/// Variables that differ between terminals, sessions and agents without changing what a test does.
+/// Variables that differ between terminals, sessions and agents without changing what a test does. Only named
+/// plumbing: any other variable, `OMP_GUI_*` and `OMPDESK_*` included (`OMP_GUI_REAL_WORK` turns tests on), is an
+/// input, so a session other than the one that ran the check reruns it rather than trust a guess.
 pub fn volatile_env(name: &str) -> bool {
     const EXACT: &[&str] = &[
+        // A tab's process tag and the check's own nesting markers: a new value per tab or per hold.
+        "OMP_GUI_SESSION_TAG",
+        "OMPDESK_HEAVY_HELD",
+        "OMPDESK_CHECK_RUN",
+        "OMPDESK_BUILD_LOCK_HELD",
+        "OMPDESK_SOCKET",
+        "OMPDESK_CONTROL_DIR",
+        "OMPDESK_CALLER",
         "PWD",
         "OLDPWD",
         "SHLVL",
@@ -395,8 +446,6 @@ pub fn volatile_env(name: &str) -> bool {
         "VSCODE_GIT_IPC_HANDLE",
     ];
     const PREFIXES: &[&str] = &[
-        "OMP_GUI_",
-        "OMPDESK_",
         "TERM_PROGRAM",
         "ITERM_",
         "TMUX",
@@ -753,6 +802,69 @@ mod tests {
         assert!(!volatile_env("PATH"));
         assert!(!volatile_env("CI"));
         assert!(!volatile_env("NODE_OPTIONS"));
+        // Session variables that change what tests do are inputs.
+        assert!(!volatile_env("OMP_GUI_REAL_WORK"));
+        assert!(!volatile_env("OMP_GUI_TEST_FAKE_OMP"));
+        assert!(!volatile_env("OMPDESK_HEAVY_SLOTS"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_is_read_through_and_a_loop_ends() {
+        let base = std::env::temp_dir().join(format!("ompdesk-links-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("repo");
+        let shared = base.join("shared-modules");
+        fs::create_dir_all(shared.join("pkg")).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(shared.join("pkg").join("index.js"), "one").unwrap();
+        std::os::unix::fs::symlink(&shared, root.join("node_modules")).unwrap();
+        std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+        let mut cache = StatCache::load(&base.join("store"), &root);
+        let before = snapshot(&root, Some(&[]), &mut cache);
+        let hash_of = |f: &Files| {
+            f.files
+                .iter()
+                .find(|(p, _)| p == "node_modules/pkg/index.js")
+                .map(|(_, h)| h.clone())
+        };
+        let first = hash_of(&before).expect("the linked folder was not read");
+        assert!(before.files.iter().all(|(p, _)| !p.starts_with("loop/")));
+        fs::write(shared.join("pkg").join("index.js"), "two, longer").unwrap();
+        let after = snapshot(&root, Some(&[]), &mut cache);
+        assert_ne!(
+            hash_of(&after),
+            Some(first),
+            "an edit behind the link was not seen"
+        );
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_ignored_alias_does_not_hide_an_included_alias_of_the_same_folder() {
+        let base = std::env::temp_dir().join(format!("ompdesk-aliases-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("repo");
+        let shared = base.join("deps");
+        fs::create_dir_all(shared.join("pkg")).unwrap();
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(shared.join("pkg").join("index.js"), "one").unwrap();
+        // The ignored alias sits at the root, so the walk always meets it before the one inside `app/`.
+        std::os::unix::fs::symlink(&shared, root.join("coverage")).unwrap();
+        std::os::unix::fs::symlink(&shared, root.join("app").join("node_modules")).unwrap();
+        let mut cache = StatCache::load(&base.join("store"), &root);
+        let files = snapshot(&root, Some(&["coverage/".to_string()]), &mut cache);
+        assert!(
+            files
+                .files
+                .iter()
+                .any(|(p, _)| p == "app/node_modules/pkg/index.js"),
+            "the included alias was skipped: {:?}",
+            files.files
+        );
+        assert!(files.files.iter().all(|(p, _)| !p.starts_with("coverage/")));
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]

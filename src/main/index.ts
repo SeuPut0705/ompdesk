@@ -224,6 +224,7 @@ import {
 	appVersion,
 	checkForUpdate,
 	downloadUpdate,
+	noteAppStarted,
 	onUpdateStatus,
 	postponeUpdate,
 	readRelaunchPresence,
@@ -2038,13 +2039,15 @@ app.whenReady().then(async () => {
 		},
 	});
 	const mailbox = mailAccounts;
+	// Before the first window exists, so its page load is seen (it also writes the update's start mark, below).
+	const firstWindowReady = firstWindowLoaded();
 	const marks = new FileMarks(join(app.getPath("userData"), "routine-marks.json"));
 	routineMarks = marks;
 	routineTriggers = new RoutineTriggers({
 		service: scheduleService,
 		marks,
 		// What a relaunch fires may open a session: sources start once the first window has loaded.
-		ready: firstWindowLoaded(),
+		ready: firstWindowReady,
 		log: message => writeRuntimeLog({ source: "routines", message }),
 		github: githubPort(),
 		watch: watchPath,
@@ -2538,6 +2541,8 @@ app.whenReady().then(async () => {
 		backgroundWork: () =>
 			askBackgroundWork(() => [...sidecarPool.runningBridges(), ...hostServices.runningBridges()]),
 	});
+	// The first page loaded: the start mark a macOS update's swap helper waits for, then the previous install's report.
+	void firstWindowReady.then(noteAppStarted);
 	// A paired page shows this computer's update card and notice too: it hears every change, as the windows do.
 	onUpdateStatus(status => {
 		for (const win of webHost?.windows.all() ?? [])

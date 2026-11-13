@@ -44,6 +44,7 @@ import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../s
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler, type InstallTrigger } from "./app-auto-update";
 import { confirmUpdateRestart, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
+import { writeFileAtomicSync } from "./atomic-file";
 import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
@@ -63,10 +64,16 @@ import {
 	lastSwapEntry,
 	type PendingInstall,
 	parsePendingInstall,
+	parseStartFailure,
 	previousInstallDetails,
 	relaunchPresence,
+	START_FAILED_FILE,
+	START_MARK_FILE,
+	type StartFailure,
 	type SwapLogEntry,
 	scrubUpdateText,
+	startFailureOf,
+	startMarkJson,
 	type UpdateLogDetails,
 	type WindowPresence,
 	windowPresenceOf,
@@ -133,8 +140,8 @@ let macAsset: MacInstallerAsset | undefined;
 let downloadedInstallerPath: string | undefined;
 /** Running bundle the relaunch mode replaces (`/Applications/OMPdesk.app`). */
 let ownBundle: string | undefined;
-/** Verified new bundle waiting for the swap (relaunch mode). */
-let stagedApp: string | undefined;
+/** Verified new bundle waiting for the swap (relaunch mode), and the version it must report once it starts. */
+let staged: { app: string; version: string } | undefined;
 /** The approved quit came from "Restart & install": reopen after the swap. */
 let relaunchAfterSwap = false;
 /** The relaunch swap helper was started; a forced exit after `will-quit` must not start a second one. */
@@ -271,6 +278,31 @@ function quitInstallTrigger(): InstallTrigger {
 	return installTrigger ?? "quit";
 }
 
+/** The start mark a macOS swap helper waits for after it reopened the new app (`SWAP_SCRIPT`). */
+function startMarkPath(): string {
+	return path.join(app.getPath("userData"), START_MARK_FILE);
+}
+
+let startNoted = false;
+
+/**
+ * The app's first window has loaded its page: say so, once per launch. Writes the start mark, then reports the
+ * previous install. In this order a new app that dies before its first page leaves `update-install.json` unread,
+ * and the old app the swap helper restored reports `rolled back` from it.
+ */
+export function noteAppStarted(): void {
+	if (startNoted) return;
+	startNoted = true;
+	try {
+		writeFileAtomicSync(startMarkPath(), startMarkJson(appVersion(), process.pid, Date.now()));
+	} catch (error) {
+		logUpdate("swap", { event: "start-mark-failed", reason: failureReason(error) });
+	}
+	reportPreviousInstall();
+	// This version started: a failure recorded for it earlier (a person installed it anyway) no longer holds.
+	if (startFailure?.version === appVersion()) clearStartFailure();
+}
+
 /** The first launch after an install says how it ended: the version before and after (macOS adds `swap.log`'s last entry). */
 function reportPreviousInstall(): void {
 	let raw: string;
@@ -289,6 +321,67 @@ function reportPreviousInstall(): void {
 		} catch {}
 	}
 	logUpdate("swap", previousInstallDetails(pending, appVersion(), swap));
+	const failure = startFailureOf(pending, appVersion(), swap, Date.now(), startFailure);
+	if (failure) rememberStartFailure(failure);
+}
+
+/**
+ * The version whose start failed after an install (`update-start-failed.json`), read once at setup. The automatic
+ * install leaves that version alone, or it would install, fail and roll back again at every safe point; a person's
+ * "Restart & install" still installs it, and any other version clears it.
+ */
+let startFailure: StartFailure | undefined;
+
+function startFailedPath(): string {
+	return path.join(app.getPath("userData"), START_FAILED_FILE);
+}
+
+function rememberStartFailure(failure: StartFailure): void {
+	startFailure = failure;
+	syncQuitInstall();
+	try {
+		writeFileAtomicSync(startFailedPath(), JSON.stringify(failure));
+	} catch (error) {
+		logUpdate("swap", { event: "start-failure-not-saved", reason: failureReason(error) });
+	}
+}
+
+/** What is downloaded is the version whose start failed, and nobody started its install: only a person's click installs it. */
+function heldStartFailed(): boolean {
+	return (
+		startFailure !== undefined &&
+		current.state === "downloaded" &&
+		!current.installing &&
+		current.version === startFailure.version
+	);
+}
+
+/** The downloaded version is the one that failed to start; a different one (a newer release) clears the record. */
+function startFailedBefore(): boolean {
+	if (!startFailure) return false;
+	if (current.state !== "downloaded") return false;
+	if (current.version === startFailure.version) return true;
+	clearStartFailure();
+	return false;
+}
+
+function clearStartFailure(): void {
+	startFailure = undefined;
+	fs.rmSync(startFailedPath(), { force: true });
+	syncQuitInstall();
+}
+
+/**
+ * Windows: electron-updater installs a downloaded update by itself at an approved quit and downloads what a check
+ * finds. While the downloaded version is held as start-failed neither may happen: a quit never installs it (only
+ * "Restart & install" does, through `quitAndInstall`), and a check that finds that same version again must not fetch it
+ * a second time (a newer one is downloaded by hand, `update-available`). Read by electron-updater when it quits or
+ * when a check ends, so it follows every status and the record.
+ */
+function syncQuitInstall(): void {
+	const automatic = installMode === "automatic";
+	autoUpdater.autoInstallOnAppQuit = automatic && !heldStartFailed();
+	autoUpdater.autoDownload = automatic && !heldStartFailed();
 }
 
 function isWritable(target: string): boolean {
@@ -361,7 +454,12 @@ async function stageBundle(dmgPath: string, version: string): Promise<string> {
 }
 
 /** Hand the swap to a detached helper that outlives this process (never launchd). */
-function launchSwap(staged: string, destination: string, relaunch: boolean, trigger: InstallTrigger): void {
+function launchSwap(
+	update: { app: string; version: string },
+	destination: string,
+	relaunch: boolean,
+	trigger: InstallTrigger,
+): void {
 	const log = path.join(updatesDirectory(), "swap.log");
 	const child = spawn(
 		"/bin/bash",
@@ -370,10 +468,12 @@ function launchSwap(staged: string, destination: string, relaunch: boolean, trig
 			SWAP_SCRIPT,
 			"ompdesk-swap",
 			String(process.pid),
-			staged,
+			update.app,
 			destination,
 			relaunch ? "1" : "0",
 			log,
+			startMarkPath(),
+			update.version,
 			...process.argv.slice(1),
 		],
 		{ detached: true, stdio: "ignore" },
@@ -525,7 +625,7 @@ async function downloadMacAsset(
 
 	await fs.promises.rename(partialPath, destinationPath);
 	if (mode === "relaunch") {
-		stagedApp = await stageBundle(destinationPath, version);
+		staged = { app: await stageBundle(destinationPath, version), version };
 		await fs.promises.rm(destinationPath, { force: true });
 		broadcast({ state: "downloaded", version, mode });
 		return;
@@ -595,6 +695,7 @@ export function onUpdateStatus(listener: (status: UpdateStatus) => void): () => 
 
 function broadcast(status: UpdateStatus): void {
 	current = status.state === "downloaded" && !status.installing ? withNotice(status) : status;
+	syncQuitInstall();
 	for (const win of BrowserWindow.getAllWindows()) {
 		win.webContents.send(IPC_EVENTS.UPDATER_STATUS, current);
 	}
@@ -727,6 +828,16 @@ async function checkOnce(): Promise<void> {
 				? mainT("updates.installerMissing")
 				: mainT("updates.checkFailed");
 	const settled = settleFailedUpdateCheck(access, code, message, appVersion(), checkAsked, detail);
+	// A held download is still the answer when the look for a newer one fails (an error would drop it, and with it the hold).
+	if (heldStartFailed()) {
+		logUpdate("check", {
+			event: "error",
+			kind: "held",
+			manual: checkAsked,
+			reason: scrubUpdateText(detail, [configuredToken, updateToken]),
+		});
+		return;
+	}
 	// A repo with no release yet is the same answer as "no update"; the rest is an error with its kind.
 	if (settled.state === "not-available") {
 		logUpdate("check", {
@@ -792,8 +903,9 @@ export function updateStatus(): UpdateStatus {
  * round (the countdown or the waiting notice went, the max wait started over).
  */
 export async function checkForUpdate(): Promise<UpdateStatus> {
-	if (macTransfer.running || current.state === "downloaded") return current;
-	broadcast({ state: "checking" });
+	if (macTransfer.running || (current.state === "downloaded" && !heldStartFailed())) return current;
+	// A downloaded version held as start-failed is looked past: a newer release replaces it, and the card keeps it meanwhile.
+	if (!heldStartFailed()) broadcast({ state: "checking" });
 	await runCheck(true);
 	return current;
 }
@@ -821,7 +933,7 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
  */
 export function restartableUpdate(): boolean {
 	if (current.state !== "downloaded") return false;
-	if (current.mode === "relaunch") return stagedApp !== undefined && ownBundle !== undefined;
+	if (current.mode === "relaunch") return staged !== undefined && ownBundle !== undefined;
 	return current.mode === "automatic";
 }
 
@@ -833,7 +945,7 @@ export function restartableUpdate(): boolean {
 export function restartIntoUpdate(trigger: InstallTrigger): void {
 	if (current.state !== "downloaded" || current.installing) return;
 	if (current.mode === "relaunch") {
-		if (!stagedApp || !ownBundle) {
+		if (!staged || !ownBundle) {
 			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 			return;
 		}
@@ -875,7 +987,9 @@ export function postponeUpdate(): void {
 export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	installMode = detectInstallMode();
 	askBackgroundWork = probe.backgroundWork;
-	reportPreviousInstall();
+	try {
+		startFailure = parseStartFailure(fs.readFileSync(startFailedPath(), "utf8"));
+	} catch {}
 	autoInstall = new AutoInstallScheduler({
 		now: Date.now,
 		facts: () => {
@@ -885,6 +999,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			return {
 				enabled,
 				installable,
+				startFailedBefore: startFailedBefore(),
 				resumes,
 				busy: probe.busy(),
 				asking: probe.asking(),
@@ -911,8 +1026,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	if (process.platform === "darwin") void sweepInstallerPartials(app.getPath("downloads"));
 	// Updates download in the background as soon as a check finds one (Claude/Codex
 	// style); the only prompt is "Restart & install". Manual DMGs still wait for a click.
-	autoUpdater.autoDownload = installMode === "automatic";
-	autoUpdater.autoInstallOnAppQuit = installMode === "automatic";
+	syncQuitInstall();
 	// Releases publish no blockmaps; NSIS always downloads the whole installer.
 	autoUpdater.disableDifferentialDownload = true;
 	// Dev/preview verification gate: electron-updater skips unpackaged apps
@@ -923,9 +1037,16 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	// forced `app.exit` skips it, so it starts the swap through the same once-only call.
 	if (installMode === "relaunch") {
 		const launchStagedSwap = (): void => {
-			if (swapLaunched || !stagedApp || !ownBundle) return;
+			if (swapLaunched || !staged || !ownBundle) return;
+			// An ordinary quit never installs a version whose start failed: with no relaunch the helper would remove
+			// the previous app at once and nothing would check the start. Only "Restart & install" (relaunch) does.
+			if (!relaunchAfterSwap && startFailure?.version === staged.version) {
+				swapLaunched = true;
+				logUpdate("swap", { event: "skipped", reason: "start failed before", version: staged.version });
+				return;
+			}
 			swapLaunched = true;
-			launchSwap(stagedApp, ownBundle, relaunchAfterSwap, quitInstallTrigger());
+			launchSwap(staged, ownBundle, relaunchAfterSwap, quitInstallTrigger());
 		};
 		app.on("will-quit", launchStagedSwap);
 		onQuitForcedExit(launchStagedSwap);
@@ -933,26 +1054,32 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	// Windows: electron-updater installs a downloaded update by itself on an approved quit (`autoInstallOnAppQuit`).
 	if (installMode === "automatic") {
 		app.on("will-quit", () => {
-			if (installTrigger === undefined && current.state === "downloaded")
+			if (installTrigger === undefined && current.state === "downloaded" && !heldStartFailed())
 				noteInstallHelper("nsis", quitInstallTrigger());
 		});
 	}
 
-	autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
+	autoUpdater.on("checking-for-update", () => {
+		if (!heldStartFailed()) broadcast({ state: "checking" });
+	});
 	autoUpdater.on("update-available", info => {
 		logUpdate("check", { event: "found", version: info.version, current: appVersion(), mode: installMode });
+		// The held version again (it is the latest): it stays downloaded and held, nothing is fetched twice.
+		if (heldStartFailed() && current.state === "downloaded" && current.version === info.version) return;
+		// Held downloads switch electron-updater's own download off; the newer release found now is fetched here.
+		const downloadByHand = installMode === "automatic" && !autoUpdater.autoDownload;
 		// The transfer in flight keeps its asset and version; restarting it would
 		// append a second stream to the same partial.
 		if (macTransfer.running) return;
 		activeUpdate = info;
 		// A manual re-check of the release already staged must not fetch it again.
-		if (installMode === "relaunch" && stagedApp && path.basename(path.dirname(stagedApp)) === info.version) {
+		if (installMode === "relaunch" && staged?.version === info.version) {
 			broadcast({ state: "downloaded", version: info.version, mode: "relaunch" });
 			return;
 		}
 		macAsset = undefined;
 		downloadedInstallerPath = undefined;
-		stagedApp = undefined;
+		staged = undefined;
 		if (installMode === "manual" || installMode === "relaunch") {
 			// Only Apple Silicon builds ship; an Intel Mac has no installer to fetch.
 			if (process.arch !== "arm64") {
@@ -976,11 +1103,13 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			// autoDownload: electron-updater fetches the installer right now.
 			nsisDownloadStartedAt = Date.now();
 			logUpdate("download", { event: "started", version: info.version, mode: "nsis" });
+			if (downloadByHand) void autoUpdater.downloadUpdate().catch(() => {});
 		}
 		if (installMode === "relaunch") void prepareRelaunchUpdate(info.version);
 	});
 	autoUpdater.on("update-not-available", () => {
 		logUpdate("check", { event: "no-update", current: appVersion() });
+		if (heldStartFailed()) return;
 		broadcast({ state: "not-available", version: appVersion() });
 	});
 	autoUpdater.on("download-progress", progress => {
@@ -1029,7 +1158,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	const devStaged = app.isPackaged ? undefined : process.env.OMP_DEV_UPDATE_STAGED;
 	const devVersion = process.env.OMP_DEV_UPDATE_STAGED_VERSION ?? "0.0.0-dev";
 	if (devStaged && installMode === "relaunch" && ownBundle) {
-		stagedApp = devStaged;
+		staged = { app: devStaged, version: devVersion };
 		broadcast({ state: "downloaded", version: devVersion, mode: "relaunch" });
 	} else if (devStaged && installMode === "automatic") {
 		devDryInstall = true;
@@ -1052,9 +1181,10 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	});
 
 	// First check once the app settles; then every five minutes. A downloaded or
-	// in-flight update is never replaced by a background re-check.
+	// in-flight update is never replaced by a background re-check, except one held as start-failed: a newer
+	// release is what the rolled-back app is waiting for.
 	const backgroundCheck = () => {
-		if (current.state === "downloading" || current.state === "downloaded") return;
+		if (current.state === "downloading" || (current.state === "downloaded" && !heldStartFailed())) return;
 		void runCheck(false);
 	};
 	setTimeout(backgroundCheck, 3000);

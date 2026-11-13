@@ -6,13 +6,9 @@ import {
 	type AutopilotStatus,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { QUOTA_FALLBACK_MS } from "../shared/quota-reset";
-import { NUDGE_MESSAGES, shipGap } from "./autopilot";
-import type { LandOutcome, ShipResult } from "./autopilot-ship";
 import {
-	afters,
 	autopilot,
 	build,
-	clock,
 	commit,
 	endedRoots,
 	type FakeSidecar,
@@ -22,7 +18,9 @@ import {
 	record,
 	remote,
 	runLogs,
+	sleep,
 	start,
+	TUNING,
 	tmp,
 	win,
 	world,
@@ -81,6 +79,8 @@ describe("stop", () => {
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		world.busy.add("ap-1");
+		// Main dates the choice with its own clock as it takes the command, a moment after this; cycles that began
+		// after it are a minute and two later.
 		const chosen = Date.now();
 		await autopilot.handleCommand(
 			win,
@@ -105,7 +105,7 @@ describe("stop", () => {
 		// The next one ended red: nothing shipped, the choice stays on and the agent is told to repair.
 		autopilot.frame(sidecar, {
 			type: "autopilot_cycle_end",
-			record: record({ n: 2, verify: "red", startedAt: chosen + 1 }),
+			record: record({ n: 2, verify: "red", startedAt: chosen + 60_000 }),
 		});
 		await autopilot.idle();
 		expect(autopilot.isStopping("ap-1")).toBe(false);
@@ -115,28 +115,11 @@ describe("stop", () => {
 		const sha = await commit(worktree, "fixed.txt");
 		autopilot.frame(sidecar, {
 			type: "autopilot_cycle_end",
-			record: record({ n: 3, commit: sha, startedAt: chosen + 2 }),
+			record: record({ n: 3, commit: sha, startedAt: chosen + 120_000 }),
 		});
 		await autopilot.idle();
 		expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(sha);
 		expect(autopilot.isStopping("ap-1")).toBe(true);
-	});
-
-	it("shipGap names what kept a cycle's work from shipping", () => {
-		const land = (kind: LandOutcome["kind"]): ShipResult =>
-			({ item: { id: "l", kind: "land", state: "done" }, land: { kind } }) as unknown as ShipResult;
-		const push = (state: "done" | "failed"): ShipResult =>
-			({ item: { id: "p", kind: "push", state } }) as unknown as ShipResult;
-		expect(shipGap({ verify: "green", commit: "abc" }, [], new Set())).toBeNull();
-		expect(shipGap({ verify: "skipped", commit: "abc" }, [], new Set())).toBe("its check was skipped");
-		expect(shipGap({ verify: "green" }, [], new Set())).toBe("it made no commit");
-		expect(shipGap({ verify: "green", commit: "abc" }, [land("landed")], new Set(["l"]))).toBeNull();
-		expect(shipGap({ verify: "green", commit: "abc" }, [land("pr")], new Set(["l"]))).toBeNull();
-		expect(shipGap({ verify: "green", commit: "abc" }, [land("behind")], new Set(["l"]))).toBe(
-			"its land did not go through (behind)",
-		);
-		expect(shipGap({ verify: "green", commit: "abc" }, [push("failed")], new Set(["p"]))).toBe("its push failed");
-		expect(shipGap({ verify: "green", commit: "abc" }, [], new Set(["p"]))).toBe("its push did not run");
 	});
 
 	it("ship, then stop pressed again is cancelled, and a paused run resumes for it", async () => {
@@ -186,7 +169,7 @@ describe("stop", () => {
 
 	it("empties a child's queue on stop without aborting it", async () => {
 		const cleared: string[] = [];
-		autopilot.attachControl({ childrenOf: () => [], clearQueue: async tab => void cleared.push(tab) });
+		autopilot.attachControl({ clearQueue: async tab => void cleared.push(tab) });
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		world.addTab("child-1", path.join(tmp, "c1"));
@@ -282,7 +265,6 @@ describe("stop requests from the bridge", () => {
 
 	it("the user's own pause says nothing; this computer's notifications switch does not silence the other routes", async () => {
 		// The switch rules this computer's banner only (ipc.ts); the device that started the run and phones decide their own.
-		build({ prefs: { notifications: false } });
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		autopilot.frame(sidecar, { type: "autopilot_stop_requested", reason: "ban_violation", detail: "x" });
@@ -316,12 +298,14 @@ describe("a failed turn", () => {
 		tabId: "ap-1",
 		outcome: { stopReason: "error", errorMessage: message },
 	});
+	const asked = () => world.stock("ap-1", "prompt").length;
 
+	// The core's clock cannot be moved: the failed turn's grace and the nudge windows are the short real durations of
+	// `TUNING` (`errorGraceMs` 30 ms, `errorNudgeMs` 250 ms; the window tests widen the window to 600 ms).
 	it("asks for the next cycle once the retries leave nothing pending, and never pauses", async () => {
 		await start();
 		autopilot.observeActivity(failed("Provider returned 500: overloaded"));
-		expect(afters).toHaveLength(1);
-		afters[0]?.();
+		await vi.waitFor(() => expect(asked()).toBe(1), { timeout: 5_000 });
 		await autopilot.idle();
 		expect(world.stock("ap-1", "prompt").at(-1)?.params).toMatchObject({ streamingBehavior: "followUp" });
 		expect(world.stock("ap-1", "set_goal").map(call => call.params?.action ?? "create")).toEqual(["create"]);
@@ -331,23 +315,16 @@ describe("a failed turn", () => {
 	});
 
 	it("a second failure inside the nudge window is asked for again once the window passes, never dropped", async () => {
+		build({ tuning: { errorNudgeMs: 600 } });
 		await start();
 		autopilot.observeActivity(failed("Provider returned 500: overloaded"));
-		afters[0]?.();
-		await autopilot.idle();
-		const asked = () => world.stock("ap-1", "prompt").length;
-		expect(asked()).toBe(1);
-		// The nudge's own turn fails again a few seconds later: nothing else will ever wake the run.
-		clock.value += 5_000;
+		await vi.waitFor(() => expect(asked()).toBe(1), { timeout: 5_000 });
+		// The nudge's own turn fails again a moment later: nothing else will ever wake the run.
 		autopilot.observeActivity(failed("Provider returned 500: overloaded"));
-		afters[1]?.();
+		await sleep((TUNING.errorGraceMs ?? 30) + 100);
 		await autopilot.idle();
 		expect(asked()).toBe(1);
-		expect(afters).toHaveLength(3);
-		clock.value += 60_000;
-		afters[2]?.();
-		await autopilot.idle();
-		expect(asked()).toBe(2);
+		await vi.waitFor(() => expect(asked()).toBe(2), { timeout: 5_000 });
 	});
 
 	for (const [held, hold] of [
@@ -355,20 +332,18 @@ describe("a failed turn", () => {
 		["retried by TurnResume", () => world.scheduled.add("ap-1")],
 	] as const) {
 		it(`a deferred ask that comes due while the run is ${held} asks nothing`, async () => {
+			build({ tuning: { errorNudgeMs: 500 } });
 			await start();
 			autopilot.observeActivity(failed("Provider returned 500: overloaded"));
-			afters[0]?.();
-			await autopilot.idle();
-			clock.value += 5_000;
+			await vi.waitFor(() => expect(asked()).toBe(1), { timeout: 5_000 });
 			autopilot.observeActivity(failed("Provider returned 500: overloaded"));
-			afters[1]?.();
+			await sleep(150);
 			await autopilot.idle();
-			expect(afters).toHaveLength(3);
 			hold();
-			clock.value += 60_000;
-			afters[2]?.();
+			// Waits out the window the ask was deferred to: the check is that nothing comes.
+			await sleep(700);
 			await autopilot.idle();
-			expect(world.stock("ap-1", "prompt")).toHaveLength(1);
+			expect(asked()).toBe(1);
 		});
 	}
 
@@ -391,110 +366,114 @@ describe("a failed turn", () => {
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		autopilot.frame(sidecar, { type: "autopilot_nudge", reason: "blocked" });
 		await autopilot.idle();
-		const asked = world.stock("ap-1", "prompt").map(call => call.params?.message);
-		expect(asked).toEqual([NUDGE_MESSAGES.blocked]);
-		expect(NUDGE_MESSAGES.blocked).toMatch(/every todo item is blocked/);
-		expect(NUDGE_MESSAGES.plan).toMatch(/plan mode/);
-		expect(new Set(Object.values(NUDGE_MESSAGES)).size).toBe(4);
+		const said = world.stock("ap-1", "prompt").map(call => call.params?.message);
+		// The text is the core's (`nudge_message`, pinned there against the old table); the agent reads it.
+		expect(said).toEqual([
+			"Autopilot: every todo item is blocked, so the run stopped. If a cycle is open, end it with each blocker as a follow-up; then call `autopilot begin` and pick an item that is not blocked.",
+		]);
 	});
 
 	it("waits while TurnResume holds a scheduled retry, or a turn is running again", async () => {
 		await start();
 		world.scheduled.add("ap-1");
 		autopilot.observeActivity(failed("fetch failed"));
-		afters[0]?.();
+		await sleep(150);
 		await autopilot.idle();
 		world.scheduled.delete("ap-1");
 		world.busy.add("ap-1");
 		autopilot.observeActivity(failed("fetch failed"));
-		afters[1]?.();
+		await sleep(150);
 		await autopilot.idle();
 		expect(world.stock("ap-1", "set_goal").map(call => call.params?.action ?? "create")).toEqual(["create"]);
+		expect(asked()).toBe(0);
 	});
 
 	it("a usage limit waits in main, with no window: journals the reset, wakes at it and retries the turn", async () => {
 		await start();
-		world.usage = [{ provider: "anthropic", fetchedAt: clock.value, limits: [], resetAt: clock.value + 3_600_000 }];
+		const resetAt = Date.now() + 800;
+		world.usage = [{ provider: "anthropic", fetchedAt: Date.now(), limits: [], resetAt }];
 		autopilot.observeActivity(failed("429 usage limit reached, resets at 14:20"));
-		afters[0]?.();
-		await autopilot.idle();
 		const status = world.statuses.get("ap-1") as AutopilotStatus;
-		expect(status).toMatchObject({ state: "waiting_quota", quotaResetAt: clock.value + 3_600_000 });
+		await vi.waitFor(() => expect(status).toMatchObject({ state: "waiting_quota", quotaResetAt: resetAt }), {
+			timeout: 5_000,
+		});
 		expect(world.stock("ap-1", "retry")).toHaveLength(0);
-		expect(afters).toHaveLength(2);
-		clock.value += 3_600_000;
-		afters[1]?.();
+		await vi.waitFor(() => expect(world.stock("ap-1", "retry")).toHaveLength(1), { timeout: 5_000 });
 		await autopilot.idle();
 		expect(status.state).toBe("running");
-		expect(world.stock("ap-1", "retry")).toHaveLength(1);
 		// Other tabs and endings that are no failure are left alone.
 		autopilot.observeActivity({ type: "idle", tabId: "elsewhere", outcome: { stopReason: "error" } });
 		autopilot.observeActivity({ type: "idle", tabId: "ap-1", outcome: { stopReason: "stop" } });
 		autopilot.observeActivity({ type: "idle", tabId: "ap-1", outcome: undefined });
-		expect(afters).toHaveLength(2);
-	});
-
-	it("a retry that fails after the wake waits again, visibly, with a backoff of at most 10 min, until it takes", async () => {
-		await start();
-		autopilot.observeActivity(failed("429 usage limit reached"));
-		afters[0]?.();
-		await autopilot.idle();
-		const status = world.statuses.get("ap-1") as AutopilotStatus;
-		world.failRetries = 8;
-		const waits: number[] = [];
-		for (let i = 0; i < 8; i++) {
-			clock.value += 24 * 3_600_000;
-			afters.at(-1)?.();
-			await autopilot.idle();
-			expect(status.state).toBe("waiting_quota");
-			waits.push((status.quotaResetAt as number) - clock.value);
-		}
-		expect(waits).toEqual([30_000, 60_000, 120_000, 240_000, 480_000, 600_000, 600_000, 600_000]);
-		// No nudge piled on a retry that failed: the wait is the answer.
-		expect(world.stock("ap-1", "prompt")).toHaveLength(0);
-		clock.value += 600_000;
-		afters.at(-1)?.();
+		await sleep(150);
 		await autopilot.idle();
 		expect(status.state).toBe("running");
-		expect(world.stock("ap-1", "retry")).toHaveLength(9);
+		expect(world.stock("ap-1", "retry")).toHaveLength(1);
+	});
+
+	it("a retry that fails after the wake waits again, visibly, with a backoff that doubles up to a ceiling, until it takes", async () => {
+		await start();
+		const status = world.statuses.get("ap-1") as AutopilotStatus;
+		world.usage = [{ provider: "anthropic", fetchedAt: Date.now(), limits: [], resetAt: Date.now() + 150 }];
+		world.failRetries = 5;
+		autopilot.observeActivity(failed("429 usage limit reached"));
+		// The waits `TUNING` runs: 60 ms doubling to 240 ms (30 s doubling to 10 min in the app).
+		const resets: number[] = [];
+		await vi.waitFor(
+			() => {
+				const at = status.quotaResetAt;
+				if (status.state === "waiting_quota" && at !== undefined && resets.at(-1) !== at) resets.push(at);
+				expect(status.state).toBe("running");
+				expect(world.stock("ap-1", "retry")).toHaveLength(6);
+			},
+			{ timeout: 10_000, interval: 5 },
+		);
+		expect(resets).toHaveLength(6);
+		[60, 120, 240, 240, 240].forEach((least, i) => {
+			const wait = (resets[i + 1] as number) - (resets[i] as number);
+			expect(wait, `wait ${i + 1}`).toBeGreaterThanOrEqual(least);
+			expect(wait, `wait ${i + 1}`).toBeLessThan(least + 250);
+		});
+		// No nudge piled on a retry that failed: the wait is the answer.
+		expect(asked()).toBe(0);
 	});
 
 	it("a step of the run's pipeline that never answers is stopped, shown in the status, and the run goes on", async () => {
+		// The step's bound is 400 ms here (15 min in the app); the nudge window is short so the next nudge may go at once.
+		build({ tuning: { stepMaxMs: 400, errorNudgeMs: 40 } });
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
-		vi.useFakeTimers();
-		try {
-			world.hang.add("prompt");
-			autopilot.observeActivity(failed("Provider returned 500: overloaded"));
-			afters[0]?.();
-			await vi.advanceTimersByTimeAsync(0);
-			expect(world.stock("ap-1", "prompt")).toHaveLength(1);
-			// A step queued behind the hung nudge waits for the bound, then runs.
-			world.hang.delete("prompt");
-			clock.value += 3_600_000;
-			autopilot.observeActivity(failed("fetch failed"));
-			afters[1]?.();
-			await vi.advanceTimersByTimeAsync(15 * 60_000);
-			await autopilot.idle();
-		} finally {
-			vi.useRealTimers();
-		}
+		world.hang.add("prompt");
+		autopilot.observeActivity(failed("Provider returned 500: overloaded"));
+		await vi.waitFor(() => expect(asked()).toBe(1), { timeout: 5_000 });
+		// A step queued behind the hung nudge waits for the bound, then runs.
+		world.hang.delete("prompt");
+		autopilot.observeActivity(failed("fetch failed"));
+		await vi.waitFor(() => expect(asked()).toBe(2), { timeout: 5_000 });
+		await autopilot.idle();
 		const shown = await autopilot.handleCommand(win, sidecar, "ap-1", { type: "get_autopilot" }, "1");
-		expect((shown.data as AutopilotStatus).stalls).toEqual([
-			expect.objectContaining({ step: "nudge", ms: 15 * 60_000 }),
-		]);
-		expect(world.stock("ap-1", "prompt")).toHaveLength(2);
+		expect((shown.data as AutopilotStatus).stalls).toEqual([expect.objectContaining({ step: "nudge", ms: 400 })]);
 	});
 
-	it("a usage limit with no reset in the reports waits the fallback, and a pause meanwhile cancels the wake", async () => {
+	it("a usage limit with no reset in the reports waits the fallback", async () => {
 		await start();
 		autopilot.observeActivity(failed("Too many requests"));
-		afters[0]?.();
-		await autopilot.idle();
 		const status = world.statuses.get("ap-1") as AutopilotStatus;
-		expect(status.quotaResetAt).toBe(clock.value + QUOTA_FALLBACK_MS);
+		await vi.waitFor(() => expect(status.state).toBe("waiting_quota"), { timeout: 5_000 });
+		const at = status.quotaResetAt as number;
+		expect(at).toBeGreaterThan(Date.now() + QUOTA_FALLBACK_MS - 10_000);
+		expect(at).toBeLessThanOrEqual(Date.now() + QUOTA_FALLBACK_MS);
+	});
+
+	it("a pause meanwhile cancels the quota wake", async () => {
+		await start();
+		world.usage = [{ provider: "anthropic", fetchedAt: Date.now(), limits: [], resetAt: Date.now() + 400 }];
+		autopilot.observeActivity(failed("Too many requests"));
+		const status = world.statuses.get("ap-1") as AutopilotStatus;
+		await vi.waitFor(() => expect(status.state).toBe("waiting_quota"), { timeout: 5_000 });
 		status.state = "paused";
-		afters[1]?.();
+		// Waits out the wake: the check is that it does nothing.
+		await sleep(700);
 		await autopilot.idle();
 		expect(status.state).toBe("paused");
 		expect(world.stock("ap-1", "retry")).toHaveLength(0);
@@ -503,17 +482,13 @@ describe("a failed turn", () => {
 	it("a run that was waiting for the quota when the app quit wakes at the reset after the relaunch", async () => {
 		await start();
 		const status = world.statuses.get("ap-1") as AutopilotStatus;
-		Object.assign(status, { state: "waiting_quota", quotaResetAt: clock.value + 60_000 });
+		Object.assign(status, { state: "waiting_quota", quotaResetAt: Date.now() + 400 });
 		build();
 		const sidecar = world.sidecars.get("ap-1") as FakeSidecar;
 		autopilot.attachSidecar("ap-1", sidecar as unknown as SidecarLike);
 		sidecar.emit("status", { status: "ready" });
+		await vi.waitFor(() => expect(status.state).toBe("running"), { timeout: 5_000 });
 		await autopilot.idle();
-		expect(afters.length).toBeGreaterThan(0);
-		clock.value += 60_000;
-		afters.at(-1)?.();
-		await autopilot.idle();
-		expect(status.state).toBe("running");
 		expect(world.stock("ap-1", "set_goal").at(-1)?.params).toMatchObject({ action: "resume" });
 	});
 
@@ -522,7 +497,8 @@ describe("a failed turn", () => {
 		const status = world.statuses.get("ap-1") as AutopilotStatus;
 		status.state = "paused";
 		autopilot.observeActivity(failed("boom"));
-		afters[0]?.();
+		// Waits past the grace: the check is that nothing comes.
+		await sleep(150);
 		await autopilot.idle();
 		expect(world.stock("ap-1", "set_goal")).toHaveLength(1);
 	});

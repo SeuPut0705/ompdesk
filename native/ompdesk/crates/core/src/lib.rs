@@ -4,6 +4,7 @@
 
 pub mod agentctl;
 pub mod aimemory;
+pub mod autopilot;
 pub mod browsers;
 pub mod care;
 pub mod clock;

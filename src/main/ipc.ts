@@ -1238,7 +1238,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				win,
 				payload,
 			),
-		prefs: { get: key => prefsStore.get(key) },
 		// The host's own banner (batched like any tab notification, notification-batch.ts; a click opens the tab), the
 		// paired device that started the run or shows it (`host.autopilotNotice`) and paired phones (Web Push).
 		notify: (tabId, notice) => {

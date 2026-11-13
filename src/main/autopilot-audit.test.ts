@@ -1,25 +1,9 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { diffRefs, takeSnapshot } from "./autopilot-audit";
-import { audit, commit, installAuditRig, main, remote, tmp, work } from "./autopilot-audit-test-rig";
+import { audit, commit, installAuditRig, main, remote, takeSnapshot, tmp, work } from "./autopilot-audit-test-rig";
 import { gitSync } from "./local/git/test-repos";
 
 installAuditRig();
-
-describe("diffRefs", () => {
-	it("lists created, moved and deleted refs", () => {
-		expect(
-			diffRefs(
-				{ "refs/heads/a": "1", "refs/heads/b": "2", "refs/heads/c": "3" },
-				{ "refs/heads/a": "1", "refs/heads/b": "9", "refs/heads/d": "4" },
-			),
-		).toEqual([
-			{ ref: "refs/heads/b", from: "2", to: "9" },
-			{ ref: "refs/heads/c", from: "3", to: null },
-			{ ref: "refs/heads/d", from: null, to: "4" },
-		]);
-	});
-});
 
 describe("auditCycle", () => {
 	it("passes a cycle that only committed on its own branch", async () => {

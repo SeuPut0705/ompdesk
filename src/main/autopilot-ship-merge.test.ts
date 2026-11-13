@@ -25,7 +25,7 @@ describe("merge", () => {
 	it("fast-forwards the default checkout when it is on the base branch and clean", async () => {
 		const sha = await commit(work, "a.txt");
 		const ship = runner();
-		ship.enqueue({ kind: "merge" });
+		await ship.enqueue({ kind: "merge" });
 		const [result] = await ship.drain(target());
 		expect(result?.item.state).toBe("done");
 		expect(gitSync(main, "rev-parse", "HEAD")).toBe(sha);
@@ -36,14 +36,14 @@ describe("merge", () => {
 		await commit(work, "a.txt");
 		await fs.writeFile(path.join(main, "README.md"), "dirty\n");
 		const ship = runner();
-		ship.enqueue({ kind: "merge" });
+		await ship.enqueue({ kind: "merge" });
 		expect((await ship.drain(target()))[0]?.item).toMatchObject({
 			state: "failed",
 			detail: expect.stringMatching(/clean|uncommitted/i),
 		});
 		gitSync(main, "checkout", "--", "README.md");
 		gitSync(main, "checkout", "-q", "-b", "detour");
-		ship.enqueue({ kind: "merge" });
+		await ship.enqueue({ kind: "merge" });
 		expect((await ship.drain(target()))[0]?.item).toMatchObject({
 			state: "failed",
 			detail: expect.stringContaining("main"),
@@ -54,10 +54,10 @@ describe("merge", () => {
 		await commit(work, "a.txt");
 		await commit(main, "other.txt");
 		const ship = runner();
-		ship.enqueue({ kind: "merge" });
+		await ship.enqueue({ kind: "merge" });
 		expect((await ship.drain(target()))[0]?.item.state).toBe("failed");
 		expect(gitSync(main, "log", "--oneline", "-1", "--format=%s")).toBe("other.txt");
-		ship.enqueue({ kind: "merge", mode: "merge_commit" });
+		await ship.enqueue({ kind: "merge", mode: "merge_commit" });
 		expect((await ship.drain(target()))[0]?.item.state).toBe("done");
 		expect(gitSync(main, "rev-list", "--merges", "--count", "HEAD")).toBe("1");
 	});
@@ -68,7 +68,7 @@ describe("merge", () => {
 		await fs.writeFile(path.join(main, "README.md"), "theirs\n");
 		gitSync(main, "commit", "-q", "-am", "theirs");
 		const ship = runner();
-		ship.enqueue({ kind: "merge", mode: "merge_commit" });
+		await ship.enqueue({ kind: "merge", mode: "merge_commit" });
 		const [result] = await ship.drain(target());
 		expect(result?.item.state).toBe("failed");
 		expect(gitSync(main, "status", "--porcelain")).toBe("");
@@ -81,7 +81,7 @@ describe("revert", () => {
 		const sha = await commit(work, "a.txt");
 		const before = gitSync(work, "rev-parse", "HEAD");
 		const ship = runner();
-		ship.enqueue({ kind: "revert", cycle: 4, sha });
+		await ship.enqueue({ kind: "revert", cycle: 4, sha });
 		const [result] = await ship.drain(target());
 		expect(result?.item.state).toBe("done");
 		expect(gitSync(work, "rev-parse", "HEAD~1")).toBe(before);
@@ -97,7 +97,7 @@ describe("revert", () => {
 		await fs.writeFile(path.join(work, "README.md"), "two\n");
 		gitSync(work, "commit", "-q", "-am", "two");
 		const ship = runner();
-		ship.enqueue({ kind: "revert", cycle: 1, sha: first });
+		await ship.enqueue({ kind: "revert", cycle: 1, sha: first });
 		const [result] = await ship.drain(target());
 		expect(result?.item.state).toBe("failed");
 		expect(gitSync(work, "status", "--porcelain")).toBe("");
@@ -112,7 +112,7 @@ describe("revert", () => {
 		gitSync(work, "merge", "-q", "--no-ff", "-m", "merge side", "side");
 		const merge = gitSync(work, "rev-parse", "HEAD");
 		const ship = runner();
-		ship.enqueue({ kind: "revert", cycle: 2, sha: merge });
+		await ship.enqueue({ kind: "revert", cycle: 2, sha: merge });
 		const [result] = await ship.drain(target());
 		expect(result?.item.state).toBe("done");
 		await expect(fs.stat(path.join(work, "side.txt"))).rejects.toThrow();

@@ -1,6 +1,19 @@
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { HUB_CALL_DEADLINE_MS, Hub, type HubInstanceHandler, type HubItem } from "./hub";
+import {
+	Connection,
+	DATA_OFFSET,
+	HUB_CALL_DEADLINE_MS,
+	Hub,
+	type HubInstanceHandler,
+	type HubItem,
+	LENGTH,
+	STATE,
+} from "./hub";
 import { CoreError, core, stopCore } from "./process";
 
 afterAll(() => stopCore());
@@ -98,6 +111,32 @@ describe("the hub connection", () => {
 		expect(core().pid).not.toBe(before);
 	});
 
+	it("never hands a question of the next core the answer to one the lost core asked", async () => {
+		const hub = new Hub();
+		const stale = Promise.withResolvers<string>();
+		let asked = 0;
+		const old = probe(hub, () => {
+			asked++;
+			return stale.promise;
+		});
+		const unanswered = hub.callLater(old.id, "askLater").catch((error: unknown) => error);
+		// Main took the question (its promise is pending) before the core is lost.
+		hub.barrier();
+		expect(asked).toBe(1);
+		killCoreAfter(200);
+		expect(() => hub.call(old.id, "wait")).toThrow(CoreError);
+		expect(await unanswered).toBeInstanceOf(CoreError);
+		// The next core's first question carries the number the lost core's had.
+		const fresh = Promise.withResolvers<string>();
+		const next = probe(hub, () => fresh.promise);
+		const answer = hub.callLater(next.id, "askLater");
+		hub.barrier();
+		stale.resolve("stale");
+		await new Promise(resolve => setImmediate(resolve));
+		fresh.resolve("fresh");
+		await expect(answer).resolves.toBe("fresh");
+	});
+
 	it("wakes main at once when the core ends in the middle of a call (the quit, a crash)", () => {
 		const hub = new Hub();
 		const instance = probe(hub);
@@ -117,5 +156,45 @@ describe("the hub connection", () => {
 		for (let n = 0; n < calls; n++) hub.call(instance.id, "push", { n });
 		const perCallMs = (performance.now() - started) / calls;
 		expect(perCallMs).toBeLessThan(1);
+	});
+});
+
+describe("the hub worker's line reader", () => {
+	it("keeps a Korean character whole when a chunk ends in the middle of it", async () => {
+		const text = "경로 /Users/홍길동/프로젝트 이어하기";
+		const bytes = Buffer.from(`${JSON.stringify({ id: 1, text })}\n`, "utf8");
+		const cut = bytes.indexOf(Buffer.from("홍", "utf8")) + 1; // inside the 3-byte character
+		const dir = mkdtempSync(join(tmpdir(), "hub-utf8-"));
+		const address =
+			process.platform === "win32"
+				? `\\\\.\\pipe\\ompdesk-hub-utf8-${process.pid}-${Date.now()}`
+				: join(dir, "s.sock");
+		const server = createServer(socket => {
+			socket.setNoDelay(true);
+			socket.once("data", () => {
+				socket.write(bytes.subarray(0, cut));
+				setTimeout(() => socket.write(bytes.subarray(cut)), 50);
+			});
+		});
+		await new Promise<void>(resolve => server.listen(address, resolve));
+		const connection = new Connection({ address, token: "t" }, 1);
+		try {
+			let lines: { text?: string }[] = [];
+			for (let attempt = 0; attempt < 40 && lines.length === 0; attempt++) {
+				await new Promise(resolve => setTimeout(resolve, 25));
+				Atomics.store(connection.control, STATE, 1);
+				connection.worker.postMessage({ wait: "drain" });
+				Atomics.wait(connection.control, STATE, 1, 1000);
+				const length = Atomics.load(connection.control, LENGTH);
+				const raw = Buffer.from(new Uint8Array(connection.sab, DATA_OFFSET, length)).toString("utf8");
+				lines = (JSON.parse(raw) as { lines: { text?: string }[] }).lines;
+				Atomics.store(connection.control, STATE, 0);
+			}
+			expect(lines.map(line => line.text)).toEqual([text]);
+		} finally {
+			await connection.worker.terminate();
+			server.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

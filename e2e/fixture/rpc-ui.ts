@@ -5185,6 +5185,37 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					endTurn(turn);
 				}, 300);
 			}, 300);
+		} else if (message === "fixture advisor note") {
+			// A standalone advisor card (customType `advisor`, the shape stock files): prices that once drew as KaTeX, a
+			// bare URL and one long unbroken formula, all of which must stay inside the card (parity `reply-advisor-note`).
+			const note: AgentMessage = {
+				role: "custom",
+				customType: "advisor",
+				content: "Advisor notes",
+				display: true,
+				details: {
+					notes: [
+						{
+							note: "월 $149 결론을 정정하세요. 공식 https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/ 에 'Always Free: 월 인터넷 전송 1TB, HTTP(S) 1천만 요청'이 있어 S3 1TB 보관 + $26/월이고, 무료분을 소진한 경우만 약 $149입니다. 한 줄 수식 $ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$ 도 카드 안에 머뭅니다.",
+							severity: "concern",
+						},
+					],
+				},
+				timestamp: Date.now(),
+			};
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "text", text: "Advisor note delivered." }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "stop",
+			};
+			for (const entry of [note, answer]) {
+				appendMessage(entry);
+				write({ type: "message_end", message: entry });
+			}
+			endTurn([user, note, answer]);
 		} else if (message === "fixture agent-desktop") {
 			// agent-desktop's MCP tools as stock hands them to the transcript: `mcp__agent_desktop_desktop_<command>`
 			// calls whose text block is the JSON envelope (again as `details.structuredContent`, image bytes left out).
