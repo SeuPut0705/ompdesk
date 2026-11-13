@@ -2,6 +2,7 @@
 #![allow(unsafe_code)]
 
 pub mod app;
+pub mod childproc;
 pub mod clipboard;
 pub mod desk;
 pub mod dialogs;

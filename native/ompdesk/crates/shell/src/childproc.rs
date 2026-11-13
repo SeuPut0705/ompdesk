@@ -41,6 +41,13 @@ pub fn flag_value(command_line: &str, flag: &str) -> Option<String> {
         .find_map(|t| t.strip_prefix(prefix.as_str()).map(str::to_string))
 }
 
+/// The value of a `--flag=value` argument among `args` (macOS gives the arguments already split).
+pub fn arg_value(args: &[String], flag: &str) -> Option<String> {
+    let prefix = format!("{flag}=");
+    args.iter()
+        .find_map(|a| a.strip_prefix(prefix.as_str()).map(str::to_string))
+}
+
 /// What a watched child is: its Chromium process type (`--type=`) and, for a utility process, the service it hosts
 /// (`--utility-sub-type=`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,14 +59,27 @@ pub struct Kind {
 /// The kind of a child from its command line. `None` for a process that is not a Chromium helper (no `--type=`: a tool
 /// the shell spawned), for the renderers (their death is `render-process-gone` already) and for the crash handler.
 pub fn watched_kind(command_line: &str) -> Option<Kind> {
-    let process_type = flag_value(command_line, "--type")?;
+    kind_of(
+        flag_value(command_line, "--type")?,
+        flag_value(command_line, "--utility-sub-type"),
+    )
+}
+
+/// `watched_kind` for arguments that are already split (macOS: `KERN_PROCARGS2`).
+pub fn watched_kind_of_args(args: &[String]) -> Option<Kind> {
+    kind_of(
+        arg_value(args, "--type")?,
+        arg_value(args, "--utility-sub-type"),
+    )
+}
+
+fn kind_of(process_type: String, service: Option<String>) -> Option<Kind> {
     if process_type == "renderer" || process_type == "crashpad-handler" {
         return None;
     }
-    let service = flag_value(command_line, "--utility-sub-type").filter(|s| !s.is_empty());
     Some(Kind {
         process_type,
-        service,
+        service: service.filter(|s| !s.is_empty()),
     })
 }
 
@@ -117,10 +137,21 @@ pub fn reason(exit_code: u32) -> &'static str {
 
 /// The `app.childProcessGone` data: `{type, reason, exitCode, serviceName?, name?}` (Electron's `Details`).
 pub fn details(kind: &Kind, exit_code: u32) -> Value {
+    details_with(kind, reason(exit_code), exit_code as i32)
+}
+
+/// The data for a helper that is gone without a way to ask why (macOS: its parent is Chromium, which reaps it, so there
+/// is no exit status to read): reported as a crash with exit code -1. A helper ending because the app quits is never
+/// reported, so a disappearance while the app runs is not a clean exit.
+pub fn details_unknown_exit(kind: &Kind) -> Value {
+    details_with(kind, "crashed", -1)
+}
+
+fn details_with(kind: &Kind, reason: &str, exit_code: i32) -> Value {
     let mut data = json!({
         "type": electron_type(&kind.process_type),
-        "reason": reason(exit_code),
-        "exitCode": exit_code as i32,
+        "reason": reason,
+        "exitCode": exit_code,
     });
     if let Some(service) = &kind.service {
         data["serviceName"] = json!(service);
@@ -129,6 +160,27 @@ pub fn details(kind: &Kind, exit_code: u32) -> Value {
         }
     }
     data
+}
+
+/// The arguments of a process from a `KERN_PROCARGS2` buffer (macOS): a native-endian `i32` argument count, the
+/// executable's path and its NULs, then that many NUL-terminated arguments (the environment follows and is not read).
+/// None for a buffer too short for the count or the path.
+pub fn procargs_arguments(buffer: &[u8]) -> Option<Vec<String>> {
+    let count = usize::try_from(i32::from_ne_bytes(buffer.get(..4)?.try_into().ok()?)).ok()?;
+    let rest = &buffer[4..];
+    let mut at = rest.iter().position(|byte| *byte == 0)?;
+    while rest.get(at) == Some(&0) {
+        at += 1;
+    }
+    let tail = &rest[at..];
+    let end = tail.iter().rposition(|byte| *byte == 0)?;
+    Some(
+        tail[..end]
+            .split(|byte| *byte == 0)
+            .take(count)
+            .map(|arg| String::from_utf8_lossy(arg).into_owned())
+            .collect(),
+    )
 }
 
 /// The children seen so far, by pid; `H` is what the OS layer keeps per child (a process handle).
@@ -221,6 +273,50 @@ mod tests {
         assert_eq!(watched_kind("a.exe --type=renderer"), None);
         assert_eq!(watched_kind("a.exe --type=crashpad-handler"), None);
         assert_eq!(watched_kind("powershell.exe -NoProfile"), None);
+    }
+
+    #[test]
+    fn arguments_come_from_a_procargs2_buffer() {
+        let mut buffer = 4i32.to_ne_bytes().to_vec();
+        buffer.extend_from_slice(
+            b"/A/OMPdesk.app/Contents/Frameworks/OMPdesk Helper (GPU).app/Contents/MacOS/OMPdesk Helper (GPU)\0\0\0\0OMPdesk Helper (GPU)\0--type=gpu-process\0--x=1\0--y\0HOME=/Users/x\0\0apple\0",
+        );
+        let args = procargs_arguments(&buffer).unwrap();
+        assert_eq!(args.len(), 4);
+        assert_eq!(args[1], "--type=gpu-process");
+        assert_eq!(
+            watched_kind_of_args(&args),
+            Some(Kind {
+                process_type: "gpu-process".into(),
+                service: None
+            })
+        );
+        assert_eq!(procargs_arguments(&[1, 0]), None);
+        assert_eq!(procargs_arguments(&1i32.to_ne_bytes()), None);
+        let renderer = vec!["h".to_string(), "--type=renderer".to_string()];
+        assert_eq!(watched_kind_of_args(&renderer), None);
+        let utility = vec![
+            "h".to_string(),
+            "--type=utility".to_string(),
+            "--utility-sub-type=audio.mojom.AudioService".to_string(),
+        ];
+        assert_eq!(
+            watched_kind_of_args(&utility).unwrap().service.as_deref(),
+            Some("audio.mojom.AudioService")
+        );
+        assert_eq!(watched_kind_of_args(&["tool".to_string()]), None);
+    }
+
+    #[test]
+    fn a_helper_gone_without_a_status_is_a_crash_with_minus_one() {
+        let kind = Kind {
+            process_type: "gpu-process".into(),
+            service: None,
+        };
+        assert_eq!(
+            details_unknown_exit(&kind),
+            serde_json::json!({ "type": "GPU", "reason": "crashed", "exitCode": -1 })
+        );
     }
 
     #[test]

@@ -1,14 +1,15 @@
 //! `app.childProcessGone` (PROTOCOL.md §3): CEF has no callback for the GPU or a utility process ending, so a thread
 //! lists the shell's child processes once a second and reports a helper that was seen and is gone. The pure parts
 //! (command line, Electron's type and reason words, the bookkeeping) are `shell_core::childproc`; the OS calls are
-//! `sys::childproc` (Windows). macOS has no watcher yet: no event there.
+//! `sys::childproc` (Windows) and `sys_mac::childproc` (macOS: no exit status is readable there, so a helper that
+//! disappears while the app runs is reported as a crash with exit code -1).
 
 #[cfg(windows)]
 use std::time::Duration;
 
 /// Starts the watcher, once; every page creation calls it, so it runs in the browser process only.
 pub fn start() {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         use std::sync::Once;
         static START: Once = Once::new();
@@ -17,6 +18,50 @@ pub fn start() {
                 .name("child-watch".into())
                 .spawn(run);
         });
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run() {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use serde_json::json;
+    use shell_core::childproc::{Tracker, details_unknown_exit, watched_kind_of_args};
+    use shell_core::sys_mac::childproc::{alive, arguments, children_of};
+
+    use crate::lifecycle::EXITING;
+    use crate::{host, log::log};
+
+    let own = std::process::id();
+    let mut tracker: Tracker<()> = Tracker::default();
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+        if EXITING.load(Ordering::SeqCst) {
+            return;
+        }
+        for pid in children_of(own) {
+            if tracker.knows(pid) {
+                continue;
+            }
+            // Read once: a process whose arguments are not readable yet (it is still starting) is tried again.
+            if let Some(args) = arguments(pid) {
+                tracker.add(pid, watched_kind_of_args(&args), ());
+            }
+        }
+        // `Some(0)` only says "over": macOS gives no status.
+        for (kind, _) in tracker.finished(|pid, _| (!alive(pid)).then_some(0)) {
+            // The app is quitting: its helpers end with it, and Electron reports no crash then.
+            if EXITING.load(Ordering::SeqCst) {
+                return;
+            }
+            let data = details_unknown_exit(&kind);
+            log(
+                "child.gone",
+                json!({ "kind": kind.process_type, "details": data }),
+            );
+            host::event("app.childProcessGone", data);
+        }
     }
 }
 
