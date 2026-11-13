@@ -327,13 +327,14 @@ pub fn snapshot(root: &Path, ignored: Option<&[String]>, cache: &mut StatCache) 
                         let real = fs::canonicalize(&path).ok();
                         let parent = fs::canonicalize(&dir).ok();
                         // A link to a folder that holds it would walk forever; one seen through another link once.
+                        // An excluded alias never claims the target, or a later included alias of it would be skipped.
                         let loops = match (&real, &parent) {
                             (Some(real), Some(parent)) => parent.starts_with(real),
                             _ => true,
                         };
                         if !loops
-                            && real.as_ref().is_some_and(|r| followed.insert(r.clone()))
                             && !excluded_dir(&path, &child, &name, ignored)
+                            && real.as_ref().is_some_and(|r| followed.insert(r.clone()))
                         {
                             stack.push((path, child));
                         }
@@ -836,6 +837,33 @@ mod tests {
             Some(first),
             "an edit behind the link was not seen"
         );
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_ignored_alias_does_not_hide_an_included_alias_of_the_same_folder() {
+        let base = std::env::temp_dir().join(format!("ompdesk-aliases-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("repo");
+        let shared = base.join("deps");
+        fs::create_dir_all(shared.join("pkg")).unwrap();
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(shared.join("pkg").join("index.js"), "one").unwrap();
+        // The ignored alias sits at the root, so the walk always meets it before the one inside `app/`.
+        std::os::unix::fs::symlink(&shared, root.join("coverage")).unwrap();
+        std::os::unix::fs::symlink(&shared, root.join("app").join("node_modules")).unwrap();
+        let mut cache = StatCache::load(&base.join("store"), &root);
+        let files = snapshot(&root, Some(&["coverage/".to_string()]), &mut cache);
+        assert!(
+            files
+                .files
+                .iter()
+                .any(|(p, _)| p == "app/node_modules/pkg/index.js"),
+            "the included alias was skipped: {:?}",
+            files.files
+        );
+        assert!(files.files.iter().all(|(p, _)| !p.starts_with("coverage/")));
         let _ = fs::remove_dir_all(base);
     }
 
