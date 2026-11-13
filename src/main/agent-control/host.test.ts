@@ -102,6 +102,10 @@ function setup(
 		owners?: Record<string, string>;
 		/** The front window sessions are opened in without a tab of their own (`outsideWindow`). */
 		outsideWindow?: boolean;
+		/** What the caller's omp answers `agent_control_attachment` for each path (`agent_control.attachment`). */
+		reads?: Record<string, { name: string; mimeType: string; dataBase64: string }>;
+		/** This computer's upload folder (`AgentControlHostDeps.uploads`). */
+		uploads?: AgentControlHostDeps["uploads"];
 	} = {},
 ) {
 	const win = window();
@@ -179,6 +183,12 @@ function setup(
 			if (command.type === "worktree_create")
 				return ok({ path: "/wt/agent-1", branch: "omp/agent/agent-1", baseCwd: "/repo" });
 			if (command.type === "agent_control_confirm") return ok({ approved: true });
+			if (command.type === "agent_control_attachment") {
+				const read = options.reads?.[command.path ?? ""];
+				return read
+					? ok(read)
+					: { type: "response", command: command.type, success: false, error: "ENOENT: no such file" };
+			}
 			return ok();
 		},
 		spawnTab: async (_win, payload) => {
@@ -198,6 +208,7 @@ function setup(
 		tuning: { ...SHORT_WAITS, ...options.tuning },
 		mailOutboxFile: options.mailOutboxFile,
 		sendOutboxFile: options.sendOutboxFile,
+		uploads: options.uploads,
 		sessionFatesFile: options.sessionFatesFile,
 		fileEdits,
 		releaseTab: async (target, tabId, stillReleasable) => {
@@ -944,6 +955,43 @@ describe("AgentControlRuntime", () => {
 			expect(text).toMatch(/"메인" \(saved id s-main\) \[open in a tab Mac mini runs for Desktop\]\n {2}idle/);
 			const stored = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "Mac mini" })).text;
 			expect(stored).toContain("; open in a tab device dev-1 runs for Desktop: idle");
+		});
+
+		it("carries a file to the receiver: it lands in this computer's upload folder and the prompt names its path", async () => {
+			const store = vi.fn(async (_device: string, name: string) => ({ path: `/uploads/${name}` }));
+			const { runtime, win, commands } = setup({
+				tabs: [{ tabId: "main0001" }, { tabId: "recv0002", sessionPath: "/s/recv.jsonl" }],
+				reads: { "/repo/notes.pdf": { name: "notes.pdf", mimeType: "application/pdf", dataBase64: "JVBERi0=" } },
+				uploads: { store } as never,
+			});
+			const sent = await runtime.run(win, "main0001", T.send, {
+				session: "recv0002",
+				message: "read this",
+				attachments: [{ path: "/repo/notes.pdf" }],
+			});
+			expect(sent.isError, sent.text).toBe(false);
+			expect(sent.text).toContain("attached: 1 (1 file at /uploads/notes.pdf)");
+			expect(store).toHaveBeenCalledTimes(1);
+			const prompt = commands.find(entry => entry.command.type === "prompt");
+			expect(prompt?.tabId).toBe("recv0002");
+			expect(JSON.stringify(prompt?.command)).toContain("Attached: /uploads/notes.pdf");
+		});
+
+		it("refuses the whole send when an attachment cannot be read, and puts nothing on the receiver", async () => {
+			const store = vi.fn(async (_device: string, name: string) => ({ path: `/uploads/${name}` }));
+			const { runtime, win, commands } = setup({
+				tabs: [{ tabId: "main0001" }, { tabId: "recv0002", sessionPath: "/s/recv.jsonl" }],
+				uploads: { store } as never,
+			});
+			const sent = await runtime.run(win, "main0001", T.send, {
+				session: "recv0002",
+				message: "read this",
+				attachments: [{ path: "/repo/missing.pdf" }],
+			});
+			expect(sent.isError).toBe(true);
+			expect(sent.text).toContain("Nothing was delivered.");
+			expect(store).not.toHaveBeenCalled();
+			expect(commands.some(entry => entry.command.type === "prompt")).toBe(false);
 		});
 
 		it("sends to that session through a view of the tab that holds it, never nesting it under the caller", async () => {

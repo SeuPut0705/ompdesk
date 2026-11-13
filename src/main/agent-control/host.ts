@@ -74,13 +74,13 @@ import {
 	SchedulesStateSchema,
 	WorktreeCreateReply,
 } from "../remote/app-protocol";
+import { uploadToHost } from "../remote/host-upload";
 import type { RunProcess, ScheduleService } from "../schedules";
 import type { Pace } from "../session-pace";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import type { SidecarPool, TabActivity } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import { recordTurnStop } from "../turn-stop-log";
-import { uploadToHost } from "../remote/host-upload";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
 import { attachHere, type UploadStore } from "../web/uploads";
@@ -1308,7 +1308,8 @@ export class AgentControlRuntime {
 		const sidecar = isOutside(tabId) ? undefined : deps.pool.sidecarOf(tabId);
 		const device = sidecar?.device;
 		if (!device) {
-			if (!deps.uploads) return { ok: false, error: "This computer does not take attached files", code: "unsupported" };
+			if (!deps.uploads)
+				return { ok: false, error: "This computer does not take attached files", code: "unsupported" };
 			return attachHere(deps.uploads, name, bytes);
 		}
 		const remote = deps.remote;

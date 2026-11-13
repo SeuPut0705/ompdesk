@@ -67,7 +67,8 @@ export class TargetAnswer {
 	async #step(tabId: string, step: AnswerStep, send: SendCommand): Promise<void> {
 		const deps = this.#deps;
 		const open = "askId" in step ? deps.askOpen(tabId, step.askId) : deps.planOpen(tabId);
-		if (!open) throw new Error("That question is not open any more: nothing was added to the session and nothing answered.");
+		if (!open)
+			throw new Error("That question is not open any more: nothing was added to the session and nothing answered.");
 		const { content, details, delivery } = step.companion;
 		const noted = await send({
 			type: "agent_control_mail",

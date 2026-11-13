@@ -1048,7 +1048,8 @@ export class AgentControl {
 			}) => coded(async () => (await host.mail(tabId, content, details, delivery)) ?? null),
 			land: ({ tabId, name, dataBase64 }: { tabId: string; name: string; dataBase64: string }) =>
 				coded(async () => {
-					if (!host.land) return { ok: false, error: "This OMPdesk cannot put files on a computer", code: "unsupported" };
+					if (!host.land)
+						return { ok: false, error: "This OMPdesk cannot put files on a computer", code: "unsupported" };
 					return host.land(tabId, name, Buffer.from(dataBase64, "base64"));
 				}),
 			command: ({
