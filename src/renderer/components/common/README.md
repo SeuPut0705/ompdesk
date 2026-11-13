@@ -70,6 +70,7 @@ allow-list beside the marker.
 | Loading with a known shape | `Skeleton`, `SkeletonRows` | a spinner |
 | Work with no shape | `Spinner` (still ring; `spin` only for an action just started) | a turning ring for content |
 | Known progress or fullness | `ProgressBar` (`meter`, `progress`; `ariaValueText`, `animate={false}` for a per-frame level, `labelCase="keep"`); shares of one whole in one bar with `segments` (`{ value, label, tone \| color }`, `total`; with `value` it is a progressbar of the whole) | a hand-drawn bar, a row of coloured spans |
+| Known fullness with its name and value inside the bar (a usage window, a pool's slots) | `Gauge` (`label`, `valueText`, `fraction` 0..1, `state` `ok`/`near`/`limit`, `ariaLabel` names it with its value, `caption` muted line under it, `captionLabel` its full sentence; a full pool is `near`, never `limit`; `UsageGauges` and the sidebar's Checks block draw with it) | a hand-drawn bar, a `ProgressBar` with its text beside it |
 | A keyboard shortcut | `Kbd`, or `shortcut` on `Tooltip`/`IconButton` | shortcuts baked into labels |
 | The keys a picker answers to, at the foot of its list | `KeyHints` (`hints` of `{ keys, label }`, `children` for an action that ends the row; nothing on a touch screen) | a hint row of your own, a picker that hides its keys |
 | A panel fed by free-form data | `PanelErrorBoundary` (the app root alone has `RootErrorBoundary`) | an unguarded subtree |
