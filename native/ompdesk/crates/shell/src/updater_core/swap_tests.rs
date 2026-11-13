@@ -373,6 +373,8 @@ fn ends_what_the_new_app_left_running_before_it_takes_the_old_one_back() {
 fn says_the_previous_app_is_lost_when_there_was_none_to_put_back() {
     let swap = Swap::new();
     let (src, dest) = swap.staged();
+    // A fresh install: the folder exists, the app does not (ditto makes no parent).
+    std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
     assert_eq!(
         swap.run(
             GONE,
