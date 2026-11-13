@@ -12,6 +12,8 @@ for (let i = 0; i < 120 && !browser; i++) {
 }
 if (!browser) throw new Error("no CDP endpoint");
 let page: Page | undefined;
+/** What the seed reads of the released app's page: its `window.omp` updater calls. */
+type SeedWindow = { omp?: { updater?: { saveAuth(token: string): Promise<unknown>; authInfo(): Promise<unknown> } } };
 for (let i = 0; i < 60 && !page; i++) {
 	page = browser
 		.contexts()
@@ -20,18 +22,22 @@ for (let i = 0; i < 60 && !page; i++) {
 	if (!page) await new Promise(r => setTimeout(r, 500));
 }
 if (!page) throw new Error("no app page");
-await page.waitForFunction(() => typeof (window as any).omp?.updater?.saveAuth === "function", null, {
+await page.waitForFunction(() => typeof (window as unknown as SeedWindow).omp?.updater?.saveAuth === "function", null, {
 	timeout: 30_000,
 });
 if (mode === "read") {
 	// The shell's page after the move: the token the released app saved is readable through the shell's safeStorage,
 	// and the file:// Local Storage the shell imported is there under app://ompdesk.
-	await page.waitForFunction(() => typeof (window as any).omp?.updater?.authInfo === "function", null, {
-		timeout: 60_000,
-	});
+	await page.waitForFunction(
+		() => typeof (window as unknown as SeedWindow).omp?.updater?.authInfo === "function",
+		null,
+		{
+			timeout: 60_000,
+		},
+	);
 	const read = await page.evaluate(async () => ({
 		href: location.href,
-		auth: await (window as any).omp.updater.authInfo(),
+		auth: await (window as unknown as SeedWindow).omp?.updater?.authInfo(),
 		draft: localStorage.getItem("ompdesk.seed.draft"),
 		korean: localStorage.getItem("ompdesk.seed.korean"),
 		large: (localStorage.getItem("ompdesk.seed.large") ?? "").length,
@@ -40,7 +46,7 @@ if (mode === "read") {
 	process.exit(0);
 }
 const out = await page.evaluate(async t => {
-	const saved = await (window as any).omp.updater.saveAuth(t);
+	const saved = await (window as unknown as SeedWindow).omp?.updater?.saveAuth(t);
 	localStorage.setItem("ompdesk.seed.draft", "a draft typed in Electron");
 	localStorage.setItem("ompdesk.seed.korean", "한국어 초안 ✓");
 	localStorage.setItem("ompdesk.seed.large", "x".repeat(200000));
@@ -49,7 +55,7 @@ const out = await page.evaluate(async t => {
 		origin: location.origin,
 		href: location.href,
 		keys: localStorage.length,
-		auth: await (window as any).omp.updater.authInfo(),
+		auth: await (window as unknown as SeedWindow).omp?.updater?.authInfo(),
 	};
 }, token);
 console.log(JSON.stringify(out));

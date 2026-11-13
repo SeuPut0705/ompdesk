@@ -40,7 +40,8 @@ function encode(value: unknown): string {
 
 function decode(text: string): unknown {
 	return JSON.parse(text, (_key, item) => {
-		if (item !== null && typeof item === "object" && "$bin" in item && typeof item.$bin === "string") return fromBase64(item.$bin);
+		if (item !== null && typeof item === "object" && "$bin" in item && typeof item.$bin === "string")
+			return fromBase64(item.$bin);
 		return item;
 	});
 }
@@ -53,7 +54,8 @@ function importLocalStorage(): void {
 		read.send();
 		if (read.status !== 200 || read.getResponseHeader("X-Ompdesk-Import") !== "pending") return;
 		const items = JSON.parse(read.responseText) as Record<string, string>;
-		for (const [key, value] of Object.entries(items)) if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+		for (const [key, value] of Object.entries(items))
+			if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
 		const done = new XMLHttpRequest();
 		done.open("POST", `${BASE}__shell/local-storage-done`, false);
 		done.send();
@@ -121,7 +123,9 @@ const shellTransport: OmpTransport = {
 	send(channel: string, ...args: unknown[]): void {
 		const body = encode({ channel, args });
 		sends = sends.then(() =>
-			fetch(`${BASE}__ipc/send`, { method: "POST", headers: { "content-type": "text/plain" }, body }).catch(() => undefined),
+			fetch(`${BASE}__ipc/send`, { method: "POST", headers: { "content-type": "text/plain" }, body }).catch(
+				() => undefined,
+			),
 		);
 	},
 	on(channel: string, listener: (data: unknown) => void): () => void {

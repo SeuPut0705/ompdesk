@@ -69,7 +69,8 @@ export interface ShellBuildRecord {
 
 class BuildError extends Error {}
 
-export const readPin = (): CefPin => JSON.parse(fs.readFileSync(path.join(SHELL_DIR, "cef-pin.json"), "utf8")) as CefPin;
+export const readPin = (): CefPin =>
+	JSON.parse(fs.readFileSync(path.join(SHELL_DIR, "cef-pin.json"), "utf8")) as CefPin;
 
 /** The CEF index key of a platform and architecture. */
 export function cefPlatform(platform: string = process.platform, arch: string = process.arch): string {
@@ -79,7 +80,8 @@ export function cefPlatform(platform: string = process.platform, arch: string = 
 	throw new BuildError(`no CEF build is pinned for ${platform}-${arch}.`);
 }
 
-export const binaryName = (platform: string = process.platform): string => (platform === "win32" ? "ompdesk-shell.exe" : "ompdesk-shell");
+export const binaryName = (platform: string = process.platform): string =>
+	platform === "win32" ? "ompdesk-shell.exe" : "ompdesk-shell";
 
 /** Where this machine's build is staged. */
 export const stagedDir = (): string => path.join(SHELL_ROOT, `${process.platform}-${process.arch}`);
@@ -145,7 +147,9 @@ export function checkShell(target: string = stagedDir()): ShellBuildRecord {
 	if (!fs.existsSync(manifest)) throw new BuildError(`${path.relative(REPO_ROOT, manifest)} is missing.`);
 	const record = JSON.parse(fs.readFileSync(manifest, "utf8")) as ShellBuildRecord;
 	if (record.platform !== process.platform || record.arch !== process.arch)
-		throw new BuildError(`the build record is for ${record.platform}-${record.arch}, not ${process.platform}-${process.arch}.`);
+		throw new BuildError(
+			`the build record is for ${record.platform}-${record.arch}, not ${process.platform}-${process.arch}.`,
+		);
 	if (record.sourceSha256 !== sourceSha256())
 		throw new BuildError("the shell was built from other sources than this checkout's native/ompdesk/crates/shell.");
 	const staged = listFiles(target);
@@ -154,9 +158,11 @@ export function checkShell(target: string = stagedDir()): ShellBuildRecord {
 		throw new BuildError("the staged files are not the ones the build record names.");
 	for (const rel of named) {
 		const actual = sha256(path.join(target, rel));
-		if (actual !== record.files[rel]) throw new BuildError(`${rel} hashes to ${actual}; its build record expects another.`);
+		if (actual !== record.files[rel])
+			throw new BuildError(`${rel} hashes to ${actual}; its build record expects another.`);
 	}
-	if (!(record.binary in record.files)) throw new BuildError(`the record's binary ${record.binary} is not among its files.`);
+	if (!(record.binary in record.files))
+		throw new BuildError(`the record's binary ${record.binary} is not among its files.`);
 	return record;
 }
 
@@ -180,7 +186,9 @@ export async function ensureArchive(key: string = cefPlatform()): Promise<string
 		fs.writeFileSync(temp, Buffer.from(await response.arrayBuffer()));
 		const actual = sha256(temp);
 		if (actual !== entry.sha256)
-			throw new BuildError(`${entry.name} hashes to ${actual}; cef-pin.json pins ${entry.sha256}. Nothing was kept.`);
+			throw new BuildError(
+				`${entry.name} hashes to ${actual}; cef-pin.json pins ${entry.sha256}. Nothing was kept.`,
+			);
 		fs.renameSync(temp, file);
 	} finally {
 		fs.rmSync(temp, { force: true });
@@ -191,8 +199,19 @@ export async function ensureArchive(key: string = cefPlatform()): Promise<string
 /** `cef-dll-sys` asks `<CEF_DOWNLOAD_URL>/index.json` for the version's archive; this is that index with the one entry. */
 export function trimmedIndex(pin: CefPin, key: string): Record<string, { versions: unknown[] }> {
 	const entry = pin.platforms[key];
-	const names = ["macosarm64", "macosx64", "windows64", "windowsarm64", "windows32", "linux64", "linuxarm64", "linuxarm"];
-	const index: Record<string, { versions: unknown[] }> = Object.fromEntries(names.map(name => [name, { versions: [] }]));
+	const names = [
+		"macosarm64",
+		"macosx64",
+		"windows64",
+		"windowsarm64",
+		"windows32",
+		"linux64",
+		"linuxarm64",
+		"linuxarm",
+	];
+	const index: Record<string, { versions: unknown[] }> = Object.fromEntries(
+		names.map(name => [name, { versions: [] }]),
+	);
 	index[key] = {
 		versions: [
 			{
@@ -222,14 +241,24 @@ function serveArchive(pin: CefPin, key: string, archive: string) {
 // ------------------------------------------------------------------ the toolchain environment
 
 function vsTools(): { cmakeBin: string; ninjaBin: string; include: string } {
-	const vswhere = path.join(process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe");
-	if (!fs.existsSync(vswhere)) throw new BuildError("Visual Studio Build Tools are not installed (vswhere.exe is missing).");
-	const install = execFileSync(vswhere, ["-latest", "-products", "*", "-property", "installationPath"], { encoding: "utf8" }).trim();
+	const vswhere = path.join(
+		process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+		"Microsoft Visual Studio",
+		"Installer",
+		"vswhere.exe",
+	);
+	if (!fs.existsSync(vswhere))
+		throw new BuildError("Visual Studio Build Tools are not installed (vswhere.exe is missing).");
+	const install = execFileSync(vswhere, ["-latest", "-products", "*", "-property", "installationPath"], {
+		encoding: "utf8",
+	}).trim();
 	const cmakeRoot = path.join(install, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake");
 	const cmakeBin = path.join(cmakeRoot, "CMake", "bin");
 	const ninjaBin = path.join(cmakeRoot, "Ninja");
 	if (!fs.existsSync(path.join(cmakeBin, "cmake.exe")) || !fs.existsSync(path.join(ninjaBin, "ninja.exe")))
-		throw new BuildError(`cmake and Ninja were not found under ${cmakeRoot} (install the "C++ CMake tools for Windows" component).`);
+		throw new BuildError(
+			`cmake and Ninja were not found under ${cmakeRoot} (install the "C++ CMake tools for Windows" component).`,
+		);
 	const newest = (dir: string): string => {
 		const names = fs.readdirSync(dir).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 		const last = names.at(-1);
@@ -238,7 +267,12 @@ function vsTools(): { cmakeBin: string; ninjaBin: string; include: string } {
 	};
 	const msvc = path.join(install, "VC", "Tools", "MSVC");
 	const msvcInclude = path.join(msvc, newest(msvc), "include");
-	const kitsRoot = path.join(process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Windows Kits", "10", "Include");
+	const kitsRoot = path.join(
+		process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+		"Windows Kits",
+		"10",
+		"Include",
+	);
 	const kit = path.join(kitsRoot, newest(kitsRoot));
 	const include = [msvcInclude, ...["ucrt", "um", "shared", "winrt"].map(part => path.join(kit, part))].join(";");
 	return { cmakeBin, ninjaBin, include };
@@ -278,7 +312,13 @@ function cargoEnv(): NodeJS.ProcessEnv {
 }
 
 /** Asynchronous on purpose: the local server that hands `cef-dll-sys` its archive lives in this process and must keep answering. */
-async function runCargo(cargo: string, cwd: string, args: string[], env: NodeJS.ProcessEnv, quiet = false): Promise<void> {
+async function runCargo(
+	cargo: string,
+	cwd: string,
+	args: string[],
+	env: NodeJS.ProcessEnv,
+	quiet = false,
+): Promise<void> {
 	const child = spawn(cargo, args, { cwd, env, stdio: quiet ? ["ignore", "ignore", "pipe"] : "inherit" });
 	let stderr = "";
 	child.stderr?.on("data", chunk => {
@@ -323,9 +363,16 @@ export async function cargoInShell(args: string[], options: { quiet?: boolean } 
 			if (process.platform === "win32") {
 				const withInclude = { ...env, INCLUDE: vsTools().include };
 				const locked = args.includes("--locked") ? ["--locked"] : [];
-				await runCargo(cargo, cwd, ["build", ...locked, "--release", "-p", "cef-dll-sys"], withInclude, options.quiet);
+				await runCargo(
+					cargo,
+					cwd,
+					["build", ...locked, "--release", "-p", "cef-dll-sys"],
+					withInclude,
+					options.quiet,
+				);
 				// The debug profile's wrapper is a separate build of the same package.
-				if (!args.includes("--release")) await runCargo(cargo, cwd, ["build", ...locked, "-p", "cef-dll-sys"], withInclude, options.quiet);
+				if (!args.includes("--release"))
+					await runCargo(cargo, cwd, ["build", ...locked, "-p", "cef-dll-sys"], withInclude, options.quiet);
 			}
 			await runCargo(cargo, cwd, args, env, options.quiet);
 		});
@@ -418,7 +465,8 @@ export async function buildShell(options: { quiet?: boolean } = {}): Promise<str
 	const files: Record<string, string> = {};
 	for (const rel of listFiles(target)) files[rel] = sha256(path.join(target, rel));
 	const cargo = cargoPath() as string;
-	const version = /^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(path.join(SHELL_DIR, "Cargo.toml"), "utf8"))?.[1] ?? "0.0.0";
+	const version =
+		/^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(path.join(SHELL_DIR, "Cargo.toml"), "utf8"))?.[1] ?? "0.0.0";
 	const pin = readPin();
 	const record: ShellBuildRecord = {
 		version,
@@ -433,7 +481,9 @@ export async function buildShell(options: { quiet?: boolean } = {}): Promise<str
 		buildSeconds: Math.round((Date.now() - started) / 1000),
 	};
 	const manifest = path.join(target, RECORD_NAME);
-	const previous = fs.existsSync(manifest) ? (JSON.parse(fs.readFileSync(manifest, "utf8")) as ShellBuildRecord) : null;
+	const previous = fs.existsSync(manifest)
+		? (JSON.parse(fs.readFileSync(manifest, "utf8")) as ShellBuildRecord)
+		: null;
 	const same =
 		previous !== null &&
 		previous.sourceSha256 === record.sourceSha256 &&
@@ -460,12 +510,16 @@ if (import.meta.main) {
 			await cargoInShell(args.slice(1));
 		} else if (args.includes("--check")) {
 			const record = checkShell();
-			console.log(`checked ${path.relative(REPO_ROOT, stagedDir())} (${Object.keys(record.files).length} files; built ${record.builtAt})`);
+			console.log(
+				`checked ${path.relative(REPO_ROOT, stagedDir())} (${Object.keys(record.files).length} files; built ${record.builtAt})`,
+			);
 		} else if (args.includes("--ensure")) {
 			console.log(path.relative(REPO_ROOT, await ensureShell()));
 		} else {
 			const target = await buildShell();
-			console.log(`built ${path.relative(REPO_ROOT, target)} (${binaryName()} ${fs.statSync(path.join(target, binaryName())).size} bytes)`);
+			console.log(
+				`built ${path.relative(REPO_ROOT, target)} (${binaryName()} ${fs.statSync(path.join(target, binaryName())).size} bytes)`,
+			);
 		}
 	} catch (error) {
 		if (!(error instanceof BuildError)) throw error;

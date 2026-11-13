@@ -315,7 +315,7 @@ fn configure(
                 .map_err(describe("setting the button label"))?;
         }
         // Folder pickers show no file types.
-        if !spec.filters.is_empty() && !(spec.open_directory && !save) {
+        if (save || !spec.open_directory) && !spec.filters.is_empty() {
             let specs: Vec<COMDLG_FILTERSPEC> = spec
                 .filters
                 .iter()

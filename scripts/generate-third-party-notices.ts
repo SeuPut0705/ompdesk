@@ -23,8 +23,8 @@ import { fileURLToPath } from "node:url";
 import aiMemorySource from "../native/memory/ompdesk.json" with { type: "json" };
 import cefPin from "../native/ompdesk/crates/shell/cef-pin.json" with { type: "json" };
 import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
-import nodePin from "./node-runtime-pin.json" with { type: "json" };
 import { committedCrateList } from "./gen-crate-notices";
+import nodePin from "./node-runtime-pin.json" with { type: "json" };
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = join(ROOT, "THIRD_PARTY_NOTICES.txt");

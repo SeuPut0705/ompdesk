@@ -7,8 +7,8 @@ import {
 	cefPlatform,
 	checkShell,
 	KEPT_LOCALES,
-	readPin,
 	RECORD_NAME,
+	readPin,
 	type ShellBuildRecord,
 	sourceSha256,
 	trimmedIndex,
@@ -54,7 +54,9 @@ describe("the CEF pin", () => {
 		const pin = readPin();
 		for (const key of ["windows64", "macosarm64", "macosx64"]) {
 			const entry = pin.platforms[key];
-			expect(entry.name).toMatch(new RegExp(`^cef_binary_${pin.cefVersion.replaceAll(".", "\\.")}\\+.*_${key}_minimal\\.tar\\.bz2$`));
+			expect(entry.name).toMatch(
+				new RegExp(`^cef_binary_${pin.cefVersion.replaceAll(".", "\\.")}\\+.*_${key}_minimal\\.tar\\.bz2$`),
+			);
 			expect(entry.sha256).toMatch(/^[0-9a-f]{64}$/);
 			expect(entry.sha1).toMatch(/^[0-9a-f]{40}$/);
 			expect(entry.size).toBeGreaterThan(1e8);
@@ -63,19 +65,42 @@ describe("the CEF pin", () => {
 
 	it("matches the cef crate the shell is locked to", () => {
 		const pin = readPin();
-		const lock = fs.readFileSync(path.join(path.dirname(path.dirname(__filename)), "native", "ompdesk", "crates", "shell", "Cargo.lock"), "utf8");
+		const lock = fs.readFileSync(
+			path.join(path.dirname(path.dirname(__filename)), "native", "ompdesk", "crates", "shell", "Cargo.lock"),
+			"utf8",
+		);
 		expect(lock).toContain(`name = "cef"\nversion = "${pin.crate}"`);
 	});
 
 	it("serves cef-dll-sys an index with the one entry, in the shape its client reads", () => {
 		const pin = readPin();
 		const index = trimmedIndex(pin, "windows64");
-		expect(Object.keys(index).sort()).toEqual(["linux64", "linuxarm", "linuxarm64", "macosarm64", "macosx64", "windows32", "windows64", "windowsarm64"]);
+		expect(Object.keys(index).sort()).toEqual([
+			"linux64",
+			"linuxarm",
+			"linuxarm64",
+			"macosarm64",
+			"macosx64",
+			"windows32",
+			"windows64",
+			"windowsarm64",
+		]);
 		expect(index.macosarm64.versions).toEqual([]);
-		const [version] = index.windows64.versions as Array<{ channel: string; cef_version: string; files: Array<{ type: string; name: string; sha1: string }> }>;
+		const [version] = index.windows64.versions as Array<{
+			channel: string;
+			cef_version: string;
+			files: Array<{ type: string; name: string; sha1: string }>;
+		}>;
 		expect(version.channel).toBe("stable");
 		expect(version.cef_version.startsWith(`${pin.cefVersion}+`)).toBe(true);
-		expect(version.files).toEqual([{ type: "minimal", name: pin.platforms.windows64.name, sha1: pin.platforms.windows64.sha1, size: pin.platforms.windows64.size }]);
+		expect(version.files).toEqual([
+			{
+				type: "minimal",
+				name: pin.platforms.windows64.name,
+				sha1: pin.platforms.windows64.sha1,
+				size: pin.platforms.windows64.size,
+			},
+		]);
 	});
 
 	it("maps this machine to an index key, and refuses a machine it has no CEF build for", () => {
@@ -105,9 +130,13 @@ describe("the staged shell", () => {
 	});
 
 	it("fails when the record is for other sources or another machine, or names no binary", () => {
-		expect(() => checkShell(stage({ "ompdesk-shell": "b" }, { sourceSha256: "1".repeat(64) }))).toThrow(/other sources/);
-		expect(() => checkShell(stage({ "ompdesk-shell": "b" }, { platform: "plan9" }))).toThrow(/build record is for plan9/);
-		expect(() => checkShell(stage({ "x": "b" }))).toThrow(/binary ompdesk-shell is not among/);
+		expect(() => checkShell(stage({ "ompdesk-shell": "b" }, { sourceSha256: "1".repeat(64) }))).toThrow(
+			/other sources/,
+		);
+		expect(() => checkShell(stage({ "ompdesk-shell": "b" }, { platform: "plan9" }))).toThrow(
+			/build record is for plan9/,
+		);
+		expect(() => checkShell(stage({ x: "b" }))).toThrow(/binary ompdesk-shell is not among/);
 		expect(() => checkShell(fs.mkdtempSync(path.join(os.tmpdir(), "shell-empty-")))).toThrow(/is missing/);
 	});
 
