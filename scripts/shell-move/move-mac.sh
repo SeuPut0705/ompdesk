@@ -51,12 +51,44 @@ OLD_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' rel
 evidence "the app that updates: ${MOVE_FROM_APP:-the released v0.127.0} ($OLD_VERSION)"
 bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
-# `open -n` (what the swap script relaunches with) hands the app to LaunchServices, whose Gatekeeper check refuses an app signed by a
-# certificate nobody trusts (`spctl: rejected`), silently on a runner: the throwaway certificate's apps are allowed by rule
-# (the rule is the app's designated requirement, so the bundles the swap puts in place match it too). A person's Mac has
-# the app approved once, the same way.
-sudo spctl --add --label omp-move "$W/rel.app" "$REPO/dist/mac-arm64/OMPdesk.app" 2>&1 | head -3; sudo spctl --enable --label omp-move 2>&1 | head -2
-evidence "gatekeeper: released app: $(spctl --assess --type execute -vv "$W/rel.app" 2>&1 | tr '\n' ' '); shell bundle: $(spctl --assess --type execute -vv "$REPO/dist/mac-arm64/OMPdesk.app" 2>&1 | tr '\n' ' ')"
+# `open -n` is how the swap script relaunches (v0.127.0's SWAP_SCRIPT: `open -n "$dest" --args …`, no direct exec). On the runner the
+# shell bundle was not started by it (spctl said `rejected`), so before any scenario the same `open -n` is run, with no rule of any
+# kind, on the released Electron re-signed the same way and on the shell bundle, and what the system says is printed: if Electron
+# opens and the shell does not, the difference is ours (the check fails); only if neither opens is it the hosted runner's policy,
+# and only then the remaining scenarios run under an spctl rule (which a person's Mac does not need).
+SPCTL_RULE=0
+open_probe() {
+  local app=$1 label=$2 ud=$W/probe-$label
+  mkdir -p "$ud"
+  evidence "probe $label: spctl --status: $(spctl --status 2>&1 | tr '\n' ' ')"
+  evidence "probe $label: quarantine on the bundle: $(xattr -l "$app" 2>&1 | tr '\n' '|') ; on nested executables: $(find "$app" -type f -perm +111 -exec xattr -l {} + 2>/dev/null | grep -c quarantine) with the attribute"
+  evidence "probe $label: spctl --assess: $(spctl --assess -vv --type execute "$app" 2>&1 | tr '\n' ' ')"
+  local t0; t0=$(date '+%Y-%m-%d %H:%M:%S')
+  launchctl setenv OMP_GUI_TEST_USER_DATA_DIR "$ud"
+  open -n "$app" --args --user-data-dir="$ud" --remote-debugging-port=$PORT --host-resolver-rules="MAP api.github.com 127.0.0.1:1" >"$W/probe-$label.out" 2>&1; local rc=$?
+  sleep 25
+  local running; running=$(ps -axo command | grep "$app/Contents/MacOS/" | grep -v grep | head -1 | cut -c1-140)
+  evidence "probe $label: open -n exit $rc, output: $(head -c 300 "$W/probe-$label.out" | tr '\n' '|'); running afterwards: ${running:-nothing}"
+  log show --start "$t0" --predicate 'process == "syspolicyd" OR subsystem == "com.apple.launchservices"' --style compact 2>/dev/null | grep -i 'ompdesk\|reject\|denied\|not allowed\|assess' | tail -12 | cut -c1-260 | sed "s/^/EVIDENCE: probe $label log: /"
+  kill_apps "$app/Contents/MacOS"; launchctl unsetenv OMP_GUI_TEST_USER_DATA_DIR
+  [ -n "$running" ]
+}
+mkdir -p "$W/probe-apps"
+use_keychain probe
+ditto rel.app "$W/probe-apps/electron.app"; ditto "$REPO/dist/mac-arm64/OMPdesk.app" "$W/probe-apps/shell.app"
+open_probe "$W/probe-apps/electron.app" electron; ELECTRON_OPENS=$?
+open_probe "$W/probe-apps/shell.app" shell; SHELL_OPENS=$?
+restore
+if [ $SHELL_OPENS != 0 ] && [ $ELECTRON_OPENS = 0 ]; then
+  check 1 "the shell bundle opens through \`open -n\` as the re-signed Electron does (Electron opened, the shell did not: ours)"
+elif [ $SHELL_OPENS != 0 ]; then
+  evidence "neither the re-signed Electron nor the shell bundle opens through \`open -n\` on this runner: the hosted runner's Gatekeeper policy, not the bundle; the scenarios run under an spctl rule for the throwaway certificate"
+  sudo spctl --add --label omp-move "$W/rel.app" "$REPO/dist/mac-arm64/OMPdesk.app" 2>&1 | head -3; sudo spctl --enable --label omp-move 2>&1 | head -2
+  SPCTL_RULE=1
+else
+  check 0 "the shell bundle opens through \`open -n\` without any spctl rule (as the re-signed Electron does)"
+fi
+evidence "the released SWAP_SCRIPT relaunches with open -n: $(grep -a -o 'open -n "$dest"[^;]*' rel.app/Contents/Resources/app.asar 2>/dev/null | head -1 | cut -c1-80)"
 # The last Electron release the launcher puts back: the re-signed v0.127.0 itself (release 1 stands in when it exists).
 hdiutil create -quiet -volname OMPdesk -srcfolder rel.app -ov -format UDZO "$W/rollback.dmg"; check $? "the stand-in last Electron release (rel.app as a DMG)"
 start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag "v$OLD_VERSION" --http-port $HTTPPORT
@@ -168,6 +200,8 @@ scenario() {
     grep -q '"source":"stored"' "$W/$name-read.json" && grep -q '"droppedReason":null' "$W/$name-read.json"; check $? "S1: the seeded token was decrypted (source stored, none dropped)"
     wait_for "has_line $UD 'swap result'" 60; update_lines "$UD" | grep -q '^swap result installed'; check $? "S1: swap result outcome installed"
     codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S1: the installed app verifies"
+    [ "$(xattr -lr "$APPS/OMPdesk.app" 2>/dev/null | grep -c com.apple.quarantine)" = 0 ]; check $? "S1: the moved bundle and everything in it carries no com.apple.quarantine (the swap's xattr -dr covers it)"
+    evidence "S1 spctl: $(spctl --assess -vv --type execute "$APPS/OMPdesk.app" 2>&1 | tr '\n' ' ') (spctl rule in use: $SPCTL_RULE)"
     if [ -n "${MOVE_FROM_APP:-}" ]; then
       wait_for "grep -q '^started' $UD/updates/swap.log" 180; check $? "S1: the start-checked script saw app-started.json for the new version (swap.log started)"
       evidence "S1 app-started.json: $(cat "$UD/app-started.json" 2>&1 | cut -c1-120)"
