@@ -13,6 +13,7 @@ import { formatSpan, formatSpanCompact } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { usageLimitLabel } from "../../lib/usage-labels";
 import { accountGauges, accountWindows, gaugeColumn, shortWindowLabel } from "../../lib/usage-windows";
+import { Gauge } from "./Gauge";
 
 /** Columns drawn on one line; a provider with more wraps the rest under them. */
 export const MAX_USAGE_COLUMNS = 4;
@@ -118,42 +119,30 @@ export function UsageGauges({
 				}
 				const { limit, fraction } = slot;
 				const percent = Math.round(Math.min(1, fraction) * 100);
+				const resetLabel = limit.resetsAt !== undefined ? resetText(limit.resetsAt, t, now) : null;
 				return (
-					<span
-						className="omp-usage-gauge"
-						data-state={fraction >= 1 ? "limit" : fraction >= NEAR_FRACTION ? "near" : "ok"}
+					<Gauge
+						// The name read with its value ("5시간 64%"), not the glyphs "5H" and "64%".
+						ariaLabel={`${usageLimitLabel(limit, t)} ${percent}%`}
+						caption={
+							!resets
+								? undefined
+								: limit.resetsAt === undefined
+									? ""
+									: limit.resetsAt > now
+										? `↻ ${formatSpanCompact(limit.resetsAt - now)}`
+										: "↻"
+						}
+						captionLabel={resetLabel ?? undefined}
 						data-window={gaugeColumn(limit)}
+						fraction={fraction}
 						key={limit.id}
-					>
-						<span
-							// The name read with its value ("5시간 64%"), not the glyphs "5H" and "64%".
-							aria-label={`${usageLimitLabel(limit, t)} ${percent}%`}
-							aria-valuemax={100}
-							aria-valuemin={0}
-							aria-valuenow={percent}
-							aria-valuetext={`${percent}%`}
-							className="omp-usage-gauge-bar"
-							role="progressbar"
-						>
-							<span className="omp-usage-gauge-fill" style={{ transform: `scaleX(${percent / 100})` }} />
-							<span aria-hidden className="omp-usage-gauge-text">
-								<span data-usage-label>{shortWindowLabel(limit)}</span>
-								<span data-usage-percent>{percent}%</span>
-							</span>
-						</span>
-						{resets && limit.resetsAt !== undefined ? (
-							<span
-								aria-label={resetText(limit.resetsAt, t, now) ?? undefined}
-								className="omp-usage-gauge-reset"
-								role="img"
-								title={resetText(limit.resetsAt, t, now) ?? undefined}
-							>
-								{limit.resetsAt > now ? `↻ ${formatSpanCompact(limit.resetsAt - now)}` : "↻"}
-							</span>
-						) : resets ? (
-							<span className="omp-usage-gauge-reset" />
-						) : null}
-					</span>
+						label={shortWindowLabel(limit)}
+						labelAttrs={{ "data-usage-label": true }}
+						state={fraction >= 1 ? "limit" : fraction >= NEAR_FRACTION ? "near" : "ok"}
+						valueAttrs={{ "data-usage-percent": true }}
+						valueText={`${percent}%`}
+					/>
 				);
 			})}
 		</span>

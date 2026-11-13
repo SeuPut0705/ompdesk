@@ -152,8 +152,8 @@ import {
 	readCheckoutClaims,
 	readCheckoutPlace,
 } from "./checkout-peers";
-import { publishWithGh } from "./checks/admission-key";
-import { appChecksAdmission, appChecksHub } from "./checks/client";
+import { type AdmissionKey, publishWithGh } from "./checks/admission-key";
+import type { CoreChecksHub } from "./checks/client";
 import { createControlBackend } from "./control-socket/backend";
 import { startControlSocket } from "./control-socket/index";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -245,6 +245,8 @@ function agentCaller(win: ClientWindow): IpcCaller {
 export interface IpcDeps {
 	/** What paired web pages report about unsaved Files edits (WebHost forgets a page's report when it drops). */
 	fileEditReports: FileEditReports;
+	/** The app's one checks hub (`ompdesk_checks`) and this computer's admission key, both made in index.ts. */
+	checks: { hub: CoreChecksHub; admission(): Promise<AdmissionKey | null> };
 	/** Where every handler here registers (index.ts's one table). */
 	ipc: IpcRegistry;
 	/** Accessibility and Screen Recording for computer use on this Mac (null answers elsewhere). */
@@ -1423,7 +1425,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
 		sendOutboxFile: path.join(app.getPath("userData"), "send-outbox.json"),
 		attachmentsDir: path.join(app.getPath("userData"), "agent-attachments"),
-		checks: appChecksHub(),
+		checks: deps.checks.hub,
 		uploads: deps.uploads,
 		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
 		sessionFatesFile: path.join(app.getPath("userData"), "agent-session-fates.json"),
@@ -2778,7 +2780,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipc.handle(IPC_COMMANDS.REMOTE_BLOCK_PEER, (_caller, deviceId: unknown) => remoteDevices.blockPeer(deviceId));
 	ipc.handle(CHECKS_PUBLISH_ADMISSION_KEY, async (_caller, repo: unknown) =>
-		publishWithGh(repo, await appChecksAdmission()),
+		publishWithGh(repo, await deps.checks.admission()),
 	);
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_HOST, (_caller, payload: unknown) => remoteDevices.renameHost(payload));

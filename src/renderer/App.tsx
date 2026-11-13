@@ -75,6 +75,7 @@ import {
 import { startVoiceAutoSpeak } from "./lib/voice";
 import { focusWorkBoard } from "./lib/work-board-focus";
 import { selectFocusedTabProject } from "./lib/workspace-dirs";
+import { subscribeChecks } from "./stores/checks";
 import { hydrateDesktopSlot } from "./stores/desktop-slot";
 import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
@@ -716,6 +717,8 @@ export function App() {
 	useEffect(() => subscribeBridgeHealth(), []);
 	// The disk is full: main's one notice as a toast, here and on the phone page, until the files are saved.
 	useEffect(() => subscribeDiskFull(), []);
+	// Check control's frame: the sidebar block, the Checks page and the work board's row read one copy.
+	useEffect(() => subscribeChecks(), []);
 	// "omp updated to X" after omp updated itself (main sends it to one window).
 	useEffect(() => subscribeOmpUpdated(), []);
 

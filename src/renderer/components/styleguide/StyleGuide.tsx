@@ -61,6 +61,7 @@ import {
 	ErrorDetail,
 	FieldLabel,
 	FieldShell,
+	Gauge,
 	IconButton,
 	InlineNotice,
 	Input,
@@ -1646,6 +1647,22 @@ export default function StyleGuide() {
 								<CostAmount className="tabular-nums" kinds={{ charged: 0.09, estimate: 0.18, unknown: 0 }} />
 							</div>
 							<UsageGauges limits={SAMPLE_LIMITS} resets />
+						</Block>
+						<Block className="space-y-2 text-sc-sm" label="Gauge">
+							<Gauge
+								ariaLabel="GitHub macOS: 2 of 5 slots in use"
+								fraction={0.4}
+								label="GitHub macOS"
+								valueText="2/5"
+							/>
+							<Gauge
+								ariaLabel="MacBook: 3 of 3 slots in use"
+								caption="disk 212 GB free"
+								fraction={1}
+								label="MacBook"
+								state="near"
+								valueText="3/3"
+							/>
 						</Block>
 					</div>
 					<div className="grid grid-cols-3 gap-6">

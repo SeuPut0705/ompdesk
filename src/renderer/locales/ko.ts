@@ -1,3 +1,4 @@
+import { checksKo } from "./checks";
 import { memoryKo } from "./memory";
 export const ko: Record<string, string> = {
 	"mcp.rea.title": "REA — 리버스 엔지니어링 (내장)",
@@ -7052,4 +7053,5 @@ export const ko: Record<string, string> = {
 		"세션 {count}개가 실행 중이에요. 다시 시작하면 멈추고, OMPdesk가 돌아오면 각각 저절로 이어서 해요.",
 	"hostUi.update.confirm": "다시 시작하고 업데이트",
 	...memoryKo,
+	...checksKo,
 };

@@ -1,0 +1,83 @@
+/* Checks page (components/checks/): loaded with the page's chunk. The page lays itself out by its own width, never
+   the window's, so a paired computer's narrow window and the phone's page get the one-column form by the same rule. */
+
+.omp-checks {
+	container: omp-checks / inline-size;
+}
+
+/* Main column beside a narrower side column; one column under 60rem of page. */
+.omp-checks-split {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--sc-space-4);
+	align-items: start;
+}
+
+@container omp-checks (min-width: 60rem) {
+	.omp-checks-split {
+		grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+	}
+}
+
+/* Capacity: the pools share the row. On a narrow page (a phone) two stand side by side and each says what it is by
+   its glyph alone. */
+.omp-checks-pools {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+	gap: var(--sc-space-3);
+}
+
+@container omp-checks (max-width: 30rem) {
+	.omp-checks-pools {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--sc-space-2);
+	}
+
+	.omp-checks-pool-kind {
+		display: none;
+	}
+}
+
+/* A release's gates: two columns once each has room for its name beside where it runs (the card sits in the main
+   column, so this counts the page's width). */
+.omp-checks-gates {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	column-gap: var(--sc-space-6);
+}
+
+@container omp-checks (min-width: 84rem) {
+	.omp-checks-gates {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+/* A run: its state mark, what runs, who started it, its state and age. Who started it drops under what runs where
+   the page is narrow, so neither is cut to a few letters. */
+.omp-checks-runs > li + li {
+	border-top: var(--sc-hairline) solid var(--sc-border-subtle);
+}
+
+.omp-checks-run {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr) auto;
+	gap: var(--sc-space-1) var(--sc-space-3);
+	align-items: start;
+	padding: var(--sc-space-2) var(--sc-space-4);
+}
+
+/* The run the work board's row opened the page on. */
+.omp-checks-run[aria-current="true"] {
+	background: var(--sc-selected);
+}
+
+@container omp-checks (max-width: 44rem) {
+	.omp-checks-run {
+		grid-template-columns: auto minmax(0, 1fr) auto;
+	}
+
+	.omp-checks-run-origin {
+		grid-row: 2;
+		grid-column: 2 / -1;
+	}
+}

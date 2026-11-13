@@ -40,6 +40,7 @@ export { DisclosureButton, type DisclosureButtonProps, type DisclosureChevron } 
 export { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { ErrorDetail } from "./ErrorDetail";
+export { Gauge, type GaugeProps, type GaugeState } from "./Gauge";
 export { IconButton, type IconButtonProps, type IconButtonSize, type IconButtonTone } from "./IconButton";
 export { InlineNotice, type InlineNoticeProps, type InlineNoticeTone } from "./InlineNotice";
 export {

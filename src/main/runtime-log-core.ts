@@ -41,6 +41,7 @@ const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
 	"session-delete": true,
 	"turn-stop": true,
 	"remote-link": true,
+	checks: true,
 	"gpu-fallback": true,
 	"launch-guard": true,
 	"user-data-migration": true,

@@ -219,26 +219,3 @@ export class CoreChecksHub implements FakeChecksHub {
 		}
 	}
 }
-
-let appHub: CoreChecksHub | null = null;
-let appAdmission: (() => Promise<AdmissionKey | null>) | undefined;
-
-/** Where the app hub reads this computer's admission key (`index.ts`, once the remote identity is known). */
-export function setAppChecksAdmission(admission: () => Promise<AdmissionKey | null>): void {
-	appAdmission = admission;
-}
-
-/** This computer's admission key, as the app hub is handed it (null before `index.ts` set the source). */
-export function appChecksAdmission(): Promise<AdmissionKey | null> {
-	return appAdmission?.() ?? Promise.resolve(null);
-}
-
-/**
- * The app's one checks hub: the agent tool, the page's relay and what main tells the hub all go through this one, so
- * every session and screen reads the same pools and runs. Opened in the core on its first use, with this computer's
- * admission key.
- */
-export function appChecksHub(): CoreChecksHub {
-	appHub ??= new CoreChecksHub({ admission: appChecksAdmission });
-	return appHub;
-}

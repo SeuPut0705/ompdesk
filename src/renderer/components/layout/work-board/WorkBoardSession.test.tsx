@@ -8,10 +8,13 @@ import {
 	type CheckoutPeers,
 } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { AgentReviewItem } from "../../../../shared/agent-control";
+import { sampleSnapshot } from "../../../../shared/checks-fixture";
+import { sampleNames } from "../../../../shared/checks-frame-fixture";
 import type { AgentMessage, RpcAsyncJobItem, RpcJobRow } from "../../../../shared/rpc-types";
 import type { FamilyEdits, FamilyMemberEdits, RpcTurnEdits } from "../../../../shared/turn-edits";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
+import { useChecksStore } from "../../../stores/checks";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
@@ -176,6 +179,8 @@ afterEach(async () => {
 	turn = null;
 	useMessagesStore.getState().reset();
 	useWorkBoardStore.getState().reset();
+	useChecksStore.getState().reset();
+	useUiStore.getState().closeDestination();
 	useTodoStore.getState().reset();
 	useToolsStore.getState().reset();
 	useSessionStore.getState().reset();
@@ -610,6 +615,36 @@ describe("Last check row", () => {
 		);
 		expect(row("check")?.getAttribute("data-state")).toBe("passed");
 		expect(row("check")?.textContent).toContain("12 tests passed");
+	});
+});
+
+describe("Hub check row", () => {
+	const frame = () => ({ snapshot: sampleSnapshot(Date.now()), names: sampleNames(), hub: "live" as const });
+
+	it("names the run this session waits on by its lane, says the session is woken, and opens Checks on it", async () => {
+		useSessionStore.setState({ sessionId: "0a1b2c3d" });
+		useChecksStore.getState().apply(frame());
+		await mount();
+		const hub = row("hub-check");
+		expect(hub?.textContent).toContain("Check · release gate");
+		expect(hub?.textContent).toContain("21m");
+		expect(hub?.getAttribute("data-state")).toBe("running");
+		expect(hub?.getAttribute("title")).toContain("woken when the result arrives");
+		await press(hub);
+		expect(useUiStore.getState()).toMatchObject({ destination: "checks", checksTab: "now", checksRun: "run-41" });
+	});
+
+	it("draws nothing for a session that waits on no run, or once its run ended", async () => {
+		useSessionStore.setState({ sessionId: "someone-else" });
+		useChecksStore.getState().apply(frame());
+		await mount();
+		expect(row("hub-check")).toBeNull();
+		await act(async () => useSessionStore.setState({ sessionId: "0a1b2c3d" }));
+		expect(row("hub-check")).not.toBeNull();
+		const ended = frame();
+		ended.snapshot.runs = ended.snapshot.runs.map(run => ({ ...run, verdict: "green" as const }));
+		await act(async () => useChecksStore.getState().apply(ended));
+		expect(row("hub-check")).toBeNull();
 	});
 });
 

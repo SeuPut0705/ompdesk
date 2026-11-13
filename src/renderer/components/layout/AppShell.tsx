@@ -46,6 +46,7 @@ import { ViewSheetHost } from "./ViewSheetHost";
 import { WhatsNewCard } from "./WhatsNewCard";
 
 const AgentsPage = lazyChunk(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
+const ChecksPage = lazyChunk(() => import("../checks/ChecksPage").then(m => ({ default: m.ChecksPage })));
 const InsightsPage = lazyChunk(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
 const SettingsPage = lazyChunk(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 /**
@@ -56,6 +57,7 @@ const SettingsPage = lazyChunk(() => import("../settings/SettingsPage").then(m =
 const loadedPages: Partial<Record<PageDestination, ComponentType>> = {};
 const PAGE_LOADERS: Record<PageDestination, () => Promise<ComponentType>> = {
 	agents: () => import("../agents/AgentsPage").then(m => m.AgentsPage),
+	checks: () => import("../checks/ChecksPage").then(m => m.ChecksPage),
 	insights: () => import("../insights/InsightsPage").then(m => m.InsightsPage),
 	settings: () => import("../settings/SettingsPage").then(m => m.SettingsPage),
 };
@@ -76,8 +78,9 @@ function preloadForIntent(target: EventTarget | null): void {
 	const destination = element
 		?.closest("[data-sidebar-destinations] [data-destination]")
 		?.getAttribute("data-destination");
-	if (destination === "agents" || destination === "insights" || destination === "settings") {
-		if (!loadedPages[destination]) void preloadPage(destination);
+	if (destination && destination in PAGE_LOADERS) {
+		const page = destination as PageDestination;
+		if (!loadedPages[page]) void preloadPage(page);
 		return;
 	}
 	if (element?.closest('[data-tour="panel"], [data-rail-pin]')) void preloadPanelViews();
@@ -89,23 +92,27 @@ const IDLE_PRELOAD_TIMEOUT_MS = 3000;
 
 const PAGE_LABEL_KEY: Record<PageDestination, string> = {
 	agents: "destination.agents",
+	checks: "destination.checks",
 	insights: "destination.insights",
 	settings: "destination.settings",
 };
 
+const LAZY_PAGES: Record<PageDestination, ComponentType> = {
+	agents: AgentsPage,
+	insights: InsightsPage,
+	checks: ChecksPage,
+	settings: SettingsPage,
+};
+
 /**
- * Settings, from the preloaded module when there is one. Through lazy() the
+ * A page, from the preloaded module when there is one. Through lazy() the
  * first open suspends even with the chunk already loaded, and React holds the
  * revealed page back behind the fallback for its Suspense throttle (~300 ms).
  * Picked once per mount (keyed by the destination: each page is its own mount), so a preload landing while the page is open never
  * remounts it.
  */
 function DestinationPage({ destination }: { destination: PageDestination }): ReactNode {
-	const [Page] = useState<ComponentType>(
-		() =>
-			loadedPages[destination] ??
-			(destination === "agents" ? AgentsPage : destination === "insights" ? InsightsPage : SettingsPage),
-	);
+	const [Page] = useState<ComponentType>(() => loadedPages[destination] ?? LAZY_PAGES[destination]);
 	return (
 		<div className="omp-page-in flex min-h-0 flex-1 flex-col">
 			<Page />
@@ -362,7 +369,7 @@ export function AppShell() {
 					// dynamic import that failed in an outage also stays failed for the page's life. A preload that lands after
 					// an unmount only fills the module cache.
 					void (webRuntime()?.linkAnswered() ?? Promise.resolve()).then(() => {
-						for (const page of ["settings", "agents", "insights"] as const) void preloadPage(page);
+						for (const page of ["settings", "agents", "insights", "checks"] as const) void preloadPage(page);
 						void preloadPanelViews().catch(() => {});
 					});
 				}, IDLE_PRELOAD_TIMEOUT_MS);

@@ -1,3 +1,4 @@
+import { checksEn } from "./checks";
 import { memoryEn } from "./memory";
 export const en: Record<string, string> = {
 	"mcp.rea.title": "REA — reverse engineering (built in)",
@@ -7072,4 +7073,5 @@ export const en: Record<string, string> = {
 		"Sessions running: {count}. Restarting stops them; each continues by itself when OMPdesk is back.",
 	"hostUi.update.confirm": "Restart and update",
 	...memoryEn,
+	...checksEn,
 };

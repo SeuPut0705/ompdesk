@@ -63,6 +63,7 @@ import {
 import type { Schedule } from "../../shared/schedules";
 import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
 import type { FamilyEdits } from "../../shared/turn-edits";
+import { savedIdOfPath } from "../checks/facts";
 import { deletedSessions } from "../deleted-sessions";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
@@ -134,7 +135,7 @@ function tombstones(): Tombstones {
 	const byId: Tombstones["byId"] = {};
 	for (const entry of deletedSessions().list()) {
 		byPath.push(entry);
-		const id = /_([^_/\\]+)\.jsonl$/.exec(entry.path)?.[1];
+		const id = savedIdOfPath(entry.path);
 		if (id && byId[id] === undefined) byId[id] = entry.at;
 	}
 	return { byPath, byId };
