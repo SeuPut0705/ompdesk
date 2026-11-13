@@ -13,9 +13,9 @@ The hub's admission never runs more jobs than a pool holds (GitHub macOS 5, the 
 
 | Check id | Tool | Covers | Model |
 |---|---|---|---|
-| `checks-admission` | TLC 1.8.0 | design model (W3); `native/ompdesk/crates/core/src/checks/admission.rs` once it lands | `formal/checks-admission/tla/ChecksAdmission.tla`; action table `formal/checks-admission/CORRESPONDENCE.md` |
+| `checks-admission` | TLC 1.8.0 | `native/ompdesk/crates/core/src/checks/admission.rs` (the actions) and `checks/hub.rs` (the loop and start that call them: `Core::submit`, `Core::pump`, `Core::dispatch`, `Core::settle`, `Core::pause`); each action's `@code` tags name the lines | `formal/checks-admission/tla/ChecksAdmission.tla`; action table `formal/checks-admission/CORRESPONDENCE.md` |
 
-Sync commit: `syncCommit` of `checks-admission` in `formal/manifest.json` (the manifest wins). It is null until the code lands and the `@code` tags are added.
+Sync commit: `syncCommit` of `checks-admission` in `formal/manifest.json` (the manifest wins). Stamped by `gh workflow run formal.yml --ref <branch> -f only=checks-admission -f stamp=true` on the final tree; until then null.
 
 ## Bounds and assumptions
 

@@ -195,7 +195,10 @@
 			"spec": "ChecksAdmission.tla",
 			"matrix": "matrix.json",
 			"mutations": "mutations.json",
-			"covers": [],
+			"covers": [
+				"native/ompdesk/crates/core/src/checks/admission.rs",
+				"native/ompdesk/crates/core/src/checks/hub.rs"
+			],
 			"syncCommit": null,
 			"verifySkill": ".omp/skills/checks-admission-verify/SKILL.md"
 		}

@@ -164,6 +164,8 @@ ReuseSources(j) == {g \in Jobs : SameDigestAs(g, j) /\ state[g] = "green"}
 \* `start`: one step of the hub, after the caller's input digest is known.
 \* Refused while paused; reused from a green run of the same digest; else held, superseding the older runs of its key.
 \* A superseded entry that only waited is gone at once; one that holds a place keeps it until GitHub shows it ended.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:173-218 Admission::start: refuse, reuse or hold, and supersede, in one step under the lock
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:869-1104 Core::submit: policy fixes lane, pool, key and digest first (A5), then admission.start; the superseded runs' GitHub cancel follows
 Start(j) ==
     /\ j \in Governed
     /\ state[j] = "none"
@@ -179,6 +181,11 @@ Start(j) ==
 
 \* The pump: the first live entry in line that has a place takes it, and its dispatch is sent. One step: the place
 \* is in the ledger before the dispatch's `await`.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:279-293 Admission::admit: the first live entry in line with room, while not paused
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:259-275 room: the pool below its limit and the account with HeldAhead counted
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:250-256 holds: the model's Holds(r), derived on every pass
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:385-402 pump: admit under the lock, then await the dispatch with the lock released (A1, A2)
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:475-480 Core::pump: one pump pass after another until nothing more is admitted
 Admit(j) ==
     /\ state[j] = "held"
     /\ j \notin lapsed
@@ -191,6 +198,8 @@ Admit(j) ==
     /\ UNCHANGED <<seq, next, lapsed, paused>>
 
 \* The dispatch was accepted: the run exists.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:296-303 Admission::dispatched
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:484-532 Core::dispatch: the poller's claim, then GitHub's dispatch; its answer decides Dispatched or DispatchFails
 Dispatched(j) ==
     /\ state[j] = "dispatching"
     /\ state' = [state EXCEPT ![j] = "running"]
@@ -198,12 +207,15 @@ Dispatched(j) ==
 
 \* The dispatch failed, or its answer never came: the entry ends and its place goes back. It is never queued again,
 \* because a dispatch whose answer was lost may have started the run.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:307-314 Admission::dispatch_failed: never put back in the queue
 DispatchFails(j) ==
     /\ state[j] = "dispatching"
     /\ state' = [state EXCEPT ![j] = "failed"]
     /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* The poller shows the run ended (a job the hub governs: green or red; any other: only that it is gone).
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:317-329 Admission::run_ended: a green one may be reused on its digest
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:435-472 Core::settle: the poller's snapshot frees ended runs' places, outside runs counted by set_pools
 RunEnds(j) ==
     /\ state[j] = "running"
     /\ \E verdict \in (IF j \in Outside THEN {"gone"} ELSE {"green", "red"}) :
@@ -211,6 +223,7 @@ RunEnds(j) ==
     /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* The poller shows a superseded run ended: only now is its place free.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:332-339 Admission::cancel_landed
 CancelLands(j) ==
     /\ state[j] = "cancelling"
     /\ state' = [state EXCEPT ![j] = "cancelled"]
@@ -218,6 +231,8 @@ CancelLands(j) ==
 
 \* The lease sweep, or a heartbeat that arrives after its lease lapsed: the entry leaves the queue and its owner is
 \* told `expired`.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:361-370 Admission::reap: the sweep
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:343-357 Admission::heartbeat: a lapsed lease is reaped, never renewed (the guard the Renew mutation removes)
 Reap(j) ==
     /\ j \in lapsed /\ state[j] = "held"
     /\ state' = [state EXCEPT ![j] = "expired"]
@@ -231,6 +246,8 @@ Renew(j) ==
     /\ UNCHANGED <<state, seq, next, paused, admits, at>>
 
 \* The owner's one control.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:373-375 Admission::pause
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:1147-1160 Core::pause: kept with write_kept, read again when the hub opens
 Pause ==
     /\ MayPause /\ ~paused
     /\ paused' = TRUE
