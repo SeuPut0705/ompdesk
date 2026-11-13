@@ -280,7 +280,6 @@ fn quote_arg(arg: &str, out: &mut String) {
 /// A process `spawn_detached` started, held by its handle so its exit code can still be read after it ended.
 #[cfg(windows)]
 pub struct Detached {
-    pub pid: u32,
     handle: *mut std::ffi::c_void,
 }
 
@@ -442,7 +441,6 @@ pub fn spawn_detached(
                 CloseHandle(info.thread);
             }
             return Ok(Detached {
-                pid: info.pid,
                 handle: info.process,
             });
         }
