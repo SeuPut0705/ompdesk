@@ -77,6 +77,8 @@ impl Devices {
         let (Some(node_id), Some(login)) = (field("nodeId"), field("login")) else {
             return Err("no_identity".into());
         };
+        // Main's answer, or a refusal: no answer, or one that is not a list and a verdict, is a gate that failed
+        // (`protocol`, as a gate that threw in main was), never an unset list or an unblocked node.
         let policy = super::super::ask(
             &self.events,
             "policy",
@@ -84,16 +86,16 @@ impl Devices {
         )
         .await
         .unwrap_or(Value::Null);
-        let listed: Vec<String> = policy
-            .get("allowedUsers")
-            .and_then(Value::as_array)
-            .map(|users| {
-                users
-                    .iter()
-                    .filter_map(|user| user.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let (Some(users), Some(blocked)) = (
+            policy.get("allowedUsers").and_then(Value::as_array),
+            policy.get("blocked").and_then(Value::as_bool),
+        ) else {
+            return Err("protocol".into());
+        };
+        let listed: Vec<String> = users
+            .iter()
+            .filter_map(|user| user.as_str().map(str::to_owned))
+            .collect();
         // Unset list: this computer's own account, as Mobile web reads it (its poll may not have stored it yet).
         let users = if listed.is_empty() {
             vec![
@@ -119,7 +121,7 @@ impl Devices {
         {
             return Err("not_allowed".into());
         }
-        if policy.get("blocked") == Some(&Value::Bool(true)) {
+        if blocked {
             return Err("blocked".into());
         }
         Ok(json!({

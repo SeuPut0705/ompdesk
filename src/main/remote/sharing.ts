@@ -115,11 +115,15 @@ function route(): void {
 		if (ask.op === "phase") return tailnet.phase().catch((): RemoteTailnetPhase => "not-running");
 		return tailnet.status();
 	});
-	onCoreAsk("policy", ask => {
-		const sharing = instances.get(ask.devices as number);
-		if (!sharing) return { allowedUsers: [], blocked: true };
-		return sharing.options.policy({ nodeId: String(ask.nodeId), login: String(ask.login) });
-	});
+	// No answer (an instance gone, a policy that threw) is refused at the gate (`protocol`), never read as an unset list.
+	onCoreAsk(
+		"policy",
+		ask => {
+			const sharing = instances.get(ask.devices as number);
+			return sharing ? sharing.options.policy({ nodeId: String(ask.nodeId), login: String(ask.login) }) : null;
+		},
+		null,
+	);
 	onCoreAsk(
 		"admit",
 		async ask => {

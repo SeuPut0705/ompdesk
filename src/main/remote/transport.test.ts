@@ -394,6 +394,20 @@ describe("first contact, gated by Tailscale", () => {
 		expect(rig.admit.asked).toEqual([]);
 	});
 
+	it("refuses every connection when Mobile web's list and blocks cannot be read, the host's own login too", async () => {
+		const rig = await startHost(await side(), 0, [LOOPBACK], undefined, {
+			policy: () => {
+				throw new Error("blocks unreadable");
+			},
+		});
+		// The device's node shares the host's login, which an unset list would let in.
+		rig.gate.next = () => visitor("nLAPTOP", LOGIN);
+		expect(await probeHost(`${LOOPBACK}:${rig.port}`)).toEqual({ ok: false, code: "protocol" });
+		expect((await rejection(connectedClient(rig))).code).toBe("protocol");
+		expect(await rig.peers.list()).toEqual([]);
+		expect(rig.admit.asked).toEqual([]);
+	});
+
 	it("asks about a new device only, and refuses it declined when the person says no", async () => {
 		const rig = await startHost();
 		rig.admit.answer = false;
