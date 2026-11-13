@@ -1,0 +1,78 @@
+{
+	"runs": [
+		{
+			"name": "two-goals-batches-of-two",
+			"config": "MC.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "one-goal-batch-of-three",
+			"config": "MC_three.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "one-goal-three-entries-batches-of-two",
+			"config": "MC_order.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "two-outside-pushes",
+			"config": "MC_moves.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "the-queue-drains",
+			"config": "MC_live.cfg",
+			"expect": "pass",
+			"deadlock": false,
+			"timeoutSec": 1800
+		},
+		{
+			"name": "batch-of-four",
+			"config": "MC_four.cfg",
+			"expect": "pass",
+			"deadlock": false,
+			"tier": "deep",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "a-batch-lands",
+			"config": "MC_sanity_NeverLands.cfg",
+			"expect": "invariant",
+			"property": "NeverLands",
+			"deadlock": false
+		},
+		{
+			"name": "a-culprit-fails",
+			"config": "MC_sanity_NeverFails.cfg",
+			"expect": "invariant",
+			"property": "NeverFails",
+			"deadlock": false
+		},
+		{
+			"name": "a-red-batch-is-bisected",
+			"config": "MC_sanity_NeverBisects.cfg",
+			"expect": "invariant",
+			"property": "NeverBisects",
+			"deadlock": false
+		},
+		{
+			"name": "a-green-prefix-lands-alone",
+			"config": "MC_sanity_NeverLandsPart.cfg",
+			"expect": "invariant",
+			"property": "NeverLandsPart",
+			"deadlock": false
+		},
+		{
+			"name": "the-base-moves-under-a-test",
+			"config": "MC_sanity_NeverTestsStale.cfg",
+			"expect": "invariant",
+			"property": "NeverTestsStale",
+			"deadlock": false
+		}
+	]
+}

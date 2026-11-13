@@ -11,7 +11,8 @@
 //! it): when the default branch moved on and merges cleanly, the merge commit is built without a checkout, the cycle's
 //! own check runs on exactly that commit in a temporary checkout (`land_check.rs`), and only that commit is pushed, as a
 //! fast-forward. A merge that conflicts or fails its check is reported, and the agent merges, checks and commits in its
-//! next cycle.
+//! next cycle. The git of a landing (fetch a tip, build a merge commit, push one sha) is `git/land.rs`, which the merge
+//! queue of check control uses too.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -23,6 +24,10 @@ use serde_json::{Value, json};
 use super::land_check::{self, Input as CheckInput, LandCheck};
 use super::steps::{Ended, Steps};
 use crate::fs::order::{is_js_space, js_trim};
+use crate::git::land::{
+    self, GIT_TIMEOUT_MS, Merge, PushFailure, brief, classify_push_failure, moved_on,
+    not_allowed_at_all,
+};
 use crate::git::run::Git;
 use crate::ports::Port;
 use crate::run::{Opts, Output};
@@ -30,8 +35,6 @@ use crate::server::Fault;
 
 pub type Fut<T> = std::pin::Pin<Box<dyn Future<Output = T> + Send>>;
 
-const PUSH_TIMEOUT_MS: u64 = 180_000;
-const GIT_TIMEOUT_MS: u64 = 120_000;
 /// The longest one drain runs: a land builds up to `LAND_ATTEMPTS` candidates, each checked for up to 30 min
 /// (`LAND_CHECK_TIMEOUT_MS`) after a worktree add and a setup hook, with git calls between. Every step has its own
 /// timeout, so this only ends a drain whose step never reported back; the queue is then free again.
@@ -40,95 +43,6 @@ pub const SHIP_DRAIN_MAX_MS: u64 = 3 * 60 * 60_000;
 const KEEP_FINISHED: usize = 20;
 /// Candidates a land builds when the default branch keeps moving (each checked); then the next cycle tries again.
 const LAND_ATTEMPTS: u32 = 3;
-
-const NETWORK_FAILURE: [&str; 10] = [
-    "could not resolve host",
-    "unable to access",
-    "connection refused",
-    "connection reset",
-    "connection timed out",
-    "timed out",
-    "network is unreachable",
-    "no route to host",
-    "does not appear to be a git repository",
-    "could not read from remote",
-];
-const REFUSED_FIRST: [&str; 7] = [
-    "rejected",
-    "denied",
-    "permission",
-    "authentication",
-    "could not read username",
-    "terminal prompts disabled",
-    "protected branch",
-];
-/// A refused push that is the default branch moving on, not a rule against pushing there.
-const MOVED_ON: [&str; 4] = [
-    "non-fast-forward",
-    "fetch first",
-    "stale info",
-    "(already exists)",
-];
-/// A refusal that is the account, not the branch: a pull request would be refused as well.
-const NOT_ALLOWED_AT_ALL: [&str; 4] = [
-    "could not read username",
-    "authentication failed",
-    "terminal prompts disabled",
-    "invalid credentials",
-];
-
-fn mentions(text: &str, words: &[&str]) -> bool {
-    let lowered = text.to_lowercase();
-    words.iter().any(|word| lowered.contains(word))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PushFailure {
-    Rejected,
-    Network,
-}
-
-/// A failed push's stderr: refused or authentication (stop at once) or the network (stop after repeats).
-pub fn classify_push_failure(stderr: &str) -> PushFailure {
-    if mentions(stderr, &REFUSED_FIRST) {
-        return PushFailure::Rejected;
-    }
-    if mentions(stderr, &NETWORK_FAILURE) {
-        PushFailure::Network
-    } else {
-        PushFailure::Rejected
-    }
-}
-
-pub fn failure_name(failure: PushFailure) -> &'static str {
-    match failure {
-        PushFailure::Rejected => "rejected",
-        PushFailure::Network => "network",
-    }
-}
-
-/// The last three non-blank lines of `text` on one line, at most 300 characters.
-pub fn brief(text: &str) -> String {
-    let lines: Vec<&str> = text
-        .split('\n')
-        .map(|entry| entry.trim_matches(is_js_space))
-        .filter(|entry| !entry.is_empty())
-        .collect();
-    let start = lines.len().saturating_sub(3);
-    let line = lines[start..].join(" · ");
-    let line = if line.is_empty() {
-        "failed".to_owned()
-    } else {
-        line
-    };
-    let units: Vec<u16> = line.encode_utf16().collect();
-    if units.len() > 300 {
-        format!("{}...", String::from_utf16_lossy(&units[..297]))
-    } else {
-        line
-    }
-}
 
 // ---- the queue --------------------------------------------------------------------------------------------------
 
@@ -282,6 +196,17 @@ enum Failed {
 impl From<Fault> for Failed {
     fn from(fault: Fault) -> Failed {
         Failed::Failure(fault.message, None)
+    }
+}
+
+impl From<land::Failure> for Failed {
+    fn from(failed: land::Failure) -> Failed {
+        match failed {
+            land::Failure::Git(fault) => fault.into(),
+            land::Failure::Remote(stderr) => {
+                Failed::Failure(brief(&stderr), Some(classify_push_failure(&stderr)))
+            }
+        }
     }
 }
 
@@ -787,7 +712,7 @@ impl ShipRunner {
         let pushed = self.push_sha(git, target, &sha, dest).await?;
         if pushed.code != 0 {
             // A push is never forced: a remote branch that moved on stops the run, and the reason says so.
-            let why = if mentions(&pushed.stderr, &MOVED_ON) {
+            let why = if moved_on(&pushed.stderr) {
                 format!(
                     "{remote}/{dest} has commits this run lacks (not a fast-forward); Autopilot never forces a push. {}",
                     brief(&pushed.stderr)
@@ -818,25 +743,12 @@ impl ShipRunner {
         dest: &str,
     ) -> Result<Output, Failed> {
         let (root, remote) = (&target.root, &target.remote);
-        let url = self.text(git, root, &["remote", "get-url", remote]).await?;
+        let url = land::push_url(git, root, remote).await?;
         self.hooks
             .journal(json!({"kind": "push", "refs": [format!("refs/remotes/{remote}/{dest}")], "sha": sha}))
             .await
             .map_err(failure)?;
-        let key = format!("remote.{remote}.pushurl");
-        let refspec = format!("{sha}:refs/heads/{dest}");
-        self.run(
-            git,
-            root,
-            &["push", remote, &refspec],
-            &[
-                ("GIT_CONFIG_COUNT", "1"),
-                ("GIT_CONFIG_KEY_0", &key),
-                ("GIT_CONFIG_VALUE_0", &url),
-            ],
-            PUSH_TIMEOUT_MS,
-        )
-        .await
+        Ok(land::push_sha(git, root, remote, &url, sha, dest).await?)
     }
 
     async fn track_upstream(&self, git: &Git, target: &Target, dest: &str) -> Result<(), Failed> {
@@ -1014,7 +926,7 @@ impl ShipRunner {
                     true,
                 ));
             }
-            if mentions(&pushed.stderr, &MOVED_ON) {
+            if moved_on(&pushed.stderr) {
                 // The default branch moved between the fetch and the push: measure it again.
                 if attempt < LAND_ATTEMPTS {
                     continue;
@@ -1022,7 +934,7 @@ impl ShipRunner {
                 return Err(self.kept_moving(target, id, dest));
             }
             let kind = classify_push_failure(&pushed.stderr);
-            if kind == PushFailure::Network || mentions(&pushed.stderr, &NOT_ALLOWED_AT_ALL) {
+            if kind == PushFailure::Network || not_allowed_at_all(&pushed.stderr) {
                 return Err(Failed::Failure(brief(&pushed.stderr), Some(kind)));
             }
             // The remote's own words say why (a branch rule, a hook); git's trailer only says that it refused.
@@ -1062,33 +974,7 @@ impl ShipRunner {
         target: &Target,
         dest: &str,
     ) -> Result<Option<String>, Failed> {
-        let (root, remote) = (&target.root, &target.remote);
-        let tracking = format!("refs/remotes/{remote}/{dest}");
-        let refspec = format!("+refs/heads/{dest}:{tracking}");
-        let fetched = self
-            .run(
-                git,
-                root,
-                &["fetch", "--no-tags", remote, &refspec],
-                &[],
-                PUSH_TIMEOUT_MS,
-            )
-            .await?;
-        if fetched.code != 0
-            && !fetched
-                .stderr
-                .to_lowercase()
-                .contains("couldn't find remote ref")
-        {
-            return Err(Failed::Failure(
-                brief(&fetched.stderr),
-                Some(classify_push_failure(&fetched.stderr)),
-            ));
-        }
-        let tip = self
-            .plain(git, root, &["rev-parse", "--verify", "-q", &tracking])
-            .await?;
-        Ok((tip.code == 0).then(|| js_trim(&tip.text()).to_owned()))
+        Ok(land::fetch_tip(git, &target.root, &target.remote, dest).await?)
     }
 
     /// The merge of `tip` into `sha` as a commit object (`sha` first parent), built without any checkout or ref.
@@ -1100,32 +986,15 @@ impl ShipRunner {
         tip: &str,
         name: &str,
     ) -> Result<String, Failed> {
-        let tree = self
-            .text(
-                git,
-                root,
-                &["merge-tree", "--write-tree", "--no-messages", sha, tip],
-            )
-            .await?;
+        let tree = match land::merge_tree(git, root, sha, tip).await? {
+            Merge::Clean { tree } => tree,
+            // The caller saw a clean merge just before; git's own words are empty here (`--no-messages`).
+            Merge::Conflicts(_) => return Err(failure(String::new())),
+            Merge::Unknown { stderr } => return Err(failure(stderr)),
+        };
         let short = self.text(git, root, &["rev-parse", "--short", sha]).await?;
         let message = format!("Merge {name} into {short} (Autopilot land)");
-        let tree = tree.split('\n').next().unwrap_or(&tree);
-        self.text(
-            git,
-            root,
-            &[
-                "commit-tree",
-                "--no-gpg-sign",
-                tree,
-                "-p",
-                sha,
-                "-p",
-                tip,
-                "-m",
-                &message,
-            ],
-        )
-        .await
+        Ok(land::commit_tree(git, root, &tree, &[sha, tip], &message, None).await?)
     }
 
     /// Fast-forward the run's branch to the landed merge, only while its worktree still sits on the cycle's commit with
@@ -1226,32 +1095,11 @@ impl ShipRunner {
                 text.parse::<i64>().ok()
             }
         });
-        let merged = self
-            .plain(
-                git,
-                root,
-                &[
-                    "merge-tree",
-                    "--write-tree",
-                    "--name-only",
-                    "--no-messages",
-                    sha,
-                    tip,
-                ],
-            )
-            .await?;
-        // Exit 0: a clean merge; 1: conflicts, the files after the tree line; anything else: git could not say.
-        let conflicts = match merged.code {
-            0 => Some(Vec::new()),
-            1 => Some(
-                js_trim(&merged.text())
-                    .split('\n')
-                    .skip(1)
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_owned)
-                    .collect(),
-            ),
-            _ => None,
+        // A clean merge: no conflicts; conflicts: the files; anything else: git could not say.
+        let conflicts = match land::merge_tree(git, root, sha, tip).await? {
+            Merge::Clean { .. } => Some(Vec::new()),
+            Merge::Conflicts(files) => Some(files),
+            Merge::Unknown { .. } => None,
         };
         Ok(LandOutcome::Behind {
             ahead: ahead.flatten(),
@@ -1419,6 +1267,7 @@ impl ShipRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::land::failure_name;
 
     fn captured() -> Value {
         serde_json::from_str(include_str!("captured-ship.json")).unwrap()

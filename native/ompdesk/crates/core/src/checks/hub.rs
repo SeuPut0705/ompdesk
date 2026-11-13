@@ -87,13 +87,6 @@ pub trait ChecksHub: Send + Sync {
     fn local_pool(&self) -> Fut<'_, Result<LocalPool, Fault>>;
 }
 
-fn not_built(part: &str) -> Fault {
-    Fault::new(
-        "not_built",
-        format!("check control: {part} is not built yet"),
-    )
-}
-
 /// What admission hands the merge queue for a `start {purpose: land}`: a branch to land on `base`, already resolved
 /// (its repo, its head) and already past the owner's pause.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,23 +136,6 @@ pub(crate) trait QueueHost: Send + Sync {
 
     /// The folder the queue keeps its clones and its saved state in; it survives a restart.
     fn queue_dir(&self) -> std::path::PathBuf;
-}
-
-/// The queue until `queue.rs` is built: nothing lands through it.
-struct NoQueue(watch::Sender<Arc<Vec<QueueEntry>>>);
-
-impl LandQueue for NoQueue {
-    fn enqueue(
-        &self,
-        _origin: Origin,
-        _request: LandRequest,
-    ) -> Fut<'_, Result<StartReply, Fault>> {
-        Box::pin(async { Err(not_built("the merge queue")) })
-    }
-
-    fn entries(&self) -> watch::Receiver<Arc<Vec<QueueEntry>>> {
-        self.0.subscribe()
-    }
 }
 
 /// How the hub counts places: one dispatched run. GitHub's macOS lane (`mac-dispatch`) runs one dispatched unit at a
@@ -311,14 +287,13 @@ impl Hub {
             *current = Arc::new(next);
         });
         Hub {
-            core: Arc::new(Core {
+            core: Arc::new_cyclic(|core| Core {
                 github,
                 local,
                 snapshot,
                 results: broadcast::Sender::new(RESULTS_KEPT),
-                // The merge queue's part builds the core with `Arc::new_cyclic(|core| …)` and sets this to
-                // `queue::open(Arc::new(Host(core.clone())))`: the queue holds the hub weakly through `Host`.
-                queue: Arc::new(NoQueue(watch::Sender::new(Arc::default()))),
+                // The queue holds the hub weakly through `Host`, and asks it nothing until the hub exists.
+                queue: super::queue::open(Arc::new(Host(core.clone()))),
                 poller,
                 admission: Mutex::new(admission),
                 book: Mutex::default(),
