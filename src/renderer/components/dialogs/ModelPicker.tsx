@@ -1,11 +1,9 @@
 /**
  * Model picker (Picker container): search, models grouped by provider as in
- * every model list (`groupModelsByProvider`), current model checked. Picking switches the
- * session (`set_model`) and saves the pick as the default for new sessions
- * (`modelRoles.default`), the way omp's own `/model` picker does — without it
- * every new session falls back to omp's catalog choice, which can be a keyless
- * on-device model that cannot hold a coding session.
- *
+ * every model list (`groupModelsByProvider`), current model checked. Picking switches this
+ * session only (stock `set_model`, which persists nothing). The default new sessions open on
+ * (`modelRoles.default`) is written only by Settings › Models & accounts › Model roles (the
+ * owner's rule); a first run with no default is settled by `ensureServingDefault`.
  */
 
 import { Check, Settings2, TriangleAlert } from "lucide-react";
@@ -50,7 +48,6 @@ import {
 	Spinner,
 } from "../common";
 import { ThinkingLevelField } from "../layout/composer/ThinkingControl";
-import { persistDefaultModel } from "../onboarding/default-model";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
 import { compactModelLabels, groupModelsByProvider } from "../settings/providers/provider-marks";
@@ -323,11 +320,6 @@ export function ModelPicker() {
 			// context bar reflect the compacted session, not just the new model.
 			if (overContext) await hydrateSession();
 			close();
-			try {
-				await persistDefaultModel(tabRpc, { provider, id: modelId });
-			} catch (cause) {
-				toastError({ title: t("modelPicker.defaultFailed"), error: cause, variant: "warning" });
-			}
 		} catch (cause) {
 			toastError({ title: t("modelPicker.failed"), error: cause });
 		} finally {
@@ -579,7 +571,7 @@ export function ModelPicker() {
 						{ keys: ["↵"], label: t("modelPicker.keys.pick") },
 					]}
 				>
-					<SettingInfo text={t("modelPicker.defaultHint")} />
+					<SettingInfo text={t("modelPicker.sessionOnlyHint")} />
 					<Button icon={<Settings2 />} onClick={manageProviders} size="sm" variant="ghost">
 						{t("modelPicker.manageProviders")}
 					</Button>
