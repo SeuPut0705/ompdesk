@@ -1,5 +1,89 @@
 # Changelog
 
+## [0.128.0] - 2026-11-14
+
+설정 맨 위에서 다른 컴퓨터의 설정을 한 번에 볼 수 있고, 사이드바에서 모든 계정의 사용량과 세션이 그 계정에 있는 이유를 볼 수 있어요.
+
+### 새 기능
+- 설정 맨 위에 기기 알약이 생겼어요. 알약을 누르면 연결된 다른 컴퓨터의 설정이 바로 보여요. 알약으로 다른 기기의 탭으로 옮겨도 설정 페이지는 그대로 열려 있어요.
+- 사이드바의 사용량 블록이 모든 계정을 설정처럼 프로바이더별로 묶어 보여 줘요. 묶음은 접을 수 있고 기억돼요. 계정이 많으면 블록 안에서 스크롤돼요. 세션이 쓰는 계정에는 표시가 붙고, 그 줄에 세션이 왜 그 계정에 있는지 적혀요. 긴 주소는 줄바꿈되고, 사이드바 너비에 맞춰 게이지 열 수가 정해져요.
+- 계정 전환 규칙이 한 가지로 정리됐어요. 몇 시간 도는 세션은 전에는 429를 맞아야 계정을 옮겼어요. 이제 모델 응답이 끝날 때마다(세션당 1분에 한 번 이하) 같은 판단을 다시 해요. 5시간 사용량이 85%에 닿았거나 다 쓴 계정이거나 다른 계정이 8배 빨리 줄 때만 옮기고, 하위 에이전트가 도는 동안이나 어느 쪽 사용량이든 읽을 수 없을 때는 옮기지 않아요. 옮겼든 안 옮겼든 판단마다 이유 코드와 두 계정의 상태가 실행 기록에 남아요.
+- 통계 › 사용량에 계정 아래 한 줄이 생겼어요. 마지막 판단(옮겼어요, 한도에 가까워요, 차이가 작아요, 턴 도중이에요, 사용량을 읽을 수 없어요, 고정돼 있어요 등)을 한국어와 영어로 보여 줘요. 새로고침은 이제 캐시 나이와 상관없이 바로 새로 읽어서 답해요.
+- 계정 전환은 이제 그 세션의 모델에 쓸 창이 다 찼거나 거의 찬 계정으로는 옮기지 않아요. 전에는 모델 전용 주간 한도가 찬 계정으로 세 번 옮겨 갔다가 첫 요청에서 429를 맞았어요.
+- 디스크 관리가 더 많은 것을 치워요. 탭마다 세션 전용 임시 폴더(`~/.cache/ompdesk/scratch`, Windows는 `%LOCALAPPDATA%\ompdesk\scratch`)가 생기고, 에이전트가 /tmp나 홈 폴더 대신 거기에 파일을 만들어요. 세션이 지워지거나 3일 동안 쓰이지 않으면 답변에 나온 파일만 남기고 치워요. 일반 `git worktree add`로 OMPdesk 밖에 만든 연결된 워크트리도 3일 쉬고 있으면 빌드 결과를 지워요. Bun 설치 캐시, Bun 변환 캐시, npm 캐시도 한 표의 한도에 맞춰 줄여요. 디스크 줄의 (i) 풍선은 줄바꿈을 그대로 보여 줘요.
+- 디스크가 가득 차도 앱이 죽지 않아요. 설정과 창 상태, 코어의 저장소를 쓰다 공간이 없으면 내용을 메모리에 쥐고 5초에서 60초 간격으로 다시 저장해요. 모든 창과 연결된 휴대폰 화면에 경고 토스트가 한 번 뜨고, 저장되면 사라져요. 전에는 저장 중 오류가 처리되지 않은 예외로 올라와 OS 충돌 창이 뜰 수 있었어요.
+- 에이전트가 무거운 명령과 테스트를 `ompdesk run --heavy`와 `ompdesk check`로 돌려요. 컴퓨터의 무거운 작업 칸 수를 함께 쓰고, 디스크 공간이 모자라면 기다리고, 디스크가 차기 전에 멈추고, 출력은 앞뒤만 남겨요. 입력이 같으면 이전 결과를 다시 쓰고, 불안정한 테스트는 따로 두어요. 작업 보고의 Pace가 재사용을 세요.
+- 저장소 잠금도 같은 칸을 써서 한 컴퓨터에서 무거운 작업이 한꺼번에 몰리지 않아요.
+- `ompdesk_session_send`, `ompdesk_report`, `ompdesk_session_answer`가 첨부를 받아요. 파일이나 호출한 세션의 최근 그림(1이 가장 새것)이에요. 호출한 쪽의 omp가 직접 읽어서, 연결된 컴퓨터에서 호출해도 그 컴퓨터의 바이트가 넘어가요. 하나에 10 MiB까지고 같은 바이트는 한 번만 보내요. 그림은 받는 세션에 그림으로 가고, 다른 파일은 받는 컴퓨터에 놓여 메시지에 이름이 적혀요. 한 세션에 붙여 넣은 스크린샷이 다른 세션에는 말로 옮겨 적힌 설명으로만 가던 것이 없어졌어요.
+
+### 고친 것
+- 새 버전이 시작되지 못하면 mac 업데이트가 이전 앱을 되돌려 줘요. 새 앱은 첫 화면을 그린 뒤에만 시작됐다고 표시해요. 120초 안에 표시가 없으면 새 앱의 프로세스를 끝내고 이전 앱을 제자리에 옮겨 다시 열어요. 창은 뜨지 않아요. 시작에 실패한 버전은 기억해 두고 자동 설치가 건너뛰어요.
+- 달러 표시가 든 글이 수식으로 그려지지 않아요. "$149 … $26"처럼 가격 두 개 사이의 글이 수식으로 바뀌어 공백이 사라지고 카드 밖으로 넘치던 것을 고쳤어요. 열기 뒤에 공백이 없고 닫기 앞에 공백이 없고 닫기 뒤에 숫자가 없을 때만 수식이에요. 수식이 든 문단은 넘치지 않고 옆으로 스크롤돼요.
+- 다른 세션의 답을 기다리기만 하는 세션을 todo 알림이 깨우지 않아요. 새 메인 세션도 갚아야 할 알림 없이 시작해요. 알림 턴이 위의 답을 그대로 되풀이하면 그 아래에 접혀요.
+- 에이전트 메시지가 받는 쪽의 막는 대기를 끝내요. `ompdesk_session_result {wait}`는 조종 메시지, 보고, 하위 세션의 질문 카드, 사람의 입력이 세션에 닿으면 바로 돌아오고, 보낸 쪽 영수증에 무슨 일이 일어날지 적혀요. 질문 카드가 열려 있으면 메시지는 언제나 후속으로 쌓이고 카드를 닫지 않아요. 이전 보고를 다시 받아 거절한 경우에도 질문의 턴은 그대로 남아요.
+- 느린 omp(재시작 후 부하가 큰 컴퓨터)에서 프로토콜 협상이 늦어지면 `ompdesk_*` 도구 없이 준비 상태가 되던 것을 고쳤어요. 도구는 협상 결과와 상관없이 등록돼요.
+- 다른 기기의 에이전트 세션 때문에 들어온 프로젝트가 그 세션이 지워진 뒤에도 사이드바에 남던 것을 고쳤어요. 사람이 열거나 추가한 프로젝트는 세션이 없어도 남아요. 동기화로 찾은 프로젝트는 마지막 세션과 함께 떠나요(고정한 것은 남아요). 이전 OMPdesk가 저장한 목록은 출처를 알 수 없어서 아무것도 스스로 떠나지 않아요. 세션 목록을 읽을 수 없으면 아무것도 지우지 않아요.
+- Windows에서 앱이 죽고 남은 omp를 다음 실행이 끝내지 못하던 것을 고쳤어요. 이제 남은 omp를 부모 id와 시작 시각으로 찾아 하위 프로세스까지 끝내요. PowerShell을 쓰지 않아서 omp 기록이 훨씬 빨라요.
+- 일정을 저장하는 순간 앱을 종료하면 일정이 일정 파일에 안 남을 수 있던 것을 고쳤어요. 종료가 코어가 저장을 끝낼 때까지(최대 8초) 기다려요.
+- 원격 연결이 SSH 포트가 아직 이전 연결에 잡혀 있을 때 "사용 중"으로 멈추지 않고 다시 시도해요. 이쪽에서 닫은 연결은 상대가 먼저 떠나도 `local`로 끝나요.
+- 이 컴퓨터 자신의 수신 주소로는 호스트에 연결하지 않아요.
+- 메모리 클라이언트가 https 서버 주소를 다시 읽고 리디렉션을 따라가요.
+- omp 18.20.0의 새 설정과 프로바이더 표시의 한국어 문구를 고쳤어요.
+- 라이선스 고지에서 특정 OS에만 있는 패키지를 빼서 모든 OS가 같은 파일을 확인해요. 빌드 자산을 보관할 때 임시 폴더에 복사본이 남지 않아요.
+- 코어의 소켓에서 두 덩어리에 걸쳐 나뉜 여러 바이트 글자(한국어 폴더 경로, 이어 보낸 프롬프트)가 깨져 나오던 것을 고쳤어요. 이제 덩어리 경계를 넘어 글자를 풀어요.
+- 시작에 실패한 버전이 종료할 때 다시 설치되지 않고, 더 새 릴리스가 있으면 그것으로 바뀌어요. 평소 종료는 시작 실패로 묶인 버전의 교체를 시작하지 않고, Windows에서는 묶여 있는 동안 종료 시 설치와 자동 내려받기가 꺼져요. 직접 확인하거나 백그라운드 확인을 하면 더 새 릴리스를 찾아 내려받아요.
+- 멈춘 Autopilot 단계가 이제 자기가 시작한 프로세스(git 실행과 합치기 점검)를 끝내고, 프로세스가 끝난 뒤에만 보고해요. "올리고 멈추기"는 메인의 시계로 시각을 적어서, Windows에서 선택 직후에 시작한 사이클이 선택 이전으로 세어지지 않아요.
+- 에이전트가 질문 카드에 답할 때 메모를 넣기 전에 질문을 먼저 잡아 두어서 그 사이에 다른 답이 끼어들지 않아요. 계획 승인은 바로 그 계획을 잡아요. 메모의 응답이 사라지면 첨부가 세션에 들어갔을 수 있고 답은 보내지 않았다고 알려 주고, 같은 답을 다시 보내면 메모는 한 번만 들어가요. 연결된 기기도 호스트의 같은 단계로 답하고 같은 잠금을 받아요. 연결된 탭은 호스트의 계획 세대를 받아요.
+- 앱의 코어 프로세스가 다시 시작된 뒤에 생기던 문제를 고쳤어요. 휴대폰 짝 맺기에서 한 기기를 승인하면 다른 기기의 요청이 승인될 수 있었어요. 이제 답은 물어본 코어에게만 가고, 이전 코어가 들고 있던 승인 요청은 거절돼요. 휴대폰 화면이 실시간 갱신을 다시 받고, 컴퓨터 사이 공유가 앱을 다시 켜지 않아도 다시 열려요. 메모리 동기화, 원격 파일 전달, 모바일 웹, 정리 작업의 답도 물어본 코어에게만 가요.
+
+### 바뀐 것
+- 앱의 여러 부분이 Rust 코어로 옮겨졌어요. 눈에 띄는 변화는 이렇게 하나예요. 앱이 닫히면 코어가 만든 프로세스도 함께 끝나고, 응답이 길어져도 메인이 덜 멈춰요(답변이 길수록 부담이 제곱으로 늘던 파싱을 줄였어요). 옮겨진 곳은 탭 배치와 이어하기, 연결 감시, 에이전트 제어, Autopilot(단계, 올리기 대기열, git 점검, 합치기 점검), GitHub 로그인, 설치 감독, 휴대폰 웹 페이지와 푸시, 원격 링크의 암호화, 일정이에요. 사용 방법은 그대로예요.
+- 휴대폰 화면이 처음 뜰 때 받는 양이 줄었어요. 사이드바 사용량 블록의 묶음 코드는 세션 목록과 함께 나중에 받아요.
+
+아직 실제로 확인하지 못한 것이 있어요. 계정 전환과 디스크 가득 참 처리, 업데이트 되돌리기는 가짜 omp, 가짜 디스크 오류, 시험용 설치 폴더로만 확인했고 실제 프로바이더의 한도, 실제로 가득 찬 디스크, 실제로 시작 못 하는 새 버전으로는 일으켜 보지 않았어요. Autopilot을 포함해 Rust 코어로 옮긴 부분은 TypeScript가 남긴 기록과 같은 답이 나오는지를 테스트로 맞췄고, 실제 앱에서 오래 돌려 보지는 않았어요. 세션 사이 첨부는 테스트와 가짜 omp로만 확인했고, 컴퓨터 두 대의 실제 세션 둘 사이에 그림을 보내 보지는 않았어요. macOS 27에서 키체인 읽기는 확인하지 못한 채 나가요. 사이드바 사용량의 많은 계정 화면은 지어낸 주소로 만든 가짜 사용량으로만 봤어요.
+
+<!-- en -->
+
+Settings now has device pills at the top for another computer's settings, and the sidebar shows every account's usage and why a session is on its account.
+
+### New
+- Settings has device pills at the top. A click shows a paired computer's settings. Moving to another device's tab with the pills leaves the Settings page open.
+- The sidebar usage block lists every account, grouped by provider like Settings. Groups fold and are remembered. A long list scrolls inside the block. The account a session uses is marked and its row says why the session is on it. A long address wraps, and the number of gauge columns follows the sidebar's width.
+- Account moves follow one rule. Before, a session that ran for hours only moved after a 429. Now the same decision runs after every model response (at most once a minute per session). It moves only when the account is at the 85% 5-hour step or spent, or another account drains 8 times faster. It never moves while a subagent runs or when either account's usage cannot be read. Every decision, moved or not, writes a log line with its reason code and both accounts' facts.
+- Stats › Usage shows one line under the account in use: the last decision (moved, near limit, within margin, mid-turn, usage unreadable, pinned, and so on), in Korean and English. Refresh now reads fresh at once whatever the age of the cache.
+- A session is never moved onto an account whose window for its model is spent or nearly full. Before, a move landed three times on an account whose model-specific weekly cap was full and got a 429 on its first request.
+- Disk care cleans more. Each tab gets a scratch folder for the files it makes only to do its work (`~/.cache/ompdesk/scratch`, `%LOCALAPPDATA%\ompdesk\scratch` on Windows), and the agent uses it instead of /tmp or the home folder. It is removed when its sessions are deleted, or after three idle days, except the files a reply names. Linked worktrees made with a plain `git worktree add` outside OMPdesk lose their build output after three idle days. Bun's install and transpiler caches and npm's cache are kept within a limit from one table. The Disk row's (i) bubble keeps its line breaks.
+- A full disk no longer crashes the app. When settings, window state or the core's stores cannot be written for lack of space, the content is kept in memory and saved again every 5 to 60 seconds. One warning toast appears in every window and on the paired phone page, and goes away once everything is saved. Before, a failed save could reach main as an uncaught exception and show the OS crash dialog.
+- Agents run heavy commands and test suites through `ompdesk run --heavy` and `ompdesk check`. They share the computer's heavy slots, wait for disk space, stop before a disk fills, and keep only the head and tail of the output. A run on the same inputs is reused, and flaky tests are set apart. Pace in the work report counts reuse.
+- The repository lock takes its slot from the same pool, so heavy work does not pile up on one computer.
+- `ompdesk_session_send`, `ompdesk_report` and `ompdesk_session_answer` take attachments: a file or one of the caller's own recent pictures (1 is the newest). The caller's own omp reads each one, so a caller on a paired computer hands over its own computer's bytes. Each is at most 10 MiB and the same bytes are sent once. Pictures arrive as pictures in the receiving session; any other file is put on the receiver's computer and named in the message. A screenshot pasted into one session no longer reaches another as a retyped description.
+
+### Fixed
+- A Mac update that fails to start gets the previous app back. The new app marks itself as started once its first page loads. With no mark after 120 seconds, the helper ends the new app's processes, moves the previous app back and reopens it, with no dialog. A version that failed to start is remembered and the automatic install skips it.
+- Text with dollar signs is no longer drawn as math. The text between two prices such as "$149 … $26" turned into math, lost its spaces and ran past a card's border. Math now needs a non-space after the opener, a non-space before the closer and no digit after it. A paragraph with inline math scrolls sideways instead of overflowing.
+- The todo reminder no longer wakes a session that only waits on another session's reply. A new main session starts with no reminder owed. A reminder turn that only repeats the answer above folds under it.
+- An agent message ends its receiver's blocking wait. `ompdesk_session_result {wait}` returns at once when a steer, a report, a child's question card or the person's prompt reaches its session, and the sender's receipt says what will happen. A message to a session with an open card is always a follow-up and never closes the card. A refused replay of an older report leaves its question's turn as it was.
+- A slow omp (a loaded machine after a relaunch) whose protocol negotiation came late used to be ready with no `ompdesk_*` tools. The tools are now registered whether or not the negotiation answers in time.
+- A project that only another device's agent sessions had brought into the sidebar stayed after those sessions were deleted. A project the person opened or added stays with no session. A project found by sync leaves with its last session unless pinned. A list stored by an older OMPdesk has no origins, so none of its projects leaves by itself. If the session list cannot be read, nothing is dropped.
+- On Windows, a launch now ends the omp a dead app left behind. It finds it by its parent id and start time and ends it with its tree, with no PowerShell, so recording an omp is much faster.
+- A schedule saved as the app quit could be missing from the schedule file. The quit now waits for the core to write it, up to 8 seconds.
+- A remote reconnect asks again for the local SSH port its own closed ssh may still hold, instead of stopping as "taken". A link this side closed ends as `local` even when the peer leaves first.
+- OMPdesk no longer dials a host on this computer's own listening address.
+- The memory client reads https server addresses again and follows redirects.
+- Korean text and the provider mark for the new settings and provider of omp 18.20.0.
+- The license notices leave out platform-only packages, so every OS checks the same file. Keeping a build's assets leaves no copies in the temp folder.
+- A multibyte character split between two chunks on the core's socket came out garbled (Korean folder paths, resumed prompts). The core now decodes the text across chunk boundaries.
+- A version that failed to start is no longer installed by a quit, and a newer release replaces it. An ordinary quit does not start a swap for a version held as start-failed, and on Windows the install at quit and the automatic download are off while it is held. A manual or background check still finds the newer release and stages it.
+- A stopped Autopilot step now ends the processes it started (its git runs and the land check) and reports only after they exited. "Ship, then stop" is dated by main's clock, so on Windows a cycle that started just after the choice no longer counts as before it.
+- An agent's answer to a question card claims the question before its note goes in, so no other answer lands between. A plan approval claims that very plan. If the reply to a note is lost, the answer says the attachments may have reached the session and the answer was not sent, and sending it again adds the note once. A paired device answers through the host's one step and meets the same claims, and a paired tab gets the plan generation of its host.
+- Problems after the app's core process restarted are fixed. Approving one device in phone pairing could approve another device's request; answers now go only to the core that asked, and approvals the old core held are declined. The phone page gets live updates again, and sharing between computers opens again without relaunching the app. Memory sync, remote file transfer, Mobile web and upkeep answers also go only to the core that asked.
+
+### Changed
+- Parts of the app moved into the Rust core. What a person notices: the core's processes end with the app, and main stalls less while a long reply streams (parsing a reply used to grow with its square). Moved parts: the saved tab layout and turn resume, the connectivity monitor, agent control, Autopilot (its steps, ship queue, git audit and land check), the GitHub sign-in, the setup supervisor, the phone web page and Web Push, the remote link's crypto and framing, and schedules. How you use them is the same.
+- The phone page's first screen loads less: the sidebar usage block's grouping code now arrives with the session list, later.
+
+Some of this has not been seen for real. Account moves, the full-disk handling and the update rollback were checked against a fake omp, injected disk errors and a test install folder. No real provider limit, no really full disk and no really failing new version was triggered. The parts moved to the Rust core, Autopilot included, were checked by tests that match the TypeScript's recorded answers, not by running the real app for long. Attachments between sessions were checked with tests and a fake omp, not with a picture sent between two real sessions on two computers. The macOS 27 keychain read ships unchecked. The sidebar's many-accounts view was seen only with a fake usage of made-up addresses.
+
 ## [0.127.0] - 2026-11-12
 
 한도 오류로 멈춘 턴이 이제 버튼을 누르지 않아도 한도가 풀리면 스스로 이어져요.
