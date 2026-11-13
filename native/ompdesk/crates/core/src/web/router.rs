@@ -58,14 +58,16 @@ const DELTA_TYPES: &[&str] = &["text_delta", "thinking_delta", "toolcall_delta"]
 
 /// An object's members in order, each value as written. A key written twice keeps its first place and its last
 /// value, as `JSON.parse` keeps it.
-struct Members(Vec<(String, Box<RawValue>)>);
+struct Members {
+    /// In the order the keys first appeared, as `JSON.parse` keeps them.
+    members: Vec<(String, Box<RawValue>)>,
+    /// Each key's place in `members`, so a frame of many keys is read in linear time.
+    places: HashMap<String, usize>,
+}
 
 impl Members {
     fn get(&self, key: &str) -> Option<&RawValue> {
-        self.0
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| &**value)
+        self.places.get(key).map(|&place| &*self.members[place].1)
     }
 
     fn parse(raw: &RawValue) -> Option<Members> {
@@ -83,13 +85,18 @@ impl<'de> Deserialize<'de> for Members {
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Members, A::Error> {
                 let mut members: Vec<(String, Box<RawValue>)> = Vec::new();
+                let mut places: HashMap<String, usize> = HashMap::new();
                 while let Some((key, value)) = map.next_entry::<String, Box<RawValue>>()? {
-                    match members.iter_mut().find(|(name, _)| *name == key) {
-                        Some(slot) => slot.1 = value,
-                        None => members.push((key, value)),
+                    // A repeated key keeps its first place and takes the last value, as `JSON.parse` does.
+                    match places.get(&key) {
+                        Some(&place) => members[place].1 = value,
+                        None => {
+                            places.insert(key.clone(), members.len());
+                            members.push((key, value));
+                        }
                     }
                 }
-                Ok(Members(members))
+                Ok(Members { members, places })
             }
         }
         deserializer.deserialize_map(Of)
@@ -260,7 +267,7 @@ impl Update {
 
     fn write(&self, out: &mut String) {
         out.push('{');
-        for (index, (key, value)) in self.members.0.iter().enumerate() {
+        for (index, (key, value)) in self.members.members.iter().enumerate() {
             if index > 0 {
                 out.push(',');
             }
@@ -268,7 +275,7 @@ impl Update {
             out.push(':');
             if key == "assistantMessageEvent" {
                 out.push('{');
-                for (index, (key, value)) in self.increment.0.iter().enumerate() {
+                for (index, (key, value)) in self.increment.members.iter().enumerate() {
                     if index > 0 {
                         out.push(',');
                     }
@@ -375,7 +382,7 @@ impl Coalesced {
                 return first.data.as_deref().map(|raw| Arc::from(raw.get()));
             }
             let mut out = String::from("{");
-            for (index, (key, value)) in batch.members.0.iter().enumerate() {
+            for (index, (key, value)) in batch.members.members.iter().enumerate() {
                 if index > 0 {
                     out.push(',');
                 }

@@ -104,6 +104,38 @@ fn reads_frames_as_the_schema_did() {
 }
 
 #[test]
+fn reads_a_repeated_key_as_json_parse_does_and_a_wide_frame_in_linear_time() {
+    // The last value wins, at the place the key first had.
+    assert!(matches!(
+        Frame::parse(r#"{"t":"nope","ch":"c","a":[],"t":"snd"}"#),
+        Some(Frame::Call { id: None, .. })
+    ));
+    let members: Members = serde_json::from_str(r#"{"a":1,"b":2,"a":3}"#).unwrap();
+    let order: Vec<(&str, &str)> = members
+        .members
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.get()))
+        .collect();
+    assert_eq!(order, [("a", "3"), ("b", "2")]);
+    // A page's frame holds up to 1 MB: one of short distinct keys (about 110 000 here) is read at once, where a
+    // search of the keys before each key took about 6e9 comparisons.
+    let mut wide = String::from(r#"{"t":"snd","ch":"c","a":[]"#);
+    let mut n = 0;
+    while wide.len() < 1_000_000 {
+        wide.push_str(&format!(r#","k{n}":0"#));
+        n += 1;
+    }
+    wide.push('}');
+    let started = std::time::Instant::now();
+    assert!(matches!(Frame::parse(&wide), Some(Frame::Call { .. })));
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn keeps_mobile_web_preferences_on_the_computer() {
     let args = |text: &str| RawValue::from_string(text.to_owned()).unwrap();
     assert!(writes_mobile_web(&args(
