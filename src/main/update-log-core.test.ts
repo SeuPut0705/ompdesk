@@ -3,10 +3,14 @@ import {
 	lastSwapEntry,
 	type PendingInstall,
 	parsePendingInstall,
+	parseStartFailure,
 	previousInstallDetails,
 	RELAUNCH_PRESENCE_MS,
 	relaunchPresence,
+	START_MARK_FILE,
 	scrubUpdateText,
+	startFailureOf,
+	startMarkJson,
 	windowPresenceOf,
 } from "./update-log-core";
 
@@ -87,6 +91,27 @@ describe("lastSwapEntry", () => {
 		expect(lastSwapEntry(log)?.outcome).toBe("install failed; previous app restored");
 	});
 
+	it("reads the new shell launcher's own entry, restore failure with its reason included", () => {
+		const entry = (last: string) =>
+			`swap Tue Nov 17 10:00:00 KST 2026: start check /a/New.app -> /a/Old.app\n${last}\n`;
+		for (const last of ["started", "start failed; the swap restores", "start failed; previous app restored"]) {
+			expect(lastSwapEntry(entry(last))?.outcome).toBe(last);
+		}
+		expect(lastSwapEntry(entry("start failed; restore failed: no .previous"))?.outcome).toBe(
+			"start failed; restore failed: no .previous",
+		);
+		const failed = { at: "t", outcome: "start failed; restore failed: no .previous" };
+		expect(startFailureOf(pending, "0.38.0", failed, 5)?.version).toBe("0.39.0");
+	});
+
+	it("takes the last outcome line: installed, then how the new app's start ended", () => {
+		const header = "swap Mon Oct 19 14:03:22 KST 2026: /s -> /d\ninstalled\nwaiting for the new app to start\n";
+		for (const last of ["started", "start failed; previous app restored", "start failed; previous app lost"]) {
+			expect(lastSwapEntry(`${header}${last}\n`)?.outcome).toBe(last);
+		}
+		expect(lastSwapEntry(header)?.outcome).toBe("installed");
+	});
+
 	it("says unknown when the entry never closed, and nothing for an empty log", () => {
 		expect(lastSwapEntry("swap Mon Oct 19 14:03:22 KST 2026: /s -> /d\n")).toEqual({
 			at: "Mon Oct 19 14:03:22 KST 2026",
@@ -125,5 +150,55 @@ describe("previousInstallDetails", () => {
 		const details = previousInstallDetails({ ...pending, mode: "nsis" }, "0.40.0");
 		expect(details).toMatchObject({ outcome: "changed", mode: "nsis" });
 		expect(details).not.toHaveProperty("swapOutcome");
+	});
+});
+
+describe("the start mark", () => {
+	it("is compact JSON naming the version, which the swap helper matches as a fixed string", () => {
+		expect(START_MARK_FILE).toBe("app-started.json");
+		const json = startMarkJson("0.128.0", 4242, 1_760_000_000_000);
+		expect(json).toBe('{"version":"0.128.0","pid":4242,"at":1760000000000}');
+		expect(json).toContain('"version":"0.128.0"');
+	});
+});
+
+describe("a start that failed", () => {
+	const failed = { at: "Mon Oct 19 14:03:22 KST 2026", outcome: "start failed; previous app restored" };
+
+	it("is remembered for the version the install should have produced, when an older one is running", () => {
+		expect(startFailureOf(pending, "0.38.0", failed, 5)).toEqual({ version: "0.39.0", count: 1, at: 5 });
+		expect(startFailureOf(pending, "0.37.0", { ...failed, outcome: "start failed; previous app lost" }, 5)).toEqual({
+			version: "0.39.0",
+			count: 1,
+			at: 5,
+		});
+	});
+
+	it("counts the failed starts of one version, and starts over for another", () => {
+		const earlier = { version: "0.39.0", count: 1, at: 1 };
+		expect(startFailureOf(pending, "0.38.0", failed, 5, earlier)).toEqual({ version: "0.39.0", count: 2, at: 5 });
+		expect(startFailureOf(pending, "0.38.0", failed, 5, { ...earlier, version: "0.38.5" })?.count).toBe(1);
+	});
+
+	it("is not, for a good install, another kind of failure, a log that says nothing or an unknown target", () => {
+		expect(startFailureOf(pending, "0.39.0", failed, 5)).toBeUndefined();
+		expect(
+			startFailureOf(pending, "0.38.0", { ...failed, outcome: "install failed; previous app restored" }, 5),
+		).toBeUndefined();
+		expect(startFailureOf(pending, "0.38.0", { ...failed, outcome: "started" }, 5)).toBeUndefined();
+		expect(startFailureOf(pending, "0.38.0", undefined, 5)).toBeUndefined();
+		expect(startFailureOf({ ...pending, to: "unknown" }, "0.38.0", failed, 5)).toBeUndefined();
+	});
+
+	it("reads back what it wrote, and nothing from anything else", () => {
+		expect(parseStartFailure('{"version":"0.39.0","count":2,"at":5}')).toEqual({
+			version: "0.39.0",
+			count: 2,
+			at: 5,
+		});
+		expect(parseStartFailure('{"version":"0.39.0","at":5}')).toEqual({ version: "0.39.0", count: 1, at: 5 });
+		expect(parseStartFailure('{"version":"0.39.0"}')).toBeUndefined();
+		expect(parseStartFailure("not json")).toBeUndefined();
+		expect(parseStartFailure("null")).toBeUndefined();
 	});
 });

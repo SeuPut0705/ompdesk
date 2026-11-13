@@ -44,6 +44,7 @@ import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../s
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler, type InstallTrigger } from "./app-auto-update";
 import { confirmUpdateRestart, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
+import { writeFileAtomicSync } from "./atomic-file";
 import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
@@ -63,10 +64,16 @@ import {
 	lastSwapEntry,
 	type PendingInstall,
 	parsePendingInstall,
+	parseStartFailure,
 	previousInstallDetails,
 	relaunchPresence,
+	START_FAILED_FILE,
+	START_MARK_FILE,
+	type StartFailure,
 	type SwapLogEntry,
 	scrubUpdateText,
+	startFailureOf,
+	startMarkJson,
 	type UpdateLogDetails,
 	type WindowPresence,
 	windowPresenceOf,
@@ -133,8 +140,8 @@ let macAsset: MacInstallerAsset | undefined;
 let downloadedInstallerPath: string | undefined;
 /** Running bundle the relaunch mode replaces (`/Applications/OMPdesk.app`). */
 let ownBundle: string | undefined;
-/** Verified new bundle waiting for the swap (relaunch mode). */
-let stagedApp: string | undefined;
+/** Verified new bundle waiting for the swap (relaunch mode), and the version it must report once it starts. */
+let staged: { app: string; version: string } | undefined;
 /** The approved quit came from "Restart & install": reopen after the swap. */
 let relaunchAfterSwap = false;
 /** The relaunch swap helper was started; a forced exit after `will-quit` must not start a second one. */
@@ -271,6 +278,31 @@ function quitInstallTrigger(): InstallTrigger {
 	return installTrigger ?? "quit";
 }
 
+/** The start mark a macOS swap helper waits for after it reopened the new app (`SWAP_SCRIPT`). */
+function startMarkPath(): string {
+	return path.join(app.getPath("userData"), START_MARK_FILE);
+}
+
+let startNoted = false;
+
+/**
+ * The app's first window has loaded its page: say so, once per launch. Writes the start mark, then reports the
+ * previous install. In this order a new app that dies before its first page leaves `update-install.json` unread,
+ * and the old app the swap helper restored reports `rolled back` from it.
+ */
+export function noteAppStarted(): void {
+	if (startNoted) return;
+	startNoted = true;
+	try {
+		writeFileAtomicSync(startMarkPath(), startMarkJson(appVersion(), process.pid, Date.now()));
+	} catch (error) {
+		logUpdate("swap", { event: "start-mark-failed", reason: failureReason(error) });
+	}
+	reportPreviousInstall();
+	// This version started: a failure recorded for it earlier (a person installed it anyway) no longer holds.
+	if (startFailure?.version === appVersion()) clearStartFailure();
+}
+
 /** The first launch after an install says how it ended: the version before and after (macOS adds `swap.log`'s last entry). */
 function reportPreviousInstall(): void {
 	let raw: string;
@@ -289,6 +321,42 @@ function reportPreviousInstall(): void {
 		} catch {}
 	}
 	logUpdate("swap", previousInstallDetails(pending, appVersion(), swap));
+	const failure = startFailureOf(pending, appVersion(), swap, Date.now(), startFailure);
+	if (failure) rememberStartFailure(failure);
+}
+
+/**
+ * The version whose start failed after an install (`update-start-failed.json`), read once at setup. The automatic
+ * install leaves that version alone, or it would install, fail and roll back again at every safe point; a person's
+ * "Restart & install" still installs it, and any other version clears it.
+ */
+let startFailure: StartFailure | undefined;
+
+function startFailedPath(): string {
+	return path.join(app.getPath("userData"), START_FAILED_FILE);
+}
+
+function rememberStartFailure(failure: StartFailure): void {
+	startFailure = failure;
+	try {
+		writeFileAtomicSync(startFailedPath(), JSON.stringify(failure));
+	} catch (error) {
+		logUpdate("swap", { event: "start-failure-not-saved", reason: failureReason(error) });
+	}
+}
+
+/** The downloaded version is the one that failed to start; a different one (a newer release) clears the record. */
+function startFailedBefore(): boolean {
+	if (!startFailure) return false;
+	if (current.state !== "downloaded") return false;
+	if (current.version === startFailure.version) return true;
+	clearStartFailure();
+	return false;
+}
+
+function clearStartFailure(): void {
+	startFailure = undefined;
+	fs.rmSync(startFailedPath(), { force: true });
 }
 
 function isWritable(target: string): boolean {
@@ -361,7 +429,12 @@ async function stageBundle(dmgPath: string, version: string): Promise<string> {
 }
 
 /** Hand the swap to a detached helper that outlives this process (never launchd). */
-function launchSwap(staged: string, destination: string, relaunch: boolean, trigger: InstallTrigger): void {
+function launchSwap(
+	update: { app: string; version: string },
+	destination: string,
+	relaunch: boolean,
+	trigger: InstallTrigger,
+): void {
 	const log = path.join(updatesDirectory(), "swap.log");
 	const child = spawn(
 		"/bin/bash",
@@ -370,10 +443,12 @@ function launchSwap(staged: string, destination: string, relaunch: boolean, trig
 			SWAP_SCRIPT,
 			"ompdesk-swap",
 			String(process.pid),
-			staged,
+			update.app,
 			destination,
 			relaunch ? "1" : "0",
 			log,
+			startMarkPath(),
+			update.version,
 			...process.argv.slice(1),
 		],
 		{ detached: true, stdio: "ignore" },
@@ -525,7 +600,7 @@ async function downloadMacAsset(
 
 	await fs.promises.rename(partialPath, destinationPath);
 	if (mode === "relaunch") {
-		stagedApp = await stageBundle(destinationPath, version);
+		staged = { app: await stageBundle(destinationPath, version), version };
 		await fs.promises.rm(destinationPath, { force: true });
 		broadcast({ state: "downloaded", version, mode });
 		return;
@@ -821,7 +896,7 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
  */
 export function restartableUpdate(): boolean {
 	if (current.state !== "downloaded") return false;
-	if (current.mode === "relaunch") return stagedApp !== undefined && ownBundle !== undefined;
+	if (current.mode === "relaunch") return staged !== undefined && ownBundle !== undefined;
 	return current.mode === "automatic";
 }
 
@@ -833,7 +908,7 @@ export function restartableUpdate(): boolean {
 export function restartIntoUpdate(trigger: InstallTrigger): void {
 	if (current.state !== "downloaded" || current.installing) return;
 	if (current.mode === "relaunch") {
-		if (!stagedApp || !ownBundle) {
+		if (!staged || !ownBundle) {
 			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 			return;
 		}
@@ -875,7 +950,9 @@ export function postponeUpdate(): void {
 export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	installMode = detectInstallMode();
 	askBackgroundWork = probe.backgroundWork;
-	reportPreviousInstall();
+	try {
+		startFailure = parseStartFailure(fs.readFileSync(startFailedPath(), "utf8"));
+	} catch {}
 	autoInstall = new AutoInstallScheduler({
 		now: Date.now,
 		facts: () => {
@@ -885,6 +962,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			return {
 				enabled,
 				installable,
+				startFailedBefore: startFailedBefore(),
 				resumes,
 				busy: probe.busy(),
 				asking: probe.asking(),
@@ -923,9 +1001,9 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	// forced `app.exit` skips it, so it starts the swap through the same once-only call.
 	if (installMode === "relaunch") {
 		const launchStagedSwap = (): void => {
-			if (swapLaunched || !stagedApp || !ownBundle) return;
+			if (swapLaunched || !staged || !ownBundle) return;
 			swapLaunched = true;
-			launchSwap(stagedApp, ownBundle, relaunchAfterSwap, quitInstallTrigger());
+			launchSwap(staged, ownBundle, relaunchAfterSwap, quitInstallTrigger());
 		};
 		app.on("will-quit", launchStagedSwap);
 		onQuitForcedExit(launchStagedSwap);
@@ -946,13 +1024,13 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 		if (macTransfer.running) return;
 		activeUpdate = info;
 		// A manual re-check of the release already staged must not fetch it again.
-		if (installMode === "relaunch" && stagedApp && path.basename(path.dirname(stagedApp)) === info.version) {
+		if (installMode === "relaunch" && staged?.version === info.version) {
 			broadcast({ state: "downloaded", version: info.version, mode: "relaunch" });
 			return;
 		}
 		macAsset = undefined;
 		downloadedInstallerPath = undefined;
-		stagedApp = undefined;
+		staged = undefined;
 		if (installMode === "manual" || installMode === "relaunch") {
 			// Only Apple Silicon builds ship; an Intel Mac has no installer to fetch.
 			if (process.arch !== "arm64") {
@@ -1029,7 +1107,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	const devStaged = app.isPackaged ? undefined : process.env.OMP_DEV_UPDATE_STAGED;
 	const devVersion = process.env.OMP_DEV_UPDATE_STAGED_VERSION ?? "0.0.0-dev";
 	if (devStaged && installMode === "relaunch" && ownBundle) {
-		stagedApp = devStaged;
+		staged = { app: devStaged, version: devVersion };
 		broadcast({ state: "downloaded", version: devVersion, mode: "relaunch" });
 	} else if (devStaged && installMode === "automatic") {
 		devDryInstall = true;

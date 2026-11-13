@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
 import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
-import { appAutoUpdatePrefChanged, readRelaunchPresence, setupUpdater } from "./updater";
+import { appAutoUpdatePrefChanged, noteAppStarted, readRelaunchPresence, setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
 
 const mocks = vi.hoisted(() => {
@@ -306,5 +306,78 @@ describe("The automatic install and an open card", () => {
 		appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["waiting:open ask"]);
 		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
+	});
+});
+
+// The macOS swap helper reopens the new app and waits for this mark before it drops the old one (updater-state.ts).
+describe("the start mark and a start that failed", () => {
+	const markFile = () => path.join(mocks.userData.dir, "app-started.json");
+	const installFile = () => path.join(mocks.userData.dir, "update-install.json");
+	const failedFile = () => path.join(mocks.userData.dir, "update-start-failed.json");
+	const results = () => mocks.runtimeLog.filter(report => report.details.event === "result");
+
+	it("is written once, with the running version, before the previous install is reported; a start failure is remembered", () => {
+		fs.rmSync(markFile(), { force: true });
+		// The helper rolled 0.45.0 back to this 0.44.0: its log's last outcome says the new app did not start.
+		fs.writeFileSync(
+			installFile(),
+			JSON.stringify({ from: "0.44.0", to: "0.45.0", mode: "relaunch", trigger: "auto", at: Date.now() }),
+		);
+		fs.mkdirSync(path.join(mocks.userData.dir, "updates"), { recursive: true });
+		fs.writeFileSync(
+			path.join(mocks.userData.dir, "updates", "swap.log"),
+			"swap Mon Oct 19 14:03:22 KST 2026: /s -> /d\ninstalled\nwaiting for the new app to start\nstart failed; previous app restored\n",
+		);
+		// Set up and running, no page yet: no mark, and the install marker is still unread (a new app that dies here
+		// leaves it for the old app the helper restores).
+		expect(fs.existsSync(markFile())).toBe(false);
+		expect(fs.existsSync(installFile())).toBe(true);
+		expect(results()).toEqual([]);
+		expect(fs.existsSync(failedFile())).toBe(false);
+
+		noteAppStarted();
+		const mark = JSON.parse(fs.readFileSync(markFile(), "utf8"));
+		expect(mark).toEqual({ version: "0.44.0", pid: process.pid, at: expect.any(Number) });
+		expect(results()).toHaveLength(1);
+		expect(results()[0]?.details).toMatchObject({
+			outcome: "rolled back",
+			previous: "0.44.0",
+			expected: "0.45.0",
+			current: "0.44.0",
+			swapOutcome: "start failed; previous app restored",
+		});
+		expect(fs.existsSync(installFile())).toBe(false);
+		expect(JSON.parse(fs.readFileSync(failedFile(), "utf8"))).toEqual({
+			version: "0.45.0",
+			count: 1,
+			at: expect.any(Number),
+		});
+
+		// A second page (another window, a reload) writes nothing more.
+		fs.rmSync(markFile());
+		noteAppStarted();
+		expect(fs.existsSync(markFile())).toBe(false);
+		expect(results()).toHaveLength(1);
+	});
+
+	// Runs after the test above, which recorded 0.45.0 (the version `beforeEach` downloads) as one that failed to start.
+	it("leaves that version to the person: the automatic install skips it once, a click installs it, a newer one clears it", async () => {
+		autoInstallOn = true;
+		appAutoUpdatePrefChanged();
+		appAutoUpdatePrefChanged();
+		vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual(["withdrawn:start failed before"]);
+		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
+
+		await restartAndInstall();
+		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
+		appAutoUpdatePrefChanged();
+
+		mocks.runtimeLog.length = 0;
+		emitUpdater("update-downloaded", { version: "0.46.0", files: [{ size: 113_241_490 }] });
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
+		expect(fs.existsSync(failedFile())).toBe(false);
 	});
 });

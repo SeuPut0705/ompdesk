@@ -44,14 +44,28 @@ export function isSwappableBundleLocation(bundlePath: string): boolean {
 
 /**
  * Detached swap run after the app exits (`bash -c SWAP_SCRIPT swap <pid>
- * <staged.app> <dest.app> <relaunch 0|1> <log> [relaunch args…]`): wait for
- * the old process, copy the verified staged bundle next to the destination,
- * then exchange them with a rollback if the final move fails. Runs once and
- * exits; never a launchd job.
+ * <staged.app> <dest.app> <relaunch 0|1> <log> <start mark> <expected version> [relaunch args…]`): wait for the
+ * old process, copy the verified staged bundle next to the destination, then exchange them with a rollback if the
+ * final move fails. Runs once and exits; never a launchd job.
+ *
+ * Relaunch (1) keeps the old bundle as `<dest>.previous` until the new app proves it started: the helper removes a
+ * stale start mark, reopens the app and polls up to `OMPDESK_SWAP_START_WAIT_S` seconds (default 120) for the mark
+ * main writes once its first window's page loaded (`<userData>/app-started.json`, `START_MARK_FILE`) with the
+ * expected version. Seen: `.previous` goes, `started`. Not seen (the new app died, hung, or is a different build):
+ * every process under `<dest>/Contents/` is ended (TERM, KILL after 5 s), `.previous` moves back and is reopened,
+ * `start failed; previous app restored` (`start failed; previous app lost` when it cannot move back, leaving what is
+ * there). No dialog. The log's last outcome line wins (`lastSwapEntry`).
+ *
+ * Without a relaunch (0, the install at an approved quit) nothing is reopened, so there is nothing to start-check:
+ * `.previous` goes at once, as before; that path has no rollback.
+ *
+ * Orderings: the mark is removed before `open`, so a mark in the file was written by an app started after it; the
+ * mark is written by rename, so a read sees none or all of it; one last look follows the wait, so a mark that
+ * lands in the final tick is not lost to a rollback decision made a tick earlier.
  */
 export const SWAP_SCRIPT = `
-pid="$1" src="$2" dest="$3" relaunch="$4" log="$5"
-shift 5
+pid="$1" src="$2" dest="$3" relaunch="$4" log="$5" mark="$6" expect="$7"
+shift 7
 exec >>"$log" 2>&1
 echo "swap $(date): $src -> $dest"
 for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
@@ -66,10 +80,33 @@ if ! mv "$staging" "$dest"; then
   [ -e "$old" ] && mv "$old" "$dest"
   echo "install failed; previous app restored"; exit 1
 fi
-rm -rf "$old" "$src"
+rm -rf "$src"
 echo "installed"
-if [ "$relaunch" = "1" ]; then
-  if [ "$#" -gt 0 ]; then open -n "$dest" --args "$@"; else open -n "$dest"; fi
+if [ "$relaunch" != "1" ]; then rm -rf "$old"; exit 0; fi
+launch() { if [ "$#" -gt 0 ]; then open -n "$dest" --args "$@"; else open -n "$dest"; fi; }
+started() { [ -f "$mark" ] && grep -Fq "\\"version\\":\\"$expect\\"" "$mark"; }
+under_dest() { ps -axww -o pid= -o command= | while read -r p c; do case "$c" in "$dest/Contents/"*) echo "$p";; esac; done; }
+wait_s="\${OMPDESK_SWAP_START_WAIT_S:-120}"
+case "$wait_s" in ''|*[!0-9]*) wait_s=120;; esac
+rm -f "$mark"
+launch "$@"
+echo "waiting for the new app to start"
+ticks=0
+while [ "$ticks" -lt $((wait_s * 5)) ] && ! started; do sleep 0.2; ticks=$((ticks + 1)); done
+if started; then rm -rf "$old"; echo "started"; exit 0; fi
+pids=$(under_dest)
+if [ -n "$pids" ]; then
+  kill -TERM $pids 2>/dev/null
+  ticks=0
+  while [ "$ticks" -lt 25 ] && [ -n "$(under_dest)" ]; do sleep 0.2; ticks=$((ticks + 1)); done
+  pids=$(under_dest)
+  [ -n "$pids" ] && kill -KILL $pids 2>/dev/null
+fi
+if [ -d "$old" ] && rm -rf "$dest" && mv "$old" "$dest"; then
+  echo "start failed; previous app restored"
+  launch "$@"
+else
+  echo "start failed; previous app lost"
 fi
 `;
 
