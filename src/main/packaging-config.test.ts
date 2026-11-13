@@ -197,6 +197,8 @@ const bundleInfo = require(path.join(PACKAGE_ROOT, "scripts/mac-bundle-info.cjs"
 	FRAMEWORK: string;
 	frameworkRoot: (framework: string) => string;
 	HELPERS: { suffix: string; id: string }[];
+	HELPER_PREFIXES: string[];
+	helperName: (prefix: string, helper: { suffix: string; id: string }) => string;
 	PRIVACY: Record<string, string>;
 	appInfo: (version: string) => Record<string, unknown>;
 };
@@ -264,9 +266,11 @@ async function fakeShell(
 		await write(path.join(where.frameworks, name), bytes);
 	}
 	if (platform === "darwin") {
-		for (const helper of bundleInfo.HELPERS) {
-			const name = `OMPdesk Helper${helper.suffix}`;
-			await write(path.join(where.frameworks, `${name}.app`, "Contents", "MacOS", name), FAKE_SHELL, mode);
+		for (const prefix of bundleInfo.HELPER_PREFIXES) {
+			for (const helper of bundleInfo.HELPERS) {
+				const name = bundleInfo.helperName(prefix, helper);
+				await write(path.join(where.frameworks, `${name}.app`, "Contents", "MacOS", name), FAKE_SHELL, mode);
+			}
 		}
 	}
 	await fs.promises.mkdir(path.dirname(where.record), { recursive: true });
@@ -951,16 +955,20 @@ describe("mac bundle configs", () => {
 					CFBundleExecutable: "OMPdesk",
 					CFBundleShortVersionString: "9.9.9",
 				});
-				for (const helper of bundleInfo.HELPERS) {
-					const name = `OMPdesk Helper${helper.suffix}`;
-					const helperPlist = await parsePlistFile(
-						path.join(app, "Contents", "Frameworks", `${name}.app`, "Contents", "Info.plist"),
-					);
-					expect(helperPlist).toMatchObject({
-						CFBundleExecutable: name,
-						CFBundleIdentifier: `com.seuput.ompdesk.${helper.id}`,
-						LSUIElement: true,
-					});
+				// Both helper sets: CEF names its helpers after the shell (the process) or the launcher (the bundle).
+				expect(bundleInfo.HELPER_PREFIXES).toEqual(["OMPdesk", "ompdesk-shell"]);
+				for (const prefix of bundleInfo.HELPER_PREFIXES) {
+					for (const helper of bundleInfo.HELPERS) {
+						const name = bundleInfo.helperName(prefix, helper);
+						const helperPlist = await parsePlistFile(
+							path.join(app, "Contents", "Frameworks", `${name}.app`, "Contents", "Info.plist"),
+						);
+						expect(helperPlist).toMatchObject({
+							CFBundleExecutable: name,
+							CFBundleIdentifier: `com.seuput.ompdesk.${prefix === "OMPdesk" ? "" : "shell."}${helper.id}`,
+							LSUIElement: true,
+						});
+					}
 				}
 				// The pack's own check passes on what the script assembled, once the binaries it does not stage are faked.
 				await fakeAiMemory(out, "darwin");

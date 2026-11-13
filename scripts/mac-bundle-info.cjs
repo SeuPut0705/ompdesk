@@ -76,13 +76,22 @@ function appInfo(version) {
 	};
 }
 
+/**
+ * The helper apps' names: CEF starts its helper processes from `Contents/Frameworks/<main program> Helper*.app`. The
+ * main program of the process is the shell (`ompdesk-shell`, exec'd by the launcher), the app's CFBundleExecutable is the
+ * launcher (`OMPdesk`): which of the two names CEF takes is not settled by anything but a run, so both sets are in the
+ * bundle, the second one with bundle ids of its own.
+ */
+const HELPER_PREFIXES = [PRODUCT, SHELL];
+const helperName = (prefix, helper) => `${prefix} Helper${helper.suffix}`;
+
 /** A helper app's Info.plist: no Dock icon, its own bundle id under the app's. */
-function helperInfo(version, helper) {
-	const name = `${PRODUCT} Helper${helper.suffix}`;
+function helperInfo(version, helper, prefix = PRODUCT) {
+	const name = helperName(prefix, helper);
 	return {
 		CFBundleDevelopmentRegion: "en",
 		CFBundleExecutable: name,
-		CFBundleIdentifier: `${APP_ID}.${helper.id}`,
+		CFBundleIdentifier: `${APP_ID}.${prefix === PRODUCT ? "" : "shell."}${helper.id}`,
 		CFBundleInfoDictionaryVersion: "6.0",
 		CFBundleName: name,
 		CFBundleDisplayName: name,
@@ -114,6 +123,8 @@ module.exports = {
 	SHELL,
 	LAUNCHER,
 	HELPERS,
+	HELPER_PREFIXES,
+	helperName,
 	PRIVACY,
 	TRANSPORT,
 	appInfo,

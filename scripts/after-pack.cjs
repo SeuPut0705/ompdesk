@@ -125,17 +125,19 @@ async function checkShell(context) {
 	await requireExecutable(platform, where.executable);
 	if (platform !== "darwin") return;
 	await requireExecutable(platform, shellFile);
-	for (const helper of bundle.HELPERS) {
-		const name = `${bundle.PRODUCT} Helper${helper.suffix}`;
-		const file = path.join(where.frameworks, `${name}.app`, "Contents", "MacOS", name);
-		let actual;
-		try {
-			actual = await sha256File(file);
-		} catch {
-			throw new Error(`${file} is missing: CEF starts its ${helper.id || "helper"} process from that name`);
+	for (const prefix of bundle.HELPER_PREFIXES) {
+		for (const helper of bundle.HELPERS) {
+			const name = bundle.helperName(prefix, helper);
+			const file = path.join(where.frameworks, `${name}.app`, "Contents", "MacOS", name);
+			let actual;
+			try {
+				actual = await sha256File(file);
+			} catch {
+				throw new Error(`${file} is missing: CEF starts its ${helper.id || "helper"} process from that name`);
+			}
+			if (actual !== record.files[binary]) throw new Error(`${file} is not a copy of the shell executable`);
+			await requireExecutable(platform, file);
 		}
-		if (actual !== record.files[binary]) throw new Error(`${file} is not a copy of the shell executable`);
-		await requireExecutable(platform, file);
 	}
 }
 

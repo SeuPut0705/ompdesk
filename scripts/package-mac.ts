@@ -67,7 +67,9 @@ const bundle = require("./mac-bundle-info.cjs") as {
 	HELPERS: Helper[];
 	frameworkRoot: (framework: string) => string;
 	appInfo: (version: string) => Record<string, unknown>;
-	helperInfo: (version: string, helper: Helper) => Record<string, unknown>;
+	helperInfo: (version: string, helper: Helper, prefix: string) => Record<string, unknown>;
+	HELPER_PREFIXES: string[];
+	helperName: (prefix: string, helper: Helper) => string;
 };
 const { withSigningIdentity } = require("./mac-sign.cjs") as {
 	withSigningIdentity: (body: (signing: { identity: string; keychain: string | null }) => unknown) => Promise<unknown>;
@@ -146,13 +148,18 @@ export function assembleBundle(repo: string, out: string, version?: string): str
 	}
 	copy(path.join(staged, bundle.FRAMEWORK), path.join(frameworks, bundle.FRAMEWORK));
 	fs.writeFileSync(path.join(contents, "Info.plist"), plist.build(bundle.appInfo(manifest.version)));
-	for (const helper of bundle.HELPERS) {
-		const name = `${bundle.PRODUCT} Helper${helper.suffix}`;
-		const helperApp = path.join(frameworks, `${name}.app`, "Contents");
-		fs.mkdirSync(path.join(helperApp, "MacOS"), { recursive: true });
-		fs.copyFileSync(path.join(staged, record.binary), path.join(helperApp, "MacOS", name));
-		fs.chmodSync(path.join(helperApp, "MacOS", name), 0o755);
-		fs.writeFileSync(path.join(helperApp, "Info.plist"), plist.build(bundle.helperInfo(manifest.version, helper)));
+	for (const prefix of bundle.HELPER_PREFIXES) {
+		for (const helper of bundle.HELPERS) {
+			const name = bundle.helperName(prefix, helper);
+			const helperApp = path.join(frameworks, `${name}.app`, "Contents");
+			fs.mkdirSync(path.join(helperApp, "MacOS"), { recursive: true });
+			fs.copyFileSync(path.join(staged, record.binary), path.join(helperApp, "MacOS", name));
+			fs.chmodSync(path.join(helperApp, "MacOS", name), 0o755);
+			fs.writeFileSync(
+				path.join(helperApp, "Info.plist"),
+				plist.build(bundle.helperInfo(manifest.version, helper, prefix)),
+			);
+		}
 	}
 	fs.copyFileSync(recordFile, path.join(resources, "ompdesk-shell.build.json"));
 
@@ -223,8 +230,10 @@ export function signBundle(app: string, identity: string, keychain: string | nul
 		for (const file of machOFiles(dir)) if (file !== frameworkExecutable) codesign([...options, file]);
 	}
 	codesign([...options, framework]);
-	for (const helper of bundle.HELPERS) {
-		codesign([...options, path.join(contents, "Frameworks", `${bundle.PRODUCT} Helper${helper.suffix}.app`)]);
+	for (const prefix of bundle.HELPER_PREFIXES) {
+		for (const helper of bundle.HELPERS) {
+			codesign([...options, path.join(contents, "Frameworks", `${bundle.helperName(prefix, helper)}.app`)]);
+		}
 	}
 	// The shell is a code object of its own inside Contents/MacOS (only the CFBundleExecutable is sealed with the app):
 	// its identifier is the bundle's, so the requirement of the keychain item Electron made (`identifier
