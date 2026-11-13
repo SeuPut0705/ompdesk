@@ -454,8 +454,8 @@ What the Rust shell does differently from this table or from Electron. README.md
   `{value}` of an invoke answer; the shim decodes and encodes it.
 - **`dialog.*`**: Windows dialogs run on a thread of their own (their modal loop does not block CEF's UI thread); a
   macOS `messageBox` is app-modal, not a sheet. A cancelled message box: Windows clicks the TaskDialog's IDCANCEL,
-  macOS `abortModal`s the session (queued on the main thread; a cancel in the instant between `runModal` returning and
-  the box being forgotten aborts the next modal session, if one has started by then). File dialogs are not cancelled.
+  macOS queues an `abortModal` on the main queue that acts only while that alert's own modal session is live, so a late
+  cancel never ends the next alert. File dialogs are not cancelled.
 - **`notification.*`**: WinRT toasts keyed on the AppUserModelID; without a Start-menu shortcut carrying it a toast may
   not show, though `show` is still reported.
 - **`theme.setSource`** is pushed into every page as CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme`) and reaches

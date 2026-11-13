@@ -4,14 +4,15 @@
 //! thread (CEF's UI thread) and is modal.
 #![allow(unsafe_code)]
 
+use block2::RcBlock;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool};
-use objc2::{class, msg_send, sel};
+use objc2::runtime::AnyObject;
+use objc2::{class, msg_send};
 use objc2_foundation::{NSArray, NSString, NSURL};
 
 use crate::dialog_spec::{
-    DialogCancel, FileDialogSpec, MessageBoxResult, MessageBoxSpec, MessageType, default_extension,
-    split_default_path,
+    DialogCancel, FileDialogSpec, MessageBoxResult, MessageBoxSpec, MessageType, ModalSession,
+    default_extension, split_default_path,
 };
 
 fn ns(text: &str) -> Retained<NSString> {
@@ -23,9 +24,10 @@ fn string_of(value: Option<Retained<NSString>>) -> String {
 }
 
 /// NSAlert, run as an application-modal dialog (the owner `winId` does not get a sheet: `runModal` blocks the app's
-/// main thread until a button is chosen, which is what the caller waits for). A `cancel` aborts the modal session
-/// (`abortModal`, queued on the main thread, whose modal run loop runs it): the answer is `cancelId`. A cancel that
-/// lands in the instant between `runModal` returning and `disarm` aborts the next modal session, if one starts first.
+/// main thread until a button is chosen, which is what the caller waits for). A `cancel` queues an `abortModal` on the
+/// main queue (served in the modal run loop's common modes), which runs only while this alert's own `ModalSession` is
+/// live: the session ends on the main thread as soon as `runModal` returned, so a cancel that arrives late can never
+/// end the next alert's session. The answer is `cancelId`.
 pub fn message_box(
     _owner: isize,
     spec: &MessageBoxSpec,
@@ -76,21 +78,25 @@ pub fn message_box(
             let state: isize = isize::from(spec.checkbox_checked);
             let _: () = msg_send![&*checkbox, setState: state];
         }
-        // `sharedApplication` is the process's one NSApplication, readable from any thread, and
-        // `performSelectorOnMainThread:withObject:waitUntilDone:` is safe from any thread; `abortModal` then runs on the
-        // main thread in the modal session's run loop (common modes).
-        cancel.arm(|| {
-            let app: Retained<AnyObject> = msg_send![class!(NSApplication), sharedApplication];
-            let _: () = msg_send![
-                &*app,
-                performSelectorOnMainThread: sel!(abortModal),
-                withObject: std::ptr::null::<AnyObject>(),
-                waitUntilDone: Bool::NO
-            ];
+        let session = ModalSession::begin();
+        let queued = session.clone();
+        cancel.arm(move || {
+            let job = RcBlock::new(move || {
+                queued.abort_if_live(|| {
+                    let app: Retained<AnyObject> =
+                        msg_send![class!(NSApplication), sharedApplication];
+                    let _: () = msg_send![&*app, abortModal];
+                });
+            });
+            // `mainQueue` is the process's main operation queue, usable from any thread; it copies the block, which
+            // then runs on the main thread, where `abort_if_live` and `end` are serialised.
+            let main: Retained<AnyObject> = msg_send![class!(NSOperationQueue), mainQueue];
+            let _: () = msg_send![&*main, addOperationWithBlock: &*job];
         });
         // NSAlertFirstButtonReturn is 1000; a button's response is 1000 + its index. An aborted session answers
         // NSModalResponseAbort (-1001), which is `cancelId`.
         let code: isize = msg_send![&*alert, runModal];
+        session.end();
         cancel.disarm();
         let response = usize::try_from(code - 1000)
             .ok()

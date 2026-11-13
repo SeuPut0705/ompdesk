@@ -411,6 +411,32 @@ impl DialogCancel {
     }
 }
 
+/// One modal session, for a close that can only be queued to the main thread (macOS `abortModal` ends whatever modal
+/// session is running, not a given one). The session `end`s on the main thread right after its modal call returned; a
+/// queued close runs on the main thread too and acts only while its own session is live, so a close that arrives late
+/// never ends the next box's session.
+#[derive(Clone)]
+pub struct ModalSession(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl ModalSession {
+    pub fn begin() -> Self {
+        Self(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            true,
+        )))
+    }
+
+    pub fn end(&self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Runs `abort` when this session is still live. Main thread only, as `end`.
+    pub fn abort_if_live(&self, abort: impl FnOnce()) {
+        if self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            abort();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,6 +486,40 @@ mod tests {
         cancel.disarm();
         cancel.cancel();
         assert!(!closed.load(Ordering::SeqCst));
+    }
+
+    /// Two boxes in a row; the first one's cancel is queued but reaches the main thread only after that box returned
+    /// and the next one is up: it must not end the second box's session.
+    #[test]
+    fn a_late_queued_close_never_ends_the_next_boxs_session() {
+        let aborted = std::cell::Cell::new(Vec::<&str>::new());
+        let abort = |which: &'static str| {
+            let mut seen = aborted.take();
+            seen.push(which);
+            aborted.set(seen);
+        };
+        let mut main_queue: Vec<Box<dyn FnOnce() + '_>> = Vec::new();
+
+        let first = ModalSession::begin();
+        let queued = first.clone();
+        main_queue.push(Box::new(move || queued.abort_if_live(|| abort("first"))));
+        first.end();
+        let second = ModalSession::begin();
+        for job in main_queue.drain(..) {
+            job();
+        }
+        assert!(
+            aborted.take().is_empty(),
+            "the late close ended the second box"
+        );
+
+        let queued = second.clone();
+        main_queue.push(Box::new(move || queued.abort_if_live(|| abort("second"))));
+        for job in main_queue.drain(..) {
+            job();
+        }
+        second.end();
+        assert_eq!(aborted.take(), vec!["second"]);
     }
 
     #[test]
