@@ -27,7 +27,7 @@ fn run() {
     use std::time::Duration;
 
     use serde_json::json;
-    use shell_core::childproc::{Tracker, details_unknown_exit, watched_kind_of_args};
+    use shell_core::childproc::{Tracker, details_unknown_exit, long_lived, watched_kind_of_args};
     use shell_core::sys_mac::childproc::{alive, arguments, children_of};
 
     use crate::lifecycle::EXITING;
@@ -46,7 +46,7 @@ fn run() {
             }
             // Read once: a process whose arguments are not readable yet (it is still starting) is tried again.
             if let Some(args) = arguments(pid) {
-                tracker.add(pid, watched_kind_of_args(&args), ());
+                tracker.add(pid, watched_kind_of_args(&args).filter(long_lived), ());
             }
         }
         // `Some(0)` only says "over": macOS gives no status.

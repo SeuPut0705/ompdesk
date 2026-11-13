@@ -140,6 +140,23 @@ pub fn details(kind: &Kind, exit_code: u32) -> Value {
     details_with(kind, reason(exit_code), exit_code as i32)
 }
 
+/// macOS gives no exit status, so a helper's disappearance is only worth a report when it is not a normal end: the GPU
+/// process and the long-lived utility services live as long as the app; other utilities (the unzipper, the data decoder,
+/// the printing and sharing services…) come and go and finish normally.
+pub fn long_lived(kind: &Kind) -> bool {
+    match kind.process_type.as_str() {
+        "utility" => matches!(
+            kind.service.as_deref(),
+            Some(
+                "network.mojom.NetworkService"
+                    | "audio.mojom.AudioService"
+                    | "storage.mojom.StorageService"
+            )
+        ),
+        _ => true,
+    }
+}
+
 /// The data for a helper that is gone without a way to ask why (macOS: its parent is Chromium, which reaps it, so there
 /// is no exit status to read): reported as a crash with exit code -1. A helper ending because the app quits is never
 /// reported, so a disappearance while the app runs is not a clean exit.
@@ -305,6 +322,29 @@ mod tests {
             Some("audio.mojom.AudioService")
         );
         assert_eq!(watched_kind_of_args(&["tool".to_string()]), None);
+    }
+
+    #[test]
+    fn only_long_lived_helpers_are_reported_when_no_status_is_readable() {
+        let gpu = Kind {
+            process_type: "gpu-process".into(),
+            service: None,
+        };
+        let network = Kind {
+            process_type: "utility".into(),
+            service: Some("network.mojom.NetworkService".into()),
+        };
+        let unzip = Kind {
+            process_type: "utility".into(),
+            service: Some("unzip.mojom.Unzipper".into()),
+        };
+        assert!(long_lived(&gpu));
+        assert!(long_lived(&network));
+        assert!(!long_lived(&unzip));
+        assert!(!long_lived(&Kind {
+            process_type: "utility".into(),
+            service: None
+        }));
     }
 
     #[test]

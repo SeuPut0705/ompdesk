@@ -475,7 +475,7 @@ What the Rust shell does differently from this table or from Electron. README.md
   a second and reports a gone non-renderer, non-crashpad child. Windows: ToolHelp plus `--type=` from the command line, the
   exit code from the process handle; reasons come from the NTSTATUS table in `shell_core::childproc::reason` (exit code 1 is
   `killed`). macOS (UNVERIFIED): children from `proc_listpids(PROC_PPID_ONLY)`, `--type=` read once from `KERN_PROCARGS2`,
-  liveness by `kill(pid, 0)`; the helpers are Chromium's to reap, so no status is readable and a helper that disappears is
+  liveness by `kill(pid, 0)`, only for the GPU process and the long-lived utility services (network, audio, storage: other utilities finish normally); the helpers are Chromium's to reap, so no status is readable and a helper that disappears is
   `reason: "crashed"`, `exitCode: -1`. A helper that lives under a second is missed, and nothing is reported once the shell
   is exiting (an app quit).
 - **`win.event`** `unresponsive`/`responsive` is sent for a window's main page in addition to its `wc.event`; views and
