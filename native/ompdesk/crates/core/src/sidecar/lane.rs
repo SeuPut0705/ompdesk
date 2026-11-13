@@ -26,6 +26,7 @@ use super::messages::complete_run_messages;
 use super::process::{self, Exit, Start, pump_stderr, pump_stdout, signal_name};
 use super::queue::{Slot, queue};
 use super::stop::{Proc, StdinMsg, Timing};
+use super::stream::Stream;
 use crate::server::{Events, Fault};
 
 /// stderr lines kept per spawn for the crash report.
@@ -449,6 +450,8 @@ pub struct Lane {
     ask_counter: u64,
     asks: Vec<(u64, Ask)>,
     ready: Option<ReadyProgress>,
+    /// What main reads of the frames (`stream.rs`).
+    stream: Stream,
 }
 
 fn now_ms() -> u64 {
@@ -566,6 +569,7 @@ impl Lane {
             ask_counter: 0,
             asks: Vec::new(),
             ready: None,
+            stream: Stream::default(),
         };
         tokio::spawn(async move {
             while let Some(message) = messages.recv().await {
@@ -612,10 +616,11 @@ impl Lane {
         }
     }
 
-    fn emit_frame(&self, raw: Vec<u8>) {
+    fn emit_frame(&mut self, frame: Frame) {
         if self.quiet {
             return;
         }
+        let raw = self.stream.frame(frame.raw, frame.ty.as_deref());
         let data = json!({ "tab": self.tab, "cmd": self.applied });
         super::tap(&self.tab, "sidecar.frame", &data, Some(&raw));
         self.events.send_bin("sidecar.frame", &data, raw);
@@ -1389,7 +1394,7 @@ impl Lane {
             Some("response") if self.on_response(&frame) => return,
             _ => {}
         }
-        self.emit_frame(frame.raw);
+        self.emit_frame(frame);
     }
 
     /// Routes an omp response to its waiting command; false when nobody waits (it was never asked, timed out or its
@@ -1971,6 +1976,8 @@ impl Lane {
     /// Tears the spawn cycle down. Any async continuation of the current cycle (pending negotiation) is stale from here
     /// on, even before the replacement spawns. Returns the omp that was running, for its stop.
     fn cleanup(&mut self) -> Option<Running> {
+        // Main drops what the lane sent before the command that tears this down: nothing after leans on it.
+        self.stream.reset();
         self.generation += 1;
         self.slow_epoch += 1;
         self.slow = false;

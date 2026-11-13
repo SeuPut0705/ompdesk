@@ -33,6 +33,7 @@ mod messages;
 mod process;
 mod queue;
 mod stop;
+mod stream;
 #[cfg(test)]
 mod tests;
 
@@ -103,8 +104,8 @@ fn failed(fault: Fault) -> Answer {
 
 // ---- in-core subscribers ------------------------------------------------------------------------------------------
 
-/// An event a lane sent main (`sidecar.status`, `sidecar.frame` with omp's raw line as `bin`, …), as an in-core
-/// subscriber gets it: the same name, data and bytes, in the order main gets them.
+/// An event a lane sent main (`sidecar.status`, `sidecar.frame` with the frame as `bin`, as `stream.rs` slimmed it,
+/// …), as an in-core subscriber gets it: the same name, data and bytes, in the order main gets them.
 #[derive(Clone, Debug)]
 pub struct LaneEvent {
     pub name: String,

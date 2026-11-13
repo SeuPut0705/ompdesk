@@ -28,7 +28,7 @@
 				"src/main/remote/host-services.ts",
 				"src/main/ipc.ts"
 			],
-			"syncCommit": "c0c13665b89cfb85f36d482922d7125243fa87c0",
+			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md"
 		},
 		{
@@ -69,7 +69,7 @@
 				"src/main/session-index.ts:369-383",
 				"src/main/session-index.ts:441-444"
 			],
-			"syncCommit": "c0c13665b89cfb85f36d482922d7125243fa87c0",
+			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md"
 		},
 		{
@@ -93,7 +93,7 @@
 				"src/main/tab-release.ts#closeWindowTab",
 				"src/main/agent-control/host.ts:1119-1126"
 			],
-			"syncCommit": "e8967843925db6084ca922dcad89c214e66f6262",
+			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
 		},
 		{
@@ -108,7 +108,7 @@
 				"native/ompdesk/crates/core/src/sidecar/launch.rs",
 				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
-			"syncCommit": "c0c13665b89cfb85f36d482922d7125243fa87c0",
+			"syncCommit": "00fe764465cc83c1683062fb293c828dfcff1d1e",
 			"verifySkill": ".omp/skills/tab-session-verify/SKILL.md"
 		},
 		{
@@ -127,7 +127,7 @@
 				"src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire",
 				"src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send"
 			],
-			"syncCommit": "bf4981ace5a6ca13f883e7ea84986473d0ea4d92",
+			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/checkout-claims-verify/SKILL.md"
 		},
 		{
@@ -155,7 +155,7 @@
 				"native/ompdesk/crates/core/src/disk/tree.rs#live",
 				"native/ompdesk/crates/core/src/git/read.rs#blocking"
 			],
-			"syncCommit": "f3b2d497976c1c3f044f760a1d3c1f1b06b8de94",
+			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"
 		},
 		{
@@ -170,7 +170,7 @@
 				"src/main/session-processes.ts",
 				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
-			"syncCommit": "c0c13665b89cfb85f36d482922d7125243fa87c0",
+			"syncCommit": "00fe764465cc83c1683062fb293c828dfcff1d1e",
 			"verifySkill": ".omp/skills/session-processes-verify/SKILL.md"
 		},
 		{
@@ -184,7 +184,7 @@
 			"covers": [
 				"native/ompdesk/crates/core/src/stock/mod.rs"
 			],
-			"syncCommit": "6f5f8709ab40dbff9dcc76a6d41d78dbc8065c1e",
+			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/stock-lane-verify/SKILL.md"
 		}
 	]
