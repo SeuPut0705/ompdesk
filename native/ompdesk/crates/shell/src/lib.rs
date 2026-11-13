@@ -18,6 +18,7 @@ pub mod notify_spec;
 pub mod proxy_rules;
 pub mod range;
 pub mod shell_args;
+pub mod spell;
 pub mod startup;
 pub mod transition;
 pub mod tray_image;
