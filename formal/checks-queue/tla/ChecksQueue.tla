@@ -82,7 +82,7 @@ Init ==
     /\ failedOn = {}
 
 \* A branch joins the line.
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:470-503 LandQueue::enqueue a branch joins the line
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:479-512 LandQueue::enqueue a branch joins the line
 Enqueue(e) ==
     /\ st[e] = "out"
     /\ \A d \in 1..(e - 1) : st[d] # "out"
@@ -94,8 +94,8 @@ Enqueue(e) ==
 Landing(e) == trial.stage = "land" /\ Index(flight, e) <= trial.len
 
 \* A branch is withdrawn. Out of the flight it ends the trial only when the trial's commit holds it.
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:506-518 LandQueue::remove
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:457-466 LandQueue::leave_flight refused while landing; drops the trial that holds the entry
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:515-527 LandQueue::remove
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:466-475 LandQueue::leave_flight refused while landing; drops the trial that holds the entry
 Remove(e) ==
     /\ removes < MaxRemoves
     /\ removes' = removes + 1
@@ -111,7 +111,7 @@ Remove(e) ==
     /\ UNCHANGED <<bad, main, tip, memo, runs, moves, ciGreen, ciRed, pushed, failedOn>>
 
 \* The next batch: the oldest waiting entry and the later ones of its goal, oldest first. (When: abstracted, any time.)
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:349-371 LandQueue::form
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:358-380 LandQueue::form
 Form ==
     /\ flight = <<>>
     /\ trial.stage = "idle"
@@ -127,8 +127,8 @@ Known(k, v) == <<tip, Prefix(flight, k), v>> \in memo
 
 \* What the queue does next with its flight, from what it knows: land the longest prefix known green; else fail the
 \* first entry when it alone is known red; else test the whole flight, or the middle of the shortest prefix known red.
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:375-402 LandQueue::next what is known decides: land, fail or test
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:405-454 LandQueue::advance
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:384-411 LandQueue::next what is known decides: land, fail or test
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:414-463 LandQueue::advance
 Step ==
     /\ trial.stage = "idle"
     /\ flight # <<>>
@@ -151,7 +151,7 @@ Step ==
     /\ UNCHANGED <<bad, main, line, tip, memo, moves, removes, ciGreen, ciRed, pushed>>
 
 \* A check run ends. The queue takes its result only for the commit it is testing now.
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:581-614 LandQueue::verdict taken only for the commit under test
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:590-623 LandQueue::verdict taken only for the commit under test
 RunDone(c) ==
     /\ c \in runs
     /\ runs' = runs \ {c}
@@ -173,7 +173,7 @@ Push ==
 
 \* The queue reads that the base holds the commit: its entries have landed. What it knew about longer combinations
 \* stays true on the new tip only when the base is exactly that commit.
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:641-677 LandQueue::landed
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:650-686 LandQueue::landed
 Landed ==
     /\ trial.stage = "land" /\ IsPrefix(trial.commit, main)
     /\ LET k == trial.len
@@ -189,7 +189,7 @@ Landed ==
     /\ UNCHANGED <<bad, main, line, runs, moves, removes, ciGreen, ciRed, pushed, failedOn>>
 
 \* The push was refused: the base moved on. Nothing the queue knew holds on the new tip.
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:680-689 LandQueue::moved
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:689-698 LandQueue::moved
 Moved ==
     /\ trial.stage = "land"
     /\ ~IsPrefix(main, trial.commit)
@@ -200,7 +200,7 @@ Moved ==
     /\ UNCHANGED <<bad, main, st, line, flight, runs, moves, removes, ciGreen, ciRed, pushed, failedOn>>
 
 \* The queue reads a base tip it did not know (not while it pushes: that push's own answer decides).
-\* @code native/ompdesk/crates/core/src/checks/queue.rs:710-720 LandQueue::base_read
+\* @code native/ompdesk/crates/core/src/checks/queue.rs:719-729 LandQueue::base_read
 SeeBase ==
     /\ tip # main
     /\ trial.stage # "land"
