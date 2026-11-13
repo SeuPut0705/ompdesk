@@ -5291,4 +5291,39 @@ describe("a paired tab's plan generation is the host's, end to end", () => {
 		await answer(forwarded ?? 0);
 		expect(sidecar.commands.map(command => command.type)).toEqual(["agent_control_mail", "plan_approval"]);
 	});
+
+	it("stamps a window tab's plan with the pool's generation for a device that views it, on a reconnect too, and its answer is that plan's", async () => {
+		const context = setup();
+		const SESSION = "/s/local.jsonl";
+		context.local.owned.set(SESSION, { tabId: "win1", winId: 1 });
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set(SESSION, view);
+		// The pool numbered this plan 7; this host's own counter has issued one other number.
+		let pending: { title: string; planFilePath: string; generation: number } | null = null;
+		context.local.localTabs.pendingPlan = () => pending;
+		const run = vi.fn(async () => {});
+		Object.assign(context.local.localTabs, { targetAnswer: { run } });
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: SESSION }, x);
+		pending = { title: "Plan", planFilePath: "/p/plan.md", generation: 7 };
+		view.emit("events", [proposal("Plan")]);
+		expect(proposals(x).map(event => event.generation)).toEqual([7]);
+		// The link drops and comes back: the pool's current number goes with the proposal again.
+		context.services.disconnected(x.peer, x);
+		const back = new FakeConnection(peer("device-x"));
+		await context.services.call(back.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: SESSION }, back);
+		expect(proposals(back).map(event => event.generation)).toEqual([7]);
+		// The device's agent answers for what it was sent; the pool's one step gets that very number.
+		const step = {
+			type: "agent_control_answer",
+			requestId: "answer-1|plan",
+			companion: { content: "note", details: { id: "answer-1" }, delivery: { triggerTurn: false } },
+			plan: { type: "plan_approval", approved: true },
+			planFile: "/p/plan.md",
+			planGeneration: 7,
+		};
+		await context.services.call(back.peer, "tab.command", { rtab: "t1", command: step }, back);
+		expect(run).toHaveBeenCalledWith("win1", expect.objectContaining({ planGeneration: 7 }), expect.any(Function));
+	});
 });

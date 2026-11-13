@@ -693,3 +693,39 @@ async fn a_plan_answer_with_attachments_names_the_plan_it_was_about() {
     assert_eq!(steps[0]["plan"]["type"], "plan_approval");
     control.host.port().close();
 }
+
+#[tokio::test]
+async fn two_revisions_of_a_plan_with_the_same_title_and_files_are_two_steps_with_their_own_note() {
+    let step_of = |generation: u64| {
+        let mut plan = tab("b");
+        plan["plan"] =
+            json!({ "title": "Ship it", "planFilePath": "/p/plan.md", "generation": generation });
+        plan
+    };
+    let args = json!({ "session": "b", "approve": false, "text": "no", "attachments": [{ "path": "/w/doc.pdf" }] });
+    let mut keys = Vec::new();
+    for (port, generation) in [(9_440_u64, 3_u64), (9_441, 4)] {
+        let (control, asked) = rig(
+            port,
+            state(vec![tab("a"), step_of(generation)]),
+            Caps::default(),
+            &Files::default(),
+            omp,
+        );
+        let done = control
+            .run("a", "ompdesk_session_answer", args.clone(), None)
+            .await;
+        assert!(!done.is_error, "{}", done.text);
+        let steps = commands(&asked, "agent_control_answer");
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["planGeneration"], generation);
+        keys.push((
+            steps[0]["requestId"].clone(),
+            steps[0]["companion"]["details"]["id"].clone(),
+        ));
+        control.host.port().close();
+    }
+    assert_ne!(keys[0].0, keys[1].0, "the replay keys differ");
+    assert_ne!(keys[0].1, keys[1].1, "the notes differ");
+    assert!(keys[0].0.as_str().unwrap().ends_with("|plan:3"));
+}

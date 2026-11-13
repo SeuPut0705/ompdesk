@@ -291,7 +291,7 @@ export interface HostServicesDeps {
 		| "notePrompted"
 		| "beginMove"
 	> &
-		Partial<Pick<SidecarPool, "targetAnswer" | "guardPlan">> & {
+		Partial<Pick<SidecarPool, "targetAnswer" | "guardPlan" | "pendingPlan">> & {
 			/** Counts the tabs a device runs here among those waiting on one provider (model-wait-count.ts). */
 			modelWait?: Pick<ModelWaitTracker, "observe" | "forget" | "snapshot">;
 		};
@@ -1752,7 +1752,8 @@ export class LocalHostServices implements HostServices {
 			this.#emit(existing, "openAsks", [...existing.asks.values()]);
 			// A plan still waiting for approval: the device's pool keeps this host's generation for it, the same one
 			// its agent's answer carries back.
-			if (existing.planProposal) this.#emit(existing, "events", [existing.planProposal.event]);
+			const pending = this.#pendingPlanEvent(existing);
+			if (pending) this.#emit(existing, "events", [pending]);
 			// The device's waiting row and retry countdown may date from before it lost this computer.
 			this.#emit(existing, "awaitingConnection", existing.awaitingConnection === true);
 			this.#emit(existing, "scheduledRetry", scheduledRetryArg(existing.scheduledRetry));
@@ -2278,11 +2279,21 @@ export class LocalHostServices implements HostServices {
 	 * the proposal resolves. A tab that views another's omp keeps none: that omp's own pool numbers its plans.
 	 */
 	#stampPlans(tab: HostTab, events: AgentSessionEvent[]): AgentSessionEvent[] {
-		if (tab.viewing) return events;
+		if (typeof tab.viewing === "object") return events;
+		// A window's tab a device views: the pool numbers its plans, and it read this very event before the view
+		// forwards it (its listeners were on the omp first), so its pending plan carries the number to stamp.
+		const windowPlan = (path: string): number | undefined => {
+			if (tab.viewing !== "window" || !tab.sessionFile) return undefined;
+			const owner = this.#deps.localTabs.sessionOwner(tab.sessionFile);
+			const pending = owner ? this.#deps.localTabs.pendingPlan?.(owner.tabId) : null;
+			return pending?.planFilePath === path ? pending.generation : undefined;
+		};
 		let out: AgentSessionEvent[] | undefined;
 		events.forEach((event, index) => {
 			if (event.type === "plan_proposal") {
-				const stamped = { ...event, generation: ++this.#planGeneration };
+				const generation = tab.viewing === "window" ? windowPlan(event.planFilePath) : ++this.#planGeneration;
+				if (generation === undefined) return;
+				const stamped = { ...event, generation };
 				tab.planProposal = {
 					title: event.title ?? "",
 					planFilePath: event.planFilePath,
@@ -2295,6 +2306,18 @@ export class LocalHostServices implements HostServices {
 				tab.planProposal = undefined;
 		});
 		return out ?? events;
+	}
+
+	/** The proposal a returning device is sent again: this host's own, or (a window's tab it views) the pool's current. */
+	#pendingPlanEvent(tab: HostTab): AgentSessionEvent | undefined {
+		const kept = tab.planProposal;
+		if (!kept || typeof tab.viewing === "object") return undefined;
+		if (tab.viewing !== "window") return kept.event;
+		const owner = tab.sessionFile ? this.#deps.localTabs.sessionOwner(tab.sessionFile) : null;
+		const pending = owner ? this.#deps.localTabs.pendingPlan?.(owner.tabId) : null;
+		return pending?.planFilePath === kept.planFilePath
+			? ({ ...kept.event, generation: pending.generation } as AgentSessionEvent)
+			: undefined;
 	}
 
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {

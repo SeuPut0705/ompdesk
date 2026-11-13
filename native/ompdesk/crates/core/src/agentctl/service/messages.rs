@@ -1352,7 +1352,7 @@ impl AgentControl {
                 } else {
                     &plan.title
                 },
-                "plan",
+                &format!("plan:{}", plan.generation.unwrap_or(0)),
                 resolved,
             )
             .await?

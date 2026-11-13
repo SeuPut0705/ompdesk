@@ -650,6 +650,9 @@ impl AgentControl {
             caller.session_path.as_deref().unwrap_or(&caller.tab_id),
             target.session_path.as_deref().unwrap_or(&target.tab_id),
             about,
+            // The question or plan it is about: the same title and files for another ask, or for a revised plan,
+            // is another step with its own note (the bridge drops a repeated note id).
+            ask_id,
             sig.as_str(),
         ]
         .join("\u{0}");

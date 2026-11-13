@@ -301,5 +301,21 @@ describe("an answer with attachments is one step on the answered session's compu
 			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(/Neither the attachments nor the answer/);
 			expect(t.personApprovesPlan()).toBe("answered");
 		});
+
+		it("answers two revisions that share a title and files: each has its own key, so neither is taken for the other's replay", async () => {
+			const t = target({ open: ["plan"] });
+			const step = (generation: number): AnswerStep => ({
+				requestId: `answer-${generation}|plan:${generation}`,
+				companion: { ...companion, details: { id: `answer-${generation}` } },
+				plan: { type: "plan_approval", approved: true } as RpcCommand,
+				planFile: "/p/plan-1.md",
+				planGeneration: generation,
+			});
+			await t.answers.run("tab", step(1), t.send);
+			t.planFile.generation = 2;
+			await t.answers.run("tab", step(2), t.send);
+			expect(t.appended).toEqual(["answer-1", "answer-2"]);
+			expect(t.answered).toEqual(["plan_approval", "plan_approval"]);
+		});
 	});
 });
