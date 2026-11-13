@@ -1,9 +1,9 @@
 {
 	"checker": {
 		"kind": "tlc",
-		"config": "MC.cfg",
+		"config": "MC_mut.cfg",
 		"workers": 4,
-		"timeoutSec": 3600
+		"timeoutSec": 1800
 	},
 	"properties": [
 		"TypeOK",
