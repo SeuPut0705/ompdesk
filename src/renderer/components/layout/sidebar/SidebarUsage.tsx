@@ -35,9 +35,6 @@ import {
 import { ConnectedRow, ProviderGroupItem } from "../../settings/providers/ConnectedRow";
 import { type ProviderGroup, providerPlan, shortProviderName } from "../../settings/providers/provider-groups";
 
-/** Gauge columns on one line of the sidebar's width; a provider with more wraps the rest under them. */
-const SIDEBAR_USAGE_COLUMNS = 3;
-
 /** What a row says of a usage report: the account's quota, and its state while omp skips it after a limit. */
 function sourceOf(report: UsageReport, inUse: boolean): AccountQuotaSource {
 	const limited = report.resetAt !== undefined;
@@ -96,16 +93,7 @@ function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers:
 						badges={<AccountBadges account={source} />}
 						compact
 						key={`${report.provider}:${report.credentialId ?? labels[index]}`}
-						quota={
-							<QuotaCell
-								account={source}
-								columns={columns}
-								compact
-								maxColumns={SIDEBAR_USAGE_COLUMNS}
-								now={now}
-								tracks={0}
-							/>
-						}
+						quota={<QuotaCell account={source} columns={columns} compact now={now} tracks={0} />}
 						quotaColumns={columns.length}
 						rowProps={{
 							"data-in-use": inUse || undefined,

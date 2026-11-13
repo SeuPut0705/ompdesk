@@ -189,7 +189,7 @@ describe("SidebarUsage", () => {
 		expect(block?.querySelector(".omp-sidebar-usage-groups")?.hasAttribute("data-sidebar-usage-scroll")).toBe(true);
 		const css = readFileSync(fileURLToPath(new URL("../../../styles/sidebar.css", import.meta.url)), "utf8");
 		const rule = /\.omp-sidebar-usage-groups\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-		expect(rule).toMatch(/max-height:\s*min\(\s*18rem,\s*40dvh\s*\)/);
+		expect(rule).toMatch(/max-height:\s*min\(\s*20rem,\s*40dvh\s*\)/);
 		expect(rule).toMatch(/overflow-y:\s*auto/);
 	});
 

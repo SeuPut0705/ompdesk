@@ -231,10 +231,10 @@ export function ConnectedRow({
 	return (
 		<li {...rowProps} className={`@container ${compact ? "py-1" : "py-1.5"}`}>
 			<div
-				className={`flex flex-wrap items-start gap-x-3 gap-y-1.5 pr-2.5 ${compact ? "pl-[calc(0.625rem+1.25rem)]" : "pl-[calc(0.625rem+1.25rem+0.625rem)]"}`}
+				className={`flex flex-wrap items-start gap-x-3 gap-y-1.5 pr-2.5 ${compact ? "pl-6" : "pl-[calc(0.625rem+1.25rem+0.625rem)]"}`}
 			>
 				<span
-					className={`order-1 flex ${compact ? "min-h-6" : "min-h-(--sc-control-sm)"} min-w-0 flex-1 basis-24 items-center gap-2`}
+					className={`order-1 flex ${compact ? "min-h-6 flex-wrap" : "min-h-(--sc-control-sm)"} min-w-0 flex-1 basis-24 items-center gap-x-2 gap-y-0.5`}
 				>
 					<span
 						className={`min-w-0 text-sc-sm text-(--sc-text) ${compact ? "[overflow-wrap:anywhere]" : "truncate"}`}

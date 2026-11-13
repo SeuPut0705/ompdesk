@@ -293,12 +293,12 @@ for (const language of variants(["en", "ko"] as const))
 							}).length,
 					);
 					expect(cut, "no address is cut").toBe(0);
-					// The groups scroll inside a height cap: 18rem, at most 40 % of the window.
+					// The groups scroll inside a height cap: 20rem, at most 40 % of the window.
 					const scroller = await block.locator("[data-sidebar-usage-scroll]").evaluate(list => {
 						const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
 						return {
 							height: list.getBoundingClientRect().height,
-							cap: Math.min(18 * rem, innerHeight * 0.4),
+							cap: Math.min(20 * rem, innerHeight * 0.4),
 							overflowY: getComputedStyle(list).overflowY,
 						};
 					});

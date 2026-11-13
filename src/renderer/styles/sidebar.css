@@ -179,7 +179,7 @@ html[data-input="touch"] .omp-session-sidebar [data-device-group] > div:first-ch
 }
 
 .omp-sidebar-usage-groups {
-	max-height: min(18rem, 40dvh);
+	max-height: min(20rem, 40dvh);
 	overflow-y: auto;
 	overscroll-behavior: contain;
 }
@@ -193,6 +193,12 @@ html[data-input="touch"] .omp-sidebar-usage [data-provider-head] {
 .omp-sidebar-usage .omp-usage-gauge-text {
 	gap: var(--sc-space-1);
 	padding-inline: var(--sc-space-1-5);
+}
+
+/* As many gauge columns as hold a bar of 4.25rem: three on the owner's 278 px sidebar, two on a 248 px one (the window
+   that does not fit wraps under), never a "Fable 88%" cut at the edge. A provider's slots are the same in every row. */
+.omp-sidebar-usage .omp-usage-gauges[data-columns] {
+	grid-template-columns: repeat(auto-fit, minmax(4.25rem, 1fr));
 }
 
 .omp-sidebar-usage .omp-usage-gauge-reset {

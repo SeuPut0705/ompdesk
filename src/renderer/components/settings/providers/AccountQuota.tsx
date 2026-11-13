@@ -67,15 +67,12 @@ export function QuotaCell({
 	account,
 	columns,
 	tracks,
-	maxColumns,
 	compact = false,
 	now,
 }: {
 	account: AccountQuotaSource;
 	columns: readonly string[];
 	tracks: number;
-	/** Columns on one line before the rest wrap (`UsageGauges`); a narrow list asks for fewer. */
-	maxColumns?: number;
 	/** Slim bars with small type (`UsageGauges compact`): the sidebar's width. */
 	compact?: boolean;
 	now: number;
@@ -97,14 +94,7 @@ export function QuotaCell({
 			data-quota-updated={account.fetchedAt === undefined ? undefined : formatClock(account.fetchedAt)}
 			title={title}
 		>
-			<UsageGauges
-				columns={columns}
-				compact={compact}
-				limits={limits}
-				maxColumns={maxColumns}
-				resets
-				tracks={tracks}
-			/>
+			<UsageGauges columns={columns} compact={compact} limits={limits} resets tracks={tracks} />
 		</div>
 	);
 }
