@@ -224,6 +224,23 @@ describe("startSignInRelay", () => {
 		expect(timed.forward).not.toHaveBeenCalled();
 	});
 
+	it("forwards nothing once closed, even a callback that reaches the core before the close does", async () => {
+		// The close crosses to the core as a push while the callback is already on its way: whichever the core reads
+		// first, the browser hears 409 or a refused connection and the host never gets the callback.
+		for (let round = 0; round < 10; round++) {
+			const port = await freePort();
+			const stand = relay({ callback: `http://127.0.0.1:${port}/callback` });
+			await vi.waitFor(() => expect(stand.states).toEqual([{ listening: true }]));
+			const callback = get(port, "/callback?code=abc&state=xyz").then(
+				page => page.status,
+				() => "refused",
+			);
+			stand.relay.close();
+			expect([409, "refused"]).toContain(await callback);
+			expect(stand.forward).not.toHaveBeenCalled();
+		}
+	});
+
 	it("starts for no sign-in without a loopback callback or a state to check", () => {
 		const options = { forward: vi.fn(), failure, onState: vi.fn() };
 		expect(startSignInRelay({ ...options, authorizationUrl: authorize("https://example.com/callback") })).toBeNull();

@@ -52,7 +52,11 @@ export function startSignInRelay(options: SignInRelayOptions): SignInRelay | nul
 		routed = true;
 		process.on("remotebytes.signInEnded", data => running.get((data as { relay: number }).relay)?.());
 	}
+	// A close before the core answered the start waits for it, so the core never hears of a relay it has not started.
+	let closed = false;
 	const asker = registerAsker(async ask => {
+		// Closed here before the core heard it: forward nothing, as the closed listener in main never could.
+		if (closed) return { closed: true };
 		try {
 			return { page: await options.forward(String(ask.path), String(ask.query)) };
 		} catch {
@@ -63,8 +67,6 @@ export function startSignInRelay(options: SignInRelayOptions): SignInRelay | nul
 		running.delete(asker.id);
 		asker.release();
 	});
-	// A close before the core answered the start waits for it, so the core never hears of a relay it has not started.
-	let closed = false;
 	let started = false;
 	const close = () => {
 		if (closed) return;

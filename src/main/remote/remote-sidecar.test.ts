@@ -691,7 +691,13 @@ describe("RemoteSidecar", () => {
 			arg: { active: [], ended: { providerId: "anthropic", error: null } },
 		});
 		expect(relays.at(-1)).toBeNull();
-		// The close reaches the core's stand-in a moment later; a request in that moment hears 409, never the host.
+		// The close reaches the core's stand-in a moment later: a callback in that moment hears 409 and never reaches
+		// the host, and once it arrives nothing listens.
+		const late = await fetch(`http://127.0.0.1:${port}/callback?code=abc&state=xyz`).then(
+			page => page.status,
+			() => "refused",
+		);
+		expect([409, "refused"]).toContain(late);
 		await vi.waitFor(() => expect(fetch(`http://127.0.0.1:${port}/callback?code=abc&state=xyz`)).rejects.toThrow());
 		expect(
 			link.sent.filter(request => request.method === SIGN_IN_CALLBACK_METHOD).map(request => request.params),

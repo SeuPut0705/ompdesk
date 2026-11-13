@@ -262,6 +262,9 @@ struct Words {
 struct Forwarded {
     page: Option<Page>,
     failure: Option<Words>,
+    /// Main closed the stand-in before its close reached here: nothing was forwarded.
+    #[serde(default)]
+    closed: bool,
 }
 
 async fn handle(relay: &Relay, request: Request<Incoming>) -> Response<Full<Bytes>> {
@@ -294,6 +297,10 @@ async fn handle(relay: &Relay, request: Request<Incoming>) -> Response<Full<Byte
         .ok()
         .and_then(|answer| serde_json::from_str::<Forwarded>(answer.get()).ok());
     match forwarded {
+        Some(Forwarded { closed: true, .. }) => {
+            relay.close();
+            answer(409, Some("text/plain; charset=utf-8"), String::new())
+        }
         Some(Forwarded {
             page: Some(page), ..
         }) => {
