@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use cef::*;
 use serde_json::{Value, json};
 use shell_core::chunks::fill;
+use shell_core::handshake::Handshake;
 
 use crate::host;
 
@@ -106,6 +107,7 @@ wrap_resource_handler! {
         partition: String,
         head: Arc<Mutex<Head>>,
         body: Arc<Mutex<Option<Arc<Mutex<Body>>>>>,
+        handshake: Arc<Mutex<Handshake>>,
     }
     impl ResourceHandler {
         fn open(&self, request: Option<&mut cef::Request>, handle_request: Option<&mut i32>, callback: Option<&mut Callback>) -> i32 {
@@ -131,7 +133,7 @@ wrap_resource_handler! {
                 "scheme": self.scheme, "partition": self.partition, "url": url, "method": method,
                 "headers": headers, "hasBody": has_body,
             });
-            let (head, slot, callback) = (self.head.clone(), self.body.clone(), AnyThread(callback));
+            let (head, slot, callback, handshake) = (self.head.clone(), self.body.clone(), AnyThread(callback), self.handshake.clone());
             host::request("protocol.request", params, has_body.then_some(body.as_slice()), move |result, _| {
                 {
                     let mut h = head.lock().unwrap();
@@ -151,10 +153,15 @@ wrap_resource_handler! {
                     }
                     h.ready = true;
                 }
-                callback.0.cont();
+                // Only when `open` already said it would wait (see `shell_core::handshake`).
+                if handshake.lock().unwrap().answer() {
+                    callback.0.cont();
+                }
             });
+            // A reply that came before this point is stored already: handle the request now, call no callback.
+            let waiting = self.handshake.lock().unwrap().open_returns();
             if let Some(h) = handle_request {
-                *h = 0;
+                *h = i32::from(!waiting);
             }
             1
         }
@@ -254,6 +261,7 @@ wrap_scheme_handler_factory! {
                 self.partition.clone(),
                 Arc::new(Mutex::new(Head::default())),
                 Arc::new(Mutex::new(None)),
+                Arc::new(Mutex::new(Handshake::default())),
             ))
         }
     }

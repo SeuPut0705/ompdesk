@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use cef::*;
 use serde_json::{Value, json};
+use shell_core::handshake::Handshake;
 use shell_core::migrate::local_storage::{DONE_FILE, IMPORT_FILE};
 use shell_core::range::{ParsedRange, parse_range};
 use shell_core::startup::is_plain_relative;
@@ -41,6 +42,9 @@ struct Resp {
     length: i64,
     /// An answer that is not there yet (an `ipc.invoke`): filled by the reply thread.
     waiting: bool,
+    /// `route` already stored this response (the pending one of an invoke) in the shared slot: `open` must not store it
+    /// again over an answer that may have arrived meanwhile.
+    installed: bool,
 }
 
 impl Resp {
@@ -55,6 +59,7 @@ impl Resp {
             end: 0,
             length: 0,
             waiting: false,
+            installed: false,
         }
     }
 
@@ -70,6 +75,7 @@ impl Resp {
             end: n,
             length: n as i64,
             waiting: false,
+            installed: false,
         }
     }
 
@@ -295,6 +301,7 @@ fn route(
     wc_id: Option<u64>,
     frame_url: String,
     shared: &Shared,
+    handshake: &Arc<Mutex<Handshake>>,
     callback: Option<AnyThread<Callback>>,
 ) -> Resp {
     let p = paths();
@@ -317,7 +324,12 @@ fn route(
                 let Some(callback) = callback else {
                     return Resp::refused("no callback");
                 };
-                let shared = shared.clone();
+                // The pending response is in place before the request leaves: the reply can come on another thread before
+                // `open` returns, and it must find (and replace) this, never be replaced by it.
+                let mut pending = Resp::empty();
+                pending.waiting = true;
+                *shared.lock().unwrap() = pending;
+                let (shared, handshake) = (shared.clone(), handshake.clone());
                 host::request("ipc.invoke", params, None, move |result, _| {
                     let body = ipc::invoke_body(result);
                     {
@@ -331,13 +343,16 @@ fn route(
                             ..Resp::empty()
                         };
                         r.headers.push(("Cache-Control", "no-store".into()));
-                        r.waiting = false;
                     }
-                    callback.0.cont();
+                    // Only after the body is stored; and only when `open` already said it would wait.
+                    if handshake.lock().unwrap().answer() {
+                        callback.0.cont();
+                    }
                 });
-                let mut r = Resp::empty();
-                r.waiting = true;
-                r
+                let mut marker = Resp::empty();
+                marker.waiting = true;
+                marker.installed = true;
+                marker
             }
             ("POST", "send") => {
                 host::event("ipc.send", params);
@@ -446,14 +461,20 @@ wrap_resource_handler! {
         wc_id: Option<u64>,
         frame_url: String,
         stop: Arc<Mutex<bool>>,
+        handshake: Arc<Mutex<Handshake>>,
     }
     impl ResourceHandler {
         fn open(&self, request: Option<&mut cef::Request>, handle_request: Option<&mut i32>, callback: Option<&mut Callback>) -> i32 {
             let Some(request) = request else { return 0 };
             let req = read_request(request);
-            let resp = route(req, self.wc_id, self.frame_url.clone(), &self.shared, callback.cloned().map(AnyThread));
-            let waiting = resp.waiting;
-            *self.shared.lock().unwrap() = resp;
+            let resp = route(req, self.wc_id, self.frame_url.clone(), &self.shared, &self.handshake, callback.cloned().map(AnyThread));
+            let waiting = if resp.installed {
+                // An answer that came meanwhile is already stored: say so and call no callback.
+                self.handshake.lock().unwrap().open_returns()
+            } else {
+                *self.shared.lock().unwrap() = resp;
+                false
+            };
             if let Some(h) = handle_request {
                 *h = i32::from(!waiting);
             }
@@ -526,12 +547,9 @@ wrap_resource_handler! {
             let remaining = r.end.saturating_sub(r.pos).min(want as u64) as usize;
             // SAFETY: CEF gives a buffer of `bytes_to_read` bytes; `remaining` never exceeds it.
             let out = unsafe { std::slice::from_raw_parts_mut(data_out, remaining) };
-            let pos = r.pos;
+            let (pos, end) = (r.pos, r.end);
             let n = match &mut r.source {
-                Source::Mem(v) => {
-                    out.copy_from_slice(&v[pos as usize..pos as usize + remaining]);
-                    remaining
-                }
+                Source::Mem(v) => shell_core::handshake::mem_chunk(v, pos, end, out),
                 Source::File(f) => {
                     let _ = f.seek(SeekFrom::Start(pos));
                     f.read(out).unwrap_or(0)
@@ -567,7 +585,7 @@ wrap_scheme_handler_factory! {
         ) -> Option<ResourceHandler> {
             let wc_id = browser.and_then(|b| crate::state::wc_of_browser(b.identifier()));
             let frame_url = frame.map(|f| CefString::from(&f.url()).to_string()).unwrap_or_default();
-            Some(ShellResource::new(Arc::new(Mutex::new(Resp::empty())), wc_id, frame_url, Arc::new(Mutex::new(false))))
+            Some(ShellResource::new(Arc::new(Mutex::new(Resp::empty())), wc_id, frame_url, Arc::new(Mutex::new(false)), Arc::new(Mutex::new(Handshake::default()))))
         }
     }
 }

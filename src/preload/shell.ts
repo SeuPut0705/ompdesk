@@ -15,6 +15,7 @@
 import type { OmpApi } from "../shared/ipc-types";
 import { createOmpApi, type OmpTransport } from "../shared/omp-api";
 import { describePreloadFailure } from "../shared/preload-failure";
+import { invokeAnswerText } from "../shared/shell-answer";
 
 const BASE = "app://ompdesk/";
 
@@ -117,7 +118,10 @@ const shellTransport: OmpTransport = {
 			headers: { "content-type": "text/plain" },
 			body: encode({ channel, args }),
 		});
-		const answer = decode(await response.text()) as { value?: T; error?: { message: string } };
+		const answer = decode(invokeAnswerText(await response.text(), channel, response.status)) as {
+			value?: T;
+			error?: { message: string };
+		};
 		if (answer.error) throw new Error(answer.error.message);
 		return answer.value as T;
 	},

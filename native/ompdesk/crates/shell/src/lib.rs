@@ -9,6 +9,7 @@ pub mod desk_state;
 pub mod dialog_spec;
 pub mod facts;
 pub mod frame;
+pub mod handshake;
 pub mod hotkey;
 pub mod input_watch;
 pub mod launcher;
