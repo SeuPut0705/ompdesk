@@ -37,7 +37,16 @@ export default defineConfig({
 	workers: process.env.GITHUB_ACTIONS ? 1 : Number(process.env.OMP_GUI_WORKERS) || Math.min(4, ramWorkers(totalmem())),
 	timeout: 60_000,
 	expect: { timeout: 10_000 },
-	reporter: [["list"], ["html", { open: "never" }]],
+	// A runner's shard also writes each test's result, which check control reads (`test-report-<job id>`), and what
+	// each spec file cost it, for the next run's shards (scripts/test-timings.ts).
+	reporter: [
+		["list"],
+		["html", { open: "never" }],
+		...(process.env.OMPDESK_TEST_REPORT
+			? [["json", { outputFile: process.env.OMPDESK_TEST_REPORT }] as [string, object]]
+			: []),
+		...(process.env.OMPDESK_E2E_TIMINGS_OUT ? [["./scripts/e2e-timings-reporter.ts"] as [string]] : []),
+	],
 	// Every click, fill and press is bounded (Playwright's default is none): one that waits for an element that never
 	// becomes actionable fails here naming it, instead of holding the test to its own timeout (nightly 39539556435:
 	// mobile-autopilot-rows clicked a button the page no longer showed and waited 5 min).

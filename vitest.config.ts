@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { availableParallelism, totalmem } from "node:os";
 import { configDefaults, defineConfig } from "vitest/config";
 import { ramWorkers } from "./scripts/lock-slots";
 import { claimRunTemp } from "./scripts/run-temp";
 import { CostSequencer } from "./scripts/vitest-sequencer";
+import { TimingsReporter } from "./scripts/vitest-timings-reporter";
 import { dropGitSelectors } from "./src/shared/git-env";
 
 // Tests make temp repositories with `git init` and `git config`: under `git bisect run` or a hook those would
@@ -14,6 +16,13 @@ dropGitSelectors();
 claimRunTemp();
 
 const RENDERER = "src/renderer/**/*.{test,spec}.?(c|m)[jt]s?(x)";
+// A branch's run on a runner hands in the test files its change reaches (scripts/ci-plan.ts); they are paths, so what a
+// glob would read as a pattern is escaped. Without it every test runs.
+const picked: string[] | undefined = process.env.OMPDESK_TEST_FILES
+	? JSON.parse(readFileSync(process.env.OMPDESK_TEST_FILES, "utf8")).map((file: string) =>
+			file.replace(/[\\*?{}()[\]!+@]/g, "\\$&"),
+		)
+	: undefined;
 
 export default defineConfig({
 	// Electron's asar-unaware `fs` (`original-fs`, what main uses over a user's folders) exists only inside Electron;
@@ -35,15 +44,27 @@ export default defineConfig({
 		maxWorkers: process.env.GITHUB_ACTIONS
 			? availableParallelism()
 			: Number(process.env.OMP_VITEST_WORKERS) || Math.min(8, availableParallelism() - 1, ramWorkers(totalmem())),
-		// `--shard` deals files by measured cost, not by count, and a run starts its longest files first
+		// `--shard` deals files by recorded cost, not by count, and a run starts its longest files first
 		// (scripts/vitest-sequencer.ts).
 		sequence: { sequencer: CostSequencer },
+		// A runner's job also writes each test's result, which check control reads (`test-report-<job id>`), and what
+		// each file cost it, for the next run's shards (scripts/test-timings.ts).
+		...((process.env.OMPDESK_TEST_REPORT || process.env.OMPDESK_TEST_TIMINGS_OUT) && {
+			reporters: [
+				"default",
+				"github-actions",
+				...(process.env.OMPDESK_TEST_REPORT ? [["json", { outputFile: process.env.OMPDESK_TEST_REPORT }]] : []),
+				...(process.env.OMPDESK_TEST_TIMINGS_OUT
+					? [new TimingsReporter(process.env.OMPDESK_TEST_TIMINGS_OUT)]
+					: []),
+			] as never,
+		}),
 		projects: [
 			{
 				extends: true,
 				test: {
 					name: "renderer",
-					include: [RENDERER],
+					include: picked?.filter(file => file.startsWith("src/renderer/")) ?? [RENDERER],
 					// Merged after the root's setup file (vitest.renderer-setup.ts: linkedom's documents in standards mode).
 					setupFiles: ["./vitest.renderer-setup.ts"],
 					// Projects on different pools run at the same time, each with
@@ -76,6 +97,7 @@ export default defineConfig({
 					// Main process, bridge and scripts: real subprocesses, sockets, PATH and
 					// env edits, so each file keeps its own process (`forks`).
 					name: "node",
+					include: picked?.filter(file => !file.startsWith("src/renderer/")) ?? configDefaults.include,
 					sequence: { groupOrder: 1 },
 					// Starting a process costs several times more on Windows, and the git-driven tests
 					// (autopilot audit/ship, workspace walk) spawn dozens: 5 s timed them out on windows-latest.

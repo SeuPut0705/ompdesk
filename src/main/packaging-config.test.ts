@@ -954,12 +954,28 @@ describe("workflows", () => {
 
 	it("gives a manual batch run every Linux and Windows job a push to main runs, and the macOS jobs only with mac", () => {
 		const ci = parse(workflows.find(entry => entry.name === "ci.yml")?.text ?? "") as {
-			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
-			jobs: Record<string, { if?: string; uses?: string; strategy?: { matrix?: { include?: string } } }>;
+			on: { workflow_dispatch: { inputs: Record<string, { default?: unknown }> } };
+			jobs: Record<
+				string,
+				{
+					if?: string;
+					uses?: string;
+					needs?: string | string[];
+					strategy?: { matrix?: { include?: string } };
+					steps?: { id?: string; env?: Record<string, string> }[];
+				}
+			>;
 		};
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("batch");
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("mac");
-		expect(ci.jobs["win-platform"]?.if).toContain("inputs.batch");
+		// The vitest jobs are the plan's (scripts/ci-plan.ts): it gets the Windows tests with batch, and the scope a
+		// dispatch asked for, which is the change unless it says full.
+		const planned = ci.jobs.plan?.steps?.find(step => step.id === "plan")?.env ?? {};
+		expect(planned.WINDOWS).toContain("inputs.batch");
+		expect(planned.SCOPE).toContain("inputs.scope");
+		expect(planned.MAC).toContain("inputs.mac");
+		expect(ci.on.workflow_dispatch.inputs.scope?.default).toBe("changed");
+		for (const job of ["check", "win-platform", "native"]) expect(ci.jobs[job]?.needs, job).toBe("plan");
 		// mac-smoke, mac-native, memory and `native` on macOS are one unit (mac-checks.yml): a push to main starts it, a
 		// dispatch only with mac (and the queue gate's admission, see ci-queue.test.ts).
 		expect(ci.jobs.mac?.uses).toBe("./.github/workflows/mac-checks.yml");

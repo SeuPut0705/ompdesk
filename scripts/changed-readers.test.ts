@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { changeBase, changedPaths, changedReaders } from "./changed-readers";
+import { changeBase, changedPaths, changedReaders, folderListers } from "./changed-readers";
 
 describe("changedReaders", () => {
 	const dirs: string[] = [];
@@ -28,6 +28,22 @@ describe("changedReaders", () => {
 		rmSync(path.join(dir, "src", "styles", "mobile.css"));
 
 		expect(changedReaders("HEAD", dir)).toEqual(["src/styles/touch.test.ts"]);
+	});
+
+	it("finds the tests that list a folder of the repository, and not one that lists a folder it made", () => {
+		const dir = mkdtempSync(path.join(tmpdir(), "changed-listers-"));
+		dirs.push(dir);
+		const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: dir, env });
+		mkdirSync(path.join(dir, "src"));
+		writeFileSync(path.join(dir, "src", "rules.test.ts"), 'const rules = readdirSync(join(__dirname, "rules"));');
+		writeFileSync(path.join(dir, "src", "temp.test.ts"), "expect(readdirSync(mkdtempSync(tmp))).toEqual([]);");
+		writeFileSync(path.join(dir, "src", "plain.test.ts"), 'const here = join(__dirname, "a.json");');
+		git("init", "-q", "-b", "main");
+		git("add", ".");
+
+		expect(folderListers(dir)).toEqual(["src/rules.test.ts"]);
 	});
 
 	it("measures a branch behind its base from where it left it, not from what landed there since", () => {

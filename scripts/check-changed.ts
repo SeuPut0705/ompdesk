@@ -166,9 +166,10 @@ if (failed.length > 0) {
 	console.log(`[check:changed] FAILED: ${failed.join(", ")}`);
 	process.exit(1);
 }
-// The picks here are a quick smoke pass by name and import, never a verdict: the full suites run on the branch's runner
-// (the owner's rule: heavy checks run on GitHub's runners).
-const VERDICT = "`bun scripts/ci-run.ts ci --ref <branch> -f batch=true` (full vitest, build, every OS)";
+// The picks here are a quick smoke pass by name and import, never a verdict: the branch's runner runs the change's whole
+// reach, uncapped, with the full build (the owner's rule: heavy checks run on GitHub's runners).
+const VERDICT =
+	"`bun scripts/ci-run.ts ci --ref <branch> -f batch=true` (every test the change reaches, uncapped, build, Linux and Windows)";
 const verdictLine = (what: string) => `[check:changed] ${what}; a quick pick, not a verdict: the verdict is ${VERDICT}`;
 if (supportChanged && specs.length === 0) {
 	console.log(

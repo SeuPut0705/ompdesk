@@ -11,6 +11,9 @@ dist/
 *.log
 .DS_Store
 tmp/
+# A CI run's plan and recorded test timings (scripts/ci-plan.ts, scripts/test-timings.ts), and a test job's report
+.ci/
+test-report/
 
 # electron-builder trial/override configs
 electron-builder.trial.yml

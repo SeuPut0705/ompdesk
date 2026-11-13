@@ -31,17 +31,37 @@ export function changedPaths(base: string, cwd?: string): string[] {
 	];
 }
 
+const TESTS = ["*.test.ts", "*.test.tsx", "*.test.mjs"];
+
+/** The tracked test files `git grep` finds; it exits 1 when nothing matches. */
+function testsMatching(args: string[], cwd?: string): string[] {
+	try {
+		return git(["grep", "-l", ...args, "--", ...TESTS], cwd);
+	} catch {
+		return [];
+	}
+}
+
 /** The tracked unit tests whose text names a file changed against `base`, a deleted one included, by its file name. */
 export function changedReaders(base: string, cwd?: string): string[] {
 	const names = [...new Set(changedPaths(base, cwd).map(file => path.basename(file)))];
-	if (names.length === 0) return [];
-	try {
-		return git(
-			["grep", "-l", "-F", ...names.flatMap(name => ["-e", name]), "--", "*.test.ts", "*.test.tsx", "*.test.mjs"],
-			cwd,
-		);
-	} catch {
-		// `git grep` exits 1 when nothing matches.
-		return [];
-	}
+	return names.length === 0 ? [] : testsMatching(["-F", ...names.flatMap(name => ["-e", name])], cwd);
+}
+
+/**
+ * The tracked unit tests that list a folder of the repository from their own place (the workflows, the rule files, a
+ * skill pack, the stylesheets): what a file added to or taken from such a folder reaches, with no test importing or
+ * naming it. A run that picks its tests by a change runs these whatever changed (`scripts/ci-plan.ts`; 33 files and
+ * 34 s of the node project's 1681 s in ci run 43484284198).
+ */
+export function folderListers(cwd?: string): string[] {
+	return testsMatching(
+		[
+			"--all-match",
+			"-E",
+			...["-e", String.raw`readdir(Sync)?\(|globSync\(|new Glob\(|import\.meta\.glob`],
+			...["-e", String.raw`__dirname|import\.meta\.(dirname|url)|process\.cwd\(\)`],
+		],
+		cwd,
+	);
 }

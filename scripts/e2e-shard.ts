@@ -9,26 +9,25 @@
  * run. Specs that skip inside the test (the real-omp and `OMP_GUI_*=<dir>` audits)
  * still count, so one shard would get a run of near-free tests and another the
  * real work. Here whole files are dealt, heaviest first, to the lightest shard
- * (LPT), by an estimated cost per file: its tests that are not annotated skipped, a `captures:` test counting a tenth,
- * at `TEST_SECONDS` each, but never below the file's time in `scripts/e2e-shard-costs.json`: each spec file's summed
- * test time on the hosted macOS runner with one worker (nightly 42609763294, 9 Nov 2026, every shard; deep-audit read
- * 608 s there, 596 and 702 s in two earlier runs). Measured on a 15-core Mac with 4 workers instead, deep-audit read
- * 184 s. Most tests of an unmeasured file skip inside their body, so `TEST_SECONDS` is the mean of the rest, not of
- * all tests: at 8 s the estimate was ~1546 s a shard against 907 to 1494 s measured, and the split put the heaviest
- * shard past the timeout.
+ * (LPT), by what each file cost in the recorded runs: its passed tests' summed time on the hosted macOS runner with
+ * one worker, from the record the run's first job handed every shard (`OMPDESK_E2E_TIMINGS`,
+ * `scripts/test-timings.ts`), else its snapshot `scripts/e2e-shard-costs.json`. Measured on a 15-core Mac with 4
+ * workers instead, deep-audit read 184 s for the runner's 608. A file no run has measured is estimated from its tests
+ * that are not annotated skipped, a `captures:` test counting a tenth, at `TEST_SECONDS` each: most tests of such a
+ * file skip inside their body, so that is the mean of the rest, not of all tests (at 8 s the estimate was ~1546 s a
+ * shard against 907 to 1494 s measured, and the split put the heaviest shard past the timeout).
  * The costs only steer the split; every file lands in exactly one shard, so a wrong estimate costs wall time, never
  * coverage, except past the shard's `--global-timeout` (35 minutes): the tests left then do not run at all (nightly
- * 41817431850, shard 3: 36 tests did not run; 41880669356, shard 1: one). `bun scripts/e2e-shard-costs.ts <run-id>`
- * rewrites the JSON from a nightly's logs: run it when specs are added or slow down.
+ * 41817431850, shard 3: 36 tests did not run; 41880669356, shard 1: one).
  */
 import { spawnSync } from "node:child_process";
-import costs from "./e2e-shard-costs.json";
+import seed from "./e2e-shard-costs.json";
 import { deal } from "./shard-deal";
+import { loadTimings } from "./test-timings";
 
 const TEST_SECONDS = 3;
 const CAPTURE_WEIGHT = 0.1;
-/** Spec files of 8 s or more, measured on the runner (seconds of test time, one worker). */
-const MEASURED_SECONDS: Readonly<Record<string, number>> = costs;
+const MEASURED = loadTimings(process.env.OMPDESK_E2E_TIMINGS, seed).e2e ?? {};
 
 interface JsonSpec {
 	title: string;
@@ -74,9 +73,8 @@ if (import.meta.main) {
 	const files = listSuites()
 		.filter(suite => suite.file)
 		.map(suite => {
-			const file = suite.file as string;
-			const base = file.split("/").pop() as string;
-			return { file: `e2e/${file}`, seconds: Math.max(cost(suite), MEASURED_SECONDS[base] ?? 0) };
+			const file = `e2e/${suite.file}`;
+			return { file, seconds: MEASURED[file] ?? cost(suite) };
 		});
 	const shards = deal(files, total);
 	const mine = shards[current - 1] ?? [];

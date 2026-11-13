@@ -3,13 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { pickTests, RELATED_CAP, reach, sourceImports } from "./changed-tests";
+import { pickTests, RELATED_CAP, reach, reachedTests, sourceImports } from "./changed-tests";
 
-const graph = (edges: Record<string, string[]>, extra: string[] = []) => ({
+const graph = (edges: Record<string, string[]>, extra: string[] = [], paths: (readonly [string, string])[] = []) => ({
 	files: new Set([...Object.keys(edges), ...extra]),
 	imports: Object.entries(edges).flatMap(([importer, specifiers]) =>
 		specifiers.map(specifier => [importer, specifier] as const),
 	),
+	paths,
 });
 
 describe("reach", () => {
@@ -56,6 +57,44 @@ describe("reach", () => {
 			"resources/gui-bridge/core.ts",
 		])
 			expect(reach([changed], world).direct).toHaveLength(1);
+	});
+
+	it("reaches a test through a path a file holds as text: the script it starts, a data file, a folder's every file", () => {
+		const world = graph(
+			{
+				"resources/bridge/index.ts": ["./modes/plan"],
+				"resources/bridge/modes/plan.ts": [],
+				"src/main/stock.test.ts": [],
+				"src/main/probe.ts": [],
+				"src/main/probe.test.ts": ["./probe"],
+				"scripts/costs.test.ts": ["./costs.json"],
+				"src/main/far.test.ts": [],
+			},
+			["scripts/costs.json"],
+			[
+				["src/main/stock.test.ts", "resources/bridge/index.ts"],
+				["src/main/probe.ts", "resources/bridge"],
+			],
+		);
+		// The test starts omp on the bridge's entry, which imports the changed mode; the probe copies the whole folder.
+		expect(reach(["resources/bridge/modes/plan.ts"], world)).toEqual({
+			direct: [],
+			related: ["src/main/probe.test.ts", "src/main/stock.test.ts"],
+		});
+		expect(reach(["scripts/costs.json"], world).direct).toEqual(["scripts/costs.test.ts"]);
+	});
+
+	it("counts a change to OMPdesk's Rust as a change to the file that finds its binaries, and says where from", () => {
+		const world = graph({
+			"src/main/native-bin.ts": [],
+			"src/main/core/process.ts": ["../native-bin"],
+			"src/main/core/process.test.ts": ["./process"],
+			"src/main/other.test.ts": [],
+		});
+		expect([...reachedTests(["native/ompdesk/crates/core/src/lib.rs", "src/main/other.test.ts"], world)]).toEqual([
+			["src/main/other.test.ts", "src/main/other.test.ts"],
+			["src/main/core/process.test.ts", "native/ompdesk/crates/core/src/lib.rs"],
+		]);
 	});
 });
 
@@ -116,13 +155,18 @@ describe("sourceImports", () => {
 		git("add", ".");
 		git("commit", "-q", "-m", "chore: base");
 		write("src/new.test.ts", 'import "./hub";\n');
+		write("data/rows.json", "[]\n");
+		write("src/starts.test.ts", 'spawn("bun", [resolve("src/hub.ts")]);\nread(join(__dirname, "../data"));\n');
 
-		expect(reach(["src/hub.ts"], sourceImports(dir)).direct).toEqual([
+		const world = sourceImports(dir);
+		expect(reach(["src/hub.ts"], world).direct).toEqual([
 			"src/lazy.test.ts",
 			"src/mocked.test.ts",
 			"src/multiline.test.ts",
 			"src/new.test.ts",
+			"src/starts.test.ts",
 			"src/static.test.ts",
 		]);
+		expect(reach(["data/rows.json"], world).direct).toEqual(["src/starts.test.ts"]);
 	});
 });
