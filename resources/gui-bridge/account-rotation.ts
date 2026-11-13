@@ -7,13 +7,17 @@
  * keep only this GUI ledger/pinning policy around the stock credential selector.
  * In quota mode the hook re-ranks a main session's automatic pin at turn start
  * (rules and margin in the core: rerankBeforePrompt), asking stock's own selector
- * and comparator; nothing here ranks by itself.
+ * and comparator; nothing here ranks by itself. A long turn is checked again
+ * between two model calls (`after_provider_response`, at most once a minute, not
+ * awaited): `rerankMidTurn` moves only on a near block or a large gain. Every
+ * decision, moved or not, is logged with its reason code, and the last one per
+ * session is what the usage view shows (`decisionOf`).
  *
  * Only public AuthStorage namespaces are touched (`oauth.accounts`, `oauth.policy`,
  * `sessions.pin|inherit|permits`, `blocks.list`, `keys.getWithCredential`,
  * `credentials.list`, `usage.report`) plus stock's ranking functions (`auth/rank`,
  * `auth/usage-report`); the selector, its strategies and the 429 failover stay
- * stock. The hook runs once per prompt, before omp resolves the request's key;
+ * stock. The turn-start hook runs once per prompt, before omp resolves the request's key;
  * subagents rebind this extension and inherit their parent's pin (sdk.ts
  * `credentialSourceSessionId`), so they already have an account and never re-rank.
  */
@@ -31,14 +35,22 @@ import { defaultRankingStrategy } from "@oh-my-pi/pi-ai/usage/registry";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { credentialPinHash } from "@oh-my-pi/pi-coding-agent/session/credential-pin";
 import {
+	type AccountFacts,
+	lastDecision,
 	parseLedger,
 	type QuotaRerankPrompt,
 	type QuotaRerankStock,
+	type RankRead,
+	type RerankPhase,
+	type RerankStep,
+	type RotationDecision,
 	type RotationLedger,
 	type RotationLedgerStore,
 	type RotationPrompt,
 	type RotationStock,
+	recordDecision,
 	rerankBeforePrompt,
+	rerankMidTurn,
 	rotateBeforePrompt,
 	setAccountRotation,
 	withDrainMargin,
@@ -102,7 +114,7 @@ interface CredentialUsageReporter {
 }
 
 /** Stock's ranking, for the turn's model: its selector's pick, and its comparator over the two accounts' own reports. */
-function quotaStock(ctx: ExtensionContext): QuotaRerankStock {
+function quotaStock(ctx: ExtensionContext, onRead?: (read: RankRead) => void): QuotaRerankStock {
 	return {
 		providerKey: STOCK.providerKey,
 		blockScopes: STOCK.blockScopes,
@@ -132,10 +144,11 @@ function quotaStock(ctx: ExtensionContext): QuotaRerankStock {
 		},
 		// The candidate rows are built from stock's own metrics (select.ts #rankOAuthSelections, minus reserve and
 		// priority: a session with account policies is never re-ranked) and ordered by stock's own comparator.
-		clearlyBetter: async (prompt, topId, pinId) => {
+		compare: async (prompt, topId, pinId) => {
 			const model = ctx.model;
 			const strategy = defaultRankingStrategy(prompt.provider);
-			if (!model || !strategy) return false;
+			const unreadable: RankRead = { pin: undefined, top: undefined, topFirstWithMargin: false };
+			if (!model || !strategy) return unreadable;
 			const authStorage = ctx.modelRegistry.authStorage;
 			const reporter = authStorage.usage as unknown as CredentialUsageReporter;
 			const stored = authStorage.credentials.list(prompt.provider);
@@ -171,17 +184,35 @@ function quotaStock(ctx: ExtensionContext): QuotaRerankStock {
 					primaryRequiredDrain: windowRequiredDrain(primary, nowMs, strategy.windowDefaults.primaryMs),
 					orderPos,
 				};
-				return { candidate, measured: { primary: primary !== undefined, secondary: secondary !== undefined } };
+				const measured = { primary: primary !== undefined, secondary: secondary !== undefined };
+				const facts: AccountFacts = {
+					spent: candidate.allowanceSpent,
+					...(measured.primary
+						? { primaryUsed: candidate.primaryUsed, primaryDrain: candidate.primaryRequiredDrain }
+						: {}),
+					...(measured.secondary ? { secondaryDrain: candidate.secondaryRequiredDrain } : {}),
+				};
+				return { candidate, measured, facts };
 			};
 			// The pin goes first, so a genuine tie stays on it (select.ts seeds the pinned account first the same way).
 			const [pin, top] = await Promise.all([rowFor(pinId, 0), rowFor(topId, 1)]);
 			// Only measured accounts compare: a failed usage fetch must not read as "unmeasured, so the sibling wins".
-			if (!pin?.candidate.usageMeasured || !top?.candidate.usageMeasured) return false;
-			const ordered = orderUsageRankedCandidates(
-				[withDrainMargin(pin.candidate, pin.measured), top.candidate],
-				planGate !== undefined,
-			);
-			return ordered[0]?.selection.index === topId;
+			const pinRead = pin?.candidate.usageMeasured ? pin : undefined;
+			const topRead = top?.candidate.usageMeasured ? top : undefined;
+			const read: RankRead = {
+				pin: pinRead?.facts,
+				top: topRead?.facts,
+				topFirstWithMargin: false,
+			};
+			if (pinRead && topRead) {
+				const ordered = orderUsageRankedCandidates(
+					[withDrainMargin(pinRead.candidate, pinRead.measured), topRead.candidate],
+					planGate !== undefined,
+				);
+				read.topFirstWithMargin = ordered[0]?.selection.index === topId;
+			}
+			onRead?.(read);
+			return read;
 		},
 	};
 }
@@ -210,6 +241,80 @@ export function ledgerAssignedAt(
 	return at;
 }
 
+/** Between two model calls a check runs at most this often per session (stock's usage reports it reads are cached 5 min). */
+const MID_TURN_CHECK_MS = 60_000;
+const checkedAt = new Map<string, number>();
+const checking = new Set<string>();
+
+/** Subagents of this session still running: they hold the account they were spawned on, so the session stays put. */
+function runningSubagents(pi: ExtensionAPI): number {
+	const registry = pi.pi.AgentRegistry.global();
+	return registry.list().filter(ref => ref.kind === "sub" && registry.isRunning(ref)).length;
+}
+
+/** A decision as the log and the usage view carry it (credential ids and fractions, never an address or a token). */
+function logDecision(
+	pi: ExtensionAPI,
+	phase: RerankPhase,
+	sessionId: string,
+	step: RerankStep,
+	read: RankRead | undefined,
+): void {
+	recordDecision(sessionId, { why: step.why, moved: step.move, phase, at: Date.now() });
+	const detail = {
+		sessionId,
+		phase,
+		why: step.why,
+		...(step.move ? { from: step.from, to: step.to } : {}),
+		...(read ? { pin: read.pin, top: read.top, topFirstWithMargin: read.topFirstWithMargin } : {}),
+	};
+	// Every decision leaves a line, so "why did it not switch" is answered from the log; a mid-turn stay is the
+	// frequent one, so it is a debug line.
+	if (step.move) pi.logger.info("gui-bridge: quota re-rank moved the session's account", detail);
+	else if (phase === "turn-start") pi.logger.info("gui-bridge: quota re-rank kept the session's account", detail);
+	else pi.logger.debug("gui-bridge: quota re-rank kept the session's account mid-turn", detail);
+}
+
+/** One decision, with the usage read it took (for the log). */
+async function decide(pi: ExtensionAPI, ctx: ExtensionContext, phase: RerankPhase, nowMs: number): Promise<void> {
+	const prompt = promptOf(pi, ctx);
+	if (!prompt) return;
+	let read: RankRead | undefined;
+	const stock = quotaStock(ctx, taken => {
+		read = taken;
+	});
+	checkedAt.set(prompt.sessionId, nowMs);
+	const step =
+		phase === "turn-start"
+			? await rerankBeforePrompt(() => prompt, stock, nowMs)
+			: await rerankMidTurn(() => prompt, stock, nowMs, runningSubagents(pi));
+	logDecision(pi, phase, prompt.sessionId, step, read);
+}
+
+/**
+ * The mid-turn decision after a model response: main agent only, at most once per MID_TURN_CHECK_MS and session,
+ * one at a time, and a failure only costs the check. Resolves when it is done; undefined when there is nothing to do.
+ */
+export function checkBetweenCalls(pi: ExtensionAPI, ctx: ExtensionContext, nowMs: number): Promise<void> | undefined {
+	if (ctx.agent.kind !== "main") return undefined;
+	const sessionId = promptOf(pi, ctx)?.sessionId;
+	if (!sessionId || checking.has(sessionId)) return undefined;
+	if (nowMs - (checkedAt.get(sessionId) ?? 0) < MID_TURN_CHECK_MS) return undefined;
+	checking.add(sessionId);
+	return decide(pi, ctx, "mid-turn", nowMs)
+		.catch(err => {
+			pi.logger.warn("gui-bridge: mid-turn account check skipped", {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		})
+		.finally(() => checking.delete(sessionId));
+}
+
+/** The last quota decision of `sessionId` in this omp, for the usage view; undefined before its first one. */
+export function decisionOf(sessionId: string): RotationDecision | undefined {
+	return lastDecision(sessionId);
+}
+
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (_event, ctx) => {
@@ -217,21 +322,20 @@ export function install(pi: ExtensionAPI): void {
 			rotateBeforePrompt(() => promptOf(pi, ctx), STOCK, LEDGER, Date.now());
 			// Subagents take the parent's pin when stock spawns them (and the parent re-ranked at its own turn start),
 			// so a subagent's own turn never re-ranks: it would split a task across two accounts.
-			if (ctx.agent.kind === "main") {
-				const step = await rerankBeforePrompt(() => promptOf(pi, ctx), quotaStock(ctx), Date.now());
-				if (step.move) {
-					pi.logger.info("gui-bridge: quota re-rank moved the session's account", {
-						from: step.from,
-						to: step.to,
-					});
-				}
-			}
+			if (ctx.agent.kind === "main") await decide(pi, ctx, "turn-start", Date.now());
 		} catch (err) {
 			// Stock selection still runs; the prompt must not fail over a rotation hint.
 			pi.logger.warn("gui-bridge: account rotation skipped", {
 				error: err instanceof Error ? err.message : String(err),
 			});
 		}
+		return undefined;
+	});
+	// Between two model calls of a long turn: the response of a request has arrived and the next request's key is
+	// not resolved yet, so a pin written now serves the next call (an in-flight stream keeps the account it began
+	// on). Not awaited: stock holds the response body until these handlers return, and the check may read usage.
+	pi.on("after_provider_response", (_event, ctx) => {
+		void checkBetweenCalls(pi, ctx, Date.now());
 		return undefined;
 	});
 }

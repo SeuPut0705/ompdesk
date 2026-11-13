@@ -32,7 +32,7 @@ export const FEATURES = {
 	outputStyle: "Output style (concise, detailed, minimal)",
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
-	accountRotation: "Account rotation (even, quota re-rank at turn start)",
+	accountRotation: "Account rotation (even, quota re-rank at turn start and between model calls)",
 	creditSpend: "Credit use off: an account whose plan is spent does not run on credits or extra usage",
 	thinkingDefault: "Auto thinking by default",
 	delegation: "Delegation strength (Solo to Swarm)",
@@ -502,10 +502,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * namespaces. Quota re-ranking asks stock's selector (`keys.getWithCredential`, `recordAffinity: false`) for its
 	 * pick, reads a pin's explicitness through `sessions.inherit`'s `include` callback, skips pooled sessions
 	 * (`sessions.permits`) and accounts with a policy (`oauth.policy`), and orders two accounts' own reports
-	 * (`credentials.list`, `usage.report`) with stock's comparator (`orderUsageRankedCandidates`).
+	 * (`credentials.list`, `usage.report`) with stock's comparator (`orderUsageRankedCandidates`). The between-calls
+	 * check (`after_provider_response`) reads the running subagents (`AgentRegistry.list`, `isRunning`).
 	 */
 	accountRotation: {
-		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()"],
+		pkg: [
+			"AgentRegistry.global()",
+			"AgentRegistry.prototype.get()",
+			"AgentRegistry.prototype.list()",
+			"AgentRegistry.prototype.isRunning()",
+		],
 		session: [
 			"sessionId",
 			"modelRegistry.authStorage.oauth.accounts()",
@@ -518,6 +524,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"modelRegistry.authStorage.keys.getWithCredential()",
 			"modelRegistry.authStorage.credentials.list()",
 			"modelRegistry.authStorage.usage.report()",
+			// The between-calls check hangs on this event (the extension runner's emit behind `after_provider_response`).
+			"extensionRunner.emitAfterProviderResponse()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai/auth/blocks": [

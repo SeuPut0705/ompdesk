@@ -40,7 +40,9 @@
  *   at once; only the plain drain ordering, which stock decides at 1e-6, gets
  *   the margin, so two accounts near each other never swap a session.
  *
- * A session never moves mid-turn: the hook runs once per prompt.
+ * Between two model calls of a long turn (`after_provider_response`, `rerankMidTurn`) the same rule runs with a
+ * higher bar (`decideMove`): it moves only when the account is about to block or the other one drains 8x faster,
+ * because a move loses the provider's prompt cache. Never while a subagent of the session runs.
  *
  * No omp imports (not even types), no Bun globals: the GUI's vitest exercises
  * this file directly (src/main/bridge-account-rotation.test.ts).
@@ -281,6 +283,28 @@ export interface QuotaRerankPrompt {
 	sessionId: string;
 }
 
+/**
+ * What the move decision reads of one account's usage report (stock's own metrics, `RankedOAuthCandidate`). A window
+ * stock has no measurement for is left out; an account with none is passed as undefined ({@link RankRead}).
+ */
+export interface AccountFacts {
+	/** The short (5 h) window's used fraction, 0..1. */
+	primaryUsed?: number;
+	/** Stock's `allowanceSpent`: the renewable allowance is gone, so the account only serves on paid overage. */
+	spent: boolean;
+	/** Stock's required drain (headroom per hour to reset) of the short and the long window. */
+	primaryDrain?: number;
+	secondaryDrain?: number;
+}
+
+/** What stock's reports say about the pin and stock's top pick; undefined: that account's usage is unreadable. */
+export interface RankRead {
+	pin: AccountFacts | undefined;
+	top: AccountFacts | undefined;
+	/** Stock's comparator still ranks the top pick first after the pin's drain gets RERANK_DRAIN_MARGIN. */
+	topFirstWithMargin: boolean;
+}
+
 /** Stock knowledge quota re-ranking is handed (account-rotation.ts): the block and warm facts of even rotation, and stock's ranking. */
 export interface QuotaRerankStock extends Pick<RotationStock, "providerKey" | "blockScopes" | "warmMs"> {
 	/**
@@ -288,12 +312,11 @@ export interface QuotaRerankStock extends Pick<RotationStock, "providerKey" | "b
 	 * fresh session gets, run without recording a pin). undefined: no account could serve.
 	 */
 	topChoice(prompt: QuotaRerankPrompt): Promise<number | undefined>;
-	/**
-	 * Whether stock's comparator still ranks `topId` ahead of `pinId` when the pin's required drain is scaled by
-	 * RERANK_DRAIN_MARGIN (withDrainMargin). False too when either account has no usage measurement to compare.
-	 */
-	clearlyBetter(prompt: QuotaRerankPrompt, topId: number, pinId: number): Promise<boolean>;
+	/** Both accounts' own reports read through stock's cache, and stock's comparator over them (see {@link RankRead}). */
+	compare(prompt: QuotaRerankPrompt, topId: number, pinId: number): Promise<RankRead>;
 }
+
+export type RerankPhase = "turn-start" | "mid-turn";
 
 export type RerankSkip =
 	| "mode"
@@ -306,13 +329,112 @@ export type RerankSkip =
 	| "restricted"
 	| "policy"
 	| "blocked"
+	| "subagents"
 	| "no-choice"
 	| "same"
+	| "usage-unreadable"
 	| "within-margin"
+	| "mid-turn"
+	| "no-better"
 	| "pin-refused";
 
+/** Why a session moved: `better` beat the margin at turn start, `near-limit` left an account about to block, `much-better` paid for the cache loss mid-turn. */
+export type MoveWhy = "better" | "near-limit" | "much-better";
+
 /** `move`: the session's automatic pin went from `from` to `to`; otherwise why it stayed (stock decides from there). */
-export type RerankStep = { move: false; why: RerankSkip } | { move: true; from: number; to: number };
+export type RerankStep = { move: false; why: RerankSkip } | { move: true; from: number; to: number; why: MoveWhy };
+
+/**
+ * Stock's short-window demotion (pi-ai auth/rank.ts `PRIMARY_WINDOW_HOT_FRACTION`): at this used fraction of the 5 h
+ * window an account ranks behind every cooler sibling, because a block is near. Mirrored here; the stock test pins
+ * that stock's comparator still demotes at it.
+ */
+export const HOT_PRIMARY_FRACTION = 0.85;
+
+/**
+ * Mid-turn, a move to the account with the higher drain ranking pays only when that account's required drain is this
+ * many times the pin's: the session loses its prompt cache (Anthropic bills the whole context again on the other
+ * account), and the gap a turn start moves at (2x) is small against that. A choice, not a measurement: the log of
+ * 12 Nov 2026 shows a session going 8 → 7 → 8 → 7 inside 90 minutes at turn start already.
+ */
+export const MID_TURN_DRAIN_MARGIN = 8;
+
+/** The account's allowance is spent or its short window is at stock's demotion step: a block is near. */
+function nearLimit(facts: AccountFacts): boolean {
+	return facts.spent || (facts.primaryUsed ?? 0) >= HOT_PRIMARY_FRACTION;
+}
+
+/** The top pick's drain as a multiple of the pin's, on the first window both are measured in (stock compares the long one first). */
+function drainRatio(pin: AccountFacts, top: AccountFacts): number | undefined {
+	const [pinDrain, topDrain] =
+		pin.secondaryDrain !== undefined && top.secondaryDrain !== undefined
+			? [pin.secondaryDrain, top.secondaryDrain]
+			: [pin.primaryDrain, top.primaryDrain];
+	if (pinDrain === undefined || topDrain === undefined) return undefined;
+	if (pinDrain <= 0) return topDrain > 0 ? Number.POSITIVE_INFINITY : undefined;
+	return topDrain / pinDrain;
+}
+
+/**
+ * The move rule, the one place that says when a session leaves its account (stock's top pick differs from the pin):
+ *
+ * | phase      | usage read | pin / top                                   | answer                         |
+ * | ---------- | ---------- | ------------------------------------------- | ------------------------------ |
+ * | either     | one unread | -                                           | stay `usage-unreadable`        |
+ * | either     | both       | pin near limit, top not                     | move `near-limit`              |
+ * | turn-start | both       | stock ranks top first after the 2x margin   | move `better`                  |
+ * | turn-start | both       | otherwise                                   | stay `within-margin`           |
+ * | mid-turn   | both       | top near limit too                          | stay `no-better`               |
+ * | mid-turn   | both       | top drain >= 8x the pin's                   | move `much-better`             |
+ * | mid-turn   | both       | otherwise                                   | stay `mid-turn`                |
+ *
+ * An unread account never reads as "unmeasured, so the sibling wins": without both measurements nothing moves.
+ */
+export function decideMove(
+	phase: RerankPhase,
+	read: RankRead,
+):
+	| { move: true; why: MoveWhy }
+	| { move: false; why: "usage-unreadable" | "within-margin" | "mid-turn" | "no-better" } {
+	const { pin, top } = read;
+	if (!pin || !top) return { move: false, why: "usage-unreadable" };
+	if (nearLimit(pin) && !nearLimit(top)) return { move: true, why: "near-limit" };
+	if (phase === "turn-start") {
+		return read.topFirstWithMargin ? { move: true, why: "better" } : { move: false, why: "within-margin" };
+	}
+	if (nearLimit(top)) return { move: false, why: "no-better" };
+	const ratio = drainRatio(pin, top);
+	return ratio !== undefined && ratio >= MID_TURN_DRAIN_MARGIN
+		? { move: true, why: "much-better" }
+		: { move: false, why: "mid-turn" };
+}
+
+/**
+ * Why a session is on its account now, as the usage view shows it. `even`: even rotation owns the session (it keeps
+ * its account until blocked); `moved` and the skip codes: the last quota decision, taken at `at` at a turn start or
+ * between two model calls.
+ */
+export interface RotationDecision {
+	why: RerankSkip | MoveWhy | "even";
+	moved: boolean;
+	phase: RerankPhase | "even";
+	at: number;
+}
+
+/** Sessions this process keeps a decision for; the oldest go first (a decision is a line of the usage view, not history). */
+const DECISIONS_KEPT = 64;
+const decisions = new Map<string, RotationDecision>();
+
+export function recordDecision(sessionId: string, decision: RotationDecision): void {
+	decisions.delete(sessionId);
+	decisions.set(sessionId, decision);
+	if (decisions.size > DECISIONS_KEPT) decisions.delete(decisions.keys().next().value as string);
+}
+
+/** The last decision taken for `sessionId` in this process; undefined before the session's first one. */
+export function lastDecision(sessionId: string): RotationDecision | undefined {
+	return decisions.get(sessionId);
+}
 
 /**
  * Whether the session's pin for `provider` is an explicit user pin. Stock keeps the flag off its account list; its
@@ -335,10 +457,35 @@ const stay = (why: RerankSkip): RerankStep => ({ move: false, why });
  * pin): move the session's automatic warm pin to the account stock ranks first when it clearly beats the pin (see
  * the header). Quota mode only; even mode has rotateBeforePrompt. Asks stock only after every cheap check passed.
  */
-export async function rerankBeforePrompt(
+export function rerankBeforePrompt(
 	prompt: () => QuotaRerankPrompt | undefined,
 	stock: QuotaRerankStock,
 	nowMs: number,
+): Promise<RerankStep> {
+	return rerankSession("turn-start", prompt, stock, nowMs, 0);
+}
+
+/**
+ * The same decision between two model calls of a running turn (`after_provider_response`, main agent only), where a
+ * move costs the prompt cache of a long context and so needs more than turn start does (see {@link decideMove}).
+ * `liveSubagents`: subagents of this session still running; they hold the account they were spawned on, so the
+ * session stays put while any run (a subagent never ends up on another account than its parent).
+ */
+export function rerankMidTurn(
+	prompt: () => QuotaRerankPrompt | undefined,
+	stock: QuotaRerankStock,
+	nowMs: number,
+	liveSubagents: number,
+): Promise<RerankStep> {
+	return rerankSession("mid-turn", prompt, stock, nowMs, liveSubagents);
+}
+
+async function rerankSession(
+	phase: RerankPhase,
+	prompt: () => QuotaRerankPrompt | undefined,
+	stock: QuotaRerankStock,
+	nowMs: number,
+	liveSubagents: number,
 ): Promise<RerankStep> {
 	if (mode !== "quota") return stay("mode");
 	const target = prompt();
@@ -361,13 +508,16 @@ export async function rerankBeforePrompt(
 	// A blocked pin is unavailable to stock's selector, which then ranks without it.
 	if (blockedAccounts(auth, accounts, stock, provider, modelId, nowMs).has(active.credentialId))
 		return stay("blocked");
+	if (phase === "mid-turn" && liveSubagents > 0) return stay("subagents");
 	const top = await stock.topChoice(target);
 	if (top === undefined) return stay("no-choice");
 	if (top === active.credentialId) return stay("same");
-	if (!(await stock.clearlyBetter(target, top, active.credentialId))) return stay("within-margin");
+	const read = await stock.compare(target, top, active.credentialId);
+	const call = decideMove(phase, read);
+	if (!call.move) return stay(call.why);
 	// restoredAtMs: an automatic warm pin, so stock's eviction and failover rules still apply.
 	if (!auth.sessions.pin(provider, sessionId, top, { restoredAtMs: nowMs })) return stay("pin-refused");
-	return { move: true, from: active.credentialId, to: top };
+	return { move: true, from: active.credentialId, to: top, why: call.why };
 }
 
 /** Ledger entries older than this are dropped on write: the file stays small, and a month-old turn decides nothing. */

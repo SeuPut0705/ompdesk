@@ -18,13 +18,16 @@ import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-
  *   once moved it does not come back for a 1.9x gap.
  * - Stock's own tiers move a pin at once, whatever the drain: a pin whose 5h window is at 90% (stock demotes
  *   85%) loses to a cool account that drains 3x slower.
+ * - Between two model calls (`checkBetweenCalls`) a 2.7x drain gap at 70% of the 5h window stays and the 86% step
+ *   moves; stock's selector itself demotes a fast-draining account at 85% and not at 84.9% (the mid-turn rule's
+ *   `HOT_PRIMARY_FRACTION`).
  * - An explicit pin stays, a cold pin is left to stock (which then ranks it away itself), and a subagent's turn
  *   never re-ranks.
  * - Stock's selector pick, the pin's provenance read and the comparator leave no pin behind.
  */
 
 const PROBE = `
-import { install } from "./account-rotation";
+import { checkBetweenCalls, decisionOf, install } from "./account-rotation";
 
 export default function (pi) {
  pi.on("session_start", async () => {
@@ -119,6 +122,32 @@ export default function (pi) {
    state.a = account(0.9, 3 * D0, 20);
    state.b = account(0.1, D0, 77);
    await turn("a-hot-to-b");
+   // Between two model calls the same pin needs more: a 2.7x drain gap at 70% 5h stays, the 86% step moves it.
+   let tick = 0;
+   const between = async label => {
+    await refresh();
+    await checkBetweenCalls(pi, contextAs("main"), Date.now() + ++tick * 120_000);
+    sequence.push({ label, pin: pinOf(sid) === ids.a ? "a" : pinOf(sid) === ids.b ? "b" : pinOf(sid), explicit: explicitOf(sid) ?? null });
+   };
+   state.a = account(0.7, 0.46 / 97.5, 97.5);
+   state.b = account(0.03, D0, 77);
+   pinned(ids.a, Date.now() - 5 * 60_000);
+   await between("mid-below-85");
+   state.a = account(0.86, 0.46 / 97.5, 97.5);
+   await between("mid-at-86");
+   out.decisionAfterMid = decisionOf(sid);
+   // Stock's selector itself: a fast-draining account at 84.9% of its 5h window is first, at 85% it is demoted.
+   const fresh = async () => {
+    const resolved = await auth.keys.getWithCredential("anthropic", sid + ":fresh-" + ++tick, { modelId: model.id, baseUrl: model.baseUrl, recordAffinity: false });
+    return resolved?.credentialId === ids.a ? "a" : resolved?.credentialId === ids.b ? "b" : resolved?.credentialId;
+   };
+   state.a = account(0.849, 3 * D0, 20);
+   state.b = account(0.1, D0, 77);
+   await refresh();
+   out.stock849 = await fresh();
+   state.a = account(0.85, 3 * D0, 20);
+   await refresh();
+   out.stock85 = await fresh();
    // Explicit pin on A, B far better: stays.
    state.a = account(0.04, 0.46 / 97.5, 97.5);
    pinned(ids.a);
@@ -190,6 +219,9 @@ describe.skipIf(!existsSync(omp))("bridge quota re-rank on stock's selector", ()
 				stockAfterCold: string;
 				stockPinAfterCold: string;
 				strayProbePin: boolean;
+				stock849: string;
+				stock85: string;
+				decisionAfterMid: { why: string; moved: boolean; phase: string };
 			};
 			// The user's numbers: B's 7d drain 2.7x A's.
 			expect(probe.ratio).toBeGreaterThan(2.6);
@@ -205,9 +237,16 @@ describe.skipIf(!existsSync(omp))("bridge quota re-rank on stock's selector", ()
 				"a-stays-1.9x": "a",
 				"a-stays-1.9x-again": "a",
 				"a-hot-to-b": "b",
+				"mid-below-85": "a",
+				"mid-at-86": "b",
 				"explicit-stays": "a",
 				"cold-left-to-stock": "a",
 			});
+			// Stock's own demotion step is the one the mid-turn rule mirrors: 84.9% keeps the fast-draining account first, 85% loses.
+			expect(probe.stock849).toBe("a");
+			expect(probe.stock85).toBe("b");
+			// Every decision is remembered for the usage view, the move included: why, that it moved, and between calls.
+			expect(probe.decisionAfterMid).toMatchObject({ why: "near-limit", moved: true, phase: "mid-turn" });
 			// Every move is an automatic pin, never an explicit one; the explicit one is still explicit afterwards.
 			for (const step of probe.sequence) {
 				expect(step.explicit, step.label).toBe(step.label === "explicit-stays");
