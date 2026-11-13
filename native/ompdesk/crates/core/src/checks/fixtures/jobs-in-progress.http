@@ -1,0 +1,25 @@
+HTTP/2.0 200 OK
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Date: Fri, 13 Nov 2026 19:03:58 GMT
+Etag: W/"21a576e24e00ce1da2e47eab8230af98d026cc297327e2cbd417fba246a603b0"
+Referrer-Policy: origin-when-cross-origin, strict-origin-when-cross-origin
+Server: github.com
+Strict-Transport-Security: max-age=31536000; includeSubdomains; preload
+Vary: Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With
+X-Content-Type-Options: nosniff
+X-Frame-Options: deny
+X-Github-Api-Version-Selected: 2022-11-28
+X-Github-Edge-Region: koreacentral
+X-Github-Media-Type: github.v3; format=json
+X-Ratelimit-Limit: 5000
+X-Ratelimit-Remaining: 3781
+X-Ratelimit-Reset: 1794598857
+X-Ratelimit-Resource: core
+X-Ratelimit-Used: 1219
+X-Xss-Protection: 0
+
+{"jobs":[{"completed_at":null,"conclusion":null,"created_at":"2026-11-13T18:45:19Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485676714/job/132093353731","id":132093353731,"labels":["windows-latest"],"name":"move-win","run_attempt":1,"run_id":43485676714,"runner_group_name":"GitHub Actions","runner_id":1000035895,"runner_name":"GitHub Actions 1000035895","started_at":"2026-11-13T18:45:22Z","status":"in_progress"},{"completed_at":"2026-11-13T18:47:53Z","conclusion":"success","created_at":"2026-11-13T18:45:19Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485676714/job/132093354286","id":132093354286,"labels":["windows-latest"],"name":"title-bar (windows-latest)","run_attempt":1,"run_id":43485676714,"runner_group_name":"GitHub Actions","runner_id":1000035896,"runner_name":"GitHub Actions 1000035896","started_at":"2026-11-13T18:45:22Z","status":"completed"},{"completed_at":"2026-11-13T18:45:27Z","conclusion":"success","created_at":"2026-11-13T18:45:19Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485676714/job/132093354529","id":132093354529,"labels":["ubuntu-latest"],"name":"gate / gate","run_attempt":1,"run_id":43485676714,"runner_group_name":"GitHub Actions","runner_id":1000035897,"runner_name":"GitHub Actions 1000035897","started_at":"2026-11-13T18:45:22Z","status":"completed"},{"completed_at":"2026-11-13T18:48:00Z","conclusion":"success","created_at":"2026-11-13T18:45:27Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485676714/job/132093427338","id":132093427338,"labels":["macos-15"],"name":"shell-mac (macos-15)","run_attempt":1,"run_id":43485676714,"runner_group_name":"GitHub Actions","runner_id":1000035899,"runner_name":"GitHub Actions 1000035899","started_at":"2026-11-13T18:45:32Z","status":"completed"},{"completed_at":"2026-11-13T18:56:30Z","conclusion":"success","created_at":"2026-11-13T18:48:00Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485676714/job/132094863067","id":132094863067,"labels":["macos-26"],"name":"shell-mac (macos-26)","run_attempt":1,"run_id":43485676714,"runner_group_name":"GitHub Actions","runner_id":1000035920,"runner_name":"GitHub Actions 1000035920","started_at":"2026-11-13T18:48:03Z","status":"completed"},{"completed_at":null,"conclusion":null,"created_at":"2026-11-13T18:56:31Z","html_url":"https://github.com/SeuPut0705/ompdesk/actions/runs/43485676714/job/132099490622","id":132099490622,"labels":["macos-15"],"name":"title-bar (macos-15)","run_attempt":1,"run_id":43485676714,"runner_group_name":"GitHub Actions","runner_id":1000035975,"runner_name":"GitHub Actions 1000035975","started_at":"2026-11-13T18:57:29Z","status":"in_progress"}],"total_count":6}

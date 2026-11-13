@@ -4,3 +4,5 @@
 *.png binary
 *.icns binary
 *.ico binary
+# Recorded HTTP answers keep the CRLF lines they came with: the reader is tested on GitHub's own bytes.
+native/ompdesk/crates/core/src/checks/fixtures/*.http -text

@@ -177,8 +177,13 @@ impl ChecksHub for Hub {
         Box::pin(async { Err(not_built("wait")) })
     }
 
-    fn status(&self, _origin: Origin, _request: StatusRequest) -> Fut<'_, Result<Snapshot, Fault>> {
-        Box::pin(async { Err(not_built("status")) })
+    fn status(&self, origin: Origin, request: StatusRequest) -> Fut<'_, Result<Snapshot, Fault>> {
+        Box::pin(super::poller::status(
+            &*self.github,
+            &self.snapshot,
+            origin,
+            request,
+        ))
     }
 
     fn watch(&self) -> watch::Receiver<Arc<Snapshot>> {
