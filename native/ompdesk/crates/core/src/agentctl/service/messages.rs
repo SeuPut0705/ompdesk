@@ -433,8 +433,10 @@ impl AgentControl {
             && reported
                 .is_some_and(|turn| target.busy_since.is_none() || turn == target.busy_since);
         // A follow-up queues the next task of a session the caller opened behind its turn. Any other session would hold
-        // it in its queue until that turn ends, so it gets a steer, unless a card of the person's is open there.
-        let steer = !follow_up || promoted || (!own_child && target.asks.is_empty());
+        // it in its queue until that turn ends, so it gets a steer. A card of the person's open there takes no steer
+        // at all, whatever was asked, because stock closes the card for one ("Ask interrupted by message").
+        let card_open = !target.asks.is_empty();
+        let steer = !card_open && (!follow_up || promoted || !own_child);
         // A dispatch still owed from before a relaunch is not in the journal yet: the next one is numbered past it.
         if own_child {
             let owed = kept
@@ -547,6 +549,11 @@ impl AgentControl {
         if let (Some(kept), Some(entry)) = (&kept, &entry) {
             kept.outbox.handed(entry, &instance);
         }
+        // A steer is read at the target's next step, which a blocking wait of its own would hold off: it ends now.
+        let woke = running && !held && !card_open && self.is_blocked(&target.tab_id);
+        if steer && !held {
+            self.arrive(&target.tab_id);
+        }
         if running
             && !steer
             && !held
@@ -573,14 +580,16 @@ impl AgentControl {
                     number(self.tuning.turn_start_wait_ms as f64 / 1000.0)
                 )
             }
-        } else if !target.asks.is_empty() {
-            // Its turn stands on a question card: a steer or a follow-up is read only after the person answers.
+        } else if card_open {
+            // Its turn stands on a question card, which stays open: the message waits behind the turn.
             format!(
-                "it is {}, so it reads this only after the user answers",
+                "it is {}, so this is queued behind that card, which stays open, and it reads this once the user has answered and its turn goes on",
                 self.state_line(&self.host.state(), target, &SessionState::default())
             )
         } else if promoted {
             "delivered as steer (it already reported to you in this turn, so it reads it between steps)".to_owned()
+        } else if steer && woke {
+            "delivered as steer; it is inside a blocking ompdesk_session_result wait, which returns now with a note, so it reads this at once".to_owned()
         } else if steer {
             format!(
                 "delivered as steer ({}it reads it between steps)",
@@ -590,6 +599,8 @@ impl AgentControl {
                     ""
                 }
             )
+        } else if woke {
+            "queued as a follow-up (it runs when the current turn ends; it is inside a blocking ompdesk_session_result wait, which a follow-up does not end: send it as a steer to be read at once)".to_owned()
         } else {
             "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)".to_owned()
         };
@@ -858,6 +869,9 @@ impl AgentControl {
             };
         }
         let outcome = outcome.map_err(Fail::other)?;
+        if outcome == Posted::Delivered {
+            self.arrive(&to);
+        }
         if let Some(parent) = &parent {
             self.host.review_changed(parent);
         }
@@ -1330,6 +1344,7 @@ impl AgentControl {
             return Err(error);
         }
         self.host.review_changed(opener_tab_id);
+        self.arrive(opener_tab_id);
         Ok(())
     }
 
@@ -1339,6 +1354,8 @@ impl AgentControl {
     /// prompt that joins a running turn starts none, so the list waits.
     /// Returns the delivery of the note, when there is one to make, so a caller that wants it told can wait for it.
     pub fn person_typed(&self, tab_id: &str) -> Option<tokio::task::JoinHandle<()>> {
+        // The person's own words reach a waiting session at its next step: its blocking wait ends for them too.
+        self.arrive(tab_id);
         let state = self.host.state();
         let tabs = state.tabs(tab_id)?;
         let caller = tabs.iter().find(|tab| tab.tab_id == tab_id)?;

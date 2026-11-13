@@ -289,3 +289,146 @@ async fn a_child_s_card_reaches_its_opener_once_and_focus_and_notify_tell_main()
     assert_eq!(asked_with(&asked, "view")[0]["event"]["tabId"], "b");
     control.host.port().close();
 }
+
+fn busy(id: &str) -> Value {
+    let mut tab = tab(id);
+    tab["busy"] = json!(true);
+    tab["busySince"] = json!(1);
+    tab
+}
+
+/// 13 Nov 2026: a steer to a session inside `ompdesk_session_result {wait: true}` was read 50 minutes later, when the
+/// wait ended: stock's host tool call cannot be cut by a steer. The wait now returns when a message reaches it.
+#[tokio::test]
+async fn a_steer_ends_the_receiver_s_blocking_wait_and_the_receipt_says_so() {
+    let (control, asked) = rig(
+        9_310,
+        state(vec![tab("s"), busy("a"), busy("w")]),
+        Tuning::default(),
+        main_replies,
+    );
+    let waiting = {
+        let control = control.clone();
+        tokio::spawn(async move {
+            control
+                .run(
+                    "a",
+                    "ompdesk_session_result",
+                    json!({ "session": "w", "wait": true, "timeout_seconds": 60 }),
+                    None,
+                )
+                .await
+        })
+    };
+    while !control.is_blocked("a") {
+        tokio::task::yield_now().await;
+    }
+    let receipt = control
+        .run(
+            "s",
+            "ompdesk_session_send",
+            json!({ "session": "a", "message": "read me now" }),
+            None,
+        )
+        .await;
+    assert!(
+        receipt.text.contains("inside a blocking ompdesk_session_result wait")
+            && receipt.text.contains("returns now"),
+        "{}",
+        receipt.text
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+        .await
+        .expect("the wait never returned")
+        .unwrap();
+    assert!(result.text.contains("Returned early"), "{}", result.text);
+    assert!(!result.text.contains("Still running"), "{}", result.text);
+    assert!(!control.is_blocked("a"));
+    let prompts: Vec<Value> = asked_with(&asked, "command")
+        .into_iter()
+        .filter(|args| args["command"]["type"] == "prompt")
+        .collect();
+    assert_eq!(prompts[0]["command"]["streamingBehavior"], "steer");
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn a_report_or_the_person_s_prompt_ends_the_blocking_wait_too() {
+    let (control, _asked) = rig(
+        9_311,
+        state(vec![busy("a"), busy("b"), busy("w")]),
+        Tuning::default(),
+        main_replies,
+    );
+    // The state's parents make "a" the opener of "b".
+    for wake in 0..2 {
+        let waiting = {
+            let control = control.clone();
+            tokio::spawn(async move {
+                control
+                    .run(
+                        "a",
+                        "ompdesk_session_result",
+                        json!({ "session": "w", "wait": true, "timeout_seconds": 60 }),
+                        None,
+                    )
+                    .await
+            })
+        };
+        while !control.is_blocked("a") {
+            tokio::task::yield_now().await;
+        }
+        if wake == 0 {
+            control
+                .run(
+                    "b",
+                    "ompdesk_report",
+                    json!({ "kind": "done", "text": "finished" }),
+                    None,
+                )
+                .await;
+        } else {
+            let _ = control.person_typed("a");
+        }
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+            .await
+            .expect("the wait never returned")
+            .unwrap();
+        assert!(result.text.contains("Returned early"), "{}", result.text);
+    }
+    control.host.port().close();
+}
+
+/// 13 Nov 2026: three default sends to a session waiting for the person's answer closed its question card each time,
+/// while the receipt said they would be read after the user answers.
+#[tokio::test]
+async fn a_message_to_a_session_with_an_open_card_queues_behind_it_whatever_delivery_says() {
+    for (n, delivery) in [None, Some("steer"), Some("follow_up")].into_iter().enumerate() {
+        let mut card = busy("c");
+        card["asks"] = json!([{ "id": "r1", "request": { "id": "r1", "method": "select", "title": "Which?", "options": ["x", "y"] } }]);
+        let (control, asked) = rig(
+            9_312 + n as u64,
+            state(vec![tab("s"), card]),
+            Tuning::default(),
+            main_replies,
+        );
+        let mut args = json!({ "session": "c", "message": "an update" });
+        if let Some(delivery) = delivery {
+            args["delivery"] = json!(delivery);
+        }
+        let receipt = control.run("s", "ompdesk_session_send", args, None).await;
+        let prompts: Vec<Value> = asked_with(&asked, "command")
+            .into_iter()
+            .filter(|args| args["command"]["type"] == "prompt")
+            .collect();
+        assert_eq!(prompts[0]["command"]["streamingBehavior"], "followUp");
+        assert!(
+            receipt.text.contains("which stays open")
+                && receipt.text.contains("once the user has answered")
+                && !receipt.text.contains("delivered as steer"),
+            "{}",
+            receipt.text
+        );
+        control.host.port().close();
+    }
+}
