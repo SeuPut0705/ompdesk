@@ -106,7 +106,7 @@ fn apply_all() {
 }
 
 /// Whether native window chrome is dark now: the `themeSource` override, or the OS's own scheme. UI thread.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(windows)]
 fn chrome_dark() -> bool {
     let source = STATE.with(|s| s.borrow().source);
     shell_core::native_ui::chrome_dark(source, system::theme()["dark"].as_bool().unwrap_or(false))
