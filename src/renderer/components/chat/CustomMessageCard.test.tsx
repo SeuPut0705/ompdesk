@@ -134,7 +134,7 @@ describe("standalone cards", () => {
 		const markup = card("advisor", { notes: [{ note, severity: "concern" }] });
 		expect(markup).not.toContain("katex");
 		expect(markup).toContain("월 $149 결론을 정정하세요.");
-		expect(markup).toContain("약 $26/월이고");
+		expect(markup).toContain("보관 + $26/월이고");
 		expect(markup).toContain("약 $149입니다");
 	});
 

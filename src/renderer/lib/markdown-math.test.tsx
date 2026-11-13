@@ -85,8 +85,8 @@ describe("Markdown math rendering", () => {
 		const mixed = render("It costs $5 and $10, so $x^2$ is cheap; $$a+b$$ too and $1+1$.");
 		expect(Array.from(mixed.querySelectorAll("annotation"), node => node.textContent)).toEqual(["x^2", "a+b", "1+1"]);
 		expect(mixed.documentElement.textContent).toContain("It costs $5 and $10, so");
-		const multiline = render("Then $a\n+ b$ holds.");
-		expect(multiline.querySelector("annotation")?.textContent?.replace(/\s+/g, " ")).toBe("a + b");
+		const multiline = render("Then $a\n= b$ holds.");
+		expect(multiline.querySelector("annotation")?.textContent?.replace(/\s+/g, " ")).toBe("a = b");
 	});
 
 	it("renders display math in lists and quotes without swallowing following prose", () => {

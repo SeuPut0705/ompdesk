@@ -55,6 +55,7 @@ import {
 import { openExternal } from "./open-external";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_CODE } from "./preview";
 import { remarkCjkAutolink, remarkCjkStrong } from "./remark-cjk";
+import { remarkDollarMath } from "./remark-dollar-math";
 import { remarkHtmlAsText } from "./remark-html-text";
 import { remarkLatexMath } from "./remark-latex-math";
 import { remarkSoftBreaks } from "./remark-soft-breaks";
@@ -86,7 +87,8 @@ interface MarkdownRendererProps {
 // Hoisted to module scope: stable plugin arrays and component maps keep
 // ReactMarkdown from treating the pipeline as changed on every render.
 // remark-math must precede rehype-katex: it parses $...$/$$...$$ into math
-// nodes that rehype-katex (rehype chain below) then renders. The CJK passes
+// nodes that rehype-katex (rehype chain below) then renders; remarkDollarMath keeps
+// prices (`$149 … $26/월`) out of the single-dollar ones. The CJK passes
 // bold `**0.1%**이며` and cut bare URLs at glued Korean text. GFM's single
 // `~` strikethrough is off: Korean writes ranges as `170~230초`, and two such
 // ranges in one line would strike everything between them; `~~x~~` still strikes.
@@ -94,6 +96,7 @@ const GFM_OPTIONS = { singleTilde: false } as const;
 const REMARK_PLUGINS: Options["remarkPlugins"] = [
 	[remarkGfm, GFM_OPTIONS],
 	remarkMath,
+	remarkDollarMath,
 	remarkLatexMath,
 	remarkCjkStrong,
 	remarkCjkAutolink,
