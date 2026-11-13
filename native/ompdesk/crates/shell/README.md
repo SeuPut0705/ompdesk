@@ -47,7 +47,7 @@ snapshots), `OMPDESK_NODE` (node binary; else `node` on PATH; packaged `<resourc
 shell's arguments (`--remote-debugging-port`, `--lang`, `--host-resolver-rules`, `--ignore-certificate-errors`, …)
 reach CEF; `--user-data-dir` is removed from CEF's own command line (the Chromium profile is
 `<userData>/shell-webview/`, never Electron's `Local State`, `Local Storage` or `Cookies`). The same arguments go to
-Node after the executable. A log line per event goes to stderr and `<userData>/shell-webview/shell.log.jsonl`.
+Node after the executable. A log line per event goes to stderr and `<userData>/shell-webview/shell.log.jsonl` (appended, one `start` line per launch; cut back to empty at the start of a launch once it passes 4 MiB: a second launch of the same profile must not wipe the running shell's log).
 
 ## Process model and startup order
 

@@ -1,7 +1,7 @@
 //! The shell's log: one JSON object per line on stderr (the e2e harness and a developer read it there) and in
 //! `<userData>/shell-webview/shell.log.jsonl` once that folder is known. `{"t": <ms since start>, "event": …, …}`.
 
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
@@ -23,12 +23,19 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Opens (truncating) the log file; the lines logged so far are not repeated there.
+/// The log file is cut back to nothing at the start of a launch once it passes this size.
+const MAX_BYTES: u64 = 4 << 20;
+
+/// Opens the log file for appending; the lines logged so far are not repeated there. Appending, not truncating: a second
+/// launch of the same profile (it hands its arguments to the first and exits) must not wipe the running shell's log.
 pub fn open_file(path: &Path) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(file) = File::create(path) {
+    if std::fs::metadata(path).is_ok_and(|m| m.len() > MAX_BYTES) {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Ok(file) = OpenOptions::new().create(true).append(true).open(path) {
         *FILE.lock().unwrap() = Some(file);
     }
 }
