@@ -1778,6 +1778,8 @@ export const ko: Record<string, string> = {
 	"ipcError.stats_not_ready": "통계 서버가 아직 시작하는 중이에요. 잠시 후 다시 시도해 보세요.",
 	"ipcError.stats_api_error": "통계 서버가 이 요청에 응답하지 못했어요.",
 	"ipcError.safe_storage_unavailable": "이 시스템에서는 토큰을 암호화할 수 없어서 저장하지 못해요.",
+	"ipcError.keychain_would_ask":
+		"macOS가 OMPdesk의 키체인 항목을 열려면 로그인 암호를 물어봐야 해서, 이 컴퓨터에는 비밀 정보를 저장할 수 없어요.",
 	"ipcError.invalid_content": "에이전트 정의가 올바르지 않아요.",
 	"ipcError.invalid_scope": "위치를 사용자 또는 프로젝트 중에서 골라 주세요.",
 	"ipcError.not_editable": "이미지만 있는 대기 메시지는 수정하거나 옮길 수 없어요.",
@@ -5516,6 +5518,8 @@ export const ko: Record<string, string> = {
 	"updates.auth.test": "접근 확인",
 	"updates.auth.clear": "저장한 토큰 삭제",
 	"updates.auth.failed": "GitHub 접근 설정을 바꾸지 못했어요",
+	"updates.auth.dropped.keychain-would-ask":
+		"저장한 토큰을 지웠어요. 읽으려면 macOS가 로그인 암호를 물어봐야 해서예요. GH_TOKEN, GITHUB_TOKEN, gh 로그인은 그대로 쓸 수 있고, 이 컴퓨터에는 새 토큰을 저장할 수 없어요.",
 	"updates.auth.cannotStore":
 		"이 시스템에서는 비밀 정보를 암호화할 수 없어 토큰을 저장할 수 없어요. 설정 › 일반에서 GitHub를 연결하세요.",
 	"updates.host.name": "호스트 컴퓨터의 OMPdesk",
@@ -5925,6 +5929,13 @@ export const ko: Record<string, string> = {
 	"mail.loading": "이메일 계정을 불러오는 중…",
 	"mail.loadFailed": "이메일 계정을 불러오지 못했어요",
 	"mail.actionFailed": "이메일 계정을 바꾸지 못했어요",
+	"mail.needsReentry": "비밀번호를 다시 입력하세요. 저장된 비밀번호를 읽으려면 macOS가 로그인 암호를 물어봐야 해요.",
+	"mail.reentry.one":
+		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해서, 이 계정의 루틴이 로그인하지 않고 있어요.",
+	"mail.reentry.many":
+		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해서, 이 계정들의 루틴이 로그인하지 않고 있어요.",
+	"mail.reentry.action": "비밀번호 입력",
+	"mail.reentry.dismiss": "이메일 비밀번호 알림 닫기",
 	"mail.test": "테스트",
 	"mail.test.ok": "메일함을 열었어요: 메시지 {count}개",
 	"mail.test.okOne": "메일함을 열었어요: 메시지 1개",

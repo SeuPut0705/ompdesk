@@ -6,6 +6,7 @@
  * `omp plugin doctor`, plus a way to this computer's setup check) and About
  * (the repository and its star).
  */
+
 import {
 	Cpu,
 	Download,
@@ -26,6 +27,7 @@ import type {
 	UpdateAuthInfo,
 	UpdateStatus,
 } from "../../../shared/ipc-types";
+import { KEYCHAIN_WOULD_ASK } from "../../../shared/keychain";
 import type { OmpUpdateState } from "../../../shared/omp-update";
 import type { RpcDoctorCheck, RpcOmpUpdateResult, RpcPluginDoctorResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -723,7 +725,7 @@ export function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> })
 	);
 
 	const authRequired = useUpdaterStore(state => state.status.state === "auth-required");
-	if (!authRequired && !info?.hasStoredToken) return null;
+	if (!authRequired && !info?.hasStoredToken && !info?.droppedReason) return null;
 	const source = info?.source ?? "none";
 	return (
 		<SettingsRow
@@ -739,6 +741,13 @@ export function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> })
 			tipOnly
 			footer={
 				<div className="mt-1 flex flex-col gap-1">
+					{info?.droppedReason && (
+						<p className="text-sc-xs text-(--sc-warning)" data-updates-auth-dropped role="status">
+							{info.droppedReason === KEYCHAIN_WOULD_ASK
+								? t("updates.auth.dropped.keychain-would-ask")
+								: info.droppedReason}
+						</p>
+					)}
 					{info?.canStore === false && (
 						<p className="text-sc-xs text-(--sc-text-muted)">{t("updates.auth.cannotStore")}</p>
 					)}

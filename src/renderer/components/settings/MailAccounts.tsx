@@ -4,7 +4,18 @@
  * mailbox once, the answer stays on the row). Main keeps the accounts and the encrypted passwords; a password is write-only, so nothing
  * here reads, shows or logs one. A tab on a paired host shows one line instead: its accounts are set on that computer.
  */
-import { CheckCircle2, Mail, MoreHorizontal, Pencil, PlugZap, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
+import {
+	CheckCircle2,
+	KeyRound,
+	Mail,
+	MoreHorizontal,
+	Pencil,
+	PlugZap,
+	Plus,
+	RefreshCw,
+	Trash2,
+	XCircle,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type {
 	MailAccount,
@@ -13,6 +24,7 @@ import type {
 	MailAccountTest,
 } from "../../../shared/mail-accounts";
 import { useT } from "../../lib/i18n";
+import { useMailReentryStore } from "../../stores/mail-reentry";
 import { toastError } from "../../stores/toast";
 import { Banner, Button, ConfirmDialog, ErrorDetail, MenuButton, SkeletonRows, Spinner } from "../common";
 import { MailAccountDialog } from "./MailAccountDialog";
@@ -46,7 +58,9 @@ function LocalMailAccounts() {
 	const load = useCallback(async () => {
 		setLoadError(null);
 		try {
-			setAccounts((await window.omp.mailAccounts.command({ action: "list" })).accounts);
+			const listed = (await window.omp.mailAccounts.command({ action: "list" })).accounts;
+			setAccounts(listed);
+			useMailReentryStore.getState().adopt(listed);
 		} catch (error) {
 			setLoadError(error);
 		}
@@ -54,10 +68,20 @@ function LocalMailAccounts() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+	// The notice's action leads here: the account's edit dialog opens on its password field.
+	const editRequest = useMailReentryStore(state => state.editRequest);
+	useEffect(() => {
+		if (editRequest === null || accounts === null) return;
+		const wanted = accounts.find(account => account.id === editRequest);
+		useMailReentryStore.getState().clearEditRequest();
+		if (wanted) setEditing({ account: wanted });
+	}, [editRequest, accounts]);
 
 	const send = async (request: Exclude<MailAccountsRequest, { action: "test" }>): Promise<boolean> => {
 		try {
-			setAccounts((await window.omp.mailAccounts.command(request)).accounts);
+			const answered = (await window.omp.mailAccounts.command(request)).accounts;
+			setAccounts(answered);
+			useMailReentryStore.getState().adopt(answered);
 			return true;
 		} catch (error) {
 			toastError({ title: t("mail.actionFailed"), error });
@@ -145,6 +169,15 @@ function LocalMailAccounts() {
 										>
 											{account.username} @ {account.host} · {account.mailbox}
 										</span>
+										{account.needsReentry && (
+											<span
+												className="flex min-w-0 items-start gap-1 text-sc-xs break-words text-(--sc-warning)"
+												data-mail-needs-reentry
+											>
+												<KeyRound aria-hidden className="mt-px size-(--sc-icon-sm) shrink-0" />
+												<span className="min-w-0">{t("mail.needsReentry")}</span>
+											</span>
+										)}
 										{result && result !== "testing" && (
 											<span
 												className={`flex min-w-0 items-start gap-1 text-sc-xs break-words ${result.ok ? "text-(--sc-success)" : "text-(--sc-danger)"}`}
