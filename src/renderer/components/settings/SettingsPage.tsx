@@ -8,10 +8,10 @@
  * (`resolveSettingsTarget`); `openSettings(target)` deep-links from
  * anywhere, `setSettingsSection` navigates within the page.
  *
- * A focused tab on a paired host shows that host's agent settings: a banner
- * names the host, app-scoped sections carry a "This device" tag, and host
- * sections show an offline notice while the host is unreachable
- * (`SECTION_SCOPE`, components/remote/HostScope.tsx).
+ * A strip of device pills tops the page once a computer is paired (`SettingsDeviceSwitch`): a click focuses a tab on
+ * that device, which is what scopes the page. A focused tab on a paired host shows that host's agent settings: a
+ * banner names the host, app-scoped sections carry a "This device" tag, and host sections show an offline notice while
+ * the host is unreachable (`SECTION_SCOPE`, components/remote/HostScope.tsx).
  */
 
 import {
@@ -50,7 +50,6 @@ import {
 	SearchField,
 	useMasterDetail,
 } from "../common";
-import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
 import { AgentWorktreesRows } from "./AgentWorktreesRow";
@@ -68,6 +67,7 @@ import { AdvancedSchemaSettings, OwnedSchemaSettings, ownedSchemaGroups } from "
 import { PermissionsSection } from "./PermissionsSection";
 import { RemoteSection } from "./RemoteSection";
 import { SchedulesSection } from "./SchedulesSection";
+import { SettingsDeviceSwitch } from "./SettingsDeviceSwitch";
 import { SettingsScopeProvider, SettingsSection, SettingsTipOnly } from "./SettingsLayout";
 import { SshSection } from "./SshSection";
 import { schemaSettingText } from "./schema-i18n";
@@ -157,9 +157,7 @@ export function SettingsDeviceBanner({ host }: { host: FocusedHost }) {
 	const name = host.name ?? t("remote.tab.unknownDevice");
 	return (
 		<div data-settings-device-banner={host.deviceId}>
-			<Banner actions={<DeviceChip deviceId={host.deviceId} />} className="mb-5">
-				{t("settings.device.banner", { name })}
-			</Banner>
+			<Banner className="mb-5">{t("settings.device.banner", { name })}</Banner>
 		</div>
 	);
 }
@@ -441,9 +439,10 @@ export function SettingsPage() {
 	return (
 		<SettingsDataProvider value={data}>
 			<SettingsNavigationProvider value={navigate}>
-				<div className="settings-root h-full min-h-0 w-full">
+				<div className="settings-root flex h-full min-h-0 w-full flex-col">
+					<SettingsDeviceSwitch />
 					<div
-						className="settings-page flex h-full min-h-0 w-full bg-(--sc-bg) text-(--sc-text)"
+						className="settings-page flex min-h-0 w-full flex-1 bg-(--sc-bg) text-(--sc-text)"
 						data-settings-page="true"
 						data-stacked={stacked ? "" : undefined}
 					>

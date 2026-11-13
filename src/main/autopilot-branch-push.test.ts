@@ -20,7 +20,7 @@ import type { SidecarLike } from "./sidecar-types";
 installAutopilotRig();
 
 describe("where a run on a chosen branch pushes, opens a PR and merges", () => {
-	const { startOn, rootOf, refusal, armed, cycleEnd } = branchChoiceWorld();
+	const { startOn, rootOf, refusal, cycleEnd } = branchChoiceWorld();
 
 	it("a PR is opened from the push target, so a target that is the base branch has none to open (merge still has work to land)", async () => {
 		const toBase = await startOn({ kind: "existing", name: "main" }, { preset: "push" });

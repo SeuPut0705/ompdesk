@@ -4487,6 +4487,10 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.xdevNotice": "요청에 도구 목록 중복 없음",
 	"bridgeHealth.feature.contextHookIdle": "거를 게 없으면 요청 복사 생략",
 
+	// 디스크가 가득 찼을 때(src/main/disk-full.ts): 파일이 저장될 때까지 모든 창과 휴대폰에 토스트 하나.
+	"diskFull.toastTitle": "디스크가 가득 찼어요",
+	"diskFull.toastBody": "디스크가 가득 차서 {files} 저장에 실패했어요. 공간을 비우면 알아서 다시 저장해요.",
+
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "압축 한도",
 	"compactionLimits.desc":
@@ -6119,6 +6123,9 @@ export const ko: Record<string, string> = {
 	"hostScope.thisDevice": "이 기기",
 	"hostScope.thisDeviceDesc": "포커스된 탭이 실행되는 기기가 아니라 이 기기에 저장돼요.",
 	"settings.device.banner": "{name}의 설정이에요. 앱 설정(화면·단축키·언어·업데이트)은 이 기기 기준이에요.",
+	"settings.device.switchLabel": "설정 대상",
+	"settings.device.offlineWhy": "지금은 {name}의 설정을 열 수 없어요. 오프라인이라서, 다시 연결되면 열려요.",
+	"settings.device.connectingWhy": "{name}에 연결하는 중이에요. 연결되면 그 기기의 설정을 열 수 있어요.",
 	"settings.section.updates": "업데이트 및 정보",
 	"settings.section.updates.desc": "OMPdesk와 omp의 버전, 이 컴퓨터에 설치된 도구를 확인하고 업데이트해요.",
 	"settings.section.advanced": "기타 설정",

@@ -15,7 +15,7 @@ export const MAIN_TEXT = {
 	// Files main could not save for lack of space (disk-full-notice.ts): one notice, closed once they are saved.
 	"diskFull.title": { en: "Disk is full", ko: "디스크가 가득 찼어요" },
 	"diskFull.body": {
-		en: "OMPdesk could not save {what}; it will retry.",
+		en: "OMPdesk couldn't save {what}; it will retry.",
 		ko: "디스크가 가득 차서 {what} 저장에 실패했어요. 자동으로 다시 시도할게요.",
 	},
 	"menu.about": { en: "About OMPdesk", ko: "OMPdesk 정보" },

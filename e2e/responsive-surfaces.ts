@@ -44,6 +44,11 @@ export interface Surface {
 		/** B's work session leaves a child running on A, which also runs a session of its own (e2e/parity.e2e.ts). */
 		remoteChild?: boolean;
 		/**
+		 * B also uses A as a computer before it is captured, so B's own window and its phone page list a paired computer
+		 * (A's window lists B already; e2e/parity.e2e.ts).
+		 */
+		pairedBack?: boolean;
+		/**
 		 * Before it is captured, B runs a second session, "Parity roster", that every view opened once and then left for
 		 * the shown session, so each holds a tab of it it does not show; its turn then starts two subagents
 		 * (e2e/parity.e2e.ts). Its row must count them with no click.
@@ -1343,6 +1348,17 @@ export const SURFACES: readonly Surface[] = [
 			settle: 900,
 		}),
 	),
+	{
+		id: "settings-device-switch",
+		area: "B",
+		title: "Settings with the device pills on top: this device and the paired computer, the shown one highlighted",
+		open: openSettingsGeneral,
+		ready: "[data-settings-device-switch]",
+		settle: 900,
+		// Parity only: the audits' harness page pairs no computer, so it draws no pills.
+		when: () => false,
+		parity: { session: "work", pairedBack: true },
+	},
 	{
 		id: "settings-list",
 		area: "B",

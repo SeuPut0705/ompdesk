@@ -3,6 +3,7 @@
  * file cannot be saved, never again while any file still waits, and closed when the last one is on disk. The writers
  * retry by themselves (`atomic-file.ts`); this only tells. Electron-free: index.ts passes the OS notification.
  */
+import { type DiskFullState, IPC_EVENTS } from "../shared/ipc-types";
 import type { DiskFullWatch } from "./disk-full";
 
 export interface DiskFullNoticeDeps {
@@ -36,4 +37,18 @@ const NAMES_SHOWN = 3;
 export function describeFiles(names: readonly string[]): string {
 	const first = names.slice(0, NAMES_SHOWN).join(", ");
 	return names.length > NAMES_SHOWN ? `${first} +${names.length - NAMES_SHOWN}` : first;
+}
+
+/** A window or a paired phone's page. */
+export interface DiskFullTarget {
+	isDestroyed(): boolean;
+	webContents: { send(channel: string, data: unknown): void };
+}
+
+/** Tells every window and page the files that wait for space whenever they change (an empty list: all saved). */
+export function bindDiskFullPush(watch: DiskFullWatch, targets: () => Iterable<DiskFullTarget>): () => void {
+	return watch.onChange(files => {
+		const state: DiskFullState = { files: [...files] };
+		for (const target of targets()) if (!target.isDestroyed()) target.webContents.send(IPC_EVENTS.DISK_FULL, state);
+	});
 }

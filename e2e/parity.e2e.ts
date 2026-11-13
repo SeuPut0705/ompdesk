@@ -394,10 +394,14 @@ if (dir) {
 				},
 			};
 
-			/** B's work session opens a child on A; A also runs a session of its own, so its folded section has a count. */
-			let remoteChildLeft = false;
-			const leaveRemoteChild = async () => {
-				remoteChildLeft = true;
+			/**
+			 * B also uses A as a computer (A shares itself under "PC-A", B connects), so B's own window and its phone page
+			 * list a paired computer as A's window lists B. Once, for every surface that needs it.
+			 */
+			let pairedBack = false;
+			const pairBack = async () => {
+				if (pairedBack) return;
+				pairedBack = true;
 				await connectHost(a, b, "PC-A");
 				await expect
 					.poll(
@@ -407,6 +411,13 @@ if (dir) {
 						{ timeout: 30_000 },
 					)
 					.toBe("online");
+			};
+
+			/** B's work session opens a child on A; A also runs a session of its own, so its folded section has a count. */
+			let remoteChildLeft = false;
+			const leaveRemoteChild = async () => {
+				remoteChildLeft = true;
+				await pairBack();
 				const callWork = await controlToolCaller(b, hostProfile.record, start);
 				const open = await callWork("ompdesk_session_open", {
 					device: "PC-A",
@@ -562,6 +573,7 @@ if (dir) {
 
 			const records: SurfaceRecord[] = [];
 			for (const surface of surfaces) {
+				if (surface.parity.pairedBack) await pairBack();
 				if (surface.parity.remoteChild && !remoteChildLeft) await leaveRemoteChild();
 				if (surface.parity.hiddenRoster && !hiddenRosterLeft) await leaveHiddenRoster();
 				if (surface.parity.crossProject && !crossProjectLeft) await leaveCrossProject();

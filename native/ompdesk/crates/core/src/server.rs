@@ -279,6 +279,10 @@ where
         protocol: PROTOCOL,
     };
     let _ = frames.send(Frame::event("ready", &ready));
+    // Where `store.saveFailed` and `store.saved` go: a store whose disk is full tells main on this connection.
+    crate::disk::saves::attach(Events {
+        frames: frames.downgrade(),
+    });
     let mut reader = BufReader::new(input);
     let mut line = Vec::new();
     let mut tasks = JoinSet::new();

@@ -42,6 +42,7 @@ import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
 	DeepLinkPayload,
+	DiskFullState,
 	HostDesktopState,
 	HostUpdateAction,
 	HostView,
@@ -389,6 +390,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			onUpdaterStatus: (callback: (status: UpdateStatus) => void) =>
 				subscribe<UpdateStatus>(IPC_EVENTS.UPDATER_STATUS, callback),
 			onBridgeHealth: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.BRIDGE_HEALTH, () => callback()),
+			onDiskFull: callback => subscribe<DiskFullState>(IPC_EVENTS.DISK_FULL, callback),
 			onTabListChanged: callback => subscribe<IpcTabListChangedPayload>(IPC_EVENTS.TAB_LIST_CHANGED, callback),
 			onAgentControlView: callback => subscribe<AgentControlViewEvent>(AGENT_CONTROL_VIEW, callback),
 			onAgentControlApp: callback => subscribe<AgentAppEvent>(AGENT_CONTROL_APP, callback),
@@ -411,6 +413,9 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 
 		bridgeHealth: {
 			take: () => transport.invoke(IPC_COMMANDS.BRIDGE_HEALTH_TAKE),
+		},
+		diskFull: {
+			get: () => transport.invoke(IPC_COMMANDS.DISK_FULL_GET),
 		},
 
 		resume: {

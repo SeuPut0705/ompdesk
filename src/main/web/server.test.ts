@@ -651,7 +651,7 @@ describe("blocking a device", () => {
 	it("revokes every record of the blocked node, closing its sockets with 4401", async () => {
 		const first = await pair({ name: "Safari" });
 		await pair({ name: "Home Screen app" });
-		const { socket, frames, arrived } = await open(first, await ticketFor(first));
+		const { socket, arrived } = await open(first, await ticketFor(first));
 		await arrived(frames => frames.length > 0);
 		const closed = new Promise<number>(resolve => socket.once("close", code => resolve(code)));
 		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
@@ -812,7 +812,7 @@ describe("WebSocket", () => {
 
 	it("closes the device's sockets with 4401 on revoke, destroys its window and its upload folder", async () => {
 		const paired = await pair();
-		const { socket, frames, arrived } = await open(paired, await ticketFor(paired));
+		const { socket, arrived } = await open(paired, await ticketFor(paired));
 		await arrived(frames => frames.length > 0);
 		const win = host.windows.windowFor(paired.deviceId);
 		const closed = new Promise<number>(resolve => socket.once("close", code => resolve(code)));

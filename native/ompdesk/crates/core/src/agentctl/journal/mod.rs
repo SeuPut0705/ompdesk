@@ -101,7 +101,7 @@ pub(crate) fn read_array(file: &Path) -> Vec<Value> {
 
 /// `writeFileAtomicSync(file, text, { mode })`.
 pub(crate) fn write_text(file: &Path, text: &str, mode: Option<u32>) -> Result<(), String> {
-    crate::disk::tree::write_atomic_if(file, text.as_bytes(), mode, 0o777, &|| true)
+    crate::disk::saves::write_kept(file, text.as_bytes(), mode, 0o777)
         .map(|_| ())
         .map_err(|fault| fault.message)
 }

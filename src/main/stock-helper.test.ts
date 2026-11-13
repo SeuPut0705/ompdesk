@@ -47,6 +47,7 @@ const methods = {
 		return "gated";
 	},
 	mutate: params => { appendFileSync(${JSON.stringify(path.join(dir, "mutations"))}, params + "\\n"); return "mutated"; },
+	record: params => { appendFileSync(${JSON.stringify(path.join(dir, "order"))}, params + "\\n"); return params; },
 	hang: () => new Promise(() => {}),
 };
 const input = createInterface({ input: process.stdin });
@@ -104,6 +105,17 @@ describe("StockHelper request timeout", () => {
 		await fs.writeFile(path.join(dir, "release"), "");
 		await expect(helper.request("fast", {}, { timeoutMs: 30_000 })).resolves.toBe("ok");
 		expect(workers()).toHaveLength(1);
+	});
+
+	it("hands a burst of requests to its serial lane in the order they were made", async () => {
+		const { helper } = await helperOnWorker(30_000);
+		// Sent in one synchronous run, as a caller that starts a scan and then a mutation does: the core must place
+		// each in the lane as its frame is read, not as a task of its own happens to start (run 43357570260 ran
+		// "late" before the "gated" request it was sent after).
+		const sent = Array.from({ length: 60 }, (_, index) => index);
+		await Promise.all(sent.map(index => helper.request("record", index)));
+		const order = (await fs.readFile(path.join(dir, "order"), "utf8")).trim().split("\n").map(Number);
+		expect(order).toEqual(sent);
 	});
 
 	it("never runs a queued mutation whose caller already timed out, and its acknowledged withdrawal keeps the worker", async () => {

@@ -3,7 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFil
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp, withoutAwsCredentials } from "./test-bridge-probe";
 
 /**
  * Pins the built-in prompt suggestions to the installed omp, in an empty private agent dir (no model is called):
@@ -94,6 +94,7 @@ function run(options: { config?: string; legacy: boolean }): Probe {
 		};
 		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
 			Reflect.deleteProperty(env, key);
+		withoutAwsCredentials(env, isolated);
 		const args = [
 			...OMP_COMMAND.args,
 			"--mode",

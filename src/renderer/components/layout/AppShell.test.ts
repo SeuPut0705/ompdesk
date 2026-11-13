@@ -5,8 +5,10 @@
 
 import { parseHTML } from "linkedom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { showSettingsOf } from "../../lib/settings-device";
 import { useSessionStore } from "../../stores/session";
-import { useTabsStore } from "../../stores/tabs";
+import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
+import { type SessionTab, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { followPageFocus, leavePageOnSessionSelect } from "./AppShell";
 
@@ -59,6 +61,36 @@ describe("leavePageOnSessionSelect", () => {
 		useUiStore.getState().openInsights();
 		useTabsStore.setState({ activeTabId: "t2" });
 		expect(useUiStore.getState().destination).toBe("session");
+		stop();
+	});
+
+	it("keeps Settings open while its device pills move the focus to another device's tab, and only then", async () => {
+		const stop = leavePageOnSessionSelect();
+		const { switchTab } = useTabsStore.getState();
+		const tab = (id: string, device?: string): SessionTab => ({
+			id,
+			cwd: "/p",
+			status: "ready",
+			kind: "agent",
+			unreadDone: false,
+			device,
+		});
+		setFocusedSessionRuntime("t1");
+		useTabsStore.setState({
+			tabs: [tab("t1"), tab("t2", "host-b")],
+			activeTabId: "t1",
+			switchTab: async id => {
+				useTabsStore.setState({ activeTabId: id });
+			},
+		});
+		useUiStore.getState().openSettings("general");
+		await showSettingsOf("host-b");
+		expect(useTabsStore.getState().activeTabId).toBe("t2");
+		expect(useUiStore.getState().destination).toBe("settings");
+		useTabsStore.setState({ activeTabId: "t1" });
+		expect(useUiStore.getState().destination).toBe("session");
+		useTabsStore.setState({ switchTab, tabs: [] });
+		setFocusedSessionRuntime(null);
 		stop();
 	});
 });

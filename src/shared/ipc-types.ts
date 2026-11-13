@@ -169,6 +169,8 @@ export const IPC_EVENTS = {
 	UPDATER_STATUS: "updater:status",
 	/** New gui-bridge compatibility warnings are waiting; the renderer takes them with BRIDGE_HEALTH_TAKE. */
 	BRIDGE_HEALTH: "bridge-health:changed",
+	/** The files main could not save for lack of space changed; payload is the whole DiskFullState. */
+	DISK_FULL: "disk-full:state",
 	/** Remote devices state changed (host role and paired hosts); payload is the whole RemoteState. */
 	REMOTE_STATE: "remote:state",
 	/** The tailnet's computers changed while a window watches them; payload is the whole TailnetComputer[]. */
@@ -417,6 +419,8 @@ export const IPC_COMMANDS = {
 	UPDATER_AUTH_CLEAR: "updater:authClear",
 	/** Pending gui-bridge compatibility warnings, handed to exactly one caller */
 	BRIDGE_HEALTH_TAKE: "bridge-health:take",
+	/** The files waiting for space (payload: none; answer: DiskFullState) */
+	DISK_FULL_GET: "disk-full:get",
 	/** Cancel a tab's wait for the internet connection (payload: tab id) */
 	RESUME_CANCEL_WAIT: "resume:cancel-wait",
 	/** Stop what this launch resumed on one tab (the resuming row's Stop; payload: tab id) */
@@ -780,6 +784,11 @@ export interface UpdateAuthTestResult {
 export type BridgeHealthWarning =
 	| { kind: "unsupported"; ompVersion: string; features: string[] }
 	| { kind: "unavailable"; ompVersion: string; reason: string };
+
+/** What main could not save because the disk is full (src/main/disk-full.ts): file names, never paths. */
+export interface DiskFullState {
+	files: string[];
+}
 
 export type MenuAction =
 	| "new-session"
@@ -2220,6 +2229,8 @@ export interface OmpApi {
 		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;
 		/** Fires when gui-bridge compatibility warnings are pending; take them with `bridgeHealth.take()`. */
 		onBridgeHealth(callback: () => void): () => void;
+		/** Fires with the files main could not save for lack of space; an empty list means all are saved. */
+		onDiskFull(callback: (state: DiskFullState) => void): () => void;
 		/** The window's tab list changed because another window joined or left one of its tabs, or closed it. */
 		onTabListChanged(callback: (payload: IpcTabListChangedPayload) => void): () => void;
 		/** The calling agent asks this window to show (or, once the person approved it, close) a session's tab. */
@@ -2247,6 +2258,10 @@ export interface OmpApi {
 	bridgeHealth: {
 		/** Pending warnings; each is handed to one window only. */
 		take(): Promise<BridgeHealthWarning[]>;
+	};
+	diskFull: {
+		/** The files main could not save for lack of space right now (empty once all are saved). */
+		get(): Promise<DiskFullState>;
 	};
 	/** Turns that continue by themselves: after the connection returns, and after a relaunch. */
 	resume: {

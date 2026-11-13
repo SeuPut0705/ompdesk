@@ -41,6 +41,7 @@ use super::devices::{
     AuthResult, BlockBook, BlockScope, Blocks, Book, Device, Devices, Effect, NewDevice, Patch,
     PushSettings, Verdict,
 };
+use crate::disk::saves::write_kept;
 use crate::disk::tree::write_atomic_if;
 use crate::server::{Call, Events, Fault, PushCall, Registry, Reply};
 
@@ -129,16 +130,12 @@ impl Writer {
                     while let Ok((newer, newest)) = texts.try_recv() {
                         (number, text) = (newer, newest);
                     }
-                    let failed =
-                        write_atomic_if(&file, text.as_bytes(), Some(FILE_MODE), 0o777, &|| true)
-                            .err()
-                            .map(|fault| {
-                                eprintln!(
-                                    "ompdesk-core: couldn't save the {what}: {}",
-                                    fault.message
-                                );
-                                fault.message
-                            });
+                    let failed = write_kept(&file, text.as_bytes(), Some(FILE_MODE), 0o777)
+                        .err()
+                        .map(|fault| {
+                            eprintln!("ompdesk-core: couldn't save the {what}: {}", fault.message);
+                            fault.message
+                        });
                     done.send_modify(|done| {
                         done.upto = number;
                         done.failed = failed;

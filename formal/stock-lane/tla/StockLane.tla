@@ -101,20 +101,20 @@ Init ==
     /\ stopAt = 0
 
 \* Which kinds each rule applies to.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:559-572 Lane::outlived_its_omp the terminals worker is never let go for a changed omp
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:591-604 Lane::outlived_its_omp the terminals worker is never let go for a changed omp
 Retires == Kind # "terminals"
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:721-747 Lane::gave_up only the stock worker is replaced when its lane stays silent
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:753-779 Lane::gave_up only the stock worker is replaced when its lane stays silent
 Recycles == Kind = "stock"
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:781-799 Lane::arm_idle_exit only the extensions worker has an idle exit
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:813-831 Lane::arm_idle_exit only the extensions worker has an idle exit
 IdleExits == Kind = "extensions"
 
 \* omp was reinstalled while the lane's worker ran, and nothing is in flight on it: no request it was sent is
 \* unanswered and none but the asking one waits.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:559-572 Lane::outlived_its_omp
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:591-604 Lane::outlived_its_omp
 Outlived == running # None /\ Retires /\ changed /\ unanswered = {} /\ pending = {}
 
 \* The lane asks main how to start a worker.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:527-555 Lane::request the `stock.launch` event, named by a number never used before
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:559-587 Lane::request the `stock.launch` event, named by a number never used before
 Ask ==
     /\ launches < MaxLaunches
     /\ launches' = launches + 1
@@ -122,7 +122,7 @@ Ask ==
     /\ answers' = answers \cup {launches + 1}
 
 \* The lane ends its worker: closes its stdin (`closing`), or kills it when it hung.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:575-581 Lane::let_go
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:607-613 Lane::let_go
 LetGo(why) ==
     /\ life' = [life EXCEPT ![running] = IF why = "recycle" THEN "killed" ELSE "closing"]
     /\ endedBy' = [endedBy EXCEPT ![running] = why]
@@ -132,14 +132,14 @@ LetGo(why) ==
     /\ overdue' = {}
 
 \* Everything the lane still owes an answer fails.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:593-598 Lane::fail_pending
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:625-630 Lane::fail_pending
 Fail ==
     /\ caller' = [r \in Reqs |-> IF r \in pending /\ caller[r] = "waiting" THEN "failed" ELSE caller[r]]
     /\ pending' = {}
     /\ waiting' = {}
 
 \* A request reaches the lane.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:527-555 Lane::request
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:559-587 Lane::request
 Request(r) ==
     /\ caller[r] = "new"
     /\ caller' = [caller EXCEPT ![r] = "waiting"]
@@ -159,7 +159,7 @@ Request(r) ==
     /\ UNCHANGED <<made, graces, idles, lines, wrote, gaveups, exits, changed, read, recycledFor, staleStart, stopAt>>
 
 \* Main's answer to a start reaches the lane: how to start the worker (`ok`), or why none can start.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:600-617 Lane::launched
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:632-649 Lane::launched
 Launched(l, ok) ==
     /\ l \in answers
     /\ answers' = answers \ {l}
@@ -184,7 +184,7 @@ Launched(l, ok) ==
     /\ UNCHANGED <<launches, overdue, graces, lines, wrote, gaveups, exits, endedBy, read, cut, recycledFor, stopAt>>
 
 \* A request's timeout passes in its handler before the lane answered it: the caller is told at once.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:225-289 request the select over the answer, the timer and the cancel
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:293-321 wait the select over the answer, the timer and the cancel
 TimerFires(r) ==
     /\ caller[r] = "waiting"
     /\ caller' = [caller EXCEPT ![r] = "timedout"]
@@ -193,7 +193,7 @@ TimerFires(r) ==
                    graces, idles, lines, wrote, exits, changed, endedBy, read, cut, recycledFor, staleStart, stopAt>>
 
 \* The lane hears that a request's caller gave up: the worker is told to skip it, and a stock worker gets a grace.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:721-747 Lane::gave_up
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:753-779 Lane::gave_up
 GaveUp(r) ==
     /\ r \in gaveups
     /\ gaveups' = gaveups \ {r}
@@ -218,7 +218,7 @@ WorkerAnswers(g, r) ==
                    overdue, graces, idles, gaveups, exits, changed, endedBy, read, cut, recycledFor, staleStart, stopAt>>
 
 \* The lane reads a worker's answer; one from a worker that is no longer its own is dropped.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:703-716 Lane::line
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:735-748 Lane::line
 ReadLine(g, r) ==
     /\ <<g, r>> \in lines
     /\ lines' = lines \ {<<g, r>>}
@@ -236,7 +236,7 @@ ReadLine(g, r) ==
                    changed, endedBy, cut, recycledFor, staleStart, stopAt>>
 
 \* The grace of a timed-out request passes: the worker it was armed for, still silent on it, is ended as hung.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:751-769 Lane::overdue
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:783-801 Lane::overdue
 Grace(g, r) ==
     /\ <<g, r>> \in graces
     /\ graces' = graces \ {<<g, r>>}
@@ -249,7 +249,7 @@ Grace(g, r) ==
                    staleStart, stopAt>>
 
 \* The idle timer is due: the worker it was armed for, with nothing unanswered, is let go.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:801-811 Lane::idle
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:833-843 Lane::idle
 Idle(g) ==
     /\ g \in idles
     /\ idles' = idles \ {g}
@@ -268,7 +268,7 @@ WorkerExits(g) ==
                    graces, idles, lines, wrote, gaveups, changed, endedBy, read, cut, recycledFor, staleStart, stopAt>>
 
 \* The lane hears of an exit; that of its own worker fails what waited on it.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:771-778 Lane::exited
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:803-810 Lane::exited
 ReadExit(g) ==
     /\ g \in exits
     /\ exits' = exits \ {g}
@@ -291,7 +291,7 @@ OmpChanges ==
 
 \* `stock.stop`: what waits fails, the worker is let go, and a start asked for is forgotten. A later request finds a
 \* lane with nothing in it.
-\* @code native/ompdesk/crates/core/src/stock/mod.rs:814-820 Lane::stop
+\* @code native/ompdesk/crates/core/src/stock/mod.rs:846-852 Lane::stop
 Stop ==
     /\ Fail
     /\ launching' = None

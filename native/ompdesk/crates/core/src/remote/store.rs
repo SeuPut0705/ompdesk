@@ -33,7 +33,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use super::crypto::is_raw_key;
-use crate::disk::tree::write_atomic_if;
+use crate::disk::saves::write_kept;
 use crate::git::parse::js_number;
 use crate::server::{Call, Fault, Registry, Reply};
 
@@ -352,7 +352,7 @@ impl Store {
         let mut text = String::new();
         stringify(&Value::Object(document), 0, &mut text);
         text.push('\n');
-        write_atomic_if(&self.file, text.as_bytes(), Some(0o600), 0o777, &|| true)
+        write_kept(&self.file, text.as_bytes(), Some(0o600), 0o777)
             .map(|_| ())
             .map_err(|fault| io::Error::other(fault.message))
     }

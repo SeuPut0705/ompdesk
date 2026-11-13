@@ -43,7 +43,8 @@ use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior};
 
-use crate::disk::tree::{fault as node_fault, write_atomic_if};
+use crate::disk::saves::write_kept;
+use crate::disk::tree::fault as node_fault;
 use crate::server::{Call, Events, Fault, Registry, Reply};
 use engine::{Commanded, Engine, Limits, Out};
 
@@ -132,12 +133,10 @@ impl Journal {
                     while let Ok(newer) = texts.try_recv() {
                         text = newer;
                     }
-                    let open = || !closed.load(Ordering::SeqCst);
-                    if !open() {
+                    if closed.load(Ordering::SeqCst) {
                         continue;
                     }
-                    if let Err(fault) = write_atomic_if(&file, text.as_bytes(), None, 0o777, &open)
-                    {
+                    if let Err(fault) = write_kept(&file, text.as_bytes(), None, 0o777) {
                         eprintln!(
                             "ompdesk-core: couldn't save the schedules: {}",
                             fault.message
@@ -167,7 +166,7 @@ impl Journal {
         if let Some(writer) = locked(&self.writer).take() {
             let _ = writer.join();
         }
-        if let Err(fault) = write_atomic_if(&self.file, text.as_bytes(), None, 0o777, &|| true) {
+        if let Err(fault) = write_kept(&self.file, text.as_bytes(), None, 0o777) {
             eprintln!(
                 "ompdesk-core: couldn't save the schedules on quit: {}",
                 fault.message

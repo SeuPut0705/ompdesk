@@ -24,6 +24,7 @@ import { loadDeferredChunk } from "../../lib/deferred-chunk";
 import { useT } from "../../lib/i18n";
 import { whenIdle } from "../../lib/idle";
 import { actionShortcut } from "../../lib/keymap";
+import { settingsDeviceSwitching } from "../../lib/settings-device";
 import { markChromePlatform, syncWindowControls } from "../../lib/window-chrome";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
@@ -203,12 +204,14 @@ function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
  * Selecting a session (another tab, a switch in place, a new session) returns
  * from a destination page to the session view. A tab's first session arriving
  * (sessionId "" → id once get_state lands, after the sidecar reports ready) is
- * startup, not a selection: a page the user opened meanwhile stays open.
+ * startup, not a selection: a page the user opened meanwhile stays open. So does
+ * the Settings page while its device pills move the focus to another device's tab.
  * Returns the unsubscribe.
  */
 export function leavePageOnSessionSelect(): () => void {
 	const leave = () => {
-		if (useUiStore.getState().destination !== "session") useUiStore.getState().closeDestination();
+		if (useUiStore.getState().destination !== "session" && !settingsDeviceSwitching())
+			useUiStore.getState().closeDestination();
 	};
 	const unsubscribeTabs = useTabsStore.subscribe((next, previous) => {
 		if (next.activeTabId !== previous.activeTabId) leave();

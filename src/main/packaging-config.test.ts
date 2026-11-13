@@ -902,7 +902,14 @@ describe("workflows", () => {
 			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
 			permissions: Record<string, string>;
 			concurrency: { group: string };
-			jobs: Record<string, { if?: string; concurrency?: { group: string; "cancel-in-progress": boolean }; steps: { run?: string; if?: string }[] }>;
+			jobs: Record<
+				string,
+				{
+					if?: string;
+					concurrency?: { group: string; "cancel-in-progress": boolean };
+					steps: { run?: string; if?: string }[];
+				}
+			>;
 		};
 		expect(Object.keys(formal.on.workflow_dispatch.inputs)).toEqual(["only", "tier", "stamp", "skip_mutations"]);
 		expect(formal.permissions).toEqual({ contents: "write" });
@@ -915,9 +922,11 @@ describe("workflows", () => {
 		// Verification runs side by side; publication is serial per ref and checks the covered code again.
 		const publish = formal.jobs.publish;
 		expect(publish?.if).toBe("inputs.stamp");
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched as written
 		expect(publish?.concurrency).toEqual({ group: "formal-publish-${{ github.ref }}", "cancel-in-progress": false });
 		const publishRuns = publish?.steps.map(step => step.run ?? "").join("\n") ?? "";
 		expect(publishRuns).toContain("scripts/formal-publish.ts");
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: the shell variables the publish step expands
 		expect(publishRuns).toContain("chore(formal): stamp ${ids} on ${sha7}");
 		expect(publishRuns).not.toContain("rebase");
 	});

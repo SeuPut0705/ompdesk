@@ -137,7 +137,11 @@ describe("Settings for a tab on a paired host", () => {
 		expect(banner?.textContent).toContain(
 			"These are Studio's settings. App settings (appearance, shortcuts, language, updates) follow this device.",
 		);
-		expect(banner?.querySelector(`[data-device-chip="${HOST_ID}"]`)).not.toBeNull();
+		// The device is chosen from the strip at the top of the page; the banner holds no second control for it.
+		expect(banner?.querySelector("[data-device-chip], button")).toBeNull();
+		expect(
+			query(`[data-settings-device-switch] [data-settings-device="${HOST_ID}"]`)?.getAttribute("aria-selected"),
+		).toBe("true");
 		expect(["general", "appearance", "keyboard"].map(navTag)).toEqual([true, true, true]);
 		// The narrow nav keeps its labels whole: the tag there is the device icon, named for screen readers.
 		expect(query('[data-settings-nav="appearance"] [data-this-device-tag]')?.getAttribute("aria-label")).toBe(

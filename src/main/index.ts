@@ -26,7 +26,7 @@ import {
 	shell,
 	systemPreferences,
 } from "electron";
-import Store from "electron-store";
+import type Store from "electron-store";
 import {
 	AUTO_TITLE_EVOLVE_PREF,
 	AUTO_TITLE_PREF,
@@ -119,6 +119,7 @@ import {
 import { installCliLaunchers } from "./control-socket/cli-install";
 import { takeHubMinute } from "./core/hub";
 import { core, stopCore } from "./core/process";
+import { routeCoreSaves } from "./core-saves";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
@@ -130,7 +131,7 @@ import { DiskCare, registerDiskCareIpc } from "./disk/care";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "./disk/saved-worktrees";
 import { ScratchCare } from "./disk/scratch";
 import { diskFull } from "./disk-full";
-import { bindDiskFullNotice, describeFiles } from "./disk-full-notice";
+import { bindDiskFullNotice, bindDiskFullPush, describeFiles } from "./disk-full-notice";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { EMPTY_APPLY_PLAN } from "./extension-reload";
@@ -184,6 +185,7 @@ import { FileMarks } from "./routines/marks";
 import { filesChanged, githubPort, gitPort, scanPath, sessionPorts, watchPath } from "./routines/ports";
 import { RoutineTriggers } from "./routines/triggers";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
+import { SafeStore } from "./safe-store";
 import { layoutsToSave } from "./saved-layouts";
 import { ompRunLauncher, ScheduleService } from "./schedules";
 import { whenSessionFree } from "./session-free";
@@ -387,7 +389,7 @@ let mainPrefsStore: Store<MainPrefs> | null = null;
 
 function prefsStore(): Store<MainPrefs> {
 	if (!mainPrefsStore) {
-		mainPrefsStore = new Store<MainPrefs>({ name: "prefs" });
+		mainPrefsStore = new SafeStore<MainPrefs>({ name: "prefs" });
 		migrateRetiredPrefs(
 			mainPrefsStore as unknown as Store<Record<string, unknown>>,
 			join(app.getPath("userData"), "schedules.json"),
@@ -807,6 +809,10 @@ app.whenReady().then(async () => {
 			body: mainT("diskFull.body", undefined, { what: describeFiles(names) }),
 		}),
 	});
+	// The same notice as a toast in every window and on the paired phone's page, closed when the files are saved.
+	bindDiskFullPush(diskFull, () => [...BrowserWindow.getAllWindows(), ...(webHost?.windows.all() ?? [])]);
+	// The core's stores (web devices, paired computers, schedules, journals) join it.
+	routeCoreSaves(core(), diskFull);
 	markStartup("app-ready");
 	// A second instance quits at once: it must not take the running one's marker, nor watch anything.
 	if (gotLock) {
@@ -901,6 +907,7 @@ app.whenReady().then(async () => {
 		),
 	);
 	ipc.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
+	ipc.handle(IPC_COMMANDS.DISK_FULL_GET, () => ({ files: diskFull.names() }));
 	// The first local tab boots alone: the stats server and machine setup's optional installs (gh, Node;
 	// winget on Windows) wait until a tab's session is ready, or FIRST_TAB_GRACE_MS when none comes (only
 	// paired-host tabs, an omp that cannot start). Measured by e2e/first-run-no-omp.e2e.ts.

@@ -7,7 +7,7 @@ import * as fs from "node:original-fs";
 import { release } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, Menu, type MessageBoxOptions, nativeTheme, screen, shell } from "electron";
-import Store from "electron-store";
+import type Store from "electron-store";
 import type { RunProgressState, SessionKind } from "../shared/ipc-types";
 import { appIconPath } from "./app-icon";
 import { quitRisk, requestQuit } from "./app-quit";
@@ -23,6 +23,7 @@ import {
 	shouldRestartForChangedResources,
 } from "./renderer-recovery";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
+import { SafeStore } from "./safe-store";
 import type { WindowPresence } from "./update-log-core";
 import type { ClientWindow } from "./web/client-window";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";
@@ -109,7 +110,7 @@ export class WindowManager {
 	lastWindowHidden: (() => void) | null = null;
 
 	constructor() {
-		this.#store = new Store<StoreSchema>({ name: "window-state" });
+		this.#store = new SafeStore<StoreSchema>({ name: "window-state" });
 	}
 
 	createWindow(opts: { cwd: string }): BrowserWindow {
