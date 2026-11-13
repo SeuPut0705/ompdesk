@@ -265,7 +265,13 @@ wrap_window_delegate! {
         }
 
         fn maximum_size(&self, _view: Option<&mut View>) -> Size {
-            let (w, h) = win(self.win_id).map(|e| e.borrow().max_size).unwrap_or((0, 0));
+            let (w, h) = win(self.win_id)
+                .map(|e| {
+                    let e = e.borrow();
+                    let larger = e.options.get("enableLargerThanScreen").and_then(Value::as_bool).unwrap_or(false);
+                    shell_core::native_ui::max_window_size(e.max_size, larger)
+                })
+                .unwrap_or((0, 0));
             Size { width: w, height: h }
         }
     }

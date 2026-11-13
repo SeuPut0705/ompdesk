@@ -454,6 +454,14 @@ What the Rust shell does differently from this table or from Electron. README.md
   when no page exists. They do nothing for an in-memory partition (clearing a Chrome-style in-memory context ends the
   process). Creating the Preview's two in-memory contexts logs Chromium's non-fatal `NOTREACHED hit. Observers can only be
   added once!` on stderr.
+- **Answers that are not ready at `open`** (`ipc.invoke` through `scheme.rs`, `protocol.request`): the pending response is
+  stored before the request leaves, and `shell_core::handshake` orders the reply against `ResourceHandler::Open`: a reply
+  that arrives before `open` returns is handled by `open` itself (`handle_request = true`, no callback), one after it
+  calls `Continue`. (Before this the reply could be overwritten by `open`'s own placeholder: an empty body, seen on macOS as
+  `Unexpected end of JSON input` in the page.) The page script rejects an empty answer as `shell answered nothing for
+  <channel>`.
+- **`enableLargerThanScreen`** (window option): the window delegate's maximum size is lifted to 16384 so Windows' own clamp
+  to the display (`WM_GETMINMAXINFO`) does not apply; macOS is not handled (UNVERIFIED whether Views clamps there).
 - **`protocol.request`**: request headers are one `[name, value]` pair per value; a failed head fails the request with
   `ERR_FAILED`.
 - **`ipc.sendSync`** is sent from a `prompt()` the Preview preload's `__ompdeskSendSync` makes (message starting with NUL +

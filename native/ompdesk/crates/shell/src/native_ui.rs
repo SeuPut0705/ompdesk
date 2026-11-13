@@ -48,9 +48,27 @@ pub fn chrome_dark(source: ThemeSource, system_dark: bool) -> bool {
     }
 }
 
+/// A window's largest size for the window delegate (`(0, 0)` means the OS default). `enableLargerThanScreen` lifts the
+/// OS clamp to the display (Windows answers `WM_GETMINMAXINFO` from this maximum): a window may then be sized beyond
+/// the screen, as Electron's option allows. An explicit maximum wins.
+pub fn max_window_size(max: (i32, i32), larger_than_screen: bool) -> (i32, i32) {
+    const HUGE: i32 = 16_384;
+    match (max, larger_than_screen) {
+        ((0, 0), true) => (HUGE, HUGE),
+        _ => max,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_may_pass_the_screen_only_when_it_asked_to() {
+        assert_eq!(max_window_size((0, 0), false), (0, 0));
+        assert_eq!(max_window_size((0, 0), true), (16_384, 16_384));
+        assert_eq!(max_window_size((1200, 800), true), (1200, 800));
+    }
 
     #[test]
     fn value_maps_to_state() {
