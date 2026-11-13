@@ -1,0 +1,66 @@
+# The parity sheet (`bun run parity`, scripts/parity.ts, e2e/parity.e2e.ts) on a GitHub macOS runner, for a session
+# whose machine is not to run it: the same surface of one computer in its own window, in a paired computer's view
+# and on the phone page, side by side. The sheets and every view's PNG are uploaded whether the capture passed or
+# not (the e2e shards keep captures of a failed run only), so a change's report can attach what it shows.
+#
+#   gh workflow run parity.yml --ref <branch> -f surfaces="settings-device-switch"
+#   gh run download <run-id> -n parity   # <dir>/<surface>/{local,remote,phone,sheet}.png and parity.json
+#
+# `surfaces` is a space- or comma-separated list of ids of e2e/responsive-surfaces.ts that declare `parity`.
+# Manual only; the input reaches the shell through `env`, never inline.
+name: parity
+run-name: "parity ${{ inputs.surfaces }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      surfaces:
+        description: "Parity surfaces to capture (ids, space or comma separated)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      SURFACES: ${{ inputs.surfaces }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install
+      # The fake omp's terminals and search run stock's natives from the installed omp (e2e/remote-harness.ts).
+      - name: Install omp
+        run: |
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      # The phone's page runs in Playwright's own Chromium, which a fresh runner lacks.
+      - name: Playwright browsers
+        run: bunx playwright install chromium webkit
+      - name: Capture
+        run: |
+          set -euo pipefail
+          read -r -a IDS <<< "${SURFACES//,/ }"
+          test "${#IDS[@]}" -gt 0
+          for id in "${IDS[@]}"; do
+            [[ "$id" =~ ^[a-z0-9-]+$ ]] || { echo "::error::not a surface id: $id"; exit 1; }
+          done
+          bun run parity -- "${IDS[@]}" --out parity-out
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: parity
+          path: parity-out/
+          if-no-files-found: ignore
+          retention-days: 7

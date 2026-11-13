@@ -6129,6 +6129,10 @@ export const en: Record<string, string> = {
 	"hostScope.thisDeviceDesc": "Kept on this device, not on the device the focused tab runs on.",
 	"settings.device.banner":
 		"These are {name}'s settings. App settings (appearance, shortcuts, language, updates) follow this device.",
+	"settings.device.switchLabel": "Settings for",
+	"settings.device.offlineWhy":
+		"{name} is offline, so its settings can't be opened now. They open again once it reconnects.",
+	"settings.device.connectingWhy": "{name} is still connecting. Its settings open once the link is up.",
 	"settings.section.updates": "Updates & about",
 	"settings.section.updates.desc": "Versions of OMPdesk and omp, and the tools set up on this computer.",
 	"settings.section.advanced": "Other settings",
