@@ -27,6 +27,10 @@ on:
         description: "Parity surfaces to capture instead of the suite (ids, space or comma separated, or --both-orders for the order check; sheets uploaded as `parity`)"
         type: string
         default: ""
+      fake-env:
+        description: "Space-separated OMP_GUI_*=value variables the parity capture starts the fake omp with (e.g. OMP_GUI_TEST_USAGE_ACCOUNTS=many)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -74,6 +78,7 @@ jobs:
     timeout-minutes: 45
     env:
       SURFACES: ${{ inputs.parity }}
+      FAKE_ENV: ${{ inputs.fake-env }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -110,6 +115,10 @@ jobs:
             [[ "$id" =~ ^[a-z0-9-]+$ ]] || { echo "::error::not a surface id: $id"; exit 1; }
           done
           ONLY=$(IFS=,; echo "${IDS[*]}")
+          for pair in $FAKE_ENV; do
+            [[ "$pair" =~ ^OMP_GUI_[A-Z0-9_]+=[A-Za-z0-9_.,-]*$ ]] || { echo "::error::not an OMP_GUI_ variable: $pair"; exit 1; }
+            export "$pair"
+          done
           OMP_GUI_PARITY="$PWD/parity-out" OMP_GUI_PARITY_ONLY="$ONLY" \
             bunx playwright test e2e/parity.e2e.ts --trace off --reporter line --output parity-out/results
       - if: ${{ !cancelled() }}
