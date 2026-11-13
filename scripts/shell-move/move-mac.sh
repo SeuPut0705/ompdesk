@@ -58,7 +58,8 @@ evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^
 # and only then the remaining scenarios run under an spctl rule (which a person's Mac does not need).
 SPCTL_RULE=0
 open_probe() {
-  local app=$1 label=$2 ud=$W/probe-$label
+  local app=$1 label=$2 ud
+  ud=$W/probe-$label
   mkdir -p "$ud"
   evidence "probe $label: spctl --status: $(spctl --status 2>&1 | tr '\n' ' ')"
   evidence "probe $label: quarantine on the bundle: $(xattr -l "$app" 2>&1 | tr '\n' '|') ; on nested executables: $(find "$app" -type f -perm +111 -exec xattr -l {} + 2>/dev/null | grep -c quarantine) with the attribute"
