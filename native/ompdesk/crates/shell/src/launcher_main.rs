@@ -18,7 +18,9 @@ fn main() {
     unix::main();
 }
 
+// The process work calls `kill` and `setsid` (each use carries its SAFETY line), as the crate's other OS modules do.
 #[cfg(unix)]
+#[allow(unsafe_code)]
 mod unix {
     use std::ffi::OsString;
     use std::fs::{self, File, OpenOptions};
