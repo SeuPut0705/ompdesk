@@ -235,7 +235,8 @@ describe("M3: a mutation's own config is baselined on the unmutated model", () =
 			],
 		});
 		await runMutations({ root, model: file, spec: two, properties: ["SingleCommit"], check: counting });
-		expect(calls.filter(call => call === "baseline:MC_other.cfg")).toHaveLength(1);
+		// A config's baseline is its own unit (`base<n>`, mutate-core's planMutations): once, however many mutations use the config.
+		expect(calls.filter(call => /^base\d+:MC_other\.cfg$/.test(call))).toHaveLength(1);
 	});
 
 	it.skipIf(!REAL)(
