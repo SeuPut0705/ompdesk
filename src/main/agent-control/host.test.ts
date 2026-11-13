@@ -1741,15 +1741,14 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		};
 		const first = env.backend.run(outside, T.stop, { session: "work0002" });
 		const second = env.backend.run(outside, T.stop, { session: "work0003" });
+		// The core runs the two calls side by side, so either may show the first card; only one shows at a time.
 		await vi.waitFor(() => expect(answers).toHaveLength(1), { timeout: 5_000 });
 		await new Promise(resolve => setImmediate(resolve));
 		expect(answers).toHaveLength(1);
 		answers[0]?.(false);
-		await first;
 		await vi.waitFor(() => expect(answers).toHaveLength(2), { timeout: 5_000 });
 		answers[1]?.(false);
-		await second;
-		// Two tool calls, each through the core and its card, on a loaded runner.
+		await Promise.all([first, second]);
 	}, 20_000);
 
 	it("refuses with no window open and names an unknown tool", async () => {
