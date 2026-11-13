@@ -27,6 +27,7 @@ fn ask(number: u32, goal: &str) -> Ask {
     Ask {
         branch: format!("b{number}"),
         pr: None,
+        title: format!("change {number}"),
         sha: format!("e{number}"),
         goal: Some(goal.to_owned()),
         origin: Origin::Person,

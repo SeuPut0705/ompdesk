@@ -132,6 +132,17 @@ describe.each(HUBS)("a scripted checks hub: %s", (_name, { make, fakeTimers, adv
 		});
 		stop();
 	});
+
+	it("keeps what main tells it", async () => {
+		const hub = make();
+		const tags = { kind: "sessions", tags: { "3f9a": SESSION } } as const;
+		await hub.told({ kind: "repos", repos: ["example/app"] });
+		await hub.told(tags);
+		expect(await hub.apply({ op: "calls" })).toEqual([
+			{ op: "told", origin: null, request: { kind: "repos", repos: ["example/app"] } },
+			{ op: "told", origin: null, request: tags },
+		]);
+	});
 });
 
 describe("the core's checks hub", () => {
@@ -141,5 +152,20 @@ describe("the core's checks hub", () => {
 		const refused = await hub.status(SESSION, { scope: "all" }).catch(error => error);
 		expect(refused).toBeInstanceOf(CoreError);
 		expect((refused as CoreError).code).toBe("not_built");
+	});
+
+	it("takes how gh and git run and keeps nothing of their environment", async () => {
+		const hub = new CoreChecksHub({ fake: true });
+		opened.push(hub);
+		const gh = {
+			bin: "/usr/bin/gh",
+			args: [],
+			env: { GH_TOKEN: "ghp_never-in-an-answer" },
+			timeoutMs: 1000,
+			maxBytes: 1024,
+		};
+		await hub.runners(gh, null, "/home/me");
+		const calls = await hub.apply({ op: "calls" });
+		expect(calls).toEqual([{ op: "runners", origin: null, request: { gh: true, git: false } }]);
 	});
 });

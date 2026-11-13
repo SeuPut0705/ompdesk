@@ -8,6 +8,7 @@ import {
 	CHECKS_WIRE,
 	type FakeCall,
 	type FakeOp,
+	type MainFact,
 	type Origin,
 	type RunResult,
 	type Snapshot,
@@ -18,6 +19,7 @@ import {
 } from "../../shared/checks-contract";
 import type { FakeChecksHub } from "../../shared/checks-fixture";
 import { CORE_EXITED, CoreError, core } from "../core/process";
+import type { CoreRunner } from "../local/git/exec";
 
 /** A wait is the core's to end (its own timeout, at most an hour); this only outlasts it. */
 const WAIT_CALL_MS = 2 ** 31 - 1;
@@ -94,6 +96,15 @@ export class CoreChecksHub implements FakeChecksHub {
 
 	async pause(paused: boolean): Promise<void> {
 		await this.#call(CHECKS_WIRE.pause, { paused });
+	}
+
+	async told(fact: MainFact): Promise<void> {
+		await this.#call(CHECKS_WIRE.facts, { fact });
+	}
+
+	/** How gh and git run from now on (`ghRunner`, `gitRunner`; null: not installed); `home` is where gh runs. */
+	async runners(gh: CoreRunner | null, git: CoreRunner | null, home: string): Promise<void> {
+		await this.#call(CHECKS_WIRE.runners, { gh, git, home });
 	}
 
 	apply(op: FakeOp): Promise<FakeCall[] | null> {

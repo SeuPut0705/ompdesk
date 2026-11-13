@@ -58,6 +58,8 @@ impl Default for Tuning {
 pub struct Ask {
     pub branch: String,
     pub pr: Option<u64>,
+    /// What lands, in a line (the pull request's title, else the subject of the branch's newest commit).
+    pub title: String,
     pub sha: Sha,
     pub goal: Option<GoalId>,
     pub origin: Origin,
@@ -70,6 +72,7 @@ pub struct Entry {
     pub branch: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr: Option<u64>,
+    pub title: String,
     pub sha: Sha,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalId>,
@@ -455,8 +458,8 @@ impl LandQueue {
             .iter_mut()
             .find(|entry| entry.branch == ask.branch)
         {
-            (entry.pr, entry.sha, entry.goal, entry.origin) =
-                (ask.pr, ask.sha, ask.goal, ask.origin);
+            (entry.pr, entry.title, entry.sha, entry.goal, entry.origin) =
+                (ask.pr, ask.title, ask.sha, ask.goal, ask.origin);
             let id = entry.id.clone();
             self.advance(now, &mut out);
             return Ok((id, out));
@@ -473,6 +476,7 @@ impl LandQueue {
             id: id.clone(),
             branch: ask.branch,
             pr: ask.pr,
+            title: ask.title,
             sha: ask.sha,
             goal: ask.goal,
             origin: ask.origin,
@@ -740,7 +744,9 @@ impl LandQueue {
             id: entry.id.clone(),
             repo: self.repo.clone(),
             base: self.base.clone(),
-            pr: entry.pr.unwrap_or(0),
+            branch: entry.branch.clone(),
+            pr: entry.pr,
+            title: entry.title.clone(),
             sha: entry.sha.clone(),
             lane: Lane::Land,
             position: position as u32,

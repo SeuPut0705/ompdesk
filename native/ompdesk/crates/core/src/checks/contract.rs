@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 /// Milliseconds since the epoch, as `Date.now()` reads them.
 pub type Timestamp = u64;
-/// A paired computer's id, `local` for this one.
+/// The computer a session runs on: `local` for the hub's own, else the paired device's OMPdesk id (`ControlTab.device`).
 pub type DeviceId = String;
 /// `owner/name`.
 pub type RepoId = String;
@@ -20,8 +20,11 @@ pub type JobId = String;
 pub type PoolId = String;
 pub type GateId = String;
 pub type ReleaseId = String;
+/// A goal by its own short text, as the session's computer knows it when the run starts. Not an id to look up: a
+/// screen shows it as written.
 pub type GoalId = String;
-/// A session's saved id (`savedIdOfPath`).
+/// A session's saved id: the id in its session file's name (`savedIdOfPath`), the one `<ompdesk-agent-message
+/// session="…">` carries. A session with no file yet goes by its tab id.
 pub type SavedSessionId = String;
 pub type Sha = String;
 pub type BatchId = String;
@@ -253,6 +256,8 @@ pub struct Run {
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub id: JobId,
+    /// The workflow job's name (`mac-smoke`, `check (node 1/2)`), as a gate's `jobs` list it.
+    pub name: String,
     pub os: Os,
     pub pool: PoolId,
     pub state: JobState,
@@ -314,7 +319,7 @@ pub struct Policy {
 pub struct Decision {
     pub policy: String,
     pub run: RunId,
-    pub action: String,
+    pub action: PolicyAction,
     pub reason: String,
     pub at: Timestamp,
 }
@@ -325,7 +330,13 @@ pub struct QueueEntry {
     pub id: String,
     pub repo: RepoId,
     pub base: String,
-    pub pr: u64,
+    /// The branch that lands.
+    pub branch: String,
+    /// Its pull request, when it has one (a repo may land branches without).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<u64>,
+    /// What lands, in a line: the pull request's title, else the subject of the branch's newest commit.
+    pub title: String,
     pub sha: Sha,
     pub lane: Lane,
     pub position: u32,
@@ -351,8 +362,19 @@ pub struct TestHistory {
     pub test: TestId,
     /// The name a person reads (file and titles).
     pub name: String,
+    /// Quarantine is per OS: a test that flakes on Windows is not suspect on Linux.
+    pub os: Os,
     pub p50_ms_30d: u64,
+    pub runs_7d: u32,
+    pub fails_7d: u32,
     pub state: TestState,
+    /// The inputs it both passed and failed on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flaked_on: Option<InputsDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quarantined_at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleared_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quarantined_by: Option<Origin>,
     /// Clean runs on different inputs so far, of the 5 that clear it.
@@ -483,8 +505,13 @@ pub struct Adoption {
 pub struct Slowdown {
     pub test: TestId,
     pub name: String,
+    pub os: Os,
     pub p50_ms_30d: u64,
+    /// The recent durations, oldest first; the last three are the slow runs.
     pub last_ms: Vec<u64>,
+    /// The commit of the first slow run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_sha: Option<Sha>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -494,6 +521,8 @@ pub struct RunnerMinutes {
     /// `YYYY-MM`.
     pub month: String,
     pub minutes: f64,
+    /// The minutes at GitHub's published per-minute rate for the runner (an estimate, not a bill).
+    pub cost_usd: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -512,6 +541,14 @@ pub struct Trends {
     pub slowdowns: Vec<Slowdown>,
     pub minutes: Vec<RunnerMinutes>,
     pub queue_depth: Vec<DepthPoint>,
+    /// Time lost to flaky failures in the last 7 days, and in the 7 before.
+    pub lost_ms_7d: u64,
+    pub lost_ms_prev_7d: u64,
+    pub saved_by_rerun_ms_7d: u64,
+    pub saved_by_reuse_ms_7d: u64,
+    /// What the check logs and the reuse store hold on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_bytes: Option<u64>,
 }
 
 /// Everything `status` answers and `watch` streams: the hub's cache at `asOf`. It costs no GitHub request.
@@ -553,6 +590,26 @@ impl Snapshot {
     }
 }
 
+/// What main knows and the hub cannot read itself; main says it again whenever it changes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MainFact {
+    /// The repos to follow: those of the open sessions' checkouts. A start follows its repo by itself.
+    Repos { repos: Vec<RepoId> },
+    /// A paired computer's pool, as that computer answered over the link.
+    DevicePool { pool: super::sources::LocalPool },
+    /// The link to a paired computer is lost.
+    DeviceOffline { device: DeviceId },
+    /// Whose each session tag is (`OMP_GUI_SESSION_TAG`), so a local check run names the session that started it.
+    Sessions {
+        tags: std::collections::BTreeMap<String, Origin>,
+    },
+}
+
 /// The agent tool and its CLI twin (`ompdesk checks <op>`), by name.
 pub const TOOL: &str = "ompdesk_checks";
 pub const OPS: [&str; 3] = ["start", "wait", "status"];
@@ -569,6 +626,11 @@ pub mod wire {
     pub const STATUS: &str = "checks.status";
     pub const WATCH: &str = "checks.watch";
     pub const PAUSE: &str = "checks.pause";
+    /// `{hub, fact}`: what main knows and the hub cannot read itself (`MainFact`).
+    pub const FACTS: &str = "checks.facts";
+    /// `{hub, gh, git, home}`: how gh and git run (main's `ghRunner` and `gitRunner`, null when not installed), sent
+    /// after the open and again when the login shell's environment changed. Never kept in a log or an answer.
+    pub const RUNNERS: &str = "checks.runners";
     /// Drives the fake hub (`checks.open {fake: true}`): tests and the dev harness only.
     pub const FAKE: &str = "checks.fake";
     /// Event: the snapshot changed, while `checks.watch {on: true}` holds.
@@ -586,6 +648,7 @@ pub(crate) mod samples {
 
     use super::*;
     use crate::checks::fake::{FakeCall, FakeOp};
+    use crate::checks::sources::{LocalPool, LocalVolume};
 
     /// The values as JSON, each read back as itself.
     fn of<T: Serialize + DeserializeOwned + PartialEq + Debug>(values: Vec<T>) -> Value {
@@ -632,6 +695,7 @@ pub(crate) mod samples {
     fn job() -> Job {
         Job {
             id: "job-1".into(),
+            name: "mac-smoke".into(),
             os: Os::Macos,
             pool: "github-macos".into(),
             state: JobState::Running,
@@ -676,8 +740,14 @@ pub(crate) mod samples {
         TestHistory {
             test: "t-91ac".into(),
             name: "e2e/smoke.e2e.ts › opens a tab".into(),
+            os: Os::Windows,
             p50_ms_30d: 4_200,
+            runs_7d: 140,
+            fails_7d: 11,
             state: TestState::Quarantined,
+            flaked_on: Some("sha256:a31f".into()),
+            quarantined_at: Some(1_793_900_000_000),
+            cleared_at: Some(1_793_990_000_000),
             quarantined_by: Some(session()),
             clean_since: 2,
         }
@@ -726,7 +796,9 @@ pub(crate) mod samples {
                 id: "q-1".into(),
                 repo: "example/app".into(),
                 base: "main".into(),
-                pr: 12,
+                branch: "omp/agent/search-index".into(),
+                pr: Some(12),
+                title: "Index the search results".into(),
                 sha: "0123456789abcdef0123456789abcdef01234567".into(),
                 lane: Lane::Land,
                 position: 1,
@@ -736,7 +808,7 @@ pub(crate) mod samples {
             decisions: vec![Decision {
                 policy: "cancel-superseded".into(),
                 run: "run-0".into(),
-                action: "cancelled".into(),
+                action: PolicyAction::CancelSuperseded,
                 reason: "run-1 is a newer run of the same ref and workflow".into(),
                 at: 1_794_000_100_000,
             }],
@@ -756,19 +828,27 @@ pub(crate) mod samples {
                 slowdowns: vec![Slowdown {
                     test: "t-91ac".into(),
                     name: "e2e/smoke.e2e.ts › opens a tab".into(),
+                    os: Os::Linux,
                     p50_ms_30d: 4_200,
-                    last_ms: vec![5_900, 6_100, 6_300],
+                    last_ms: vec![4_100, 5_900, 6_100, 6_300],
+                    since_sha: Some("0123456789abcdef0123456789abcdef01234567".into()),
                 }],
                 minutes: vec![RunnerMinutes {
                     os: Os::Macos,
                     month: "2026-11".into(),
                     minutes: 412.5,
+                    cost_usd: 33.0,
                 }],
                 queue_depth: vec![DepthPoint {
                     at: 1_794_000_000_000,
                     pool: "github-macos".into(),
                     queued: 3,
                 }],
+                lost_ms_7d: 5_400_000,
+                lost_ms_prev_7d: 9_000_000,
+                saved_by_rerun_ms_7d: 21_600_000,
+                saved_by_reuse_ms_7d: 14_400_000,
+                store_bytes: Some(6_800_000_000),
             },
         }
     }
@@ -896,6 +976,39 @@ pub(crate) mod samples {
             }]),
         );
         types.insert("Snapshot".into(), of(vec![snapshot()]));
+        let device_pool = LocalPool {
+            device: "mac-mini".into(),
+            os: Os::Macos,
+            slots: 1,
+            held: 1,
+            queued: 2,
+            oldest_wait_ms: 120_000,
+            volumes: vec![LocalVolume {
+                path: "/".into(),
+                free_gb: 18.9,
+                total_gb: 245.1,
+                low: true,
+            }],
+            as_of: 1_794_000_700_000,
+            offline: false,
+            check_store_bytes: Some(6_800_000_000),
+        };
+        types.insert("LocalPool".into(), of(vec![device_pool.clone()]));
+        types.insert(
+            "MainFact".into(),
+            of(vec![
+                MainFact::Repos {
+                    repos: vec!["example/app".into()],
+                },
+                MainFact::DevicePool { pool: device_pool },
+                MainFact::DeviceOffline {
+                    device: "mac-mini".into(),
+                },
+                MainFact::Sessions {
+                    tags: [("3f9a".to_owned(), session())].into(),
+                },
+            ]),
+        );
         types.insert(
             "FakeOp".into(),
             of(vec![
@@ -946,6 +1059,8 @@ pub(crate) mod samples {
                 "pause": wire::PAUSE,
                 "fake": wire::FAKE,
                 "snapshot": wire::SNAPSHOT,
+                "facts": wire::FACTS,
+                "runners": wire::RUNNERS,
                 "result": wire::RESULT,
             },
             "enums": enums,

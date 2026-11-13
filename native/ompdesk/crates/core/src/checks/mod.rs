@@ -5,22 +5,34 @@
 //! - `hub`: the `ChecksHub` trait and the real `Hub` over the two fact adapters.
 //! - `sources`: `GithubSource` and `LocalSource`, with their in-memory fakes.
 //! - `fake`: a scripted `ChecksHub` for tests and the dev harness.
+//! - The real hub's parts, one file each so they are built side by side, every one declared here from the start (an
+//!   empty file until its part lands) so no part edits this file: `admission` (what a start decides), `answer` (a
+//!   run's result as an agent reads it), `poller` (the one reader of GitHub and the pools, and the real sources),
+//!   `queue` (the merge queue), `results` (test reports into test results), `trends` (flaky tests, slowdowns, cost)
+//!   and `place` (local or runner).
 //!
 //! The wire, each a request of main's with `hub`, main's id for the hub it opened:
 //! `checks.open {hub, fake?}`, `checks.close {hub}`, `checks.start {hub, origin, request}` → `StartReply`,
 //! `checks.wait {hub, origin, request}` → `Answer` (answers when the result arrived, the wait ran out or the request
 //! was cancelled), `checks.status {hub, origin, request}` → `Snapshot`, `checks.watch {hub, on}` → `Snapshot` (and the
-//! event `checks.snapshot {hub, snapshot}` at each change while on), `checks.pause {hub, paused}`, and for a fake hub
-//! `checks.fake {hub, op}`. The event `checks.result {hub, result}` is sent for every result, whoever waits.
-//! `origin` is main's word for who asks, never a caller's.
+//! event `checks.snapshot {hub, snapshot}` at each change while on), `checks.pause {hub, paused}`,
+//! `checks.facts {hub, fact}` (what main knows: `MainFact`), `checks.runners {hub, gh, git, home}` (how gh and git
+//! run), and for a fake hub `checks.fake {hub, op}`. The event `checks.result {hub, result}` is sent for every result,
+//! whoever waits. `origin` is main's word for who asks, never a caller's.
 //!
 //! The agent tool's body runs in this process (`agentctl`) and calls the hub directly: `checks::hub(id)`.
 
+pub mod admission;
+pub mod answer;
 pub mod contract;
 pub mod fake;
 pub mod hub;
+pub mod place;
+pub mod poller;
 pub mod queue;
+pub mod results;
 pub mod sources;
+pub mod trends;
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
@@ -29,9 +41,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::AbortHandle;
 
-use self::contract::{Origin, RunResult, Snapshot, StartRequest, StatusRequest, WaitRequest, wire};
+use self::contract::{
+    MainFact, Origin, RunResult, Snapshot, StartRequest, StatusRequest, WaitRequest, wire,
+};
 use self::fake::{FakeHub, FakeOp};
-use self::hub::ChecksHub;
+use self::hub::{ChecksHub, Runners};
 use crate::server::{Call, Events, Fault, Registry, Reply};
 
 /// A hub main opened, and what it sends main.
@@ -226,6 +240,33 @@ async fn pause(call: Call) -> Result<Reply, Fault> {
 }
 
 #[derive(Deserialize)]
+struct FactParams {
+    hub: u64,
+    fact: MainFact,
+}
+
+async fn facts(call: Call) -> Result<Reply, Fault> {
+    let params: FactParams = call.params()?;
+    let hub = entry(params.hub)?.hub.clone();
+    hub.told(params.fact).await?;
+    Reply::json(&())
+}
+
+#[derive(Deserialize)]
+struct RunnersParams {
+    hub: u64,
+    #[serde(flatten)]
+    runners: Runners,
+}
+
+async fn runners(call: Call) -> Result<Reply, Fault> {
+    let params: RunnersParams = call.params()?;
+    let hub = entry(params.hub)?.hub.clone();
+    hub.runners(params.runners).await?;
+    Reply::json(&())
+}
+
+#[derive(Deserialize)]
 struct FakeParams {
     hub: u64,
     op: FakeOp,
@@ -251,5 +292,7 @@ pub fn register(registry: &mut Registry) {
     registry.add(wire::STATUS, |call| Box::pin(status(call)));
     registry.add(wire::WATCH, |call| Box::pin(watch(call)));
     registry.add(wire::PAUSE, |call| Box::pin(pause(call)));
+    registry.add(wire::FACTS, |call| Box::pin(facts(call)));
+    registry.add(wire::RUNNERS, |call| Box::pin(runners(call)));
     registry.add(wire::FAKE, |call| Box::pin(fake(call)));
 }
