@@ -335,7 +335,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The markdown chunk gains `remark-dollar-math.ts` (13 Nov 2026: prices stay text, Pandoc's rule on single-dollar math;
 // the phone's first screen renders replies with it): measured 2,201,852 by the runner's build of the branch, 902
 // bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_201_900;
+// Check control's page and frame (14 Nov 2026: the `checks` destination in `stores/ui.ts` and `AppShell.tsx`, the
+// frame's store and its subscription in `App.tsx`, the `checks` palette command and API members, `Gauge` lifted out of
+// `UsageGauges`; the page, the sidebar block and the strings stay in their own chunks): measured 2,204,042 by the
+// runner's build of omp/agent/checks-ui, 2,142 bytes over.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_204_100;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
