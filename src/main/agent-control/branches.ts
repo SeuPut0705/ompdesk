@@ -4,10 +4,10 @@
  *
  * Local only (the git here runs on this computer). Its git runs in the core process
  * (`native/ompdesk/crates/core/src/git/branches.rs`): where a branch lands and whether it landed, its facts and diff,
- * the merge prediction, the merge's git steps and the removals, each one request through `coreGit`. What stays here:
- * the merge hooks around the merge, the `prepare` around a discard, `mergeProblem` (a rule over facts that
- * `service.ts` reads too) and `boundDiff` (the diff budget the compare's judge shares). Nothing here pushes, and a
- * merge that conflicts is aborted so the parent's checkout is never left half merged.
+ * the merge prediction, the checks before a merge (`merge_problem`), the diff cut to its budget (`bound_diff`, which
+ * the compare's judge shares), the merge's git steps and the removals, each one request through `coreGit`. What stays
+ * here: the merge hooks around the merge and the `prepare` around a discard. Nothing here pushes, and a merge that
+ * conflicts is aborted so the parent's checkout is never left half merged.
  */
 import type { WorktreeSetupReport } from "../../shared/rpc-types";
 import { CoreError } from "../core/process";
@@ -103,69 +103,14 @@ export function branchFacts(worktree: WorktreeRef): Promise<BranchFacts> {
 	return branchGit("git.branchFacts", { worktree }, FACTS_ROUNDS);
 }
 
-/** The `diff --git` header's path (`--no-renames` keeps both sides the same); the header itself when it is quoted or odd. */
-function sectionPath(section: string): string {
-	const header = section.slice(0, section.indexOf("\n") >>> 0 || section.length);
-	return /^diff --git a\/(.+) b\/\1$/.exec(header)?.[1] ?? header.replace(/^diff --git /, "");
-}
-
-/**
- * Cut a unified diff to about `chars` characters, fairly across files: each file gets an equal share, and what a
- * small file does not use goes to the larger ones (water-filling), so a huge lockfile cannot starve a source file's
- * hunk. A cut file ends at a line boundary with one line saying how many lines went. `omitted` counts the characters
- * of the diff left out; the lines saying so are not part of it.
- */
-export function boundDiff(diff: string, chars: number): { text: string; omitted: number } {
-	if (chars <= 0) return { text: "", omitted: diff.length };
-	if (diff.length <= chars) return { text: diff, omitted: 0 };
-	const sections = diff.split(/^(?=diff --git )/m);
-	const order = sections.map((section, index) => ({ index, size: section.length })).sort((a, b) => a.size - b.size);
-	const shares = new Array<number>(sections.length).fill(0);
-	let remaining = chars;
-	order.forEach(({ index, size }, rank) => {
-		const share = Math.floor(remaining / (order.length - rank));
-		shares[index] = Math.min(size, share);
-		remaining -= shares[index] ?? 0;
-	});
-	let out = "";
-	let omitted = 0;
-	sections.forEach((section, index) => {
-		const share = shares[index] ?? 0;
-		if (section.length <= share) {
-			out += section;
-			return;
-		}
-		const lines = section.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-		const marker = (left: number) =>
-			`… ${left} more line${left === 1 ? "" : "s"} of ${sectionPath(section)} left out\n`;
-		// Reserve the longest the marker can be (every line left out) so the cut file stays within its share.
-		let budget = share - marker(lines.length).length;
-		let kept = 0;
-		while (kept < lines.length && (lines[kept]?.length ?? 0) <= budget) {
-			budget -= lines[kept]?.length ?? 0;
-			out += lines[kept];
-			kept++;
-		}
-		omitted += lines.slice(kept).reduce((sum, line) => sum + line.length, 0);
-		out += marker(lines.length - kept);
-	});
-	return { text: out, omitted };
-}
-
 /**
  * The child's diff and what merging it would do. The diff is `git diff <mergeBase>` in its worktree, the same
- * committed plus uncommitted tracked work `branchFacts` counts; git's own output is capped, and a capped one still
+ * committed plus uncommitted tracked work `branchFacts` counts, cut in the core to about `diffChars` characters fairly
+ * across files (`bound_diff`, which the compare's judge shares); git's own output is capped, and a capped one still
  * counts as cut.
  */
-export async function branchEvidence(worktree: WorktreeRef, diffChars: number): Promise<BranchEvidence> {
-	const { raw, truncated, merge } = await branchGit<{ raw: string; truncated: boolean; merge: MergePrediction }>(
-		"git.branchEvidence",
-		{ worktree, diff: diffChars > 0 },
-		FACTS_ROUNDS,
-	);
-	if (diffChars <= 0) return { diff: "", diffOmitted: 0, merge };
-	const { text: diff, omitted } = boundDiff(raw, diffChars);
-	return { diff, diffOmitted: truncated ? Math.max(omitted, 1) : omitted, merge };
+export function branchEvidence(worktree: WorktreeRef, diffChars: number): Promise<BranchEvidence> {
+	return branchGit("git.branchEvidence", { worktree, diffChars: Math.max(0, Math.floor(diffChars)) }, FACTS_ROUNDS);
 }
 
 /**
@@ -265,30 +210,20 @@ export async function discardNewWorktree(worktree: WorktreeRef, prepare: BeforeR
 	return removal;
 }
 
-/** Why a merge of this branch cannot go ahead (what it would lose or tangle), or null. */
-export function mergeProblem(worktree: WorktreeRef, facts: BranchFacts): string | null {
-	if (!facts.baseBranch)
-		return `The parent checkout (${worktree.baseCwd}) is on a detached HEAD; check out a branch there first.`;
-	if (facts.uncommitted > 0)
-		return `${worktree.branch} has ${facts.uncommitted} uncommitted file(s) in ${worktree.path}; ask that session to commit them first (ompdesk_session_send).`;
-	if (facts.baseUncommitted > 0)
-		return `${worktree.baseCwd} has ${facts.baseUncommitted} uncommitted file(s); commit or stash them first so the merge cannot mix with them.`;
-	if (facts.merged || facts.commitsAhead === 0)
-		return `${worktree.branch} has nothing to merge into ${facts.baseBranch}.`;
-	return null;
-}
-
 /**
  * Merge the worktree's branch into the parent checkout's current branch with a merge commit. Refuses what a
- * merge would lose or tangle (`mergeProblem`), and a merge `predictMerge` says would conflict is never started.
+ * merge would lose or tangle (the core's `merge_problem`), and a merge `git merge-tree` predicts would conflict is
+ * never started.
  * The repository's `.ompdesk/worktree-pre-merge` (in the worktree) gates it, `worktree-post-merge` (in the parent
  * checkout) runs once it landed and never undoes it.
  */
 export async function mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome> {
-	const facts = await branchFacts(worktree);
-	const problem = mergeProblem(worktree, facts);
-	if (problem) throw new BranchError(problem);
-	const prediction = await predictMerge(worktree);
+	// The facts, what a merge would lose or tangle (a `BranchError`), then the prediction: one request.
+	const { baseBranch, merge: prediction } = await branchGit<{ baseBranch: string | null; merge: MergePrediction }>(
+		"git.mergeCheck",
+		{ worktree },
+		FACTS_ROUNDS + 4,
+	);
 	if (prediction.kind === "conflict")
 		return { merged: false, reason: "conflict", files: prediction.files, predicted: true };
 	const pre = await runWorktreeHook("pre-merge", {
@@ -298,11 +233,7 @@ export async function mergeBranch(worktree: WorktreeRef, label: string): Promise
 	});
 	if (pre && !pre.ok) return { merged: false, reason: "hook", hook: pre };
 	// The merge (slow), the conflicted files and the abort, then the short HEAD and its summary (slow each).
-	const outcome = await branchGit<MergeOutcome>(
-		"git.mergeBranch",
-		{ worktree, baseBranch: facts.baseBranch, label },
-		2 + 1 + 1 + 2 + 2,
-	);
+	const outcome = await branchGit<MergeOutcome>("git.mergeBranch", { worktree, baseBranch, label }, 2 + 1 + 1 + 2 + 2);
 	if (!outcome.merged) return outcome;
 	const post = await runWorktreeHook("post-merge", {
 		primary: worktree.baseCwd,

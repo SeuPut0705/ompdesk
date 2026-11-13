@@ -30,12 +30,12 @@ use super::fail::{R, fail};
 use super::host::Deadline;
 use super::js::{cut, len16, number, one_line};
 use super::text::{
-    CheckRun, JudgeReply, bound_diff, checks_run, content_text, error_text, hook_failure,
-    judge_label, label, merge_problem, parse_verdict, prediction_line, response_data, stored_title,
-    transcript_page, waits,
+    CheckRun, JudgeReply, checks_run, content_text, error_text, hook_failure, judge_label, label,
+    parse_verdict, prediction_line, response_data, stored_title, transcript_page, waits,
 };
 use super::types::{AgentMessage, ControlTab, MergePrediction, StoredSession, Target, WorktreeRef};
 use super::util::join;
+use crate::git::branches::{bound_diff, merge_problem};
 
 /// Newest transcript messages a compare reads from an open session for the checks it ran.
 pub(crate) const EVIDENCE_MESSAGES: usize = 200;

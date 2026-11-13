@@ -30,7 +30,7 @@ const MAX_DIFF_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CONTENT_VERDICTS: usize = 256;
 
 /// The worktree binding of a tab (`IpcTabWorktree`): the checkout, its branch and the repo it forked from.
-#[derive(Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeRef {
     pub path: String,
@@ -606,19 +606,46 @@ pub async fn predict(git: &Git, worktree: &WorktreeRef) -> Result<Prediction, Fa
     }
 }
 
+/// What a merge needs before its hooks run: the parent's branch, or the refusal `merge_problem` gives (a
+/// `branch_error`), and `git merge-tree`'s prediction.
 #[derive(Serialize)]
-pub struct Evidence {
-    raw: String,
-    truncated: bool,
+#[serde(rename_all = "camelCase")]
+pub struct MergeCheck {
+    base_branch: Option<String>,
     merge: Prediction,
 }
 
-/// The child's diff when `diff` asks for it (`git diff <mergeBase>` in its worktree, the committed and uncommitted
-/// tracked work `facts` counts, git's output capped: `truncated`), and what merging it would do. Main cuts the diff
-/// to its budget (`boundDiff`, which the compare's judge shares).
-pub async fn evidence(git: &Git, worktree: &WorktreeRef, diff: bool) -> Result<Evidence, Fault> {
+/// A merge's checks before anything is touched (`mergeBranch`'s first steps): the branch's facts, what a merge
+/// would lose or tangle (refused), then the prediction.
+pub async fn merge_check(git: &Git, worktree: &WorktreeRef) -> Result<MergeCheck, Fault> {
+    let facts = facts(git, worktree).await?;
+    if let Some(problem) = merge_problem(worktree, &facts) {
+        return Err(branch_error(problem));
+    }
+    Ok(MergeCheck {
+        base_branch: facts.base_branch,
+        merge: predict(git, worktree).await?,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Evidence {
+    diff: String,
+    diff_omitted: usize,
+    merge: Prediction,
+}
+
+/// The child's diff cut to `diff_chars` (`git diff <mergeBase>` in its worktree, the committed and uncommitted
+/// tracked work `facts` counts, cut fairly across files by `bound_diff`; git's own output is capped, and a capped one
+/// still counts as cut), and what merging it would do. `diff_chars` 0 reads no diff.
+pub async fn evidence(
+    git: &Git,
+    worktree: &WorktreeRef,
+    diff_chars: usize,
+) -> Result<Evidence, Fault> {
     let shown = async {
-        if !diff {
+        if diff_chars == 0 {
             return Ok((String::new(), false));
         }
         let Measure { merge_base, .. } = measure(git, worktree).await?;
@@ -649,9 +676,10 @@ pub async fn evidence(git: &Git, worktree: &WorktreeRef, diff: bool) -> Result<E
     // Both run to their end, so the prediction's scratch store goes before the request answers either way.
     let (shown, merge) = tokio::join!(shown, predict(git, worktree));
     let (raw, truncated) = shown?;
+    let (diff, omitted) = bound_diff(&raw, diff_chars);
     Ok(Evidence {
-        raw,
-        truncated,
+        diff,
+        diff_omitted: if truncated { omitted.max(1) } else { omitted },
         merge: merge?,
     })
 }
@@ -993,6 +1021,156 @@ pub async fn merge(
     })
 }
 
+// ---- the rules over facts and diffs a merge and the compare's judge read (were `branches.ts`'s) ---------------------
+
+/// `text.length`: UTF-16 units.
+fn utf16_len(text: &str) -> usize {
+    text.chars().map(char::len_utf16).sum()
+}
+
+/// Why a merge of this branch cannot go ahead (what it would lose or tangle), or None.
+pub fn merge_problem(worktree: &WorktreeRef, facts: &BranchFacts) -> Option<String> {
+    let Some(base) = facts.base_branch.as_deref().filter(|base| !base.is_empty()) else {
+        return Some(format!(
+            "The parent checkout ({}) is on a detached HEAD; check out a branch there first.",
+            worktree.base_cwd
+        ));
+    };
+    if facts.uncommitted > 0 {
+        return Some(format!(
+            "{} has {} uncommitted file(s) in {}; ask that session to commit them first (ompdesk_session_send).",
+            worktree.branch, facts.uncommitted, worktree.path
+        ));
+    }
+    if facts.base_uncommitted > 0 {
+        return Some(format!(
+            "{} has {} uncommitted file(s); commit or stash them first so the merge cannot mix with them.",
+            worktree.base_cwd, facts.base_uncommitted
+        ));
+    }
+    if facts.merged || facts.commits_ahead == 0 {
+        return Some(format!(
+            "{} has nothing to merge into {base}.",
+            worktree.branch
+        ));
+    }
+    None
+}
+
+/// The `diff --git` header's path; the header itself when it is quoted or odd.
+fn section_path(section: &str) -> String {
+    let header = match section.find('\n') {
+        Some(at) if at > 0 => &section[..at],
+        _ => section,
+    };
+    if let Some(both) = header.strip_prefix("diff --git a/") {
+        let count = both.chars().count();
+        if count >= 5 && (count - 3) % 2 == 0 {
+            let half = (count - 3) / 2;
+            let middle = both
+                .char_indices()
+                .nth(half)
+                .map_or(both.len(), |(at, _)| at);
+            let (first, rest) = both.split_at(middle);
+            if let Some(second) = rest.strip_prefix(" b/")
+                && first == second
+                && !first.contains(['\n', '\r', '\u{2028}', '\u{2029}'])
+            {
+                return first.to_owned();
+            }
+        }
+    }
+    header
+        .strip_prefix("diff --git ")
+        .unwrap_or(header)
+        .to_owned()
+}
+
+/// Where JavaScript's multiline `^` matches: the start, and after a line terminator.
+fn line_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
+    std::iter::once(0).chain(text.char_indices().filter_map(|(at, c)| {
+        matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}').then_some(at + c.len_utf8())
+    }))
+}
+
+/// `diff.split(/^(?=diff --git )/m)`.
+fn diff_sections(diff: &str) -> Vec<&str> {
+    let mut cuts: Vec<usize> = line_starts(diff)
+        .filter(|at| *at > 0 && diff[*at..].starts_with("diff --git "))
+        .collect();
+    cuts.dedup();
+    let mut sections = Vec::new();
+    let mut from = 0;
+    for at in cuts {
+        sections.push(&diff[from..at]);
+        from = at;
+    }
+    sections.push(&diff[from..]);
+    sections
+}
+
+/// `section.match(/[^\n]*\n|[^\n]+$/g)`: its lines, each with its newline.
+fn section_lines(section: &str) -> Vec<&str> {
+    section.split_inclusive('\n').collect()
+}
+
+/// Cut a unified diff to about `chars` characters, fairly across files: each file gets an equal share, and what a
+/// small file does not use goes to the larger ones. A cut file ends at a line boundary with one line saying how many
+/// lines went. `omitted` counts the characters of the diff left out.
+pub fn bound_diff(diff: &str, chars: usize) -> (String, usize) {
+    if chars == 0 {
+        return (String::new(), utf16_len(diff));
+    }
+    if utf16_len(diff) <= chars {
+        return (diff.to_owned(), 0);
+    }
+    let sections = diff_sections(diff);
+    let mut order: Vec<(usize, usize)> = sections
+        .iter()
+        .enumerate()
+        .map(|(index, section)| (index, utf16_len(section)))
+        .collect();
+    order.sort_by_key(|(_, size)| *size);
+    let mut shares = vec![0usize; sections.len()];
+    let mut remaining = chars;
+    for (rank, (index, size)) in order.iter().enumerate() {
+        let share = remaining / (order.len() - rank);
+        shares[*index] = (*size).min(share);
+        remaining -= shares[*index];
+    }
+    let mut out = String::new();
+    let mut omitted = 0;
+    for (index, section) in sections.iter().enumerate() {
+        let share = shares[index];
+        if utf16_len(section) <= share {
+            out.push_str(section);
+            continue;
+        }
+        let lines = section_lines(section);
+        let path = section_path(section);
+        let marker = |left: usize| {
+            format!(
+                "… {left} more line{} of {path} left out\n",
+                if left == 1 { "" } else { "s" }
+            )
+        };
+        // Reserve the longest the marker can be (every line left out) so the cut file stays within its share.
+        let mut budget = share as i64 - utf16_len(&marker(lines.len())) as i64;
+        let mut kept = 0;
+        while kept < lines.len() && (utf16_len(lines[kept]) as i64) <= budget {
+            budget -= utf16_len(lines[kept]) as i64;
+            out.push_str(lines[kept]);
+            kept += 1;
+        }
+        omitted += lines[kept..]
+            .iter()
+            .map(|line| utf16_len(line))
+            .sum::<usize>();
+        out.push_str(&marker(lines.len() - kept));
+    }
+    (out, omitted)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use serde_json::Value;
@@ -1074,5 +1252,55 @@ pub(crate) mod tests {
         assert!(!dir.exists());
         let _ = std::fs::remove_file(&marker);
         let _ = std::fs::remove_file(started);
+    }
+    /// A unified diff's section for `file` with `lines` added lines.
+    fn section(file: &str, lines: usize) -> String {
+        let mut out =
+            format!("diff --git a/{file} b/{file}\n--- a/{file}\n+++ b/{file}\n@@ -1 +1 @@\n");
+        for line in 0..lines {
+            out.push_str(&format!("+line {line}\n"));
+        }
+        out
+    }
+
+    /// Ported from `branches-worktrees.test.ts` (`boundDiff`) when the TypeScript copy went.
+    #[test]
+    fn bound_diff_returns_the_whole_diff_when_it_fits_and_nothing_without_a_budget() {
+        let diff = section("a.ts", 3);
+        assert_eq!(bound_diff(&diff, diff.len()), (diff.clone(), 0));
+        assert_eq!(bound_diff(&diff, 0), (String::new(), diff.len()));
+        assert_eq!(bound_diff("", 100), (String::new(), 0));
+    }
+
+    #[test]
+    fn bound_diff_gives_a_small_source_file_its_whole_hunk_beside_a_huge_lockfile() {
+        let source = section("src/app.ts", 4);
+        let lock = section("package-lock.json", 5000);
+        let (text, omitted) = bound_diff(&format!("{lock}{source}"), 2000);
+        assert!(text.contains(&source));
+        assert!(utf16_len(&text) <= 2000);
+        let marker = text
+            .lines()
+            .find(|line| line.starts_with("… ") && line.ends_with(" of package-lock.json left out"))
+            .expect("the lockfile's marker");
+        let kept = utf16_len(&text) - utf16_len(marker) - 1;
+        assert_eq!(omitted, utf16_len(&lock) + utf16_len(&source) - kept);
+    }
+
+    #[test]
+    fn bound_diff_cuts_at_a_line_boundary_and_says_how_many_lines_it_left_out() {
+        let (text, _) = bound_diff(&section("big.ts", 100), 300);
+        assert!(text.ends_with(" left out\n"));
+        let kept = text
+            .lines()
+            .filter(|line| line.starts_with("+line "))
+            .count();
+        let left: usize = text
+            .rsplit("… ")
+            .next()
+            .and_then(|tail| tail.split(' ').next())
+            .and_then(|count| count.parse().ok())
+            .unwrap();
+        assert_eq!(kept + left, 100);
     }
 }
