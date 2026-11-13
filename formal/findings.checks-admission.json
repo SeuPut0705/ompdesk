@@ -1,0 +1,186 @@
+{
+	"concern": "checks-admission",
+	"workflow": "W3",
+	"generated_at": "2026-11-14T04:50:00Z",
+	"repo_commit": "aa1b4bf8c",
+	"summary": "Design model of ChecksHub admission: all 11 frozen properties hold at the stated bounds (largest run 780,342 states), all 15 matrix runs end as expected, 24 of 24 mutations detected; one design limit (F1): a lower-lane hosted job can take the account's last place while a release macOS job waits.",
+	"scope": {
+		"modeled": [
+			"start: refuse while paused, reuse a green digest, hold and supersede",
+			"the pump: lane then arrival, place recorded before the dispatch",
+			"dispatch answer, run end, cancel landing",
+			"leases: lapse, sweep, no late renew",
+			"Pause/Resume",
+			"outside jobs taking free places"
+		],
+		"abstracted": [
+			"one macOS pool and one hosted pool under the account limit, one heavy pool",
+			"jobs instead of runs",
+			"one shared key group and one shared digest group",
+			"no clock: a lease lapses at any moment"
+		],
+		"out_of_scope": [
+			"admission ticket",
+			"wait/Answer, merge-queue batching, flaky state",
+			"placement and disk care",
+			"a stale poller",
+			"several hubs"
+		],
+		"assumptions": [
+			"A1 one admission step at a time",
+			"A2 the place is in the ledger before the dispatch await",
+			"A3 outside jobs counted at once (code lags one poll)",
+			"A4 a dispatch is answered and a run ends",
+			"A5 lane, pool, key, digest fixed at start"
+		]
+	},
+	"properties": [
+		{
+			"name": "WithinPoolLimits",
+			"kind": "invariant",
+			"meaning": "No pool, and not the account, holds more jobs than its limit; outside jobs count.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "AdmittedOnce",
+			"kind": "invariant",
+			"meaning": "A job is admitted at most once.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "HigherLaneFirst",
+			"kind": "action-property",
+			"meaning": "No job is admitted while a higher-lane job waits for a place free for it.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "FifoWithinLane",
+			"kind": "action-property",
+			"meaning": "Within a lane, no job is admitted while an earlier one waits for a place free for it.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "CancelsOnlySuperseded",
+			"kind": "action-property",
+			"meaning": "Only a run a newer run of the same repo, ref and workflow supersedes is cancelled; never a release, land or ungoverned run.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "ReusesOnlyGreen",
+			"kind": "action-property",
+			"meaning": "`reused` only from a green run of the same input digest.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "PausedStartsNothing",
+			"kind": "action-property",
+			"meaning": "While paused, a start is refused and nothing is admitted.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "LapsedLeaseIsFinal",
+			"kind": "action-property",
+			"meaning": "A lapsed held entry is never admitted and never live again.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "FirstInLineCanStart",
+			"kind": "invariant",
+			"meaning": "The first live entry in line with a free place can be admitted unless paused.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC.cfg (1 heavy slot; release, 2 branch, 1 outside job; 17,952 states) and DeviceLimit=2 (24,932); MC_account.cfg (macOS limit 1, account 2; 8,738); MC_supersede.cfg (5 jobs one key; 290,724); MC_reuse.cfg (1,267); deep: 2 slots, 2 release + 2 branch + 1 outside (780,342)",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "ReleaseEventuallyAdmitted",
+			"kind": "liveness",
+			"meaning": "Under the stated fairness a waiting release job is admitted unless its lease lapses.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC_live.cfg, weak fairness on pump, sweep, dispatch answer, run end, cancel landing",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "LapsedLeaves",
+			"kind": "liveness",
+			"meaning": "Under the stated fairness a lapsed held entry leaves the queue.",
+			"source": "formal/checks-admission/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC_live.cfg",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		},
+		{
+			"name": "KeepsLastAccountPlace (known limit)",
+			"kind": "action-property",
+			"meaning": "No job takes the account's last hosted place while a higher-lane job waits for the account. Must fail: finding F1.",
+			"result": "violated",
+			"tool": "TLC2 2026.11.06.222357",
+			"bounds": "MC_account.cfg, 102 states, depth 5",
+			"evidence": "formal/checks-admission/evidence/2026-11-14-run-43494679727.txt"
+		}
+	],
+	"findings": [
+		{
+			"id": "F1",
+			"title": "A lower-lane Linux job can take the account's last hosted place while a release macOS job waits",
+			"severity": "medium",
+			"status": "confirmed",
+			"property": "KeepsLastAccountPlace",
+			"story": "An outside macOS run holds the only macOS place (5 of 5 in real terms). A release macOS job arrives and waits for macOS. A land job for Linux arrives, has room in the account and is admitted: no rule is broken, because the release job could not use any free place. The account is now full (40 of 40). When the macOS run ends, the release job still cannot start until a lower-lane Linux job ends. The model reaches this at depth 5 (OutsideStarts, Start release, Start land, Admit land). It is a property of the design's rule (design 5: a free place goes to the first entry that can use it), not a code bug: there is no code. Strict head-of-line would prevent it and is shown wrong by mutation strict-head-of-line (it breaks FirstInLineCanStart). Options for the owner: accept (the 40 cap is far from today's use), reserve the account's last places for release while one waits, or count a waiting release macOS job against the account."
+		}
+	],
+	"rerun": [
+		"gh workflow run formal.yml --ref <branch> -f only=checks-admission -f tier=deep"
+	],
+	"next_steps": [
+		"admission.rs (session 15ccdc13) tags each code action of CORRESPONDENCE.md with @code and adds itself to covers, then stamps",
+		"owner decides F1 (accept, reserve, or count waiting release jobs)"
+	]
+}
