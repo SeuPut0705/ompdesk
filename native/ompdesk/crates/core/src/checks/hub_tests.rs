@@ -9,6 +9,7 @@ use crate::checks::sources::{Checkout, FakeGithub, FakeLocal, GithubJob, GithubR
 
 const REPO: &str = "o/app";
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+const SHA2: &str = "89abcdef0123456789abcdef0123456789abcdef";
 const CI: &str = "on:\n  push:\n  workflow_dispatch:\n    inputs:\n      batch:\n        type: boolean\n      ticket:\n        type: string\n";
 const CI_MAC: &str = "on:\n  workflow_dispatch:\n    inputs:\n      batch:\n        type: boolean\n      mac:\n        type: boolean\n";
 
@@ -59,6 +60,132 @@ fn dispatches(github: &FakeGithub) -> Vec<Dispatch> {
             _ => None,
         })
         .collect()
+}
+
+/// A run of ci.yml on `branch` at `sha` as GitHub lists it, made `ago` ms after the clock's start.
+fn gh_run(id: u64, branch: &str, sha: &str, at: u64, conclusion: Option<&str>) -> GithubRun {
+    GithubRun {
+        id,
+        workflow: "ci.yml".into(),
+        title: "ci".into(),
+        branch: branch.into(),
+        sha: sha.into(),
+        event: "workflow_dispatch".into(),
+        status: if conclusion.is_some() {
+            "completed"
+        } else {
+            "in_progress"
+        }
+        .into(),
+        conclusion: conclusion.map(Into::into),
+        attempt: 1,
+        actor: "someone".into(),
+        created_at: at,
+        updated_at: at + 1_000,
+    }
+}
+
+fn gh_job(id: u64, run: u64, at: u64, conclusion: Option<&str>) -> GithubJob {
+    GithubJob {
+        id,
+        run,
+        name: "check".into(),
+        attempt: 1,
+        status: if conclusion.is_some() {
+            "completed"
+        } else {
+            "in_progress"
+        }
+        .into(),
+        conclusion: conclusion.map(Into::into),
+        labels: vec!["ubuntu-latest".into()],
+        created_at: at,
+        started_at: Some(at + 500),
+        completed_at: conclusion.map(|_| at + 1_000),
+        steps: Vec::new(),
+    }
+}
+
+async fn rounds(hub: &Hub, count: usize) {
+    for _ in 0..count {
+        clock::advance(30_000).await;
+        hub.poller.round().await;
+    }
+}
+
+#[tokio::test]
+async fn a_held_run_whose_branch_moved_meanwhile_is_not_dispatched_for_the_new_commit() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI_MAC);
+    github.with(|facts| {
+        facts
+            .variables
+            .insert(format!("{REPO}\nMAC_REFS"), "feat feat2".into());
+    });
+    let hub = hub(&github);
+    let first = hub
+        .start(samples::session(), start(Purpose::Release, "feat"))
+        .await
+        .unwrap();
+    assert_eq!(first.decision, StartDecision::Started, "{}", first.reason);
+    let held = hub
+        .start(samples::session(), start(Purpose::Release, "feat2"))
+        .await
+        .unwrap();
+    assert_eq!(held.decision, StartDecision::Held, "{}", held.reason);
+    let held = held.run_id.unwrap();
+    // feat2 moves on while its run waits in OMPdesk's queue.
+    github.with(|facts| {
+        facts.heads.insert(format!("{REPO}\nfeat2"), SHA2.into());
+    });
+    // The first run ends: macOS frees and the held run takes the place.
+    let at = clock::now_ms() + 1_000;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, Some("success")))];
+        facts.jobs = vec![gh_job(701, 77, at, Some("success"))];
+    });
+    rounds(&hub, 3).await;
+    hub.settle();
+    hub.pump().await;
+    // Dispatching it now would run SHA2 under the digest and ticket of SHA.
+    assert_eq!(dispatches(&github).len(), 1);
+    let answer = hub.answer_of(&held).await;
+    assert!(
+        answer.notes.iter().any(|note| note.contains("moved")),
+        "{:?}",
+        answer.notes
+    );
+    clock::set_real();
+}
+
+#[tokio::test]
+async fn a_run_github_started_on_another_commit_than_asked_is_never_reused_as_green_for_the_asked_one()
+ {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI);
+    let hub = hub(&github);
+    let first = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    assert_eq!(first.decision, StartDecision::Started, "{}", first.reason);
+    // A push landed between the hub's read of feat and GitHub resolving the dispatch's ref: GitHub ran SHA2.
+    let at = clock::now_ms() + 1_000;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA2, at, Some("success")))];
+        facts.jobs = vec![gh_job(701, 77, at, Some("success"))];
+    });
+    rounds(&hub, 3).await;
+    hub.settle();
+    // feat is still SHA at the hub's next read: nothing tested SHA, so a start of it runs.
+    let again = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    assert_ne!(again.decision, StartDecision::Reused, "{}", again.reason);
+    clock::set_real();
 }
 
 #[tokio::test]

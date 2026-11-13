@@ -436,7 +436,13 @@ impl Core {
                 };
                 match admission.entry(&run.id).map(|entry| entry.stage) {
                     Some(Stage::Running) => {
-                        admission.run_ended(&run.id, verdict == RunVerdict::Green);
+                        // A green run counts for reuse only on the commit the hub asked for: a push between the hub's
+                        // read and GitHub resolving the ref runs another commit under this run's digest.
+                        let asked = book
+                            .pending
+                            .get(&run.id)
+                            .is_some_and(|pending| pending.sha == run.sha);
+                        admission.run_ended(&run.id, verdict == RunVerdict::Green && asked);
                         ended.push((run.id.clone(), run.clone()));
                     }
                     Some(Stage::Cancelling) => admission.cancel_landed(&run.id),
@@ -469,11 +475,27 @@ impl Core {
     }
 
     /// Sends one admitted run's dispatch; its place is already in the ledger (A2). Its claim goes to the poller first,
-    /// so the run GitHub then shows is known as this one.
+    /// so the run GitHub then shows is known as this one. GitHub's dispatch names a branch, never a commit: a branch
+    /// that moved while the run waited is not dispatched (its digest, its ticket and its answer are the old commit's).
     async fn dispatch(&self, ask: Ask) -> bool {
         let Some(pending) = locked(&self.book).pending.get(&ask.id).cloned() else {
             return false;
         };
+        if let Ok(Some(tip)) = self.github.head(&pending.repo, &pending.git_ref).await
+            && tip != pending.sha
+        {
+            locked(&self.book).failures.insert(
+                ask.id,
+                format!(
+                    "{} moved from {} to {} while it waited in OMPdesk's queue: start it again to check {}",
+                    pending.git_ref,
+                    short(&pending.sha),
+                    short(&tip),
+                    short(&tip)
+                ),
+            );
+            return false;
+        }
         let now = clock::now_ms();
         self.poller.expect(Expected {
             repo: pending.repo.clone(),
@@ -635,6 +657,16 @@ impl Core {
         let judged = {
             let mut book = locked(&self.book);
             let pending = book.pending.get(id).cloned();
+            // The digest names the commit the hub asked for; a run of another commit gets one of its own.
+            let moved = pending
+                .as_ref()
+                .filter(|pending| pending.sha != run.sha)
+                .map(|pending| short(&pending.sha).to_owned());
+            let digest = match (&pending, &moved) {
+                (Some(pending), None) => pending.digest.clone(),
+                (Some(pending), Some(_)) => format!("{}@{}", pending.digest, run.sha),
+                (None, _) => String::new(),
+            };
             let mut ledger = book.ledgers.remove(&repo).unwrap_or_else(|| {
                 self.store
                     .as_ref()
@@ -645,14 +677,22 @@ impl Core {
                 &fetched,
                 &Judged {
                     run_id: id,
-                    digest: pending
-                        .as_ref()
-                        .map_or("", |pending| pending.digest.as_str()),
+                    digest: &digest,
                     by: pending.as_ref().map(|pending| &pending.origin),
                     gate: pending.as_ref().and_then(|pending| pending.gate.as_ref()),
                     now,
                 },
-            );
+            )
+            .map(|mut answer| {
+                if let Some(asked) = moved {
+                    answer.notes.push(format!(
+                        "GitHub ran {} ({}), not {asked}: the branch moved before the run started",
+                        short(&run.sha),
+                        run.git_ref
+                    ));
+                }
+                answer
+            });
             if let Some(store) = &self.store {
                 // A ledger that cannot be saved stays in memory; the next save tries again.
                 let _ = store.save(&repo, &ledger);
