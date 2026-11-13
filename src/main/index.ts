@@ -171,7 +171,6 @@ import { followSetupState } from "./omp-availability";
 import { OMP_PIDS_FILE, OmpProcesses } from "./omp-processes";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
-import { openLocalPath } from "./open-path";
 import type { LidAwake } from "./power/lid-awake";
 import { createLidAwake } from "./power/lid-awake-runtime";
 import { activateAction, lastWindowCloseAction } from "./quit-guard";
@@ -204,6 +203,7 @@ import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { shellHost } from "./shell-host/modules/client";
 import { publishLabels, serveShellRelays } from "./shell-host/modules/relay";
+import { desktopServices } from "./shell-host/modules/services";
 import {
 	accessibilityTrusted,
 	defaultSessionCachePath,
@@ -2383,7 +2383,7 @@ app.whenReady().then(async () => {
 		},
 		openMedia: (url, range) => mediaStreams.handle(new Request(url, range ? { headers: { range } } : undefined)),
 		shell: {
-			openPath: abs => openLocalPath(abs, shell),
+			openPath: abs => desktopServices.openOrReveal(abs),
 			reveal: abs => shell.showItemInFolder(abs),
 			openExternal: url => shell.openExternal(url),
 		},

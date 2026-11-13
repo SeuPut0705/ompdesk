@@ -174,7 +174,6 @@ import { modelsPath } from "./models-config";
 import { type NoticeKind, NotificationBatcher, type ShownNotice } from "./notification-batch";
 import { createNotifyHandler } from "./notify-triage";
 import { systemOmp } from "./omp-runtime";
-import { openLocalPath } from "./open-path";
 import { registerPreviewHost } from "./preview/host";
 import { createTabCheck } from "./preview/preview-check";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
@@ -195,6 +194,7 @@ import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { shellHost } from "./shell-host/modules/client";
 import { publishLabels } from "./shell-host/modules/relay";
+import { desktopServices } from "./shell-host/modules/services";
 import { readClipboardText } from "./shell-host/shell-calls";
 import { updateSidebarPrefs } from "./sidebar-prefs";
 import type { SidebarProjects } from "./sidebar-projects";
@@ -492,7 +492,13 @@ const progressStates = new Map<number, RunProgressState>();
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const { ipc } = deps;
 	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices);
-	registerSshToolsIpc(ipc);
+	registerSshToolsIpc(ipc, {
+		userData: app.getPath("userData"),
+		sendToWindows: (channel, data) => {
+			for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(channel, data);
+		},
+		onQuit: dispose => app.on("will-quit", dispose),
+	});
 	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
 	let dialogPreload: string | null = null;
 	const visualPages = registerPreviewHost(
@@ -1437,16 +1443,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const who = ko
 				? `외부 프로세스: ${caller.name} (자체 표기)`
 				: `Outside process: ${caller.name} (self-declared)`;
-			const { response } = await dialog.showMessageBox(native, {
-				type: "question",
-				title,
-				message: title,
-				detail: `${who}\n\n${message}`,
-				buttons: ko ? ["허용", "허용 안 함"] : ["Allow", "Don't allow"],
-				defaultId: 1,
-				cancelId: 1,
-				signal: AbortSignal.timeout(CARD_TIMEOUT_MS),
-			});
+			const response = await desktopServices.confirm(
+				native.id,
+				{
+					type: "question",
+					title,
+					message: title,
+					detail: `${who}\n\n${message}`,
+					buttons: ko ? ["허용", "허용 안 함"] : ["Allow", "Don't allow"],
+					defaultId: 1,
+					cancelId: 1,
+				},
+				CARD_TIMEOUT_MS,
+			);
 			return response === 0;
 		},
 	});
@@ -1903,7 +1912,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		async (caller, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
 			const local = await existingLocalPath(deps, caller, target, tabId);
 			if (!("path" in local)) return local;
-			await openLocalPath(local.path, shell);
+			await desktopServices.openOrReveal(local.path);
 			return { ok: true };
 		},
 	);
@@ -1935,23 +1944,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.SYSTEM_SAVE_IMAGE, async (caller, defaultName: string, mimeType: string, data: string) => {
 		const win = caller.browserWindow;
 		if (!win) return { saved: false };
-		const extension =
-			mimeType
-				.split("/")[1]
-				?.split(/[+;]/)[0]
-				?.replace("jpeg", "jpg")
-				.replace(/[^a-z0-9]/gi, "") || "png";
-		const result = await dialog.showSaveDialog(win, {
-			defaultPath: path.basename(defaultName) || `image.${extension}`,
-			filters: [{ name: "Image", extensions: [extension] }],
-		});
-		if (result.canceled || !result.filePath) return { saved: false };
-		try {
-			await fsp.writeFile(result.filePath, Buffer.from(data, "base64"));
-			return { saved: true };
-		} catch (error) {
-			return { saved: false, error: error instanceof Error ? error.message : String(error) };
-		}
+		return desktopServices.saveImage(win.id, defaultName, mimeType, Buffer.from(data, "base64"));
 	});
 
 	ipc.handle(
@@ -2406,9 +2399,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			await fsp.mkdir(path.dirname(file), { recursive: true });
 			await fsp.writeFile(file, "# Custom model providers.\nproviders: {}\n", "utf8");
 		}
-		const openError = await shell.openPath(file);
-		if (openError) shell.showItemInFolder(file);
-		return { path: file, opened: !openError };
+		// models.yml is no launcher: `openOrReveal` opens it, or reveals it when no app takes it.
+		const opened = (await desktopServices.openOrReveal(file)) === "opened";
+		return { path: file, opened };
 	});
 
 	// Workspace filesystem — node:fs against the tab's cwd (src/main/workspace-fs.ts);

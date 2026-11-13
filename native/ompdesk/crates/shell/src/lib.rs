@@ -24,6 +24,7 @@ pub mod preload_report;
 pub mod proxy_mac;
 pub mod proxy_rules;
 pub mod range;
+pub mod services_core;
 pub mod shell_args;
 pub mod spell;
 pub mod startup;

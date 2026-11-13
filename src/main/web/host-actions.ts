@@ -40,7 +40,7 @@ export interface HostActionsDeps {
 	blobs: Pick<BlobStore, "addFile" | "release">;
 	/** The folder a tab works in on this computer, for a relative path; null when unknown. */
 	cwdFor(context: WebCallContext, tabId: string | undefined): string | null;
-	/** The host's own "open" for a file (launcher types are revealed instead: main/open-path.ts). */
+	/** The host's own "open" for a file (launcher types are revealed instead: the shell's `services.openOrReveal`). */
 	openPath(abs: string): Promise<unknown>;
 	reveal(abs: string): void;
 	openExternal(url: string): Promise<void>;

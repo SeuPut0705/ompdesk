@@ -71,15 +71,22 @@ fn run(call: Call, show: impl FnOnce(isize, &Value) -> Result<Value, String> + S
     let win_id = call.params.get("winId").and_then(Value::as_u64);
     let options = call.params.get("options").cloned().unwrap_or(Value::Null);
     let method = call.method.clone();
+    with_owner(win_id, move |owner| match show(owner, &options) {
+        Ok(result) => call.ok(result),
+        Err(why) => {
+            log("dialog.failed", json!({ "method": method, "error": why }));
+            call.err("failed", why);
+        }
+    });
+}
+
+/// Runs `show` where a dialog owned by window `win_id` may run, with the owner's OS handle (0 for none): on Windows a
+/// thread of its own, on macOS the UI thread. When no thread can be made, `show` is dropped unrun (a `Call` it holds
+/// then answers `failed`).
+pub fn with_owner(win_id: Option<u64>, show: impl FnOnce(isize) + Send + 'static) {
     ui::run(move || {
         let owner = owner_handle(win_id);
-        let work = move || match show(owner, &options) {
-            Ok(result) => call.ok(result),
-            Err(why) => {
-                log("dialog.failed", json!({ "method": method, "error": why }));
-                call.err("failed", why);
-            }
-        };
+        let work = move || show(owner);
         #[cfg(windows)]
         {
             if let Err(error) = std::thread::Builder::new()

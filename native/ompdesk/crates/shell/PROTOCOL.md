@@ -709,8 +709,23 @@ Deviations:
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
+| `services.openOrReveal` | Node | `{path}` | `{outcome: "opened"\|"revealed"}` — a launcher (`services_core::is_launcher`: launcher extensions per platform, also behind a symlink; on POSIX an executable regular file) is only revealed; any other path is opened in its default app, and revealed when no app takes it. Was `open-path.ts` `openLocalPath`. Callers: `system:open-path`, `models:config-open`, the web host's open. |
+| `services.saveImage` | Node | `{winId?, defaultName, mimeType}` + `bin` (the picture) | `{saved, error?}` — a save panel owned by `winId`, named `basename(defaultName)` or `image.<ext>` with one filter of `<ext>` (`services_core::image_extension`), then the bytes written there. Cancelled: `{saved: false}`; the write failing: `{saved: false, error}`. Was `ipc.ts` `system:save-image`. |
+| `services.confirm` | Node | `{winId?, options: MessageBoxOptions, timeoutMs?}` | `{response}` — a message box (`dialog.messageBox`'s options) that closes as the Esc key would after `timeoutMs` without a choice, and on `{cancel: id}`, answering `cancelId`. Was `confirmOutside`'s `showMessageBox` with `AbortSignal.timeout`. |
+
+What stays on the shim and why: `shell.openExternal`, `shell.showItemInFolder`, `shell.trashItem`,
+`dialog.showOpenDialog`, `dialog.showSaveDialog` hand a request to the shell's own §8 methods unchanged, and the e2e specs
+stub exactly those members in main (`shell.openExternal`, `shell.trashItem`, `dialog.showOpenDialog`,
+`dialog.showSaveDialog`) to keep a run off the person's browser, trash and dialogs; `Notification` stays because
+`autopilot-cycles` and `multi-viewer` count notifications by wrapping `Notification.prototype.show`, and its click raises a
+window (SX1's); `screen.getPrimaryDisplay()` stays as the shim's mirror (a synchronous read for the Preview, SX2's).
 
 Deviations:
+
+- `services.saveImage`: a write error's text is Rust's (`Permission denied (os error 13)`), where Node wrote
+  `EACCES: permission denied, open '<path>'`.
+- `services.openOrReveal`: a symlink's target is read with `canonicalize` (on Windows `\\?\C:\…`, only its name is
+  judged, as before). `OMP_GUI_TEST_SERVICES_DRY=1` (test seam) answers without opening or revealing.
 
 ### 15.8 `updater.*` (SX4)
 
