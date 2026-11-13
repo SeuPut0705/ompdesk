@@ -6,7 +6,8 @@
  *
  * The shell is the e2e one (`e2e/fixture/shell-launch.ts`: the staged build; on macOS the dev bundle made from it). Where
  * none is built (Linux, a checkout without `bun run build:shell`) `testShellExecutable()` is null and the suite skips,
- * unless `OMPDESK_TEST_SHELL_REQUIRED=1` (CI's `shell-parity` job), which makes a missing shell a failure.
+ * unless `OMPDESK_TEST_SHELL_REQUIRED=1` (CI: `ci.yml`'s `shell-parity`, `mac-checks.yml`'s `mac-smoke`), which makes
+ * a missing shell a failure.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

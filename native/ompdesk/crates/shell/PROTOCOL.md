@@ -627,9 +627,10 @@ on GitHub's runners.
    (`modules/test-shell.ts`), inside `describe.skipIf(!executable)`. The harness starts the built shell with a relay as
    its Node, so the test is main's side of the wire (`hello`, `app.init`, `app.ready`), then
    `shellModule<Spec>(ns, () => shell.client)`; it closes with `app.exit`. A case that needs Node's side served (an
-   ask, `core.call`, `log.runtime`) serves it on `shell.client` in the test. CI's `shell-parity` job (Windows and
-   macOS, every batch run) runs that folder with `OMPDESK_TEST_SHELL_REQUIRED=1`, where a missing shell fails; on
-   Linux and in a checkout without `bun run build:shell` the suites skip.
+   ask, `core.call`, `log.runtime`) serves it on `shell.client` in the test. CI runs that folder with
+   `OMPDESK_TEST_SHELL_REQUIRED=1`, where a missing shell fails: on Windows in `ci.yml`'s `shell-parity` job (every
+   batch run), on macOS as a step of `mac-checks.yml`'s `mac-smoke` (the landing run, `-f mac=true`). On Linux and in a
+   checkout without `bun run build:shell` the suites skip.
 2. **Capture before deletion.** In the slice's first commit, while the TypeScript still exists, a capture script
    (`scripts/shell-port/capture-<namespace>.ts`, run under bun) drives the moved code through its public functions
    over a fake shell (the `HostClient` fake of `electron/create.test.ts`) and records each step: the input, the shim
