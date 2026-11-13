@@ -1211,6 +1211,11 @@ describe("AiMemoryService", () => {
 			try {
 				const { service, health } = await make();
 				await service.start();
+				// start() answers when the pass ends; the core arms its poll timer a moment after, as a task of its own
+				// (`start_polling`), and main registers it when that event arrives. Advancing before then ticks nothing
+				// (ci run 43400752541: the check never started, and the leaked wait broke the next test's fake timers).
+				await until(() => vi.getTimerCount() === 1);
+				expect(vi.getTimerCount()).toBe(1);
 				const held = Promise.withResolvers<void>();
 				health.gate = held.promise;
 				health.maxInFlight = 0;
@@ -1230,7 +1235,7 @@ describe("AiMemoryService", () => {
 			} finally {
 				vi.useRealTimers();
 			}
-		});
+		}, 30_000);
 	});
 
 	describe("state pushes", () => {
