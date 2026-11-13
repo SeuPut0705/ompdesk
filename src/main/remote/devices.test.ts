@@ -232,27 +232,25 @@ describe("ports", () => {
 });
 
 describe("two computers that use each other as hosts", () => {
-	it("reconnect to each other at once and stay connected (each one's link opening never ends the other's dial)", async () => {
+	/**
+	 * Both apps restart together (an update on each): every link drops, then both listen again and each dials the
+	 * other. `gateMs` makes each host's gate (its `whois`) that slow, as on a loaded runner.
+	 */
+	async function reconnectBothWays(gateMs = 0) {
 		await rig.pickPort();
-		const lines: { message: string; details: Record<string, unknown> }[] = [];
-		const logLink = (message: string, details: Record<string, unknown>) => lines.push({ message, details });
-		const laptopNode = studioNode({ nodeId: "nLAPTOP", name: "laptop" });
-		const b = await rig.computer(
-			"Studio",
-			fakeTailnet({
-				peers: [laptopNode],
-				whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]),
-			}),
-			{ logLink },
-		);
-		const a = await rig.computer(
-			"Laptop",
-			fakeTailnet({
-				peers: [studioNode()],
-				whois: new Map([[LOOPBACK, { nodeId: "nSTUDIO", nodeName: "studio", login: LOGIN }]]),
-			}),
-			{ logLink },
-		);
+		const lines: { message: string; details: Record<string, unknown>; at: number }[] = [];
+		const logLink = (message: string, details: Record<string, unknown>) =>
+			lines.push({ message, details, at: Date.now() });
+		const studioTailnet = fakeTailnet({
+			peers: [studioNode({ nodeId: "nLAPTOP", name: "laptop" })],
+			whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]),
+		});
+		const laptopTailnet = fakeTailnet({
+			peers: [studioNode()],
+			whois: new Map([[LOOPBACK, { nodeId: "nSTUDIO", nodeName: "studio", login: LOGIN }]]),
+		});
+		const b = await rig.computer("Studio", studioTailnet, { logLink });
+		const a = await rig.computer("Laptop", laptopTailnet, { logLink });
 		for (const c of [a, b]) {
 			c.devices.start();
 			await c.devices.setHostEnabled(true);
@@ -263,30 +261,48 @@ describe("two computers that use each other as hosts", () => {
 		await until(a, state => state.hosts[0]?.state === "online");
 		await until(b, state => state.hosts[0]?.state === "online");
 
-		// Both apps restart together (an update on each): every link drops, then both listen again.
 		await Promise.all([a.devices.setHostEnabled(false), b.devices.setHostEnabled(false)]);
 		await until(a, state => state.hosts[0]?.state !== "online");
 		await until(b, state => state.hosts[0]?.state !== "online");
+		studioTailnet.whoisDelayMs = laptopTailnet.whoisDelayMs = gateMs;
 		const reopened = lines.length;
 		await Promise.all([a.devices.setHostEnabled(true), b.devices.setHostEnabled(true)]);
-		await until(a, state => state.hosts[0]?.state === "online");
-		await until(b, state => state.hosts[0]?.state === "online");
+		await until(a, state => state.hosts[0]?.state === "online", 10_000);
+		await until(b, state => state.hosts[0]?.state === "online", 10_000);
 		const settled = lines.length;
 		await new Promise(resolve => setTimeout(resolve, 3_000));
 
 		expect(a.devices.state().hosts[0]?.state).toBe("online");
 		expect(b.devices.state().hosts[0]?.state).toBe("online");
 		expect(lines.slice(settled).filter(line => line.message === "down" || line.message === "attempt")).toEqual([]);
-		// One dial each way, neither ended by the other's link opening: an ended dial is run again, a second attempt
-		// line for that host. Which wakes a dial is a race, and both are right: its backoff ran out, or the other's
-		// link reached this computer's host first (`peer`) and the waiting dial went at once (a slow Windows runner
-		// sees the second, twice in a row on 23 Oct 2026).
+		// One dial each way, neither ended by the other's link opening while younger than the stale step (1 s): the
+		// other's link reaching this computer's host (`peer`) may end only a dial that has waited that long, and the
+		// dial then runs again at once. Which wakes the first dial is a race, and both are right: its backoff ran out,
+		// or the other's link came first and the waiting dial went at once.
 		const attempts = lines.slice(reopened).filter(line => line.message === "attempt");
-		expect(attempts.map(line => line.details.deviceId).sort()).toEqual(
-			[a.devices.state().hosts[0]?.deviceId, b.devices.state().hosts[0]?.deviceId].sort(),
-		);
-		for (const attempt of attempts) expect(["backoff", "peer"]).toContain(attempt.details.trigger);
+		for (const host of [a, b]) {
+			const id = host.devices.state().hosts[0]?.deviceId;
+			const own = attempts.filter(line => line.details.deviceId === id);
+			expect(own.length, JSON.stringify(own)).toBeGreaterThan(0);
+			expect(["backoff", "peer"]).toContain(own[0]?.details.trigger);
+			for (const [index, rerun] of own.slice(1).entries()) {
+				expect(rerun.details.trigger).toBe("peer");
+				// The stale step is the core's 1 s; the lines cross to main after it, so allow a little of their delay.
+				expect(rerun.at - (own[index]?.at ?? 0)).toBeGreaterThanOrEqual(900);
+			}
+		}
+		return attempts;
+	}
+
+	it("reconnect to each other at once and stay connected (each one's link opening never ends the other's dial)", async () => {
+		await reconnectBothWays();
 	}, 20_000);
+
+	it("a dial whose host's gate takes longer than the stale step runs again once the other's link opens, then stays", async () => {
+		const attempts = await reconnectBothWays(1_200);
+		// The slow gate held each handshake past the stale step while the other's link opened: a dial ran again.
+		expect(attempts.filter(line => line.details.trigger === "peer").length).toBeGreaterThan(0);
+	}, 30_000);
 });
 
 describe("two apps on one address that took each other's ports", () => {

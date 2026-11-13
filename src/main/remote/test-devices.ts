@@ -26,6 +26,8 @@ export interface FakeTailnet {
 	selfIps: string[];
 	peers: TailnetNode[];
 	whois: Map<string, TailnetPeer>;
+	/** Each `whois` answer comes this much later (a host's gate on a slow runner). */
+	whoisDelayMs?: number;
 }
 
 export function fakeTailnet(patch: Partial<FakeTailnet> = {}): FakeTailnet {
@@ -140,7 +142,10 @@ export class DevicesRig {
 			tailnet: {
 				status: async () => statusOf(fake),
 				phase: async () => fake.phase,
-				whois: async ip => fake.whois.get(ip) ?? null,
+				whois: async ip => {
+					if (fake.whoisDelayMs) await new Promise(resolve => setTimeout(resolve, fake.whoisDelayMs));
+					return fake.whois.get(ip) ?? null;
+				},
 			},
 			allowedUsers: () => allowed,
 			adoptLogin: () => {},
@@ -217,7 +222,7 @@ export function studioNode(patch: Partial<TailnetNode> = {}): TailnetNode {
 }
 
 /** Resolves once `done` holds for the computer's state, checked on every broadcast; the timer is only a failure deadline. */
-export function until(c: Computer, done: (state: RemoteState) => boolean): Promise<RemoteState> {
+export function until(c: Computer, done: (state: RemoteState) => boolean, deadlineMs = 5_000): Promise<RemoteState> {
 	const { promise, resolve, reject } = Promise.withResolvers<RemoteState>();
 	const check = () => {
 		const state = c.devices.state();
@@ -229,7 +234,7 @@ export function until(c: Computer, done: (state: RemoteState) => boolean): Promi
 	const deadline = setTimeout(() => {
 		c.listeners.delete(check);
 		reject(new Error(`gave up: ${JSON.stringify(c.devices.state())}`));
-	}, 5_000);
+	}, deadlineMs);
 	c.listeners.add(check);
 	check();
 	return promise;
