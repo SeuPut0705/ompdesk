@@ -414,6 +414,11 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **`wc.cdp.send`**: every call times out after 60 s with `timeout`. The debugger's session is a flat session the shell
   attaches to the page's own target (`Target.getTargetInfo`, `Target.attachToTarget {flatten: true}`) on the page's
   DevTools channel; commands sent before it exists wait for it, and `wc.cdp.detach` is `Target.detachFromTarget`.
+  A detach, the session's end, or a session that could not be opened fails the debugger's waiting and in-flight
+  commands at once (`gone`, "target closed while handling command", as Electron's debugger rejects them) and leaves
+  the page unattached, so a new `wc.cdp.attach` makes a new session. When the page's DevTools agent detaches (CEF
+  delivers none of the pending answers then), every pending command fails the same way, an attached debugger hears
+  `wc.cdp.detached`, and a page that watches `input-event` arms it again.
 - **Edit `wc.op`s** (`undo`, `redo`, `cut`, `copy`, `paste`, `pasteAndMatchStyle`, `selectAll`, `delete`) sent to a
   window's own page act on the page of that window that last took keyboard focus (it took the OS focus, or a key it
   left unhandled came from it), as Electron's menu roles act on the focused webContents: a Preview view the person

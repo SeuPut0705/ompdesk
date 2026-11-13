@@ -10,7 +10,7 @@ use cef::*;
 use serde_json::{Value, json};
 
 use crate::host;
-use crate::state::{WcEntry, wc};
+use crate::state::{CdpCallback, WcEntry, wc};
 
 type Failure = (String, String);
 
@@ -27,18 +27,87 @@ wrap_dev_tools_message_observer! {
         }
 
         fn on_dev_tools_agent_detached(&self, _browser: Option<&mut Browser>) {
-            let attached = wc(self.wc_id).map(|e| e.borrow().cdp_attached).unwrap_or(false);
-            if attached {
-                host::event("wc.cdp.detached", json!({ "wcId": self.wc_id, "reason": "target closed" }));
-            }
+            agent_detached(self.wc_id);
         }
+    }
+}
+
+/// What closing the debugger's session ends, taken out of the page's entry: whether it was attached, its session, the
+/// commands waiting for it and the debugger's commands in flight. The borrow has ended when this returns, so the caller
+/// may run them.
+struct Ended {
+    attached: bool,
+    session: Option<String>,
+    waiting: Vec<Box<dyn FnOnce(Option<String>)>>,
+    in_flight: Vec<CdpCallback>,
+}
+
+fn end_debugger(entry: &Rc<RefCell<WcEntry>>, every_command: bool) -> Ended {
+    let mut e = entry.borrow_mut();
+    let ids: Vec<i32> = if every_command {
+        e.cdp_pending.keys().copied().collect()
+    } else {
+        e.cdp_debugger_pending.iter().copied().collect()
+    };
+    e.cdp_debugger_pending.clear();
+    let in_flight = ids
+        .iter()
+        .filter_map(|id| e.cdp_pending.remove(id))
+        .collect();
+    let attached = std::mem::replace(&mut e.cdp_attached, false);
+    Ended {
+        attached,
+        session: e.cdp_session.take(),
+        waiting: std::mem::take(&mut e.cdp_waiting),
+        in_flight,
+    }
+}
+
+impl Ended {
+    /// Every waiting and in-flight command of the debugger fails, as Electron's debugger rejects them on detach.
+    fn fail_commands(self) -> (bool, Option<String>) {
+        for run in self.waiting {
+            run(None);
+        }
+        for callback in self.in_flight {
+            callback(Err((
+                "gone".into(),
+                "target closed while handling command".into(),
+            )));
+        }
+        (self.attached, self.session)
+    }
+}
+
+/// The page's DevTools agent went away: CEF delivers none of the answers still pending and drops every session and
+/// subscription on it (the debugger's, the input watch's binding and script). The next command attaches a new agent.
+fn agent_detached(wc_id: u64) {
+    let Some(entry) = wc(wc_id) else { return };
+    let (attached, _) = end_debugger(&entry, true).fail_commands();
+    if attached {
+        host::event(
+            "wc.cdp.detached",
+            json!({ "wcId": wc_id, "reason": "target closed" }),
+        );
+    }
+    let rearm = wc(wc_id).is_some_and(|e| {
+        let e = e.borrow();
+        !e.closing && e.watch_events.contains("input-event")
+    });
+    if rearm {
+        // Not from inside CEF's own callback: the next turn of the UI thread attaches the new agent.
+        crate::ui::post(move || watch_input(wc_id));
     }
 }
 
 fn on_message(wc_id: u64, value: Value) {
     let Some(entry) = wc(wc_id) else { return };
     if let Some(id) = value.get("id").and_then(Value::as_i64) {
-        let callback = entry.borrow_mut().cdp_pending.remove(&(id as i32));
+        let callback = {
+            let mut e = entry.borrow_mut();
+            e.cdp_debugger_pending.remove(&(id as i32));
+            e.cdp_pending.remove(&(id as i32))
+        };
         if let Some(callback) = callback {
             callback(match value.get("error") {
                 Some(error) => Err((
@@ -75,11 +144,7 @@ fn on_message(wc_id: u64, value: Value) {
             && debugger.is_some()
             && params.get("sessionId").and_then(Value::as_str) == debugger.as_deref();
         if ended && attached {
-            {
-                let mut e = entry.borrow_mut();
-                e.cdp_attached = false;
-                e.cdp_session = None;
-            }
+            end_debugger(&entry, false).fail_commands();
             host::event(
                 "wc.cdp.detached",
                 json!({ "wcId": wc_id, "reason": "target closed" }),
@@ -143,12 +208,24 @@ pub fn send(
     };
     let mut message =
         json!({ "id": id, "method": &method, "params": params.unwrap_or_else(|| json!({})) });
+    // Only the debugger sends on a session (its own, or one under it).
+    let debugger = session_id.is_some();
     if let Some(session) = session_id {
         message["sessionId"] = json!(session);
     }
-    entry.borrow_mut().cdp_pending.insert(id, Box::new(done));
+    {
+        let mut e = entry.borrow_mut();
+        e.cdp_pending.insert(id, Box::new(done));
+        if debugger {
+            e.cdp_debugger_pending.insert(id);
+        }
+    }
     if host.send_dev_tools_message(Some(message.to_string().as_bytes())) == 0 {
-        let callback = entry.borrow_mut().cdp_pending.remove(&id);
+        let callback = {
+            let mut e = entry.borrow_mut();
+            e.cdp_debugger_pending.remove(&id);
+            e.cdp_pending.remove(&id)
+        };
         if let Some(callback) = callback {
             callback(Err((
                 "failed".into(),
@@ -158,7 +235,11 @@ pub fn send(
         return;
     }
     crate::ui::post_delayed(Duration::from_secs(60).as_millis() as i64, move || {
-        let callback = wc(wc_id).and_then(|e| e.borrow_mut().cdp_pending.remove(&id));
+        let callback = wc(wc_id).and_then(|e| {
+            let mut e = e.borrow_mut();
+            e.cdp_debugger_pending.remove(&id);
+            e.cdp_pending.remove(&id)
+        });
         if let Some(callback) = callback {
             callback(Err((
                 "timeout".into(),
@@ -249,14 +330,7 @@ pub fn attach(wc_id: u64) {
 /// `debugger.detach`: its session ends, and with it everything it set on the page.
 pub fn detach(wc_id: u64) {
     let Some(entry) = wc(wc_id) else { return };
-    let (waiting, session) = {
-        let mut e = entry.borrow_mut();
-        e.cdp_attached = false;
-        (std::mem::take(&mut e.cdp_waiting), e.cdp_session.take())
-    };
-    for run in waiting {
-        run(None);
-    }
+    let (_, session) = end_debugger(&entry, false).fail_commands();
     if let Some(session) = session {
         send(
             wc_id,

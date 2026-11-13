@@ -135,6 +135,8 @@ pub struct WcEntry {
     pub cdp_next_id: i32,
     /// CDP calls waiting for their answer, by the id the shell chose.
     pub cdp_pending: HashMap<i32, CdpCallback>,
+    /// Which of `cdp_pending` the debugger sent (on its session or one under it): they end with its session.
+    pub cdp_debugger_pending: HashSet<i32>,
     pub painted: Option<Painted>,
     pub view_size: (i32, i32),
     pub frame_rate: i32,
@@ -174,6 +176,7 @@ impl WcEntry {
             cdp_observer_added: false,
             cdp_next_id: 0,
             cdp_pending: HashMap::new(),
+            cdp_debugger_pending: HashSet::new(),
             painted: None,
             view_size: (1280, 720),
             frame_rate: 30,
