@@ -331,3 +331,49 @@ async fn a_wait_ends_with_the_judgment_and_every_subscriber_hears_it_once() {
     assert_eq!(again, answer);
     clock::set_real();
 }
+
+#[tokio::test]
+async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_through_the_hub() {
+    let github = github(CI);
+    let hub = hub(&github);
+    let host = hub.queue_host();
+    let batch = host.start_batch(REPO, "feat", SHA).await.unwrap();
+    assert_eq!(batch.decision, StartDecision::Started, "{}", batch.reason);
+    assert!(batch.reason.contains("(land lane)"), "{}", batch.reason);
+    assert_eq!(dispatches(&github)[0].git_ref, "feat");
+    // Until main hands over how git runs, the queue has none.
+    assert!(host.git(Scope::detached()).is_none());
+    // An entry's result ends the waits on it, told as the session that enqueued it.
+    let mut results = hub.results();
+    let entry = answer::unknown(
+        "q-1",
+        clock::now_ms(),
+        Next::Fix,
+        "not landed on main: red".into(),
+    );
+    host.finished(RunResult {
+        run_id: "q-1".into(),
+        origin: samples::session(),
+        answer: entry.clone(),
+    });
+    let heard = results.recv().await.unwrap();
+    assert_eq!(
+        (heard.run_id.as_str(), heard.origin),
+        ("q-1", samples::session())
+    );
+    let waited = hub
+        .wait(
+            samples::session(),
+            WaitRequest {
+                run_id: "q-1".into(),
+                until: Until::Result,
+                timeout_seconds: Some(1),
+            },
+            Scope::detached(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(waited, entry);
+    drop(hub);
+    assert!(host.start_batch(REPO, "feat", SHA).await.is_err());
+}

@@ -878,6 +878,55 @@ impl GithubSource for GhSource {
                 .map_err(|_| unreadable("not UTF-8"))
         })
     }
+
+    fn default_branch<'a>(&'a self, repo: &'a str) -> Fut<'a, Result<Option<String>, SourceError>> {
+        Box::pin(async move {
+            #[derive(Deserialize)]
+            struct Repository {
+                default_branch: Option<String>,
+            }
+            let repo = repo_name(repo)?;
+            let endpoint = format!("repos/{repo}");
+            let body = self.body(&endpoint, "{default_branch}").await?;
+            Ok(self
+                .parsed::<Repository>(&endpoint, &body)?
+                .default_branch
+                .filter(|branch| !branch.is_empty()))
+        })
+    }
+
+    fn subject<'a>(
+        &'a self,
+        repo: &'a str,
+        sha: &'a str,
+    ) -> Fut<'a, Result<Option<String>, SourceError>> {
+        Box::pin(async move {
+            #[derive(Deserialize)]
+            struct Message {
+                message: String,
+            }
+            let repo = repo_name(repo)?;
+            if sha.is_empty() || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(SourceError::new("failed", format!("not a commit: {sha}")));
+            }
+            let endpoint = format!("repos/{repo}/commits/{sha}");
+            match self.get(&endpoint, "{message: .commit.message}").await? {
+                Got::Body(body) => Ok(self
+                    .parsed::<Message>(&endpoint, &body)?
+                    .message
+                    .lines()
+                    .next()
+                    .map(str::to_owned)),
+                Got::Refused {
+                    status: 404 | 422, ..
+                } => Ok(None),
+                Got::Refused { status, message } => Err(SourceError::new(
+                    "failed",
+                    format!("{message} (HTTP {status})"),
+                )),
+            }
+        })
+    }
 }
 
 #[cfg(test)]

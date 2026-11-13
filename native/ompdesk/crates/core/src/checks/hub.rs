@@ -23,6 +23,7 @@ use super::contract::{
     Answer, Decision, DecisionWhy, JobState, Lane, MainFact, Next, Origin, PolicyAction, Purpose,
     QueueEntry, RepoId, Rerun, RunId, RunResult, RunVerdict, Sha, Snapshot, StartDecision,
     StartReply, StartRequest, StartScope, StatusRequest, Until, WaitRequest, Where, WhyCode,
+    WorkflowAsk,
 };
 use super::policy::{self, Plan};
 use super::poller::Poller;
@@ -113,8 +114,9 @@ pub trait LandQueue: Send + Sync {
     fn entries(&self) -> watch::Receiver<Arc<Vec<QueueEntry>>>;
 }
 
-/// What the merge queue asks of the hub, so a batch's run goes through the same admission as every run.
-// queue.rs is its first user; until it lands nothing implements this.
+/// What the merge queue asks of the hub, so a batch's run goes through the same admission as every run. The hub's
+/// own is `Host`, which `queue::open(host)` takes.
+// queue.rs is its first user; until it lands only the tests call it.
 #[allow(dead_code)]
 pub(crate) trait QueueHost: Send + Sync {
     /// Starts one run for a batch's temporary branch in lane `land`; admission decides when and where.
@@ -216,6 +218,8 @@ pub struct Core {
     store: Option<Store>,
     dir: Option<PathBuf>,
     key: Mutex<Option<AdmissionKey>>,
+    /// How git runs (main's `gitRunner`), for the merge queue's clones.
+    git: Mutex<Option<Runner>>,
     /// Something changed that may let a held run start.
     kick: Arc<Notify>,
     /// An answer was written.
@@ -305,7 +309,8 @@ impl Hub {
                 local,
                 snapshot,
                 results: broadcast::Sender::new(RESULTS_KEPT),
-                // The merge queue's part replaces this one line with its own queue (`queue::open(host)`).
+                // The merge queue's part builds the core with `Arc::new_cyclic(|core| …)` and sets this to
+                // `queue::open(Arc::new(Host(core.clone())))`: the queue holds the hub weakly through `Host`.
                 queue: Arc::new(NoQueue(watch::Sender::new(Arc::default()))),
                 poller,
                 admission: Mutex::new(admission),
@@ -313,12 +318,20 @@ impl Hub {
                 store: dir.as_ref().map(|dir| Store::new(dir.join("results"))),
                 dir,
                 key: Mutex::new(None),
+                git: Mutex::new(None),
                 kick: Arc::new(Notify::new()),
                 done: Notify::new(),
                 ids: AtomicU64::new(0),
             }),
             tasks: Mutex::default(),
         }
+    }
+
+    /// What the merge queue asks of this hub (`queue::open(hub.queue_host())`); it holds the hub weakly.
+    // queue.rs is its first user outside the tests.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn queue_host(&self) -> Arc<dyn QueueHost> {
+        Arc::new(Host(Arc::downgrade(&self.core)))
     }
 
     /// The owner's admission key, from main (the keychain); None: dispatches carry no ticket.
@@ -542,15 +555,22 @@ impl Core {
 
     /// Keeps a run's answer, tells every subscriber (main wakes the session that started it) and the board.
     fn finish(&self, id: &str, answer: Answer) {
+        self.finish_with(id, None, answer);
+    }
+
+    /// `finish`, for whom `origin` names (a merge-queue entry's), else whoever started the run.
+    fn finish_with(&self, id: &str, origin: Option<Origin>, answer: Answer) {
         let origin = {
             let mut book = locked(&self.book);
             if book.answers.contains_key(id) {
                 return;
             }
             book.answers.insert(id.to_owned(), answer.clone());
-            book.pending
-                .get(id)
-                .map_or(Origin::Person, |pending| pending.origin.clone())
+            origin.unwrap_or_else(|| {
+                book.pending
+                    .get(id)
+                    .map_or(Origin::Person, |pending| pending.origin.clone())
+            })
         };
         let result = RunResult {
             run_id: id.to_owned(),
@@ -803,23 +823,65 @@ impl Core {
             return self.rerun(&origin, &repo, &git_ref, &sha).await;
         }
         if request.purpose == Purpose::Land && request.workflow.is_none() {
+            let base = match self.github.default_branch(&repo).await {
+                Ok(Some(base)) => base,
+                _ => "main".to_owned(),
+            };
+            let title = match self.github.subject(&repo, &sha).await {
+                Ok(Some(subject)) => subject,
+                _ => git_ref.clone(),
+            };
             return self
                 .queue
                 .enqueue(
                     origin,
                     LandRequest {
                         repo,
-                        branch: git_ref.clone(),
+                        branch: git_ref,
                         sha,
-                        base: "main".into(),
+                        base,
                         pr: None,
-                        title: git_ref,
+                        title,
                         scope: request.scope,
                     },
                 )
                 .await;
         }
-        let choice = match &request.workflow {
+        self.submit(
+            origin,
+            request.purpose,
+            request.workflow,
+            false,
+            repo,
+            git_ref,
+            sha,
+        )
+        .await
+    }
+
+    /// A resolved start (repo, ref and the commit it runs) through policy and admission. `land`: a merge-queue
+    /// batch's run, in lane `land`.
+    #[allow(clippy::too_many_arguments)]
+    async fn submit(
+        &self,
+        origin: Origin,
+        purpose: Purpose,
+        named: Option<WorkflowAsk>,
+        land: bool,
+        repo: RepoId,
+        git_ref: String,
+        sha: Sha,
+    ) -> Result<StartReply, Fault> {
+        let refuse = |reason: String| {
+            Ok(StartReply {
+                run_id: None,
+                decision: StartDecision::Refused,
+                placement: None,
+                expected_start_min: None,
+                reason,
+            })
+        };
+        let choice = match &named {
             Some(named) => policy::named(named),
             None => {
                 let file = self
@@ -827,7 +889,7 @@ impl Core {
                     .file(&repo, &sha, policy::REPO_FILE)
                     .await
                     .map_err(source_fault)?;
-                match policy::choose(request.purpose, file.as_deref()) {
+                match policy::choose(purpose, file.as_deref()) {
                     Ok(choice) => choice,
                     Err(why) => return refuse(why),
                 }
@@ -873,13 +935,11 @@ impl Core {
                 }
             ));
         }
-        let lane = policy::lane(
-            request.purpose,
-            request.workflow.is_some(),
-            plan.macos,
-            &git_ref,
-            &mac_refs,
-        );
+        let lane = if land {
+            Lane::Land
+        } else {
+            policy::lane(purpose, named.is_some(), plan.macos, &git_ref, &mac_refs)
+        };
         let digest = policy::digest(&sha, &text, &plan.inputs);
         let id = self.next_id();
         let pool = policy::pool(plan.macos);
@@ -1138,8 +1198,78 @@ impl ChecksHub for Hub {
     }
 
     fn runners(&self, runners: Runners) -> Fut<'_, Result<(), Fault>> {
+        *locked(&self.git) = runners.git.clone();
         self.poller.runners(runners);
         Box::pin(async { Ok(()) })
+    }
+}
+
+/// The hub as the merge queue sees it (`QueueHost`), holding it weakly: the hub owns the queue and the queue this.
+// queue.rs is its first user; until it lands only the tests build one.
+#[allow(dead_code)]
+struct Host(std::sync::Weak<Core>);
+
+#[allow(dead_code)]
+impl Host {
+    fn core(&self) -> Result<Arc<Core>, Fault> {
+        self.0
+            .upgrade()
+            .ok_or_else(|| Fault::new("checks_closed", "the checks hub is closed"))
+    }
+}
+
+impl QueueHost for Host {
+    fn start_batch<'a>(
+        &'a self,
+        repo: &'a str,
+        git_ref: &'a str,
+        sha: &'a str,
+    ) -> Fut<'a, Result<StartReply, Fault>> {
+        Box::pin(async move {
+            let core = self.core()?;
+            core.submit(
+                Origin::Outside {
+                    claimed_name: "OMPdesk merge queue".into(),
+                },
+                Purpose::Branch,
+                None,
+                true,
+                repo.to_owned(),
+                git_ref.to_owned(),
+                sha.to_owned(),
+            )
+            .await
+        })
+    }
+
+    fn batch_answer(&self, run: RunId, scope: Scope) -> Fut<'_, Result<Answer, Fault>> {
+        Box::pin(async move {
+            let core = self.core()?;
+            tokio::select! {
+                answer = core.answer_of(&run) => Ok(answer),
+                () = scope.on_cancel() => Err(Fault::new("cancelled", "the batch's wait was cancelled")),
+            }
+        })
+    }
+
+    fn finished(&self, result: RunResult) {
+        if let Some(core) = self.0.upgrade() {
+            core.finish_with(&result.run_id, Some(result.origin), result.answer);
+        }
+    }
+
+    fn git(&self, scope: Scope) -> Option<crate::git::run::Git> {
+        let core = self.0.upgrade()?;
+        let runner = locked(&core.git).clone()?;
+        Some(crate::git::run::Git::new(runner, scope))
+    }
+
+    fn queue_dir(&self) -> PathBuf {
+        self.0
+            .upgrade()
+            .and_then(|core| core.dir.clone())
+            .unwrap_or_else(|| std::env::temp_dir().join("ompdesk-checks"))
+            .join("queue")
     }
 }
 
