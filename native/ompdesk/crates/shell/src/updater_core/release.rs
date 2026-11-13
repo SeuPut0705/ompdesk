@@ -157,7 +157,7 @@ fn semver_shape(text: &str) -> bool {
 }
 
 fn leap(year: u32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 /// zod 3's `z.string().datetime()`: `YYYY-MM-DDTHH:MM:SS[.fraction]Z`, a real calendar date, no offset.
@@ -419,9 +419,10 @@ pub fn strip_metadata(body: Option<&str>) -> String {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Asset {
-    pub id: f64,
+    /// GitHub's numbers as they came (`123`, not `123.0`, when written back).
+    pub id: serde_json::Number,
     pub name: String,
-    pub size: f64,
+    pub size: serde_json::Number,
     /// The API asset endpoint: answers `application/octet-stream` with a signed CDN redirect.
     pub url: String,
 }
@@ -532,7 +533,7 @@ fn release(value: &Value, path: &str, issues: &mut Issues) -> Option<GitHubRelea
                     continue;
                 };
                 let number = |key: &str, issues: &mut Issues| match a.get(key) {
-                    Some(Value::Number(n)) => n.as_f64(),
+                    Some(Value::Number(n)) => Some(n.clone()),
                     other => {
                         issues.expected(&join(&at, key), "number", other);
                         None
@@ -692,13 +693,13 @@ pub fn resolve_platform_release(
                 ),
             )
         })?;
-    if asset.size != file.size as f64 {
+    if asset.size.as_f64() != Some(file.size as f64) {
         return Err(fail(
             METADATA_ERROR,
             format!(
                 "{} is {} bytes, but the ompdesk-update comment says {}",
                 file.name,
-                crate::updater_core::rules::js_number(asset.size),
+                crate::updater_core::rules::js_number(asset.size.as_f64().unwrap_or(f64::NAN)),
                 file.size
             ),
         ));

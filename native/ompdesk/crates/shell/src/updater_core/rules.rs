@@ -125,15 +125,17 @@ fn is_installer_debris(name: &str) -> bool {
     let Some(rest) = name.strip_prefix("ompdesk-") else {
         return false;
     };
-    let version_len = rest
+    let longest = rest
         .bytes()
         .take_while(|b| b.is_ascii_digit() || *b == b'.')
         .count();
-    if version_len == 0 {
-        return false;
-    }
-    let mut rest = &rest[version_len..];
-    rest = rest.strip_prefix("-arm64").unwrap_or(rest);
+    // `[\d.]+` backtracks: the version may give its last dots back to `.dmg`.
+    (1..=longest).rev().any(|len| debris_tail(&rest[len..]))
+}
+
+/// What follows the version: `(?:-arm64)?(?: \(\d+\))?\.dmg(?:\.partial|\.download-\d+)$`.
+fn debris_tail(rest: &str) -> bool {
+    let mut rest = rest.strip_prefix("-arm64").unwrap_or(rest);
     if let Some(copy) = rest.strip_prefix(" (") {
         let n = copy.bytes().take_while(u8::is_ascii_digit).count();
         match copy[n..].strip_prefix(')') {
