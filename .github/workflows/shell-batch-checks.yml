@@ -16,7 +16,7 @@
 #              puts the Electron app back, and a new shell that exits after CEF init (OMP_GUI_TEST_SHELL_FAIL_START=1)
 #              gets Electron back too, started, `swap result outcome rolled back`, no window, no dialog; and the same
 #              version offered again after that failure is not swapped in (`start-failed-before: skipped`).
-#  move-mac-release1  the same move from a stand-in "release 1" (the branch omp/agent/swap-rollback built as an Electron app on the
+#  move-mac-release1  the same move from a stand-in "release 1" (main (which carries the start-checked swap script) built as an Electron app on the
 #              runner, re-signed with the throwaway certificate): its start-checked swap script keeps `<app>.previous` until the
 #              new app writes app-started.json for the offered version (the success path says `started`), and puts it back
 #              by itself when the shell does not come up (OMP_GUI_TEST_SHELL_FAIL_START=1), no dialog.
@@ -274,7 +274,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   release1-app:
-    name: release 1 stand-in (Electron app from omp/agent/swap-rollback)
+    name: release 1 stand-in (Electron app from main, start-checked swap script)
     needs: [gate, move-mac]
     if: "!cancelled() && github.event_name == 'workflow_dispatch' && needs.gate.outputs.mac_ok == 'true'"
     concurrency:
@@ -285,7 +285,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: omp/agent/swap-rollback
+          ref: main
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
