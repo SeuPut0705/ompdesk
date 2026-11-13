@@ -148,3 +148,10 @@ pub fn show_no_activate(hwnd: isize) {
 pub fn is_focusable(hwnd: isize) -> bool {
     ex_style(hwnd) & WS_EX_NOACTIVATE as isize == 0
 }
+
+/// `DWMWA_USE_IMMERSIVE_DARK_MODE`: dark title bar and frame for the window (Windows 10 20H1+; older builds ignore it).
+pub fn set_dark_chrome(hwnd: isize, dark: bool) {
+    let value: i32 = i32::from(dark);
+    // SAFETY: DwmSetWindowAttribute with a 4-byte BOOL for a window of ours; failure just leaves the frame as is.
+    unsafe { DwmSetWindowAttribute(hwnd as HWND, 20, (&value as *const i32).cast(), 4) };
+}

@@ -13,6 +13,7 @@ pub mod menu;
 mod pipe;
 pub mod shellops;
 pub mod system;
+pub mod taskbar;
 pub mod toast;
 pub mod winops;
 

@@ -116,3 +116,92 @@ pub fn apply_traffic_lights(nsview: isize, x: i32, y: i32) -> bool {
     }
     true
 }
+
+/// `NSApp.appearance` from `nativeTheme.themeSource`: `Some(true)` dark aqua, `Some(false)` aqua, `None` the system's.
+/// Electron does exactly this.
+pub fn set_app_appearance(dark: Option<bool>) {
+    use objc2::class;
+    use objc2_foundation::NSString;
+    // SAFETY: NSApplication/NSAppearance class messages with live objects; `appearanceNamed:` returns nil for an
+    // unknown name, which resets to the system appearance.
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let appearance: *mut AnyObject = match dark {
+            None => null_mut(),
+            Some(d) => {
+                let name = NSString::from_str(if d {
+                    "NSAppearanceNameDarkAqua"
+                } else {
+                    "NSAppearanceNameAqua"
+                });
+                msg_send![class!(NSAppearance), appearanceNamed: &*name]
+            }
+        };
+        let _: () = msg_send![app, setAppearance: appearance];
+    }
+}
+
+static DOCK_PROGRESS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+/// `setProgressBar` on the Dock icon, as Electron draws it: the dock tile gets a content view holding the app icon
+/// and a bar-style `NSProgressIndicator`. `fraction`: `None` removes the bar, `Some(None)` indeterminate,
+/// `Some(Some(f))` determinate 0..=1.
+pub fn set_dock_progress(fraction: Option<Option<f64>>) {
+    use objc2::class;
+    let mut slot = DOCK_PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
+    // SAFETY: AppKit messages on the main thread with objects created here or fetched from NSApplication; the
+    // indicator is kept alive by the tile's content view, and `slot` holds its address only while that view is set.
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let tile: *mut AnyObject = msg_send![app, dockTile];
+        if tile.is_null() {
+            return;
+        }
+        let Some(fraction) = fraction else {
+            let none: *mut AnyObject = null_mut();
+            let _: () = msg_send![tile, setContentView: none];
+            let _: () = msg_send![tile, display];
+            *slot = 0;
+            return;
+        };
+        if *slot == 0 {
+            let size: NSSize = msg_send![tile, size];
+            let frame = NSRect {
+                origin: NSPoint { x: 0.0, y: 0.0 },
+                size,
+            };
+            let view: *mut AnyObject = msg_send![class!(NSImageView), alloc];
+            let view: *mut AnyObject = msg_send![view, initWithFrame: frame];
+            let icon: *mut AnyObject = msg_send![app, applicationIconImage];
+            let _: () = msg_send![view, setImage: icon];
+            let bar_frame = NSRect {
+                origin: NSPoint { x: 0.0, y: 0.0 },
+                size: NSSize {
+                    width: size.width,
+                    height: 15.0,
+                },
+            };
+            let bar: *mut AnyObject = msg_send![class!(NSProgressIndicator), alloc];
+            let bar: *mut AnyObject = msg_send![bar, initWithFrame: bar_frame];
+            let _: () = msg_send![bar, setStyle: 0isize]; // NSProgressIndicatorStyleBar
+            let _: () = msg_send![bar, setMinValue: 0.0f64];
+            let _: () = msg_send![bar, setMaxValue: 1.0f64];
+            let _: () = msg_send![bar, setBezeled: true];
+            let _: () = msg_send![view, addSubview: bar];
+            let _: () = msg_send![tile, setContentView: view];
+            *slot = bar as usize;
+        }
+        let bar = *slot as *mut AnyObject;
+        match fraction {
+            None => {
+                let _: () = msg_send![bar, setIndeterminate: true];
+                let _: () = msg_send![bar, startAnimation: null_mut::<AnyObject>()];
+            }
+            Some(f) => {
+                let _: () = msg_send![bar, setIndeterminate: false];
+                let _: () = msg_send![bar, setDoubleValue: f.clamp(0.0, 1.0)];
+            }
+        }
+        let _: () = msg_send![tile, display];
+    }
+}

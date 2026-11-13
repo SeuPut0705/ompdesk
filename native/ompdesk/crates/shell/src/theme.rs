@@ -46,6 +46,7 @@ pub fn refresh() {
         })
     });
     if let Some(now) = changed {
+        apply_chrome_all();
         host::event("theme.changed", now);
     }
 }
@@ -63,6 +64,7 @@ pub fn handle(call: Call) {
                 STATE.with(|s| s.borrow_mut().source = source);
                 refresh();
                 apply_all();
+                apply_chrome_all();
                 let now = snapshot(source);
                 call.ok(json!({ "dark": now["dark"], "highContrast": now["highContrast"], "inverted": now["inverted"] }));
             });
@@ -100,5 +102,43 @@ fn apply_all() {
     let ids: Vec<u64> = crate::state::ui_state(|u| u.wcs.keys().copied().collect());
     for id in ids {
         apply_to(id);
+    }
+}
+
+/// Whether native window chrome is dark now: the `themeSource` override, or the OS's own scheme. UI thread.
+#[cfg(any(windows, target_os = "macos"))]
+fn chrome_dark() -> bool {
+    let source = STATE.with(|s| s.borrow().source);
+    shell_core::native_ui::chrome_dark(source, system::theme()["dark"].as_bool().unwrap_or(false))
+}
+
+/// Gives one window's frame the current colour scheme (Windows: immersive dark mode). UI thread.
+#[cfg(windows)]
+pub fn apply_chrome(hwnd: isize) {
+    if hwnd != 0 {
+        shell_core::sys::winops::set_dark_chrome(hwnd, chrome_dark());
+    }
+}
+
+/// Windows: every top-level window's frame; macOS: `NSApp.appearance` (`nil` for `system`). UI thread.
+fn apply_chrome_all() {
+    #[cfg(windows)]
+    {
+        let windows: Vec<_> = crate::state::ui_state(|u| u.windows.values().cloned().collect());
+        for entry in windows {
+            let window = entry.borrow().window.clone();
+            if let Some(window) = window {
+                apply_chrome(crate::state::native_handle(&window));
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let source = STATE.with(|s| s.borrow().source);
+        let dark = match source {
+            ThemeSource::System => None,
+            other => Some(shell_core::native_ui::chrome_dark(other, false)),
+        };
+        shell_core::sys_mac::window::set_app_appearance(dark);
     }
 }

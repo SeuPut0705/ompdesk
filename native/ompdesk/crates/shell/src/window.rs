@@ -321,6 +321,7 @@ wrap_window_delegate! {
                 if material.as_deref() == Some("mica") {
                     shell_core::sys::winops::set_mica(hwnd, true);
                 }
+                crate::theme::apply_chrome(hwnd);
             }
             #[cfg(not(windows))]
             let _ = (icon, overlay);
@@ -889,10 +890,26 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
             }
             entry.borrow_mut().overlay = Some(overlay);
         }
-        "setMenuBarVisibility"
-        | "setAutoHideMenuBar"
-        | "setBackgroundMaterial"
-        | "setProgressBar" => {}
+        "setMenuBarVisibility" | "setAutoHideMenuBar" | "setBackgroundMaterial" => {}
+        "setProgressBar" => {
+            let value = args.get("value").and_then(Value::as_f64).unwrap_or(-1.0);
+            let progress =
+                shell_core::native_ui::progress(value, args.get("mode").and_then(Value::as_str));
+            #[cfg(windows)]
+            set_taskbar_progress(hwnd, progress, 0);
+            #[cfg(target_os = "macos")]
+            {
+                use shell_core::native_ui::{PROGRESS_TOTAL, Progress};
+                let dock = match progress {
+                    Progress::None => None,
+                    Progress::Indeterminate => Some(None),
+                    Progress::Normal(n) | Progress::Error(n) | Progress::Paused(n) => {
+                        Some(Some(n as f64 / PROGRESS_TOTAL as f64))
+                    }
+                };
+                shell_core::sys_mac::window::set_dock_progress(dock);
+            }
+        }
         #[cfg(windows)]
         "setOpacity" => {
             let value = args.get("value").and_then(Value::as_f64).unwrap_or(1.0);
@@ -935,6 +952,16 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
     }
     schedule_state(win_id);
     call.ok(json!({}));
+}
+
+/// Taskbar progress; the button may not exist yet right after the window shows, so a failure is retried a few times.
+#[cfg(windows)]
+fn set_taskbar_progress(hwnd: isize, progress: shell_core::native_ui::Progress, attempt: u32) {
+    if hwnd != 0 && !shell_core::sys::taskbar::set_progress(hwnd, progress) && attempt < 8 {
+        crate::ui::post_delayed(250, move || {
+            set_taskbar_progress(hwnd, progress, attempt + 1)
+        });
+    }
 }
 
 /// The OS window is created a moment after `win.create` returns (Views makes it on its own turn): an op that
