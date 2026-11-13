@@ -94,20 +94,12 @@ pub fn request_blocking(
 }
 
 /// Runs `f` when Node cancels its request `id`.
-#[allow(
-    dead_code,
-    reason = "PROTOCOL.md §0's `{cancel: id}` from Node: no request of the shell takes one since `net.fetch` went (SX4); kept for the slices that will"
-)]
 pub fn on_cancel(id: u64, f: impl FnOnce() + Send + 'static) {
     if let Some(h) = host() {
         h.cancels.lock().unwrap().insert(id, Box::new(f));
     }
 }
 
-#[allow(
-    dead_code,
-    reason = "PROTOCOL.md §0's `{cancel: id}` from Node: no request of the shell takes one since `net.fetch` went (SX4); kept for the slices that will"
-)]
 pub fn forget_cancel(id: u64) {
     if let Some(h) = host() {
         h.cancels.lock().unwrap().remove(&id);
@@ -124,10 +116,6 @@ pub struct Call {
 }
 
 impl Call {
-    #[allow(
-        dead_code,
-        reason = "PROTOCOL.md §0's `{cancel: id}` from Node: no request of the shell takes one since `net.fetch` went (SX4); kept for the slices that will"
-    )]
     pub fn id(&self) -> u64 {
         self.id
     }

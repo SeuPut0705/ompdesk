@@ -1,25 +1,31 @@
-//! Chromium's network stack through `CefURLRequest` (the system proxy, PAC and certificate store apply), for the
-//! shell's own modules (`fetch_in_shell`: the updater, PROTOCOL.md §15.8), and `net.resolveHost` for Node
-//! (PROTOCOL.md §10). A fetch hears its head as soon as the response started, then the body chunk by chunk as CEF
-//! hands it over (never collected) and its end.
+//! `net.*` (PROTOCOL.md §10): Electron's `net` over Chromium's network stack through `CefURLRequest` (the system
+//! proxy, PAC and certificate store apply). `net.fetch` answers with the head as soon as the response started, then
+//! streams the body as `net.chunk` events (each chunk CEF hands over is forwarded at once and split at 1 MiB, never
+//! collected) and a final `net.end {reqId, error?}`; `net.resolveHost` asks the request context's resolver. A module of
+//! the shell fetches the same way through `fetch_in_shell` (the updater, PROTOCOL.md §15.8) and hears its head, chunks
+//! and end on a channel; a challenge of such a fetch is cancelled (the 401/407 is the response).
 //!
-//! What CEF's URL request API makes of a fetch:
-//! - `credentials: "same-origin"` sends and keeps cookies like `include`: a request from the browser process has no
-//!   origin to compare. `omit` sends and keeps none.
+//! Differences from Electron's `net` that CEF's URL request API does not allow to avoid:
+//! - `credentials: "same-origin"` (Fetch's default, so every `net.request`) sends and keeps cookies like `include`:
+//!   a request from the main process has no origin to compare. `omit` sends and keeps none.
 //! - `redirected` is "the final URL differs from the requested one (ignoring the fragment)": CEF does not report the
 //!   redirect hops. `redirect: "manual"` and `"error"` stop at the first 3xx that has a `Location`
 //!   (`UR_FLAG_STOP_ON_REDIRECT`); a 3xx without `Location` is an ordinary response.
-//! - The head comes with the first body bytes (or at completion for an empty body), not before: CEF tells the client
-//!   nothing earlier.
+//! - The head goes out with the first body bytes (or at completion for an empty body), not before: CEF tells the
+//!   client nothing earlier. A response that stays silent after its headers shows no head until then.
 //! - `statusText` of an HTTP/2 response (which carries none) is the standard reason phrase.
+//! - Chunks are not paced: a Node side that reads slower than the network lets them queue in the writer.
 //! - `net.resolveHost`'s `cacheUsage: "disallowed"` (or `"disabled"`) skips Chromium's host cache by asking the OS
 //!   resolver (`getaddrinfo`, on a worker thread, answered after at most 15 s as `ERR_NAME_NOT_RESOLVED`) instead of
 //!   CEF's: that lookup ignores Chromium's own DNS configuration (secure DNS, custom servers) and the OS resolver's own
-//!   cache still applies. `staleAllowed` behaves as `allowed`.
+//!   cache still applies. `staleAllowed` behaves as `allowed`. `bypassCustomProtocolHandlers`
+//!   fails a custom-scheme URL with `net::ERR_UNKNOWN_URL_SCHEME`, which is what Chromium would answer without handlers.
 //! - The request headers `Content-Length`, `Host`, `Connection` and `Transfer-Encoding` are Chromium's to compute and
 //!   are not forwarded.
-//! - HTTP authentication (server 401 or proxy 407) is never answered: the challenge is cancelled and the 401/407 is
-//!   the response (the updater's requests carry their token as a header).
+//! - HTTP authentication (server 401 or proxy 407) is asked of Node as a `net.login` request; credentials from Node go
+//!   back to CEF, `{cancel: true}`, an error, Node's absence or an aborted fetch cancel the challenge and the 401/407 is
+//!   the response. CEF asks again after wrong credentials, so Node sees each retry; there is no timeout on the shell's
+//!   side beyond the request's own end.
 #![allow(unsafe_code)]
 
 use std::cell::RefCell;
@@ -33,9 +39,12 @@ use cef::*;
 use serde_json::{Value, json};
 use shell_core::netmap::{self, CacheUsage, FetchParams, Redirect};
 
-use crate::host::Call;
+use crate::host::{self, Call};
 use crate::log::log;
 use crate::{session, ui};
+
+/// The most bytes one `net.chunk` carries; a larger piece from CEF goes out as several.
+const MAX_CHUNK: usize = 1 << 20;
 
 fn cs(text: &str) -> CefString {
     CefString::from(text)
@@ -58,12 +67,20 @@ pub enum Got {
     Failed(String),
 }
 
-static REQ_IDS: AtomicU64 = AtomicU64::new(1);
+/// Who a fetch answers: Node's `net.fetch` call (until the head goes) or a module of the shell.
+enum To {
+    Node(Option<Call>),
+    Shell(Sender<Got>),
+}
+
+/// Ids of fetches the shell makes itself, far past any `reqId` Node counts from 1.
+static SHELL_REQ_IDS: AtomicU64 = AtomicU64::new(1 << 62);
 
 /// One fetch, from the UI thread only (CEF calls the client on the thread that created the request).
 struct Fetch {
     req_id: u64,
-    to: Sender<Got>,
+    /// Who hears it: Node's `net.fetch` call until the head (or a failure before it) answers it, or a shell module.
+    to: To,
     url: String,
     redirect: Redirect,
     head_sent: bool,
@@ -72,6 +89,10 @@ struct Fetch {
     finished: bool,
     /// Node cancelled it (`{cancel}` or `net.cancel`): it hears nothing more about it.
     aborted: bool,
+    /// The challenge CEF waits on (answered by Node's `net.login`), with the number of the question it belongs to: an
+    /// answer to an earlier question is ignored.
+    login: Option<(u64, AuthCallback)>,
+    login_seq: u64,
 }
 
 type Shared = Rc<RefCell<Fetch>>;
@@ -83,8 +104,16 @@ thread_local! {
 
 pub fn handle(call: Call) {
     match call.method.as_str() {
+        "net.fetch" => fetch(call),
         "net.resolveHost" => resolve_host(call),
         _ => call.unsupported(),
+    }
+}
+
+/// `net.cancel {reqId}`: the page dropped the response body (or aborted the fetch).
+pub fn cancel(data: Value) {
+    if let Some(req_id) = data.get("reqId").and_then(Value::as_u64) {
+        ui::post(move || abort(req_id));
     }
 }
 
@@ -98,21 +127,42 @@ fn abort(req_id: u64) {
     let Some((request, fetch)) = entry else {
         return;
     };
-    let finished = {
+    let (finished, login) = {
         let mut f = fetch.borrow_mut();
         f.aborted = true;
-        f.finished
+        (f.finished, f.login.take())
     };
+    if let Some((_, callback)) = login {
+        callback.cancel();
+    }
     if !finished {
         // No borrow is held: CEF may report the cancellation from inside this call.
         request.cancel();
     }
 }
 
+fn fetch(mut call: Call) {
+    let params = match netmap::parse_fetch(&call.params) {
+        Ok(params) => params,
+        Err(message) => return call.err("invalid", message),
+    };
+    if let Some(text) = netmap::refuse_url(&params.url, params.bypass_custom_protocol_handlers) {
+        return call.err("failed", text);
+    }
+    let body = if params.has_body {
+        Some(call.bin.take().unwrap_or_default())
+    } else {
+        None
+    };
+    let req_id = params.req_id;
+    host::on_cancel(call.id(), move || ui::post(move || abort(req_id)));
+    ui::run(move || start(To::Node(Some(call)), &params, body));
+}
+
 /// A GET or HEAD a module of the shell makes (`netmap::parse_fetch`'s params without `reqId`, no body). Returns the
 /// fetch's id (for `cancel_in_shell`) and what it hears. Wait on it from any thread but the UI thread.
 pub fn fetch_in_shell(mut params: Value) -> Result<(u64, Receiver<Got>), String> {
-    let req_id = REQ_IDS.fetch_add(1, Ordering::Relaxed);
+    let req_id = SHELL_REQ_IDS.fetch_add(1, Ordering::Relaxed);
     params["reqId"] = json!(req_id);
     params["hasBody"] = json!(false);
     let params = netmap::parse_fetch(&params)?;
@@ -120,7 +170,7 @@ pub fn fetch_in_shell(mut params: Value) -> Result<(u64, Receiver<Got>), String>
         return Err(text);
     }
     let (tx, rx) = mpsc::channel();
-    ui::post(move || start(tx, &params, None));
+    ui::post(move || start(To::Shell(tx), &params, None));
     Ok((req_id, rx))
 }
 
@@ -129,14 +179,32 @@ pub fn cancel_in_shell(req_id: u64) {
     ui::post(move || abort(req_id));
 }
 
-/// A fetch that failed before its head.
-fn refuse(to: &Sender<Got>, message: &str) {
-    let _ = to.send(Got::Failed(message.to_string()));
+/// Answers a fetch that failed before its head.
+fn refuse(to: To, message: &str) {
+    match to {
+        To::Node(Some(call)) => {
+            host::forget_cancel(call.id());
+            call.err("failed", message);
+        }
+        To::Node(None) => {}
+        To::Shell(tx) => {
+            let _ = tx.send(Got::Failed(message.to_string()));
+        }
+    }
 }
 
-fn start(to: Sender<Got>, params: &FetchParams, body: Option<Vec<u8>>) {
+/// The fetch's answer before its head, taken out of it (`None` once Node's call went).
+fn take_to(fetch: &Shared) -> Option<To> {
+    let mut f = fetch.borrow_mut();
+    match &mut f.to {
+        To::Node(call) => call.take().map(|call| To::Node(Some(call))),
+        To::Shell(tx) => Some(To::Shell(tx.clone())),
+    }
+}
+
+fn start(to: To, params: &FetchParams, body: Option<Vec<u8>>) {
     let Some(mut request) = request_create() else {
-        return refuse(&to, &netmap::error_text(-2));
+        return refuse(to, &netmap::error_text(-2));
     };
     request.set_url(Some(&cs(&params.url)));
     request.set_method(Some(&cs(&params.method)));
@@ -150,7 +218,7 @@ fn start(to: Sender<Got>, params: &FetchParams, body: Option<Vec<u8>>) {
     if let Some(body) = body.filter(|b| !b.is_empty()) {
         let (Some(mut post), Some(mut element)) = (post_data_create(), post_data_element_create())
         else {
-            return refuse(&to, &netmap::error_text(-2));
+            return refuse(to, &netmap::error_text(-2));
         };
         // `set_to_bytes` copies the bytes.
         element.set_to_bytes(body.len(), body.as_ptr());
@@ -200,6 +268,8 @@ fn start(to: Sender<Got>, params: &FetchParams, body: Option<Vec<u8>>) {
         stopped_at_redirect: false,
         finished: false,
         aborted: false,
+        login: None,
+        login_seq: 0,
     }));
     let mut client = FetchClient::new(state.clone());
     let mut context = session::context_for(&params.partition);
@@ -209,15 +279,27 @@ fn start(to: Sender<Got>, params: &FetchParams, body: Option<Vec<u8>>) {
                 .borrow_mut()
                 .insert(params.req_id, (urlrequest, state));
         }),
-        None => refuse(&state.borrow().to, &netmap::error_text(-2)),
+        None => {
+            if let Some(to) = take_to(&state) {
+                refuse(to, &netmap::error_text(-2));
+            }
+        }
     }
 }
 
-/// Hands the head of the response over (once).
+/// Answers the call with the head of the response (once).
 fn send_head(fetch: &Shared, head: Value) {
-    let mut f = fetch.borrow_mut();
-    f.head_sent = true;
-    let _ = f.to.send(Got::Head(head));
+    fetch.borrow_mut().head_sent = true;
+    match take_to(fetch) {
+        Some(To::Node(Some(call))) => {
+            host::forget_cancel(call.id());
+            call.ok(head);
+        }
+        Some(To::Shell(tx)) => {
+            let _ = tx.send(Got::Head(head));
+        }
+        _ => {}
+    }
 }
 
 /// Sends the head when the response has started and it has not gone yet. A redirect the fetch must not follow ends
@@ -250,7 +332,9 @@ fn deliver_head(request: &Urlrequest, fetch: &Shared) {
         match redirect {
             Redirect::Error => {
                 fetch.borrow_mut().finished = true;
-                refuse(&fetch.borrow().to, &netmap::error_text(-2));
+                if let Some(to) = take_to(fetch) {
+                    refuse(to, &netmap::error_text(-2));
+                }
                 request.cancel();
                 return;
             }
@@ -285,7 +369,13 @@ fn forward(request: &Urlrequest, fetch: &Shared, data: *const u8, length: usize)
     // SAFETY: CEF passes `length` readable bytes at `data`, valid until this callback returns; they are copied into
     // the frame before that.
     let bytes = unsafe { std::slice::from_raw_parts(data, length) };
-    let _ = fetch.borrow().to.send(Got::Chunk(bytes.to_vec()));
+    if let To::Shell(tx) = &fetch.borrow().to {
+        let _ = tx.send(Got::Chunk(bytes.to_vec()));
+        return;
+    }
+    for part in bytes.chunks(MAX_CHUNK) {
+        host::event_bin("net.chunk", json!({ "reqId": req_id }), part);
+    }
 }
 
 /// The request is over (exactly once per request): the body's end, or the failure.
@@ -313,7 +403,15 @@ fn complete(request: &Urlrequest, fetch: &Shared) {
         if head_sent {
             if !aborted {
                 let error = (!ok).then(|| netmap::error_text(code));
-                let _ = fetch.borrow().to.send(Got::End(error));
+                if let To::Shell(tx) = &fetch.borrow().to {
+                    let _ = tx.send(Got::End(error));
+                } else {
+                    let mut end = json!({ "reqId": req_id });
+                    if let Some(error) = error {
+                        end["error"] = json!(error);
+                    }
+                    host::event("net.end", end);
+                }
             }
         } else {
             let message = if aborted {
@@ -321,7 +419,9 @@ fn complete(request: &Urlrequest, fetch: &Shared) {
             } else {
                 netmap::error_text(code)
             };
-            refuse(&fetch.borrow().to, &message);
+            if let Some(to) = take_to(fetch) {
+                refuse(to, &message);
+            }
         }
         fetch.borrow_mut().finished = true;
     }
@@ -355,6 +455,79 @@ wrap_urlrequest_client! {
                 forward(request, &self.fetch, data, data_length);
             }
         }
+
+        fn auth_credentials(
+            &self,
+            is_proxy: ::std::os::raw::c_int,
+            host: Option<&CefString>,
+            port: ::std::os::raw::c_int,
+            realm: Option<&CefString>,
+            scheme: Option<&CefString>,
+            callback: Option<&mut AuthCallback>,
+        ) -> ::std::os::raw::c_int {
+            let Some(callback) = callback else { return 0 };
+            let text = |value: Option<&CefString>| value.map(CefString::to_string).unwrap_or_default();
+            let challenge = netmap::Challenge {
+                is_proxy: is_proxy != 0,
+                scheme: text(scheme),
+                host: text(host),
+                port,
+                realm: text(realm),
+            };
+            ask_login(&self.fetch, challenge, callback.clone());
+            1
+        }
+    }
+}
+
+/// Hands a challenge to Node (`net.login`); the answer comes back on the reader thread and is applied on the UI thread.
+fn ask_login(fetch: &Shared, challenge: netmap::Challenge, callback: AuthCallback) {
+    let (req_id, seq, stale) = {
+        let mut f = fetch.borrow_mut();
+        // A fetch of the shell's own has nobody to ask: the challenge's 401/407 is its response.
+        if f.aborted || f.finished || matches!(f.to, To::Shell(_)) {
+            drop(f);
+            return callback.cancel();
+        }
+        f.login_seq += 1;
+        let seq = f.login_seq;
+        (f.req_id, seq, f.login.replace((seq, callback)))
+    };
+    if let Some((_, callback)) = stale {
+        callback.cancel();
+    }
+    host::request(
+        "net.login",
+        netmap::login_params(req_id, &challenge),
+        None,
+        move |result, _| {
+            let answer = netmap::login_answer(result.as_ref().ok());
+            ui::post(move || answer_login(req_id, seq, answer));
+        },
+    );
+}
+
+/// Applies Node's answer to the challenge `seq` of fetch `req_id` (UI thread). A fetch that is gone or has moved on to
+/// a later challenge has nothing waiting any more.
+fn answer_login(req_id: u64, seq: u64, answer: netmap::LoginAnswer) {
+    let fetch = ACTIVE.with(|active| active.borrow().get(&req_id).map(|(_, fetch)| fetch.clone()));
+    let Some(fetch) = fetch else { return };
+    let callback = {
+        let mut f = fetch.borrow_mut();
+        match f.login.take() {
+            Some((waiting, callback)) if waiting == seq => Some(callback),
+            other => {
+                f.login = other;
+                None
+            }
+        }
+    };
+    let Some(callback) = callback else { return };
+    match answer {
+        netmap::LoginAnswer::Credentials { username, password } => {
+            callback.cont(Some(&cs(&username)), Some(&cs(&password)));
+        }
+        netmap::LoginAnswer::Cancel => callback.cancel(),
     }
 }
 

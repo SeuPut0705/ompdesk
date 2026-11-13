@@ -106,6 +106,7 @@ function fakeShell(shell: ShellClient) {
 		"dialog.messageBox",
 		"clipboard.readText",
 		"clipboard.writeText",
+		"net.fetch",
 		"shell.openPath",
 		"theme.setSource",
 		"power.idleTime",
@@ -126,7 +127,7 @@ function fakeShell(shell: ShellClient) {
 			return answer instanceof Answered ? answer : (answer ?? {});
 		});
 	}
-	for (const name of ["app.exit", "app.relaunch", "wc.send", "protocol.chunk", "protocol.end"]) {
+	for (const name of ["app.exit", "app.relaunch", "wc.send", "protocol.chunk", "protocol.end", "net.cancel"]) {
 		shell.on(name, (data: Record<string, unknown>, bin) => events.push({ name, data, bin }));
 	}
 	return {
@@ -992,6 +993,147 @@ describe("net", () => {
 	beforeEach(async () => {
 		await boot();
 		await ready();
+	});
+
+	it("fetches through the shell: the head answers, the body streams, request bin goes along", async () => {
+		fake.answers.set("net.fetch", (params, bin) => {
+			setImmediate(() => {
+				void shell.event("net.chunk", { reqId: params.reqId }, Buffer.from(`echo:${bin?.toString() ?? ""}:`));
+				void shell.event("net.chunk", { reqId: params.reqId }, Buffer.from("tail"));
+				void shell.event("net.end", { reqId: params.reqId });
+			});
+			return {
+				status: 201,
+				statusText: "Created",
+				url: "https://api.example/x",
+				redirected: false,
+				headers: [["content-type", "text/plain"]],
+			};
+		});
+		const response = await electron.net.fetch("https://api.example/x", {
+			method: "POST",
+			body: "hello",
+			headers: { a: "b" },
+		});
+		expect(response.status).toBe(201);
+		expect(response.url).toBe("https://api.example/x");
+		expect(await response.text()).toBe("echo:hello:tail");
+		const call = fake.callsOf("net.fetch")[0];
+		expect(call.params).toMatchObject({
+			url: "https://api.example/x",
+			method: "POST",
+			hasBody: true,
+			redirect: "follow",
+		});
+		expect(call.params.headers).toContainEqual(["a", "b"]);
+	});
+
+	it("rejects with a TypeError for a network failure and cancels a stream the caller aborts", async () => {
+		fake.answers.set("net.fetch", params => {
+			if (params.url === "https://down/") throw new Error("net::ERR_CONNECTION_REFUSED");
+			return { status: 200, statusText: "OK", url: String(params.url), redirected: false, headers: [] };
+		});
+		await expect(electron.net.fetch("https://down/")).rejects.toThrow(/ERR_CONNECTION_REFUSED/);
+		const controller = new AbortController();
+		const response = await electron.net.fetch("https://slow/", { signal: controller.signal });
+		const reading = response.text();
+		controller.abort();
+		await expect(reading).rejects.toBeDefined();
+		await settle();
+		expect(fake.eventsOf("net.cancel")).toHaveLength(1);
+	});
+
+	it("net.request gives the response as a stream, and reports a manual redirect", async () => {
+		fake.answers.set("net.fetch", params => {
+			if (params.url === "https://cdn/start")
+				return {
+					status: 302,
+					statusText: "Found",
+					url: String(params.url),
+					redirected: false,
+					headers: [["location", "https://cdn/final"]],
+				};
+			setImmediate(() => {
+				void shell.event("net.chunk", { reqId: params.reqId }, Buffer.from("file"));
+				void shell.event("net.end", { reqId: params.reqId });
+			});
+			return {
+				status: 200,
+				statusText: "OK",
+				url: String(params.url),
+				redirected: false,
+				headers: [["Content-Length", "4"]],
+			};
+		});
+		const redirected = await new Promise<string>(resolve => {
+			const request = electron.net.request({ url: "https://cdn/start", redirect: "manual" });
+			request.on("redirect", (_status: number, _method: string, url: string) => resolve(url));
+			request.end();
+		});
+		expect(redirected).toBe("https://cdn/final");
+		const body = await new Promise<{ status: number; headers: Record<string, unknown>; text: string }>(
+			(resolve, reject) => {
+				const request = electron.net.request({
+					protocol: "https:",
+					hostname: "cdn",
+					path: "/f",
+					method: "GET",
+					headers: { Accept: "*/*" },
+				});
+				request.on(
+					"response",
+					(response: NodeJS.ReadableStream & { statusCode: number; headers: Record<string, unknown> }) => {
+						const chunks: Buffer[] = [];
+						response.on("data", (chunk: Buffer) => chunks.push(chunk));
+						response.on("end", () =>
+							resolve({
+								status: response.statusCode,
+								headers: response.headers,
+								text: Buffer.concat(chunks).toString(),
+							}),
+						);
+					},
+				);
+				request.on("error", reject);
+				request.end();
+			},
+		);
+		expect(body).toEqual({ status: 200, headers: { "content-length": "4" }, text: "file" });
+		expect(fake.callsOf("net.fetch").at(-1)?.params.url).toBe("https://cdn/f");
+	});
+
+	it("net.request carries the session's partition and answers a challenge through its login listener", async () => {
+		const challenge = { isProxy: true, scheme: "basic", host: "proxy.corp", port: 3128, realm: "corp" };
+		const answers: unknown[] = [];
+		fake.answers.set("net.fetch", async params => {
+			answers.push(await shell.call("net.login", { reqId: params.reqId, ...challenge }));
+			setImmediate(() => void shell.event("net.end", { reqId: params.reqId }));
+			return { status: 200, statusText: "OK", url: String(params.url), redirected: false, headers: [] };
+		});
+		const run = (options: Record<string, unknown>, onLogin?: (...args: unknown[]) => void) =>
+			new Promise<void>((resolve, reject) => {
+				const request = electron.net.request({ url: "https://cdn/f", ...options });
+				if (onLogin) request.on("login", onLogin);
+				request.on("response", (response: NodeJS.ReadableStream) => {
+					response.on("data", () => undefined);
+					response.on("end", resolve);
+				});
+				request.on("error", reject);
+				request.end();
+			});
+		const updaterSession = electron.session.fromPartition("electron-updater", { cache: false });
+		await run({ session: updaterSession }, (info, callback) => {
+			expect(info).toEqual(challenge);
+			(callback as (username?: string, password?: string) => void)("user", "secret");
+		});
+		await run({}, (_info, callback) => (callback as () => void)());
+		await run({});
+		expect(answers).toEqual([{ username: "user", password: "secret" }, { cancel: true }, { cancel: true }]);
+		expect(fake.callsOf("net.fetch").map(call => call.params.partition)).toEqual([
+			"electron-updater",
+			undefined,
+			undefined,
+		]);
 	});
 
 	it("answers isOnline from the facts and net.online, and resolves hosts through the shell", async () => {

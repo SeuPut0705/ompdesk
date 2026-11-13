@@ -16,7 +16,7 @@ The core's wire (`crates/core/src/wire.rs`), over the named pipe / unix socket t
 - request `{"id": n, "method": "...", "params": {...}}`, answer `{"id": n, "ok": true, "result": ...}` or
   `{"id": n, "ok": false, "error": {"code": "...", "message": "..."}}`, event `{"event": "...", "data": {...}}`;
 - `"bin": n` on any frame (request, answer, event): exactly `n` raw bytes follow the newline and belong to that frame;
-- `{"cancel": id}`: the sender no longer waits for request `id` (a `protocol.request` the page
+- `{"cancel": id}`: the sender no longer waits for request `id` (a `net.fetch` aborted, a `protocol.request` the page
   dropped); the other side may stop work and need not answer;
 - **both sides send requests**; ids are per direction (the shell's ids and Node's ids are independent counters). One
   writer per side, so frames never interleave. A malformed line is logged and skipped.
@@ -302,11 +302,15 @@ Chromium's network stack through CEF's `CefURLRequest`, so the system proxy, PAC
 
 | Method | Asks | Params | Result |
 |---|---|---|---|
-
+| `net.fetch` | Node | `{reqId, url, method, headers: [[k, v]], hasBody, redirect: "follow"\|"manual"\|"error", partition?, credentials?: "include"\|"omit"\|"same-origin", bypassCustomProtocolHandlers?: boolean}` + `bin` = the body when `hasBody` | `{status, statusText, url, redirected, headers: [[k, v]]}` once the head arrived; the body follows as events `net.chunk {reqId}` (`bin`) and `net.end {reqId, error?: string}`, shell → Node. `redirect: "manual"` answers the 3xx itself. A `{cancel: id}` frame (or `net.cancel {reqId}` event, Node → shell) aborts. Network failure before the head → `error.code "failed"`, `message` = Chromium's `net::ERR_…`. |
+| `net.chunk` / `net.end` (events) | shell→Node | | |
+| `net.cancel` (event) | Node | `{reqId}` | |
+| `net.login` | shell | `{reqId, isProxy, scheme, host, port, realm}` | `{username, password}` or `{cancel: true}`: an HTTP authentication challenge (server or proxy) of the `net.fetch` `reqId` in flight (CEF `GetAuthCredentials`; answered asynchronously, no timeout on the shell's side beyond the request's own end). The shim raises Electron's `login` on that `net.request` with `authInfo` `{isProxy, scheme, host, port, realm}` and a `callback(username?, password?)`; no listener, or `callback()` with nothing, answers `{cancel: true}` and the challenge's 401/407 is the response, as in Electron. A `net.fetch` made by `net.fetch()` (no `ClientRequest`) always gets `{cancel: true}` |
 | `net.resolveHost` | Node | `{host, cacheUsage?}` | `{endpoints: [{address, family: "ipv4"\|"ipv6"}]}` |
 
-`net.fetch`, `net.request`, their `net.chunk`/`net.end`/`net.cancel` frames and the `net.login` ask went with their last caller, the updater
-(SX4): its requests are the shell's own (`net.rs` `fetch_in_shell`, §15.8).
+`net.request` (Electron's streaming `ClientRequest` API) is built by the shim on
+`net.fetch` (`redirect: "manual"` + `net.chunk`), with `response`, `redirect`, `error`, `abort` semantics.
+The updater no longer uses them (its requests are the shell's own, §15.8).
 
 ## 11. safeStorage
 
@@ -492,9 +496,8 @@ What the Rust shell does differently from this table or from Electron. README.md
   Preview pages produce only the `wc.event`.
 - **`wc.event preload-error`** `[preloadPath, {message, stack}]` is produced for `shell.js` throwing in an app page, via
   `POST /__shell/preload-error`; a throw in a Preview partition's preload (`app.rs`) is not reported.
-- **`net.resolveHost`** with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a
-  worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still
-  applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`).
+- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; `resolveHost` with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`); an HTTP 401/407 challenge of a `net.fetch` is asked of Node with `net.login` (CEF re-asks after wrong credentials); request headers
+  `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
 - **Application menu accelerators** are matched by a message hook for typed keys; a key sent through the DevTools protocol
   (the e2e harness) reaches the shell as an unhandled key event and is matched there.
 - **`OMP_GUI_TEST_SHELL_FAIL_START=1`** (test seam): the shell exits 1 right after CEF initialised, before `app.init` is
@@ -583,7 +586,7 @@ file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `i
 | SX1 chrome | `chrome.*` | `window.ts`, `menu.ts`, `tray.ts`, `app-quit.ts`, `deep-link.ts`, `gpu-fallback.ts`, `hang-watchdog.ts`, `app-icon.ts` | `modules/chrome/`, `chrome_core/` |
 | SX2 preview | `preview.*` | `preview/host.ts`, `agent-relay.ts`, `visuals.ts`, `page-scripts.ts`, `preview-check.ts`, `layout.ts`, `relay-socket.ts`, `visual-navigation.ts`; `web/preview-stream.ts`, `preview-input.ts`, `preview-dialog.ts`, `preview-pacer.ts` | `modules/preview/`, `preview_core/` |
 | SX3 services | `services.*` | the Electron services of `ipc.ts` and `ssh/ipc.ts` (clipboard, dialog, screen, shell, `Notification`, window lookups); their IPC handlers stay registered in Node (§15.4 rule 5) and call the client. `web/ipc-registry.ts` and `runtime-log.ts` stay in Node (rules 5 and 1) | `modules/services/`, `services_core/` |
-| SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `installer-spawn.ts`, `updater-state.ts`, `update-provider.ts`, `update-release.ts`; the shim's `net.fetch`/`net.request` | `modules/updater/`, `updater_core/` |
+| SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `installer-spawn.ts`, `updater-state.ts`, `update-provider.ts`, `update-release.ts` | `modules/updater/`, `updater_core/` |
 | SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `i18n.ts`, `i18n-text.ts` and `tray-labels.ts`'s tables (rule 2), `sidecar-factory.ts`'s paths | `modules/boot/`, `boot_core/` |
 
 - **Where a module lives**: in the shell when it needs CEF or the OS objects the shell holds (windows, tray, menus,
@@ -749,6 +752,9 @@ Deviations:
   `update-token.bin`), decrypts and encrypts it with OSCrypt's `v10` forms itself, and reads the macOS key in its own
   process (`sys_mac::keychain::key_json`, dialogs off). A read that would ask drops the stored token, as before; the
   shim's own one-shot (mail accounts) is unaffected and may read the item once more in the same run.
+- The updater's requests are the shell's own (`net.rs` `fetch_in_shell`): an HTTP 401/407 challenge of one is cancelled
+  (no `net.login`), so behind an authenticating proxy the check fails as a network error, as it did when main never
+  answered `login` for electron-updater. Pages, the Preview and Node's `net.request` keep `net.login`.
 - The swap helper waits for the shell's pid (it waited for Node's, which exits before the shell lets go of the bundle).
 - Both platforms download the same way: the API asset endpoint's redirect taken by hand (no `authorization` to the
   CDN), a `.partial` that resumes with `Range`, 30 s without bytes fails as retryable, SHA-512 checked before the file

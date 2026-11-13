@@ -328,6 +328,56 @@ pub fn endpoints_json(addresses: &[String]) -> Value {
     json!({ "endpoints": endpoints })
 }
 
+/// An HTTP authentication challenge CEF raises for a fetch (server 401 or proxy 407).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Challenge {
+    pub is_proxy: bool,
+    pub scheme: String,
+    pub host: String,
+    pub port: i32,
+    pub realm: String,
+}
+
+/// The params of the `net.login` request to Node.
+pub fn login_params(req_id: u64, challenge: &Challenge) -> Value {
+    json!({
+        "reqId": req_id,
+        "isProxy": challenge.is_proxy,
+        "scheme": challenge.scheme,
+        "host": challenge.host,
+        "port": challenge.port,
+        "realm": challenge.realm,
+    })
+}
+
+/// What Node's `net.login` answer does to the challenge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoginAnswer {
+    Credentials { username: String, password: String },
+    Cancel,
+}
+
+/// `{username, password}` continues with them; `{cancel: true}`, anything else, and a failed request (`None`: Node
+/// answered with an error or is gone) cancel.
+pub fn login_answer(answer: Option<&Value>) -> LoginAnswer {
+    let Some(answer) = answer else {
+        return LoginAnswer::Cancel;
+    };
+    if answer.get("cancel").and_then(Value::as_bool) == Some(true) {
+        return LoginAnswer::Cancel;
+    }
+    match (
+        answer.get("username").and_then(Value::as_str),
+        answer.get("password").and_then(Value::as_str),
+    ) {
+        (Some(username), Some(password)) => LoginAnswer::Credentials {
+            username: username.to_string(),
+            password: password.to_string(),
+        },
+        _ => LoginAnswer::Cancel,
+    }
+}
+
 /// Electron's `net.resolveHost` option `cacheUsage`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CacheUsage {
@@ -913,5 +963,42 @@ mod tests {
         );
         assert_eq!(resolve_system("[::1]"), Ok(vec!["::1".to_string()]));
         assert_eq!(resolve_system("  "), Err(-105));
+    }
+
+    #[test]
+    fn a_challenge_becomes_login_params() {
+        let challenge = Challenge {
+            is_proxy: true,
+            scheme: "basic".into(),
+            host: "proxy.corp".into(),
+            port: 8080,
+            realm: "corp".into(),
+        };
+        assert_eq!(
+            login_params(7, &challenge),
+            json!({ "reqId": 7, "isProxy": true, "scheme": "basic", "host": "proxy.corp", "port": 8080, "realm": "corp" })
+        );
+    }
+
+    #[test]
+    fn a_login_answer_continues_only_with_both_credentials() {
+        let creds = json!({ "username": "ann", "password": "" });
+        assert_eq!(
+            login_answer(Some(&creds)),
+            LoginAnswer::Credentials {
+                username: "ann".into(),
+                password: "".into()
+            }
+        );
+        assert_eq!(
+            login_answer(Some(&json!({ "cancel": true }))),
+            LoginAnswer::Cancel
+        );
+        assert_eq!(
+            login_answer(Some(&json!({ "username": "ann" }))),
+            LoginAnswer::Cancel
+        );
+        assert_eq!(login_answer(Some(&json!({}))), LoginAnswer::Cancel);
+        assert_eq!(login_answer(None), LoginAnswer::Cancel);
     }
 }

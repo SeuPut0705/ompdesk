@@ -69,6 +69,7 @@ pub fn event(name: &str, data: Value, bin: Option<Vec<u8>>) {
                 );
             }
         }
+        "net.cancel" => crate::net::cancel(data),
         "i18n.labels" => {
             if let Err(problem) = shell_core::labels::set(&data) {
                 crate::log::log("i18n.labels", serde_json::json!({ "error": problem }));
