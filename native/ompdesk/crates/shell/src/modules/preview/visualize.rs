@@ -282,6 +282,9 @@ fn flag(visual: &str, version: u64, problem: Verdict) {
 
 // ------------------------------------------------------------------ capture
 
+/// What a capture answers: the PNG, or none.
+type CaptureDone = Box<dyn FnOnce(Option<Vec<u8>>)>;
+
 /// The visual's own page as a PNG once it is on screen, loaded and settled (never the window: only that page's pixels);
 /// none when there is none within `budget_ms`, or when no window has put it on screen within `appear_ms`.
 struct Capture {
@@ -290,7 +293,7 @@ struct Capture {
     started: f64,
     deadline: f64,
     appear_ms: f64,
-    done: Option<Box<dyn FnOnce(Option<Vec<u8>>)>>,
+    done: Option<CaptureDone>,
 }
 
 fn capture(

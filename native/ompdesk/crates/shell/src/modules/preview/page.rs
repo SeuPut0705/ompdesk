@@ -196,9 +196,12 @@ pub fn debugger_attached(wc_id: u64) -> bool {
 
 // ------------------------------------------------------------------ page tools in OMPdesk's isolated world
 
+/// One run waiting for its answer: taken (and answered) once, by its answer or by the page leaving its document.
+type RunSlot = Rc<RefCell<Option<Box<dyn FnOnce(Value)>>>>;
+
 thread_local! {
     /// Runs waiting on a page, by page: they answer `null` once its main frame starts another document.
-    static RUNS: RefCell<HashMap<u64, Vec<Rc<RefCell<Option<Box<dyn FnOnce(Value)>>>>>>> = RefCell::new(HashMap::new());
+    static RUNS: RefCell<HashMap<u64, Vec<RunSlot>>> = RefCell::new(HashMap::new());
 }
 
 /// The page left its document (or closed): every run on it answers `null`.
@@ -219,8 +222,7 @@ pub fn run_in_world(wc_id: u64, world: u32, code: &str, done: impl FnOnce(Value)
     if !exists(wc_id) {
         return done(Value::Null);
     }
-    let slot: Rc<RefCell<Option<Box<dyn FnOnce(Value)>>>> =
-        Rc::new(RefCell::new(Some(Box::new(done))));
+    let slot: RunSlot = Rc::new(RefCell::new(Some(Box::new(done))));
     RUNS.with(|r| r.borrow_mut().entry(wc_id).or_default().push(slot.clone()));
     let finish = move |value: Value| {
         RUNS.with(|r| {
