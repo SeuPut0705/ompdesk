@@ -80,7 +80,7 @@ start_feed() {
 # crash report the system wrote and the signatures of the launcher and the shell.
 crash_diag() {
   local app=$1 out=$2 ud=$3
-  evidence "diag: output: $(head -c 700 "$out" 2>&1 | tr '\n' '|')"
+  evidence "diag: output (the end): $(tail -c 1400 "$out" 2>&1 | tr '\n' '|')"
   evidence "diag: shell log tail: $(tail -n 6 "$ud/shell-webview/shell.log.jsonl" 2>&1 | cut -c1-220 | tr '\n' '|')"
   for f in "$app/Contents/MacOS/OMPdesk" "$app/Contents/MacOS/ompdesk-shell"; do
     evidence "diag: $(basename "$f"): $(codesign -dvv "$f" 2>&1 | grep -E 'Identifier|flags|Authority|TeamIdentifier|Signature' | tr '\n' ' ' | cut -c1-330)"
@@ -88,6 +88,18 @@ crash_diag() {
   sleep 3
   for r in $(ls -t ~/Library/Logs/DiagnosticReports/*mpdesk* 2>/dev/null | head -1); do
     evidence "diag: crash report $(basename "$r")"
-    grep -E '"(exception|signal|termination|codeSigningID|procPath)"|Exception Type|Termination|Triggered by|dyld|Library not loaded|Symbol not found' "$r" | head -14 | cut -c1-300 | sed 's/^/EVIDENCE: diag crash: /'
+    python3 - "$r" <<'PY' | cut -c1-320 | sed 's/^/EVIDENCE: diag crash: /'
+import json, sys
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+body = json.loads(text.split("\n", 1)[1]) if text.lstrip().startswith("{") and "\n" in text else {}
+print("asi:", json.dumps(body.get("asi"))[:600])
+print("exception:", json.dumps(body.get("exception")), "termination:", json.dumps(body.get("termination"))[:200])
+images = body.get("usedImages", [])
+for thread in body.get("threads", []):
+    if thread.get("triggered"):
+        for frame in thread.get("frames", [])[:14]:
+            image = images[frame["imageIndex"]] if frame.get("imageIndex", -1) >= 0 else {}
+            print("frame:", (image.get("name") or image.get("path", "?")), frame.get("symbol", ""), frame.get("imageOffset", ""))
+PY
   done
 }
