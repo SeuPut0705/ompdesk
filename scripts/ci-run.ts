@@ -88,7 +88,7 @@ export interface LaneRun {
 export interface Lane {
 	/** Runs whose macOS jobs are queued or running: they hold the lane. */
 	holders: LaneRun[];
-	/** Runs whose macOS jobs wait for the lane (GitHub's `pending`). */
+	/** Runs with jobs held back by a concurrency group (GitHub's `pending`; such a job shows no runner label yet, observed on run 43443610875). */
 	waiting: LaneRun[];
 	/** Open macOS jobs of the dispatched runs. */
 	openJobs: number;
@@ -101,9 +101,8 @@ export function laneOf(runs: LaneRun[], replacing: { workflow: string; branch: s
 	const lane: Lane = { holders: [], waiting: [], openJobs: 0 };
 	for (const run of runs) {
 		if (run.workflow === replacing.workflow && run.branch === replacing.branch) continue;
-		const macJobs = run.jobs.filter(isMac);
-		const active = macJobs.filter(job => job.status === "queued" || job.status === "in_progress");
-		const pending = macJobs.filter(job => job.status === "pending" || job.status === "waiting");
+		const active = run.jobs.filter(job => isMac(job) && (job.status === "queued" || job.status === "in_progress"));
+		const pending = run.jobs.filter(job => job.status === "pending");
 		lane.openJobs += active.length;
 		if (active.length > 0) lane.holders.push(run);
 		else if (pending.length > 0) lane.waiting.push(run);

@@ -5,7 +5,7 @@ const run = (id: number, workflow: string, branch: string, ...statuses: string[]
 	id,
 	workflow,
 	branch,
-	jobs: statuses.map(status => ({ status, labels: ["macos-latest"] })),
+	jobs: statuses.map(status => ({ status, labels: status === "pending" ? [] : ["macos-latest"] })),
 });
 
 describe("ci-run arguments", () => {
