@@ -165,7 +165,10 @@ describe("the hub worker's line reader", () => {
 		const bytes = Buffer.from(`${JSON.stringify({ id: 1, text })}\n`, "utf8");
 		const cut = bytes.indexOf(Buffer.from("홍", "utf8")) + 1; // inside the 3-byte character
 		const dir = mkdtempSync(join(tmpdir(), "hub-utf8-"));
-		const address = join(dir, "s.sock");
+		const address =
+			process.platform === "win32"
+				? `\\\\.\\pipe\\ompdesk-hub-utf8-${process.pid}-${Date.now()}`
+				: join(dir, "s.sock");
 		const server = createServer(socket => {
 			socket.setNoDelay(true);
 			socket.once("data", () => {
