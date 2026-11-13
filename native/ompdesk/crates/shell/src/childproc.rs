@@ -140,9 +140,9 @@ pub fn details(kind: &Kind, exit_code: u32) -> Value {
     details_with(kind, reason(exit_code), exit_code as i32)
 }
 
-/// macOS gives no exit status, so a helper's disappearance is only worth a report when it is not a normal end: the GPU
-/// process and the long-lived utility services live as long as the app; other utilities (the unzipper, the data decoder,
-/// the printing and sharing services…) come and go and finish normally.
+/// The helpers the macOS watcher follows: the GPU process and the long-lived utility services live as long as the app;
+/// other utilities (the unzipper, the data decoder, the printing and sharing services…) come and go and finish
+/// normally, so their ends are not reported.
 pub fn long_lived(kind: &Kind) -> bool {
     match kind.process_type.as_str() {
         "utility" => matches!(
@@ -157,11 +157,26 @@ pub fn long_lived(kind: &Kind) -> bool {
     }
 }
 
-/// The data for a helper that is gone without a way to ask why (macOS: its parent is Chromium, which reaps it, so there
-/// is no exit status to read): reported as a crash with exit code -1. A helper ending because the app quits is never
-/// reported, so a disappearance while the app runs is not a clean exit.
-pub fn details_unknown_exit(kind: &Kind) -> Value {
-    details_with(kind, "crashed", -1)
+/// The data for a helper whose POSIX wait status was read (macOS: `kqueue`'s `NOTE_EXITSTATUS`), in Chromium's words
+/// for POSIX: exit 0 is `clean-exit`, another exit code `abnormal-exit`; a signal is `killed` for SIGINT, SIGKILL and
+/// SIGTERM (someone ended it) and `crashed` for any other, with the signal's number as `exitCode`.
+pub fn details_from_wait_status(kind: &Kind, status: i32) -> Value {
+    let signal = status & 0x7f;
+    if signal == 0 {
+        let code = (status >> 8) & 0xff;
+        let reason = if code == 0 {
+            "clean-exit"
+        } else {
+            "abnormal-exit"
+        };
+        return details_with(kind, reason, code);
+    }
+    let reason = if matches!(signal, 2 | 9 | 15) {
+        "killed"
+    } else {
+        "crashed"
+    };
+    details_with(kind, reason, signal)
 }
 
 fn details_with(kind: &Kind, reason: &str, exit_code: i32) -> Value {
@@ -325,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn only_long_lived_helpers_are_reported_when_no_status_is_readable() {
+    fn only_long_lived_helpers_are_followed_on_macos() {
         let gpu = Kind {
             process_type: "gpu-process".into(),
             service: None,
@@ -348,15 +363,29 @@ mod tests {
     }
 
     #[test]
-    fn a_helper_gone_without_a_status_is_a_crash_with_minus_one() {
+    fn a_wait_status_reads_as_chromium_reads_it_on_posix() {
         let kind = Kind {
             process_type: "gpu-process".into(),
             service: None,
         };
+        let read = |status: i32| details_from_wait_status(&kind, status);
+        // A GPU process that exits normally (the app quitting, CEF restarting it) is no crash.
         assert_eq!(
-            details_unknown_exit(&kind),
-            serde_json::json!({ "type": "GPU", "reason": "crashed", "exitCode": -1 })
+            read(0),
+            serde_json::json!({ "type": "GPU", "reason": "clean-exit", "exitCode": 0 })
         );
+        assert_eq!(read(3 << 8)["reason"], "abnormal-exit");
+        assert_eq!(read(3 << 8)["exitCode"], 3);
+        assert_eq!(read(11)["reason"], "crashed");
+        assert_eq!(read(11)["exitCode"], 11);
+        assert_eq!(
+            read(11 | 0x80)["reason"],
+            "crashed",
+            "a core dump flag is still the signal"
+        );
+        for signal in [2, 9, 15] {
+            assert_eq!(read(signal)["reason"], "killed");
+        }
     }
 
     #[test]
