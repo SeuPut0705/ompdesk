@@ -151,7 +151,8 @@ fn page_of(partition: &str) -> Option<(u64, Browser)> {
 }
 
 fn set_pref(context: &RequestContext, name: &str, mut value: Value2) -> Result<(), String> {
-    let mut error = CefString::default();
+    // `CefString::default()` is borrowed and empty, and the binding hands CEF a null pointer for it: the reason is lost.
+    let mut error = cs("");
     if context.set_preference(Some(&cs(name)), Some(&mut value), Some(&mut error)) == 0 {
         return Err(format!("{name} was refused: {error}"));
     }
@@ -448,13 +449,10 @@ pub fn set_user_agent(partition: &str, user_agent: String, languages: Option<Str
 
 /// Chromium's `proxy` preference of `partition`'s request context (UI thread); `args` as `session.op setProxy`.
 pub fn set_proxy(partition: &str, args: &Value) -> Result<(), String> {
-    if let (Some(context), Some(mut value)) = (context_or_global(partition), proxy_value(args)) {
-        let mut error = CefString::default();
-        if context.set_preference(Some(&cs("proxy")), Some(&mut value), Some(&mut error)) == 0 {
-            return Err(format!("the proxy setting was refused: {error}"));
-        }
+    match (context_or_global(partition), proxy_value(args)) {
+        (Some(context), Some(value)) => set_pref(&context, "proxy", value),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// A page of a partition whose user agent was set (`session.setUserAgent`) gets it as soon as its browser exists.

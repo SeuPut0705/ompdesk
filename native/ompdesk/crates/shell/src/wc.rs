@@ -1296,7 +1296,7 @@ pub fn set_webrtc_policy(wc_id: u64, policy: &str) {
         {
             value.set_string(Some(&cs(&policy)));
             let mut value = value;
-            let mut error = CefString::default();
+            let mut error = cs("");
             ctx.set_preference(
                 Some(&cs("webrtc.ip_handling_policy")),
                 Some(&mut value),
