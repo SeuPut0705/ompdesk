@@ -5,8 +5,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { NsisUpdater } from "electron-updater";
-import { ElectronAppAdapter } from "electron-updater/out/ElectronAppAdapter";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IpcRegistry } from "../../web/ipc-registry";
 import { Answered, ShellClient } from "../client";
@@ -339,32 +337,6 @@ describe("the quit sequence", () => {
 		electron.app.exit(0);
 		await settle();
 		expect(exited).toEqual([0]);
-	});
-
-	// electron-updater installs a downloaded update on the app's `quit`, code 0 only (BaseUpdater.addQuitHandler).
-	it.each([
-		["an approved quit", (app: ElectronShim["app"]) => app.quit(), 1],
-		["a forced exit(0)", (app: ElectronShim["app"]) => app.exit(0), 1],
-		["an exit with a failure code", (app: ElectronShim["app"]) => app.exit(1), 0],
-	])("a downloaded update installs on %s (installs: %j)", async (_name, end, installs) => {
-		const updater = new NsisUpdater(
-			{ provider: "generic", url: "https://updates.invalid/" },
-			new ElectronAppAdapter(electron.app as never),
-		);
-		const doInstall = vi.fn(() => true);
-		Object.assign(updater, {
-			doInstall,
-			autoInstallOnAppQuit: true,
-			downloadedUpdateHelper: {
-				file: "C:/tmp/OMPdesk-Setup.exe",
-				downloadedFileInfo: { isAdminRightsRequired: false },
-			},
-		});
-		(updater as unknown as { addQuitHandler(): void }).addQuitHandler();
-		end(electron.app);
-		await settle();
-		expect(doInstall).toHaveBeenCalledTimes(installs);
-		if (installs) expect(doInstall).toHaveBeenCalledWith(expect.objectContaining({ isSilent: true }));
 	});
 
 	it("runs the quit sequence when the shell reports a macOS Cmd-Q", async () => {

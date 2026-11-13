@@ -57,8 +57,9 @@ const mocks = vi.hoisted(() => {
 		calls,
 		posts,
 		replies,
-		/** `app.on("will-quit")` and the quit watchdog's forced-exit hooks. */
+		/** `app.on("will-quit")`, `app.on("quit")` (with the exit code) and the quit watchdog's forced-exit hooks. */
 		willQuit: [] as Array<() => void>,
+		quit: [] as Array<(event: unknown, code: number) => void>,
 		forcedExit: [] as Array<() => void>,
 		/** What the quit path was asked to do, in order. */
 		order: [] as string[],
@@ -85,8 +86,9 @@ vi.mock("electron", () => ({
 		isPackaged: true,
 		getVersion: () => "0.44.0",
 		getPath: () => mocks.userData.dir,
-		on: (event: string, listener: () => void) => {
+		on: (event: string, listener: (event?: unknown, code?: number) => void) => {
 			if (event === "will-quit") mocks.willQuit.push(listener);
+			if (event === "quit") mocks.quit.push(listener);
 		},
 		quit: () => mocks.order.push("app.quit"),
 	},
@@ -195,6 +197,7 @@ async function boot(replies: Record<string, (params: unknown) => unknown> = {}, 
 	mocks.listeners.clear();
 	mocks.handlers.clear();
 	mocks.willQuit.length = 0;
+	mocks.quit.length = 0;
 	mocks.forcedExit.length = 0;
 	mocks.order.length = 0;
 	mocks.disarmed.length = 0;
@@ -653,20 +656,33 @@ describe("The approved quit", () => {
 		expect(mocks.posts).toEqual([]);
 	});
 
-	it("automatic: tells the shell when no install began and the update is downloaded", () => {
-		for (const hook of mocks.willQuit) hook();
+	/** The app ends: `will-quit` for an approved quit, then `quit` with the code (a forced `exit(code)` emits only `quit`). */
+	const end = (code: number, approved: boolean): void => {
+		if (approved) for (const hook of mocks.willQuit) hook();
+		for (const hook of mocks.quit) hook({}, code);
+	};
+
+	it("automatic: tells the shell when the app ends with code 0, an approved quit or a forced exit(0), and no install began", () => {
+		end(0, true);
+		expect(mocks.posts).toEqual([{ name: "updater.quit", data: { trigger: "quit", presence: "behind" } }]);
+	});
+
+	it("automatic: a forced exit(0) installs too, an exit with a failure code does not", () => {
+		end(1, false);
+		expect(mocks.posts).toEqual([]);
+		end(0, false);
 		expect(mocks.posts).toEqual([{ name: "updater.quit", data: { trigger: "quit", presence: "behind" } }]);
 	});
 
 	it("automatic: says nothing after an install the shell already started", async () => {
 		await restartAndInstall();
-		for (const hook of mocks.willQuit) hook();
+		end(0, true);
 		expect(mocks.posts).toEqual([]);
 	});
 
 	it("automatic: says nothing while no update is downloaded", () => {
 		emitStatus({ state: "idle" });
-		for (const hook of mocks.willQuit) hook();
+		end(0, true);
 		expect(mocks.posts).toEqual([]);
 	});
 });

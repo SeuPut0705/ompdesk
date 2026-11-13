@@ -580,12 +580,15 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	// through the same once-only call. The mode is the shell's (known once `updater.start` answered).
 	app.on("will-quit", () => {
 		if (installMode === "relaunch" && installable) postQuit();
-		// Windows: the installer starts silently on an approved quit when no install began.
-		else if (installMode === "automatic" && installTrigger === undefined && current.state === "downloaded")
-			postQuit();
 	});
 	onQuitForcedExit(() => {
 		if (installMode === "relaunch" && installable) postQuit();
+	});
+	// Windows: the installer starts silently when the app ends with code 0 and no install began, an approved quit or a
+	// forced `exit(0)` alike (the shim emits `quit` for both, as electron-updater's `autoInstallOnAppQuit` read it).
+	app.on("quit", (_event: unknown, code: number) => {
+		if (installMode === "automatic" && code === 0 && installTrigger === undefined && current.state === "downloaded")
+			postQuit();
 	});
 
 	updater.on("status", state => mirror(state, true));
