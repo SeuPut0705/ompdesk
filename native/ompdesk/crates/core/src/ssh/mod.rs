@@ -1043,16 +1043,18 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_watch_tells_its_listings_and_is_gone_when_its_stop_is_answered_by_its_exit() {
+        // The stand-in writes its stderr before its listings: the test stops it once the second listing is told, and
+        // an ssh stopped before it wrote its last words ends as plain "ssh exited" (ci run 43440539910).
         let root = temp("watch");
         let pid_file = joined(&root, &["pid"]);
         let ssh = stand_in(
             &root,
             &format!(
                 "echo $$ > '{pid_file}'
-printf 'LISTEN 0 1 127.0.0.1:22 x\\n__ompdesk_ports__\\nLISTEN 0 1 127.0.0.1:22 x\\n__ompdesk_ports__\\n'
-printf 'LISTEN 0 1 [::]:3000 x\\nLISTEN 0 1 127.0.0.1:22 x\\n__ompdesk_ports__\\n'
 echo 'debug1: noise' >&2
 echo 'Connection to box closed by remote host.' >&2
+printf 'LISTEN 0 1 127.0.0.1:22 x\\n__ompdesk_ports__\\nLISTEN 0 1 127.0.0.1:22 x\\n__ompdesk_ports__\\n'
+printf 'LISTEN 0 1 [::]:3000 x\\nLISTEN 0 1 127.0.0.1:22 x\\n__ompdesk_ports__\\n'
 exec sleep 600"
             ),
         );
