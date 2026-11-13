@@ -268,9 +268,6 @@ impl WinEntry {
     }
 }
 
-/// Something to do on a partition's request context once CEF has initialized it.
-pub type ContextWaiter = Box<dyn FnOnce(&RequestContext)>;
-
 #[derive(Default)]
 pub struct Ui {
     pub windows: HashMap<u64, Rc<RefCell<WinEntry>>>,
@@ -278,8 +275,6 @@ pub struct Ui {
     pub views: HashMap<u64, Rc<RefCell<ViewEntry>>>,
     /// Request contexts by partition name; the app session is the global context and is not in here.
     pub contexts: HashMap<String, RequestContext>,
-    /// Partitions whose request context CEF is still initializing, with what waits for it (`session::when_initialized`).
-    pub context_waiters: HashMap<String, Vec<ContextWaiter>>,
     /// Browsers alive (page, views, offscreen): the message loop quits when this reaches 0 while exiting.
     pub browsers: usize,
     pub exiting: bool,
