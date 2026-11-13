@@ -51,6 +51,12 @@ OLD_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' rel
 evidence "the app that updates: ${MOVE_FROM_APP:-the released v0.127.0} ($OLD_VERSION)"
 bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
+# `open -n` (what the swap script relaunches with) hands the app to LaunchServices, whose Gatekeeper check refuses an app signed by a
+# certificate nobody trusts (`spctl: rejected`), silently on a runner: the throwaway certificate's apps are allowed by rule
+# (the rule is the app's designated requirement, so the bundles the swap puts in place match it too). A person's Mac has
+# the app approved once, the same way.
+sudo spctl --add --label omp-move "$W/rel.app" "$REPO/dist/mac-arm64/OMPdesk.app" 2>&1 | head -3; sudo spctl --enable --label omp-move 2>&1 | head -2
+evidence "gatekeeper: released app: $(spctl --assess --type execute -vv "$W/rel.app" 2>&1 | tr '\n' ' '); shell bundle: $(spctl --assess --type execute -vv "$REPO/dist/mac-arm64/OMPdesk.app" 2>&1 | tr '\n' ' ')"
 # The last Electron release the launcher puts back: the re-signed v0.127.0 itself (release 1 stands in when it exists).
 hdiutil create -quiet -volname OMPdesk -srcfolder rel.app -ov -format UDZO "$W/rollback.dmg"; check $? "the stand-in last Electron release (rel.app as a DMG)"
 start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag "v$OLD_VERSION" --http-port $HTTPPORT
@@ -102,13 +108,14 @@ scenario() {
     launchctl setenv OMPDESK_LAUNCHER_START_WAIT_S 20
   fi
   step "$name: the released app seeds a token and Local Storage (its own IPC)"
-  OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-seed.out" 2>&1 &
+  # No feed for this run: its updater would start a download that the clean-up below pulls the folder from under.
+  OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT --host-resolver-rules="MAP api.github.com 127.0.0.1:1" --ignore-certificate-errors >"$W/$name-seed.out" 2>&1 &
   (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts $PORT) | tee "$W/$name-seed.json"; check ${PIPESTATUS[0]} "$name: seeded"
   kill_apps "$APPS/OMPdesk.app/Contents/MacOS"
   test -f "$UD/update-token.bin"; check $? "$name: update-token.bin is in the profile"
   rm -rf "$UD/logs" "$UD/updates"
   step "$name: the released app, left alone with its updater"
-  env "${OLDENV[@]}" OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-old.out" 2>&1 &
+  env ${OLDENV[@]+"${OLDENV[@]}"} OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-old.out" 2>&1 &
   wait_for "has_line $UD 'download verified'" 240; check $? "$name: check found, download verified"
   if [ "$fail" = 1 ]; then
     chmod -R a-w "$APPS"; evidence "S2 the apps folder is read-only before the countdown ends ($(stat -f %Sp "$APPS"))"
