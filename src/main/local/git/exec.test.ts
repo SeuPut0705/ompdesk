@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetLoginShellEnvCache } from "../../shell-env";
 import { findOnPath } from "../../spawn";
-import { developerGit, gitRaw, resolveBin } from "./exec";
+import { developerGit, execBin, gitRaw, resolveBin } from "./exec";
 
 const made: string[] = [];
 const savedEnv = { PATH: process.env.PATH, SHELL: process.env.SHELL };
@@ -54,6 +54,15 @@ describe.skipIf(process.platform === "win32")("resolveBin", () => {
 		process.env.PATH = `${process.env.PATH}:${managed}`;
 		resetLoginShellEnvCache();
 		expect(await resolveBin("gh")).toBe(path.join(managed, "gh"));
+	});
+});
+
+describe("execBin", () => {
+	it("names a working folder that does not exist instead of the program's ENOENT", async () => {
+		const gone = path.join(await tempDir("omp-exec-cwd-"), "gone");
+		await expect(execBin(process.execPath, ["--version"], { cwd: gone })).rejects.toThrow(
+			`working folder ${gone} does not exist`,
+		);
 	});
 });
 
