@@ -75,7 +75,7 @@
 				"src/main/tab-release.ts#closeWindowTab",
 				"src/main/agent-control/host.ts:1119-1126"
 			],
-			"syncCommit": "ea12dd231455778f16dda15f4bfdc4d4fdc54ab6",
+			"syncCommit": "e8967843925db6084ca922dcad89c214e66f6262",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
 		},
 		{
@@ -137,7 +137,7 @@
 				"native/ompdesk/crates/core/src/disk/tree.rs#live",
 				"native/ompdesk/crates/core/src/git/read.rs#blocking"
 			],
-			"syncCommit": "ea12dd231455778f16dda15f4bfdc4d4fdc54ab6",
+			"syncCommit": "e8967843925db6084ca922dcad89c214e66f6262",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"
 		},
 		{
