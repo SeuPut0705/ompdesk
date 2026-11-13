@@ -57,11 +57,13 @@ pub fn set_app_user_model_id(id: &str) {
 }
 
 fn register_protocol(protocol: &str) -> bool {
-    let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
     #[cfg(windows)]
-    return shell_core::sys::system::register_protocol(protocol, &exe);
+    return shell_core::sys::system::register_protocol(
+        protocol,
+        &std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+    );
     #[cfg(target_os = "macos")]
     return crate::platform::register_protocol(protocol);
 }

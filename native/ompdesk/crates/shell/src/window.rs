@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use cef::*;
 use serde_json::{Value, json};
-use shell_core::color::{self, Rgba};
+use shell_core::color;
+#[cfg(windows)]
+use shell_core::color::Rgba;
 
 use crate::host::{self, Call};
 use crate::log::log;
@@ -87,15 +89,16 @@ fn state_json(entry: &Snap) -> Value {
     let fullscreen = window.is_fullscreen() != 0;
     let bounds = window.bounds();
     #[cfg(windows)]
-    let normal = shell_core::sys::winops::normal_rect(state::native_handle(window))
-        .map(|(x, y, w, h)| rect_json(x, y, w, h));
+    let normal_bounds = shell_core::sys::winops::normal_rect(state::native_handle(window))
+        .map(|(x, y, w, h)| rect_json(x, y, w, h))
+        .unwrap_or_else(|| rect_of(&bounds));
     #[cfg(not(windows))]
-    let normal = None;
+    let normal_bounds = rect_of(&bounds);
     let content = window.client_area_bounds_in_screen();
     json!({
         "winId": entry.id,
         "bounds": rect_of(&bounds),
-        "normalBounds": normal.unwrap_or_else(|| rect_of(&bounds)),
+        "normalBounds": normal_bounds,
         "contentBounds": rect_of(&content),
         "visible": window.is_visible() != 0,
         "focused": window.is_active() != 0 && focusable(window),
@@ -521,6 +524,7 @@ pub fn init_caption() {
 #[cfg(not(windows))]
 pub fn init_caption() {}
 
+#[cfg(windows)]
 fn window_action(win_id: u64, action: &str) {
     let Some(entry) = win(win_id) else { return };
     let Some(window) = entry.borrow().window.clone() else {

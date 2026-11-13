@@ -307,6 +307,13 @@ wrap_life_span_handler! {
     }
 }
 
+/// The bits of the request's transition type: CEF puts the source and its qualifiers together in a value the enum's
+/// variants do not list, which is read as the integer it is.
+fn transition_bits(request: &Request) -> i32 {
+    let transition = request.transition_type();
+    // SAFETY: `cef_transition_type_t` is a `repr(i32)` value; only its bits are read.
+    unsafe { *std::ptr::from_ref(transition.as_ref()).cast::<i32>() }
+}
 wrap_request_handler! {
     struct ShellRequest {
         wc_id: u64,
@@ -332,6 +339,11 @@ wrap_request_handler! {
             if main && std::mem::take(&mut entry.borrow_mut().programmatic) {
                 return 0;
             }
+            // Electron emits no will-navigate for a reload, a history step or a fragment change either: one sent through the DevTools
+            // protocol (DevTools' reload button, the e2e harness) reaches here without Node having started it.
+            if main && !shell_core::transition::asks_node(transition_bits(request), &string_of(&frame.url()), &url) {
+                return 0;
+            }
             let kind = if is_redirect != 0 && kinds.contains("will-redirect") {
                 "will-redirect"
             } else if kinds.contains("will-frame-navigate") {
@@ -349,6 +361,9 @@ wrap_request_handler! {
                 }),
                 Duration::from_secs(2),
             );
+            if std::env::var_os("OMPDESK_SHELL_TRACE").is_some() {
+                crate::log::log("wc.navigate.answer", json!({ "kind": kind, "url": url, "answer": format!("{answer:?}") }));
+            }
             // No answer in 2 s: the navigation is prevented (fail closed).
             match answer {
                 Ok(value) => i32::from(value.get("prevent").and_then(Value::as_bool).unwrap_or(true)),
@@ -443,7 +458,7 @@ wrap_context_menu_handler! {
             if let (true, Some(p)) = (watching, params) {
                 let mut suggestions = CefStringList::new();
                 p.dictionary_suggestions(Some(&mut suggestions));
-                let edit = sys::cef_context_menu_edit_state_flags_t::from(p.edit_state_flags()).0 as u32;
+                let edit: u32 = sys::cef_context_menu_edit_state_flags_t::from(p.edit_state_flags()).0 as _;
                 let media = format!("{:?}", p.media_type()).to_lowercase();
                 emit(
                     self.wc_id,

@@ -397,7 +397,9 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **`wc.navigate`**: for main-frame navigations Node did not start itself. A click on a `file:` link is reported by the
   injected preload (`POST /__shell/will-navigate`) and the request is sent without waiting for the answer: Blink refuses
   that navigation before the browser process sees it, so it is always blocked.
-  `isSameDocument` is always false.
+  `isSameDocument` is always false. As in Electron, a reload, a back/forward step or a fragment change of the shown
+  document is not asked about (`transition.rs`): the main script prevents every navigation it is asked about that it did
+  not start, which would cancel a DevTools reload.
 - **`wc.event`**: `did-navigate` carries status 200 / "OK" (CEF gives none there); `did-start-navigation` is per frame,
   with `frameProcessId`/`frameRoutingId` 0; `input-event` (real mouse-up/key-up) is not produced; `will-prevent-unload` is
   not produced (the before-unload dialog is accepted without asking).

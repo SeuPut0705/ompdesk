@@ -17,6 +17,7 @@ pub mod proxy_rules;
 pub mod range;
 pub mod shell_args;
 pub mod startup;
+pub mod transition;
 pub mod tray_image;
 pub mod wire;
 

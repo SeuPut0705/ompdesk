@@ -25,10 +25,10 @@ pub fn apply_init(params: &Value) {
         application_name: text(about, "applicationName"),
         icon_path: text(about, "iconPath"),
     });
-    if let Some(policy) = params.get("activationPolicy").and_then(Value::as_str) {
-        if !mac_app::set_activation_policy(policy) {
-            log("app.activation_policy_failed", json!({ "policy": policy }));
-        }
+    if let Some(policy) = params.get("activationPolicy").and_then(Value::as_str)
+        && !mac_app::set_activation_policy(policy)
+    {
+        log("app.activation_policy_failed", json!({ "policy": policy }));
     }
 }
 

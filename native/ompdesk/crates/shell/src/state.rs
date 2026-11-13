@@ -188,6 +188,13 @@ pub struct ViewEntry {
 }
 
 #[derive(Clone, Default)]
+#[cfg_attr(
+    not(windows),
+    allow(
+        dead_code,
+        reason = "only the Windows caption buttons read the overlay"
+    )
+)]
 pub struct Overlay {
     pub color: String,
     pub symbol_color: String,
@@ -282,6 +289,7 @@ pub fn view(id: u64) -> Option<Rc<RefCell<ViewEntry>>> {
 }
 
 /// The window whose OS handle is `hwnd` (a caption click names its owner by handle).
+#[cfg(windows)]
 pub fn win_by_handle(handle: isize) -> Option<u64> {
     ui_state(|u| {
         u.windows.values().find_map(|w| {

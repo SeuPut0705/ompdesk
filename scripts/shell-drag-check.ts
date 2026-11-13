@@ -51,9 +51,11 @@ async function drag(x: number, y: number, dx: number, dy: number): Promise<void>
 		user32.SetCursorPos(Math.round(x), Math.round(y));
 		await sleep(150);
 		user32.mouse_event(LEFTDOWN, 0, 0, 0, 0n);
-		for (let step = 1; step <= 12; step++) {
-			await sleep(25);
-			user32.SetCursorPos(Math.round(x + (dx * step) / 12), Math.round(y + (dy * step) / 12));
+		// Small steps: Windows' move loop takes its grab point from the first move after the press, so one step is lost.
+		const steps = 60;
+		for (let step = 1; step <= steps; step++) {
+			await sleep(8);
+			user32.SetCursorPos(Math.round(x + (dx * step) / steps), Math.round(y + (dy * step) / steps));
 		}
 		await sleep(100);
 		user32.mouse_event(LEFTUP, 0, 0, 0, 0n);
@@ -145,8 +147,21 @@ async function main(): Promise<void> {
 			PI_PROFILE: "",
 			OMP_GUI_OMP: await fixtureOmp(profile),
 		},
-		stdio: ["ignore", "inherit", "inherit"],
+		stdio: ["ignore", "pipe", "pipe"],
 	});
+	// What the shell says is kept for a failure to start (a window-server-less runner, a missing library): it is also shown.
+	let shellOutput = "";
+	for (const stream of [child.stdout, child.stderr]) {
+		stream?.on("data", chunk => {
+			process.stderr.write(chunk);
+			shellOutput = (shellOutput + String(chunk)).slice(-4000);
+		});
+	}
+	const startFailure = (what: string): Error => {
+		const log = path.join(userData, "shell-webview", "shell.log.jsonl");
+		const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8").slice(-2000) : "(no shell.log.jsonl)";
+		return new Error(`${what} (shell exit ${child.exitCode ?? "running"}, signal ${child.signalCode ?? "none"})\n--- shell output ---\n${shellOutput}\n--- shell.log.jsonl ---\n${logged}`);
+	};
 	let cdp: Cdp | undefined;
 	try {
 		const portFile = path.join(userData, "shell-webview", "DevToolsActivePort");
@@ -155,7 +170,7 @@ async function main(): Promise<void> {
 			await sleep(200);
 			if (fs.existsSync(portFile)) port = Number(fs.readFileSync(portFile, "utf8").split("\n")[0]);
 		}
-		if (!port) throw new Error("the shell never wrote DevToolsActivePort");
+		if (!port) throw startFailure("the shell never wrote DevToolsActivePort");
 		for (let i = 0; i < 150; i++) {
 			try {
 				cdp = await connect(port);
