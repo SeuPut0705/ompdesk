@@ -91,7 +91,10 @@ else
 fi
 evidence "the released SWAP_SCRIPT relaunches with open -n: $(grep -a -o 'open -n "$dest"[^;]*' rel.app/Contents/Resources/app.asar 2>/dev/null | head -1 | cut -c1-80)"
 # The last Electron release the launcher puts back: the re-signed v0.127.0 itself (release 1 stands in when it exists).
-hdiutil create -quiet -volname OMPdesk -srcfolder rel.app -ov -format UDZO "$W/rollback.dmg"; check $? "the stand-in last Electron release (rel.app as a DMG)"
+# The DMG holds the app at its root (`-srcfolder` copies a folder's CONTENTS, so the app sits in a folder of its own).
+mkdir "$W/dmgsrc" && ditto rel.app "$W/dmgsrc/OMPdesk.app"
+hdiutil create -volname OMPdesk -srcfolder "$W/dmgsrc" -fs HFS+ -ov -format UDZO "$W/rollback.dmg" 2>&1 | tail -3 | sed 's/^/EVIDENCE: hdiutil: /'
+test -s "$W/rollback.dmg"; check $? "the stand-in last Electron release (rel.app in a DMG: $(stat -f %z "$W/rollback.dmg" 2>/dev/null) bytes)"
 start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag "v$OLD_VERSION" --http-port $HTTPPORT
 curl -s "http://127.0.0.1:$HTTPPORT/repos/SeuPut0705/ompdesk/releases/tags/v$OLD_VERSION" | grep -q ompdesk-update; check $? "the stand-in serves the last Electron release's tag route on :$HTTPPORT"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:$FEEDPORT" --ignore-certificate-errors)
