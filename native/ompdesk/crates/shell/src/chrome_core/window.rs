@@ -180,18 +180,47 @@ pub fn saved_value(saved: &Saved) -> Value {
     Value::Object(out)
 }
 
-/// The store after a close saved `saved` (electron-store keeps the file's other keys and indents with a tab).
+/// The store after a close saved `saved`: electron-store's `JSON.stringify(store, null, "\t")`, the file's other keys
+/// kept, the geometry's fields in the order `window.ts` wrote them (x, y, width, height, isMaximized).
 pub fn store_text(previous: Option<&str>, saved: &Saved) -> String {
-    let mut root = previous
+    let others = previous
         .and_then(|t| serde_json::from_str::<Value>(t).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(|| json!({}));
-    root["windowState"] = saved_value(saved);
-    let mut out = Vec::new();
-    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");
-    let mut serializer = serde_json::Serializer::with_formatter(&mut out, formatter);
-    root.serialize(&mut serializer).expect("JSON serialises");
-    String::from_utf8(out).expect("JSON is UTF-8")
+        .and_then(|v| match v {
+            Value::Object(map) => Some(map),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let pretty = |value: &Value| {
+        let mut out = Vec::new();
+        let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");
+        let mut serializer = serde_json::Serializer::with_formatter(&mut out, formatter);
+        value.serialize(&mut serializer).expect("JSON serialises");
+        String::from_utf8(out)
+            .expect("JSON is UTF-8")
+            .replace('\n', "\n\t")
+    };
+    let mut entries: Vec<String> = others
+        .iter()
+        .filter(|(key, _)| key.as_str() != "windowState")
+        .map(|(key, value)| format!("\t{}: {}", Value::from(key.as_str()), pretty(value)))
+        .collect();
+    let mut state = Vec::new();
+    for (key, value) in [
+        ("x", saved.x.map(whole)),
+        ("y", saved.y.map(whole)),
+        ("width", Some(whole(saved.width))),
+        ("height", Some(whole(saved.height))),
+        ("isMaximized", saved.is_maximized.map(Value::from)),
+    ] {
+        if let Some(value) = value {
+            state.push(format!("\t\t\"{key}\": {value}"));
+        }
+    }
+    entries.push(format!(
+        "\t\"windowState\": {{\n{}\n\t}}",
+        state.join(",\n")
+    ));
+    format!("{{\n{}\n}}", entries.join(",\n"))
 }
 
 /// What a new window looks like before it shows.
@@ -577,9 +606,12 @@ mod tests {
                 .find(|f| f["method"] == "wc.op" && f["params"]["op"] == "loadURL")
                 .unwrap();
             let slot = step.output["record"]["slot"].as_u64().unwrap() as u32;
+            // The capture loaded the page by file from the checkout; the shell serves it as `app://ompdesk/`. Only
+            // what the page reads of its address (the query) is the window's.
+            let query = |url: &str| url.split_once('?').map(|(_, q)| q.to_string());
             assert_eq!(
-                json!(page_url(None, slot, got.mica, false)),
-                load["params"]["args"]["url"],
+                query(&page_url(None, slot, got.mica, false)),
+                query(load["params"]["args"]["url"].as_str().unwrap()),
                 "{step:?}"
             );
         }
@@ -635,7 +667,7 @@ mod tests {
             let frames = step.output.as_array().unwrap();
             assert_eq!(frames[0]["params"]["text"], json!(badge));
             for frame in &frames[1..] {
-                assert_eq!(frame["params"]["args"]["value"], json!(value));
+                assert_eq!(frame["params"]["args"]["value"].as_f64(), Some(value));
             }
         }
     }

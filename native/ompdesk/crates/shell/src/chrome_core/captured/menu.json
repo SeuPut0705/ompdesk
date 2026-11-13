@@ -1,5 +1,5 @@
 {
-	"capturedFrom": "15ccbb21b65edd4bffc11c77f40f9e0ec0b111d3",
+	"capturedFrom": "30d456dc246d9afc0e8f1c336413a03a1c6a6087",
 	"steps": [
 		{
 			"fn": "src/main/i18n-text.ts#labels",
@@ -3082,7 +3082,7 @@
 						"submenu": [
 							{
 								"id": "i87",
-								"label": "About OMPdesk",
+								"label": "OMPdesk 정보",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3091,7 +3091,7 @@
 							},
 							{
 								"id": "i88",
-								"label": "Check for Updates…",
+								"label": "업데이트 확인…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3107,7 +3107,7 @@
 							},
 							{
 								"id": "i90",
-								"label": "Settings…",
+								"label": "설정…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3123,7 +3123,7 @@
 							},
 							{
 								"id": "i92",
-								"label": "Services",
+								"label": "서비스",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3140,7 +3140,7 @@
 							},
 							{
 								"id": "i94",
-								"label": "Hide OMPdesk",
+								"label": "OMPdesk 가리기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3149,7 +3149,7 @@
 							},
 							{
 								"id": "i95",
-								"label": "Hide Others",
+								"label": "기타 가리기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3158,7 +3158,7 @@
 							},
 							{
 								"id": "i96",
-								"label": "Show All",
+								"label": "모두 보기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3175,7 +3175,7 @@
 							},
 							{
 								"id": "i98",
-								"label": "Quit OMPdesk",
+								"label": "OMPdesk 종료",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3186,7 +3186,7 @@
 					},
 					{
 						"id": "i99",
-						"label": "File",
+						"label": "파일",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -3194,7 +3194,7 @@
 						"submenu": [
 							{
 								"id": "i100",
-								"label": "Open Project…",
+								"label": "프로젝트 열기…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3210,7 +3210,7 @@
 							},
 							{
 								"id": "i102",
-								"label": "New Session",
+								"label": "새 세션",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3219,7 +3219,7 @@
 							},
 							{
 								"id": "i103",
-								"label": "New Tab",
+								"label": "새 탭",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3227,7 +3227,7 @@
 							},
 							{
 								"id": "i104",
-								"label": "New Chat Tab",
+								"label": "새 채팅 탭",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3235,7 +3235,7 @@
 							},
 							{
 								"id": "i105",
-								"label": "New Window",
+								"label": "새 창",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3246,7 +3246,7 @@
 					},
 					{
 						"id": "i106",
-						"label": "Edit",
+						"label": "편집",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -3254,7 +3254,7 @@
 						"submenu": [
 							{
 								"id": "i107",
-								"label": "Undo",
+								"label": "실행 취소",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3263,7 +3263,7 @@
 							},
 							{
 								"id": "i108",
-								"label": "Redo",
+								"label": "실행 복귀",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3280,7 +3280,7 @@
 							},
 							{
 								"id": "i110",
-								"label": "Cut",
+								"label": "오려두기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3289,7 +3289,7 @@
 							},
 							{
 								"id": "i111",
-								"label": "Copy",
+								"label": "복사하기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3298,7 +3298,7 @@
 							},
 							{
 								"id": "i112",
-								"label": "Paste",
+								"label": "붙여넣기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3307,7 +3307,7 @@
 							},
 							{
 								"id": "i113",
-								"label": "Select All",
+								"label": "전체 선택",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3318,7 +3318,7 @@
 					},
 					{
 						"id": "i114",
-						"label": "View",
+						"label": "보기",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -3326,7 +3326,7 @@
 						"submenu": [
 							{
 								"id": "i115",
-								"label": "Command Palette",
+								"label": "명령 팔레트",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3334,7 +3334,7 @@
 							},
 							{
 								"id": "i116",
-								"label": "Context Report",
+								"label": "컨텍스트 보고서",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3342,7 +3342,7 @@
 							},
 							{
 								"id": "i117",
-								"label": "All-Sessions Stats",
+								"label": "전체 통계",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3350,7 +3350,7 @@
 							},
 							{
 								"id": "i118",
-								"label": "Background Tasks",
+								"label": "백그라운드 작업",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3358,7 +3358,7 @@
 							},
 							{
 								"id": "i119",
-								"label": "Keyboard Shortcuts",
+								"label": "키보드 단축키",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3374,7 +3374,7 @@
 							},
 							{
 								"id": "i121",
-								"label": "Toggle Sidebar",
+								"label": "사이드바 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3382,7 +3382,7 @@
 							},
 							{
 								"id": "i122",
-								"label": "Toggle Side Panel",
+								"label": "사이드 패널 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3398,7 +3398,7 @@
 							},
 							{
 								"id": "i124",
-								"label": "Reload",
+								"label": "새로고침",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3407,7 +3407,7 @@
 							},
 							{
 								"id": "i125",
-								"label": "Force Reload",
+								"label": "강제 새로고침",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3416,7 +3416,7 @@
 							},
 							{
 								"id": "i126",
-								"label": "Toggle Developer Tools",
+								"label": "개발자 도구 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3433,7 +3433,7 @@
 							},
 							{
 								"id": "i128",
-								"label": "Actual Size",
+								"label": "실제 크기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3442,7 +3442,7 @@
 							},
 							{
 								"id": "i129",
-								"label": "Zoom In",
+								"label": "확대",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3451,7 +3451,7 @@
 							},
 							{
 								"id": "i130",
-								"label": "Zoom Out",
+								"label": "축소",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3468,7 +3468,7 @@
 							},
 							{
 								"id": "i132",
-								"label": "Toggle Full Screen",
+								"label": "전체 화면 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3479,7 +3479,7 @@
 					},
 					{
 						"id": "i133",
-						"label": "Window",
+						"label": "창",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -3487,7 +3487,7 @@
 						"submenu": [
 							{
 								"id": "i134",
-								"label": "Close Tab",
+								"label": "탭 닫기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3495,7 +3495,7 @@
 							},
 							{
 								"id": "i135",
-								"label": "Close Window",
+								"label": "창 닫기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3512,7 +3512,7 @@
 							},
 							{
 								"id": "i137",
-								"label": "Minimize",
+								"label": "최소화",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3521,7 +3521,7 @@
 							},
 							{
 								"id": "i138",
-								"label": "Zoom",
+								"label": "확대/축소",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3538,7 +3538,7 @@
 							},
 							{
 								"id": "i140",
-								"label": "Bring All to Front",
+								"label": "모두 앞으로 가져오기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3549,7 +3549,7 @@
 					},
 					{
 						"id": "i141",
-						"label": "Session",
+						"label": "세션",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -3557,7 +3557,7 @@
 						"submenu": [
 							{
 								"id": "i142",
-								"label": "Import External Session",
+								"label": "외부 세션 가져오기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3565,7 +3565,7 @@
 							},
 							{
 								"id": "i143",
-								"label": "Branch from Message",
+								"label": "메시지에서 분기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3573,7 +3573,7 @@
 							},
 							{
 								"id": "i144",
-								"label": "Session Tree",
+								"label": "세션 트리",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3589,7 +3589,7 @@
 							},
 							{
 								"id": "i146",
-								"label": "Session Info",
+								"label": "세션 정보",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3597,7 +3597,7 @@
 							},
 							{
 								"id": "i147",
-								"label": "Share Session",
+								"label": "세션 공유",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3605,7 +3605,7 @@
 							},
 							{
 								"id": "i148",
-								"label": "Export HTML",
+								"label": "HTML 내보내기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3614,7 +3614,7 @@
 							},
 							{
 								"id": "i149",
-								"label": "Handoff",
+								"label": "핸드오프",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3624,7 +3624,7 @@
 					},
 					{
 						"id": "i150",
-						"label": "Tools",
+						"label": "도구",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -3632,7 +3632,7 @@
 						"submenu": [
 							{
 								"id": "i151",
-								"label": "Agent Definitions",
+								"label": "에이전트 정의",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3640,7 +3640,7 @@
 							},
 							{
 								"id": "i152",
-								"label": "Modes",
+								"label": "모드",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3648,7 +3648,7 @@
 							},
 							{
 								"id": "i153",
-								"label": "Models & Accounts",
+								"label": "모델 및 계정",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3656,7 +3656,7 @@
 							},
 							{
 								"id": "i154",
-								"label": "Model Roles",
+								"label": "모델 역할",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3664,7 +3664,7 @@
 							},
 							{
 								"id": "i155",
-								"label": "Select Model",
+								"label": "모델 선택",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3672,7 +3672,7 @@
 							},
 							{
 								"id": "i156",
-								"label": "Agent Behavior",
+								"label": "에이전트 동작",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3680,7 +3680,7 @@
 							},
 							{
 								"id": "i157",
-								"label": "Usage & Quotas",
+								"label": "사용량 및 할당량",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3696,7 +3696,7 @@
 							},
 							{
 								"id": "i159",
-								"label": "Extensions",
+								"label": "확장",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3704,7 +3704,7 @@
 							},
 							{
 								"id": "i160",
-								"label": "Plugins",
+								"label": "플러그인",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3712,7 +3712,7 @@
 							},
 							{
 								"id": "i161",
-								"label": "Pull Requests",
+								"label": "풀 리퀘스트",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3720,7 +3720,7 @@
 							},
 							{
 								"id": "i162",
-								"label": "Projects & Launch",
+								"label": "프로젝트 및 실행",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3728,7 +3728,7 @@
 							},
 							{
 								"id": "i163",
-								"label": "Git Changes",
+								"label": "Git 변경 사항",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3736,7 +3736,7 @@
 							},
 							{
 								"id": "i164",
-								"label": "Restart omp",
+								"label": "omp 다시 시작",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3752,7 +3752,7 @@
 							},
 							{
 								"id": "i166",
-								"label": "Debugger Console",
+								"label": "디버거 콘솔",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3762,7 +3762,7 @@
 					},
 					{
 						"id": "i167",
-						"label": "Help",
+						"label": "도움말",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -3770,7 +3770,7 @@
 						"submenu": [
 							{
 								"id": "i168",
-								"label": "About OMPdesk",
+								"label": "OMPdesk 정보",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3778,7 +3778,7 @@
 							},
 							{
 								"id": "i169",
-								"label": "Send Feedback…",
+								"label": "피드백 보내기…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -3786,7 +3786,7 @@
 							},
 							{
 								"id": "i170",
-								"label": "Documentation",
+								"label": "문서",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -4016,7 +4016,7 @@
 					0,
 					0
 				],
-				"label": "About OMPdesk"
+				"label": "OMPdesk 정보"
 			},
 			"output": {
 				"native": "about"
@@ -4031,7 +4031,7 @@
 					0,
 					1
 				],
-				"label": "Check for Updates…"
+				"label": "업데이트 확인…"
 			},
 			"output": {
 				"frames": [
@@ -4061,7 +4061,7 @@
 					0,
 					3
 				],
-				"label": "Settings…"
+				"label": "설정…"
 			},
 			"output": {
 				"frames": [
@@ -4091,7 +4091,7 @@
 					0,
 					5
 				],
-				"label": "Services"
+				"label": "서비스"
 			},
 			"output": {
 				"native": "services"
@@ -4106,7 +4106,7 @@
 					0,
 					7
 				],
-				"label": "Hide OMPdesk"
+				"label": "OMPdesk 가리기"
 			},
 			"output": {
 				"native": "hide"
@@ -4121,7 +4121,7 @@
 					0,
 					8
 				],
-				"label": "Hide Others"
+				"label": "기타 가리기"
 			},
 			"output": {
 				"native": "hideOthers"
@@ -4136,7 +4136,7 @@
 					0,
 					9
 				],
-				"label": "Show All"
+				"label": "모두 보기"
 			},
 			"output": {
 				"native": "unhide"
@@ -4151,10 +4151,22 @@
 					0,
 					11
 				],
-				"label": "Quit OMPdesk"
+				"label": "OMPdesk 종료"
 			},
 			"output": {
-				"frames": [],
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.op",
+						"params": {
+							"winId": "<win>",
+							"op": "close",
+							"args": {
+								"force": true
+							}
+						}
+					}
+				],
 				"spawned": []
 			}
 		},
@@ -4167,7 +4179,7 @@
 					1,
 					0
 				],
-				"label": "Open Project…"
+				"label": "프로젝트 열기…"
 			},
 			"output": {
 				"frames": [
@@ -4197,7 +4209,7 @@
 					1,
 					2
 				],
-				"label": "New Session"
+				"label": "새 세션"
 			},
 			"output": {
 				"frames": [
@@ -4227,7 +4239,7 @@
 					1,
 					3
 				],
-				"label": "New Tab"
+				"label": "새 탭"
 			},
 			"output": {
 				"frames": [
@@ -4257,7 +4269,7 @@
 					1,
 					4
 				],
-				"label": "New Chat Tab"
+				"label": "새 채팅 탭"
 			},
 			"output": {
 				"frames": [
@@ -4287,7 +4299,7 @@
 					1,
 					5
 				],
-				"label": "New Window"
+				"label": "새 창"
 			},
 			"output": {
 				"frames": [
@@ -4320,7 +4332,7 @@
 					2,
 					0
 				],
-				"label": "Undo"
+				"label": "실행 취소"
 			},
 			"output": {
 				"frames": [
@@ -4346,7 +4358,7 @@
 					2,
 					1
 				],
-				"label": "Redo"
+				"label": "실행 복귀"
 			},
 			"output": {
 				"frames": [
@@ -4372,7 +4384,7 @@
 					2,
 					3
 				],
-				"label": "Cut"
+				"label": "오려두기"
 			},
 			"output": {
 				"frames": [
@@ -4398,7 +4410,7 @@
 					2,
 					4
 				],
-				"label": "Copy"
+				"label": "복사하기"
 			},
 			"output": {
 				"frames": [
@@ -4424,7 +4436,7 @@
 					2,
 					5
 				],
-				"label": "Paste"
+				"label": "붙여넣기"
 			},
 			"output": {
 				"frames": [
@@ -4450,7 +4462,7 @@
 					2,
 					6
 				],
-				"label": "Select All"
+				"label": "전체 선택"
 			},
 			"output": {
 				"frames": [
@@ -4476,7 +4488,7 @@
 					3,
 					0
 				],
-				"label": "Command Palette"
+				"label": "명령 팔레트"
 			},
 			"output": {
 				"frames": [
@@ -4506,7 +4518,7 @@
 					3,
 					1
 				],
-				"label": "Context Report"
+				"label": "컨텍스트 보고서"
 			},
 			"output": {
 				"frames": [
@@ -4536,7 +4548,7 @@
 					3,
 					2
 				],
-				"label": "All-Sessions Stats"
+				"label": "전체 통계"
 			},
 			"output": {
 				"frames": [
@@ -4566,7 +4578,7 @@
 					3,
 					3
 				],
-				"label": "Background Tasks"
+				"label": "백그라운드 작업"
 			},
 			"output": {
 				"frames": [
@@ -4596,7 +4608,7 @@
 					3,
 					4
 				],
-				"label": "Keyboard Shortcuts"
+				"label": "키보드 단축키"
 			},
 			"output": {
 				"frames": [
@@ -4626,7 +4638,7 @@
 					3,
 					6
 				],
-				"label": "Toggle Sidebar"
+				"label": "사이드바 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -4656,7 +4668,7 @@
 					3,
 					7
 				],
-				"label": "Toggle Side Panel"
+				"label": "사이드 패널 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -4686,7 +4698,7 @@
 					3,
 					9
 				],
-				"label": "Reload"
+				"label": "새로고침"
 			},
 			"output": {
 				"frames": [
@@ -4712,7 +4724,7 @@
 					3,
 					10
 				],
-				"label": "Force Reload"
+				"label": "강제 새로고침"
 			},
 			"output": {
 				"frames": [
@@ -4738,7 +4750,7 @@
 					3,
 					11
 				],
-				"label": "Toggle Developer Tools"
+				"label": "개발자 도구 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -4764,7 +4776,7 @@
 					3,
 					13
 				],
-				"label": "Actual Size"
+				"label": "실제 크기"
 			},
 			"output": {
 				"frames": [
@@ -4792,7 +4804,7 @@
 					3,
 					14
 				],
-				"label": "Zoom In"
+				"label": "확대"
 			},
 			"output": {
 				"frames": [
@@ -4820,7 +4832,7 @@
 					3,
 					15
 				],
-				"label": "Zoom Out"
+				"label": "축소"
 			},
 			"output": {
 				"frames": [
@@ -4848,7 +4860,7 @@
 					3,
 					17
 				],
-				"label": "Toggle Full Screen"
+				"label": "전체 화면 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -4859,7 +4871,7 @@
 							"winId": "<win>",
 							"op": "setFullScreen",
 							"args": {
-								"on": false
+								"on": true
 							}
 						}
 					}
@@ -4876,7 +4888,7 @@
 					4,
 					0
 				],
-				"label": "Close Tab"
+				"label": "탭 닫기"
 			},
 			"output": {
 				"frames": [
@@ -4906,7 +4918,7 @@
 					4,
 					1
 				],
-				"label": "Close Window"
+				"label": "창 닫기"
 			},
 			"output": {
 				"frames": [
@@ -4934,7 +4946,7 @@
 					4,
 					3
 				],
-				"label": "Minimize"
+				"label": "최소화"
 			},
 			"output": {
 				"frames": [
@@ -4960,7 +4972,7 @@
 					4,
 					4
 				],
-				"label": "Zoom"
+				"label": "확대/축소"
 			},
 			"output": {
 				"native": "zoom"
@@ -4975,7 +4987,7 @@
 					4,
 					6
 				],
-				"label": "Bring All to Front"
+				"label": "모두 앞으로 가져오기"
 			},
 			"output": {
 				"native": "front"
@@ -4990,7 +5002,7 @@
 					5,
 					0
 				],
-				"label": "Import External Session"
+				"label": "외부 세션 가져오기"
 			},
 			"output": {
 				"frames": [
@@ -5020,7 +5032,7 @@
 					5,
 					1
 				],
-				"label": "Branch from Message"
+				"label": "메시지에서 분기"
 			},
 			"output": {
 				"frames": [
@@ -5050,7 +5062,7 @@
 					5,
 					2
 				],
-				"label": "Session Tree"
+				"label": "세션 트리"
 			},
 			"output": {
 				"frames": [
@@ -5080,7 +5092,7 @@
 					5,
 					4
 				],
-				"label": "Session Info"
+				"label": "세션 정보"
 			},
 			"output": {
 				"frames": [
@@ -5110,7 +5122,7 @@
 					5,
 					5
 				],
-				"label": "Share Session"
+				"label": "세션 공유"
 			},
 			"output": {
 				"frames": [
@@ -5140,7 +5152,7 @@
 					5,
 					6
 				],
-				"label": "Export HTML"
+				"label": "HTML 내보내기"
 			},
 			"output": {
 				"frames": [
@@ -5170,7 +5182,7 @@
 					5,
 					7
 				],
-				"label": "Handoff"
+				"label": "핸드오프"
 			},
 			"output": {
 				"frames": [
@@ -5200,7 +5212,7 @@
 					6,
 					0
 				],
-				"label": "Agent Definitions"
+				"label": "에이전트 정의"
 			},
 			"output": {
 				"frames": [
@@ -5230,7 +5242,7 @@
 					6,
 					1
 				],
-				"label": "Modes"
+				"label": "모드"
 			},
 			"output": {
 				"frames": [
@@ -5260,7 +5272,7 @@
 					6,
 					2
 				],
-				"label": "Models & Accounts"
+				"label": "모델 및 계정"
 			},
 			"output": {
 				"frames": [
@@ -5290,7 +5302,7 @@
 					6,
 					3
 				],
-				"label": "Model Roles"
+				"label": "모델 역할"
 			},
 			"output": {
 				"frames": [
@@ -5320,7 +5332,7 @@
 					6,
 					4
 				],
-				"label": "Select Model"
+				"label": "모델 선택"
 			},
 			"output": {
 				"frames": [
@@ -5350,7 +5362,7 @@
 					6,
 					5
 				],
-				"label": "Agent Behavior"
+				"label": "에이전트 동작"
 			},
 			"output": {
 				"frames": [
@@ -5380,7 +5392,7 @@
 					6,
 					6
 				],
-				"label": "Usage & Quotas"
+				"label": "사용량 및 할당량"
 			},
 			"output": {
 				"frames": [
@@ -5410,7 +5422,7 @@
 					6,
 					8
 				],
-				"label": "Extensions"
+				"label": "확장"
 			},
 			"output": {
 				"frames": [
@@ -5440,7 +5452,7 @@
 					6,
 					9
 				],
-				"label": "Plugins"
+				"label": "플러그인"
 			},
 			"output": {
 				"frames": [
@@ -5470,7 +5482,7 @@
 					6,
 					10
 				],
-				"label": "Pull Requests"
+				"label": "풀 리퀘스트"
 			},
 			"output": {
 				"frames": [
@@ -5500,7 +5512,7 @@
 					6,
 					11
 				],
-				"label": "Projects & Launch"
+				"label": "프로젝트 및 실행"
 			},
 			"output": {
 				"frames": [
@@ -5530,7 +5542,7 @@
 					6,
 					12
 				],
-				"label": "Git Changes"
+				"label": "Git 변경 사항"
 			},
 			"output": {
 				"frames": [
@@ -5560,7 +5572,7 @@
 					6,
 					13
 				],
-				"label": "Restart omp"
+				"label": "omp 다시 시작"
 			},
 			"output": {
 				"frames": [
@@ -5590,7 +5602,7 @@
 					6,
 					15
 				],
-				"label": "Debugger Console"
+				"label": "디버거 콘솔"
 			},
 			"output": {
 				"frames": [
@@ -5620,7 +5632,7 @@
 					7,
 					0
 				],
-				"label": "About OMPdesk"
+				"label": "OMPdesk 정보"
 			},
 			"output": {
 				"frames": [
@@ -5642,7 +5654,7 @@
 					7,
 					1
 				],
-				"label": "Send Feedback…"
+				"label": "피드백 보내기…"
 			},
 			"output": {
 				"frames": [
@@ -5672,7 +5684,7 @@
 					7,
 					2
 				],
-				"label": "Documentation"
+				"label": "문서"
 			},
 			"output": {
 				"frames": [
@@ -10450,7 +10462,7 @@
 				"template": [
 					{
 						"id": "i73",
-						"label": "File",
+						"label": "파일",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -10458,7 +10470,7 @@
 						"submenu": [
 							{
 								"id": "i74",
-								"label": "Open Project…",
+								"label": "프로젝트 열기…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10474,7 +10486,7 @@
 							},
 							{
 								"id": "i76",
-								"label": "New Session",
+								"label": "새 세션",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10483,7 +10495,7 @@
 							},
 							{
 								"id": "i77",
-								"label": "New Tab",
+								"label": "새 탭",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10491,7 +10503,7 @@
 							},
 							{
 								"id": "i78",
-								"label": "New Chat Tab",
+								"label": "새 채팅 탭",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10499,7 +10511,7 @@
 							},
 							{
 								"id": "i79",
-								"label": "New Window",
+								"label": "새 창",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10516,7 +10528,7 @@
 							},
 							{
 								"id": "i81",
-								"label": "Settings…",
+								"label": "설정…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10526,7 +10538,7 @@
 					},
 					{
 						"id": "i82",
-						"label": "Edit",
+						"label": "편집",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -10534,7 +10546,7 @@
 						"submenu": [
 							{
 								"id": "i83",
-								"label": "Undo",
+								"label": "실행 취소",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10543,7 +10555,7 @@
 							},
 							{
 								"id": "i84",
-								"label": "Redo",
+								"label": "실행 복귀",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10560,7 +10572,7 @@
 							},
 							{
 								"id": "i86",
-								"label": "Cut",
+								"label": "오려두기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10569,7 +10581,7 @@
 							},
 							{
 								"id": "i87",
-								"label": "Copy",
+								"label": "복사하기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10578,7 +10590,7 @@
 							},
 							{
 								"id": "i88",
-								"label": "Paste",
+								"label": "붙여넣기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10587,7 +10599,7 @@
 							},
 							{
 								"id": "i89",
-								"label": "Select All",
+								"label": "전체 선택",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10598,7 +10610,7 @@
 					},
 					{
 						"id": "i90",
-						"label": "View",
+						"label": "보기",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -10606,7 +10618,7 @@
 						"submenu": [
 							{
 								"id": "i91",
-								"label": "Command Palette",
+								"label": "명령 팔레트",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10614,7 +10626,7 @@
 							},
 							{
 								"id": "i92",
-								"label": "Context Report",
+								"label": "컨텍스트 보고서",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10622,7 +10634,7 @@
 							},
 							{
 								"id": "i93",
-								"label": "All-Sessions Stats",
+								"label": "전체 통계",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10630,7 +10642,7 @@
 							},
 							{
 								"id": "i94",
-								"label": "Background Tasks",
+								"label": "백그라운드 작업",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10638,7 +10650,7 @@
 							},
 							{
 								"id": "i95",
-								"label": "Keyboard Shortcuts",
+								"label": "키보드 단축키",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10654,7 +10666,7 @@
 							},
 							{
 								"id": "i97",
-								"label": "Toggle Sidebar",
+								"label": "사이드바 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10662,7 +10674,7 @@
 							},
 							{
 								"id": "i98",
-								"label": "Toggle Side Panel",
+								"label": "사이드 패널 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10678,7 +10690,7 @@
 							},
 							{
 								"id": "i100",
-								"label": "Reload",
+								"label": "새로고침",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10687,7 +10699,7 @@
 							},
 							{
 								"id": "i101",
-								"label": "Force Reload",
+								"label": "강제 새로고침",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10696,7 +10708,7 @@
 							},
 							{
 								"id": "i102",
-								"label": "Toggle Developer Tools",
+								"label": "개발자 도구 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10713,7 +10725,7 @@
 							},
 							{
 								"id": "i104",
-								"label": "Actual Size",
+								"label": "실제 크기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10722,7 +10734,7 @@
 							},
 							{
 								"id": "i105",
-								"label": "Zoom In",
+								"label": "확대",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10731,7 +10743,7 @@
 							},
 							{
 								"id": "i106",
-								"label": "Zoom Out",
+								"label": "축소",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10748,7 +10760,7 @@
 							},
 							{
 								"id": "i108",
-								"label": "Toggle Full Screen",
+								"label": "전체 화면 표시/숨기기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10759,7 +10771,7 @@
 					},
 					{
 						"id": "i109",
-						"label": "Window",
+						"label": "창",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -10767,7 +10779,7 @@
 						"submenu": [
 							{
 								"id": "i110",
-								"label": "Close Tab",
+								"label": "탭 닫기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10775,7 +10787,7 @@
 							},
 							{
 								"id": "i111",
-								"label": "Close Window",
+								"label": "창 닫기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10792,7 +10804,7 @@
 							},
 							{
 								"id": "i113",
-								"label": "Minimize",
+								"label": "최소화",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10803,7 +10815,7 @@
 					},
 					{
 						"id": "i114",
-						"label": "Session",
+						"label": "세션",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -10811,7 +10823,7 @@
 						"submenu": [
 							{
 								"id": "i115",
-								"label": "Import External Session",
+								"label": "외부 세션 가져오기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10819,7 +10831,7 @@
 							},
 							{
 								"id": "i116",
-								"label": "Branch from Message",
+								"label": "메시지에서 분기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10827,7 +10839,7 @@
 							},
 							{
 								"id": "i117",
-								"label": "Session Tree",
+								"label": "세션 트리",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10843,7 +10855,7 @@
 							},
 							{
 								"id": "i119",
-								"label": "Session Info",
+								"label": "세션 정보",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10851,7 +10863,7 @@
 							},
 							{
 								"id": "i120",
-								"label": "Share Session",
+								"label": "세션 공유",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10859,7 +10871,7 @@
 							},
 							{
 								"id": "i121",
-								"label": "Export HTML",
+								"label": "HTML 내보내기",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10868,7 +10880,7 @@
 							},
 							{
 								"id": "i122",
-								"label": "Handoff",
+								"label": "핸드오프",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10878,7 +10890,7 @@
 					},
 					{
 						"id": "i123",
-						"label": "Tools",
+						"label": "도구",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -10886,7 +10898,7 @@
 						"submenu": [
 							{
 								"id": "i124",
-								"label": "Agent Definitions",
+								"label": "에이전트 정의",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10894,7 +10906,7 @@
 							},
 							{
 								"id": "i125",
-								"label": "Modes",
+								"label": "모드",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10902,7 +10914,7 @@
 							},
 							{
 								"id": "i126",
-								"label": "Models & Accounts",
+								"label": "모델 및 계정",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10910,7 +10922,7 @@
 							},
 							{
 								"id": "i127",
-								"label": "Model Roles",
+								"label": "모델 역할",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10918,7 +10930,7 @@
 							},
 							{
 								"id": "i128",
-								"label": "Select Model",
+								"label": "모델 선택",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10926,7 +10938,7 @@
 							},
 							{
 								"id": "i129",
-								"label": "Agent Behavior",
+								"label": "에이전트 동작",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10934,7 +10946,7 @@
 							},
 							{
 								"id": "i130",
-								"label": "Usage & Quotas",
+								"label": "사용량 및 할당량",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10950,7 +10962,7 @@
 							},
 							{
 								"id": "i132",
-								"label": "Extensions",
+								"label": "확장",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10958,7 +10970,7 @@
 							},
 							{
 								"id": "i133",
-								"label": "Plugins",
+								"label": "플러그인",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10966,7 +10978,7 @@
 							},
 							{
 								"id": "i134",
-								"label": "Pull Requests",
+								"label": "풀 리퀘스트",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10974,7 +10986,7 @@
 							},
 							{
 								"id": "i135",
-								"label": "Projects & Launch",
+								"label": "프로젝트 및 실행",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10982,7 +10994,7 @@
 							},
 							{
 								"id": "i136",
-								"label": "Git Changes",
+								"label": "Git 변경 사항",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -10990,7 +11002,7 @@
 							},
 							{
 								"id": "i137",
-								"label": "Restart omp",
+								"label": "omp 다시 시작",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -11006,7 +11018,7 @@
 							},
 							{
 								"id": "i139",
-								"label": "Debugger Console",
+								"label": "디버거 콘솔",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -11016,7 +11028,7 @@
 					},
 					{
 						"id": "i140",
-						"label": "Help",
+						"label": "도움말",
 						"type": "submenu",
 						"enabled": true,
 						"visible": true,
@@ -11024,7 +11036,7 @@
 						"submenu": [
 							{
 								"id": "i141",
-								"label": "About OMPdesk",
+								"label": "OMPdesk 정보",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -11032,7 +11044,7 @@
 							},
 							{
 								"id": "i142",
-								"label": "Check for Updates…",
+								"label": "업데이트 확인…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -11040,7 +11052,7 @@
 							},
 							{
 								"id": "i143",
-								"label": "Send Feedback…",
+								"label": "피드백 보내기…",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -11048,7 +11060,7 @@
 							},
 							{
 								"id": "i144",
-								"label": "Documentation",
+								"label": "문서",
 								"type": "normal",
 								"enabled": true,
 								"visible": true,
@@ -11278,7 +11290,7 @@
 					0,
 					0
 				],
-				"label": "Open Project…"
+				"label": "프로젝트 열기…"
 			},
 			"output": {
 				"frames": [
@@ -11308,7 +11320,7 @@
 					0,
 					2
 				],
-				"label": "New Session"
+				"label": "새 세션"
 			},
 			"output": {
 				"frames": [
@@ -11338,7 +11350,7 @@
 					0,
 					3
 				],
-				"label": "New Tab"
+				"label": "새 탭"
 			},
 			"output": {
 				"frames": [
@@ -11368,7 +11380,7 @@
 					0,
 					4
 				],
-				"label": "New Chat Tab"
+				"label": "새 채팅 탭"
 			},
 			"output": {
 				"frames": [
@@ -11398,7 +11410,7 @@
 					0,
 					5
 				],
-				"label": "New Window"
+				"label": "새 창"
 			},
 			"output": {
 				"frames": [
@@ -11431,7 +11443,7 @@
 					0,
 					7
 				],
-				"label": "Settings…"
+				"label": "설정…"
 			},
 			"output": {
 				"frames": [
@@ -11461,7 +11473,7 @@
 					1,
 					0
 				],
-				"label": "Undo"
+				"label": "실행 취소"
 			},
 			"output": {
 				"frames": [
@@ -11487,7 +11499,7 @@
 					1,
 					1
 				],
-				"label": "Redo"
+				"label": "실행 복귀"
 			},
 			"output": {
 				"frames": [
@@ -11513,7 +11525,7 @@
 					1,
 					3
 				],
-				"label": "Cut"
+				"label": "오려두기"
 			},
 			"output": {
 				"frames": [
@@ -11539,7 +11551,7 @@
 					1,
 					4
 				],
-				"label": "Copy"
+				"label": "복사하기"
 			},
 			"output": {
 				"frames": [
@@ -11565,7 +11577,7 @@
 					1,
 					5
 				],
-				"label": "Paste"
+				"label": "붙여넣기"
 			},
 			"output": {
 				"frames": [
@@ -11591,7 +11603,7 @@
 					1,
 					6
 				],
-				"label": "Select All"
+				"label": "전체 선택"
 			},
 			"output": {
 				"frames": [
@@ -11617,7 +11629,7 @@
 					2,
 					0
 				],
-				"label": "Command Palette"
+				"label": "명령 팔레트"
 			},
 			"output": {
 				"frames": [
@@ -11647,7 +11659,7 @@
 					2,
 					1
 				],
-				"label": "Context Report"
+				"label": "컨텍스트 보고서"
 			},
 			"output": {
 				"frames": [
@@ -11677,7 +11689,7 @@
 					2,
 					2
 				],
-				"label": "All-Sessions Stats"
+				"label": "전체 통계"
 			},
 			"output": {
 				"frames": [
@@ -11707,7 +11719,7 @@
 					2,
 					3
 				],
-				"label": "Background Tasks"
+				"label": "백그라운드 작업"
 			},
 			"output": {
 				"frames": [
@@ -11737,7 +11749,7 @@
 					2,
 					4
 				],
-				"label": "Keyboard Shortcuts"
+				"label": "키보드 단축키"
 			},
 			"output": {
 				"frames": [
@@ -11767,7 +11779,7 @@
 					2,
 					6
 				],
-				"label": "Toggle Sidebar"
+				"label": "사이드바 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -11797,7 +11809,7 @@
 					2,
 					7
 				],
-				"label": "Toggle Side Panel"
+				"label": "사이드 패널 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -11827,7 +11839,7 @@
 					2,
 					9
 				],
-				"label": "Reload"
+				"label": "새로고침"
 			},
 			"output": {
 				"frames": [
@@ -11853,7 +11865,7 @@
 					2,
 					10
 				],
-				"label": "Force Reload"
+				"label": "강제 새로고침"
 			},
 			"output": {
 				"frames": [
@@ -11879,7 +11891,7 @@
 					2,
 					11
 				],
-				"label": "Toggle Developer Tools"
+				"label": "개발자 도구 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -11905,7 +11917,7 @@
 					2,
 					13
 				],
-				"label": "Actual Size"
+				"label": "실제 크기"
 			},
 			"output": {
 				"frames": [
@@ -11933,7 +11945,7 @@
 					2,
 					14
 				],
-				"label": "Zoom In"
+				"label": "확대"
 			},
 			"output": {
 				"frames": [
@@ -11961,7 +11973,7 @@
 					2,
 					15
 				],
-				"label": "Zoom Out"
+				"label": "축소"
 			},
 			"output": {
 				"frames": [
@@ -11989,7 +12001,7 @@
 					2,
 					17
 				],
-				"label": "Toggle Full Screen"
+				"label": "전체 화면 표시/숨기기"
 			},
 			"output": {
 				"frames": [
@@ -12000,7 +12012,7 @@
 							"winId": "<win>",
 							"op": "setFullScreen",
 							"args": {
-								"on": false
+								"on": true
 							}
 						}
 					}
@@ -12017,7 +12029,7 @@
 					3,
 					0
 				],
-				"label": "Close Tab"
+				"label": "탭 닫기"
 			},
 			"output": {
 				"frames": [
@@ -12047,7 +12059,7 @@
 					3,
 					1
 				],
-				"label": "Close Window"
+				"label": "창 닫기"
 			},
 			"output": {
 				"frames": [
@@ -12075,7 +12087,7 @@
 					3,
 					3
 				],
-				"label": "Minimize"
+				"label": "최소화"
 			},
 			"output": {
 				"frames": [
@@ -12101,7 +12113,7 @@
 					4,
 					0
 				],
-				"label": "Import External Session"
+				"label": "외부 세션 가져오기"
 			},
 			"output": {
 				"frames": [
@@ -12131,7 +12143,7 @@
 					4,
 					1
 				],
-				"label": "Branch from Message"
+				"label": "메시지에서 분기"
 			},
 			"output": {
 				"frames": [
@@ -12161,7 +12173,7 @@
 					4,
 					2
 				],
-				"label": "Session Tree"
+				"label": "세션 트리"
 			},
 			"output": {
 				"frames": [
@@ -12191,7 +12203,7 @@
 					4,
 					4
 				],
-				"label": "Session Info"
+				"label": "세션 정보"
 			},
 			"output": {
 				"frames": [
@@ -12221,7 +12233,7 @@
 					4,
 					5
 				],
-				"label": "Share Session"
+				"label": "세션 공유"
 			},
 			"output": {
 				"frames": [
@@ -12251,7 +12263,7 @@
 					4,
 					6
 				],
-				"label": "Export HTML"
+				"label": "HTML 내보내기"
 			},
 			"output": {
 				"frames": [
@@ -12281,7 +12293,7 @@
 					4,
 					7
 				],
-				"label": "Handoff"
+				"label": "핸드오프"
 			},
 			"output": {
 				"frames": [
@@ -12311,7 +12323,7 @@
 					5,
 					0
 				],
-				"label": "Agent Definitions"
+				"label": "에이전트 정의"
 			},
 			"output": {
 				"frames": [
@@ -12341,7 +12353,7 @@
 					5,
 					1
 				],
-				"label": "Modes"
+				"label": "모드"
 			},
 			"output": {
 				"frames": [
@@ -12371,7 +12383,7 @@
 					5,
 					2
 				],
-				"label": "Models & Accounts"
+				"label": "모델 및 계정"
 			},
 			"output": {
 				"frames": [
@@ -12401,7 +12413,7 @@
 					5,
 					3
 				],
-				"label": "Model Roles"
+				"label": "모델 역할"
 			},
 			"output": {
 				"frames": [
@@ -12431,7 +12443,7 @@
 					5,
 					4
 				],
-				"label": "Select Model"
+				"label": "모델 선택"
 			},
 			"output": {
 				"frames": [
@@ -12461,7 +12473,7 @@
 					5,
 					5
 				],
-				"label": "Agent Behavior"
+				"label": "에이전트 동작"
 			},
 			"output": {
 				"frames": [
@@ -12491,7 +12503,7 @@
 					5,
 					6
 				],
-				"label": "Usage & Quotas"
+				"label": "사용량 및 할당량"
 			},
 			"output": {
 				"frames": [
@@ -12521,7 +12533,7 @@
 					5,
 					8
 				],
-				"label": "Extensions"
+				"label": "확장"
 			},
 			"output": {
 				"frames": [
@@ -12551,7 +12563,7 @@
 					5,
 					9
 				],
-				"label": "Plugins"
+				"label": "플러그인"
 			},
 			"output": {
 				"frames": [
@@ -12581,7 +12593,7 @@
 					5,
 					10
 				],
-				"label": "Pull Requests"
+				"label": "풀 리퀘스트"
 			},
 			"output": {
 				"frames": [
@@ -12611,7 +12623,7 @@
 					5,
 					11
 				],
-				"label": "Projects & Launch"
+				"label": "프로젝트 및 실행"
 			},
 			"output": {
 				"frames": [
@@ -12641,7 +12653,7 @@
 					5,
 					12
 				],
-				"label": "Git Changes"
+				"label": "Git 변경 사항"
 			},
 			"output": {
 				"frames": [
@@ -12671,7 +12683,7 @@
 					5,
 					13
 				],
-				"label": "Restart omp"
+				"label": "omp 다시 시작"
 			},
 			"output": {
 				"frames": [
@@ -12701,7 +12713,7 @@
 					5,
 					15
 				],
-				"label": "Debugger Console"
+				"label": "디버거 콘솔"
 			},
 			"output": {
 				"frames": [
@@ -12731,7 +12743,7 @@
 					6,
 					0
 				],
-				"label": "About OMPdesk"
+				"label": "OMPdesk 정보"
 			},
 			"output": {
 				"frames": [
@@ -12753,7 +12765,7 @@
 					6,
 					1
 				],
-				"label": "Check for Updates…"
+				"label": "업데이트 확인…"
 			},
 			"output": {
 				"frames": [
@@ -12783,7 +12795,7 @@
 					6,
 					2
 				],
-				"label": "Send Feedback…"
+				"label": "피드백 보내기…"
 			},
 			"output": {
 				"frames": [
@@ -12813,7 +12825,7 @@
 					6,
 					3
 				],
-				"label": "Documentation"
+				"label": "문서"
 			},
 			"output": {
 				"frames": [

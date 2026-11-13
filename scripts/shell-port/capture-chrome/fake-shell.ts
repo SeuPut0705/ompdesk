@@ -101,8 +101,20 @@ export function facts(userData: string, platform: NodeJS.Platform = process.plat
 	};
 }
 
+let firstUserData: string | null = null;
+
+/**
+ * The profile of the first fake shell: module top levels that open a store while they load (i18n.ts' `prefs`) keep its
+ * path for the rest of the run, so a capture that sets such a preference writes it here.
+ */
+export function bootUserData(): string {
+	if (!firstUserData) throw new Error("no fake shell was made yet");
+	return firstUserData;
+}
+
 export async function fakeShell(options: { platform?: NodeJS.Platform; ready?: boolean } = {}): Promise<FakeShell> {
 	const userData = mkdtempSync(join(tmpdir(), "ompdesk-capture-chrome-"));
+	firstUserData ??= userData;
 	const [a, b] = duplexPair();
 	const node = new ShellClient(a);
 	const shell = new ShellClient(b);

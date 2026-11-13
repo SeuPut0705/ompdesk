@@ -14,7 +14,7 @@ import { MAIN_TEXT } from "../../../src/main/i18n-text";
 import { createMenu } from "../../../src/main/menu";
 import { TRAY_LABELS } from "../../../src/main/tray-labels";
 import type { Step } from "../capture-chrome";
-import { fakeShell } from "./fake-shell";
+import { bootUserData, fakeShell } from "./fake-shell";
 
 const LANGUAGES = ["en", "ko"] as const;
 const PLATFORMS = ["darwin", "win32"] as const;
@@ -54,8 +54,71 @@ function normal(frames: { kind: string; method: string; params: unknown }[]): un
 	);
 }
 
+/**
+ * The application menu in one language and what pressing each item does, in a shell of its own: the shim's quit (the
+ * Quit item) closes the windows once per app, so a second language in the same shell would record nothing for it.
+ */
+async function inLanguage(platform: (typeof PLATFORMS)[number], language: (typeof LANGUAGES)[number]): Promise<Step[]> {
+	const steps: Step[] = [];
+	const shell = await fakeShell({ platform });
+	const { BrowserWindow } = shell.electron;
+	// index.ts: `app.setName("ompdesk")`; the macOS app menu is labelled with it.
+	shell.electron.app.setName("ompdesk");
+	const target = new BrowserWindow({ show: false });
+	await shell.settle();
+	await shell.emit("win.event", { winId: target.id, name: "focus", args: [] });
+	let current: unknown = target;
+	const spawned: (string | null)[] = [];
+	const manager = {
+		getTargetWindow: () => current,
+		recordFor: () => ({ cwd: "/work/project" }),
+	};
+	const spawn = (cwd?: string) => {
+		spawned.push(cwd ?? null);
+		return new BrowserWindow({ show: false });
+	};
+	// i18n.ts reads the language from the store it opened at load, in the first fake shell's profile.
+	const prefs = join(bootUserData(), "prefs.json");
+
+	writeFileSync(prefs, JSON.stringify({ language }));
+	shell.take();
+	createMenu(manager as never, spawn as never);
+	await shell.settle();
+	const frame = shell.take().find(f => f.method === "menu.setApplication");
+	if (!frame) throw new Error("createMenu sent no menu.setApplication");
+	const { menuId, template } = frame.params as { menuId: number; template: Wire[] };
+	steps.push({
+		fn: "src/main/menu.ts#createMenu",
+		input: { platform, language },
+		output: { appName: shell.electron.app.name, template, labels: labelTable(language) },
+	});
+	// Pressing each item (the page's actions, the window actions, the roles Electron runs itself).
+	for (const { item, at } of clickable(template)) {
+		if (item.role) {
+			steps.push({
+				fn: "src/main/menu.ts#click",
+				input: { platform, language, at, label: item.label },
+				output: { native: item.role },
+			});
+			continue;
+		}
+		current = target;
+		spawned.length = 0;
+		shell.take();
+		await shell.emit("menu.click", { menuId, itemId: item.id });
+		steps.push({
+			fn: "src/main/menu.ts#click",
+			input: { platform, language, at, label: item.label },
+			output: { frames: normal(shell.take()), spawned: [...spawned] },
+		});
+	}
+	shell.close();
+	return steps;
+}
+
 async function onPlatform(platform: (typeof PLATFORMS)[number]): Promise<Step[]> {
 	const steps: Step[] = [];
+	for (const language of LANGUAGES) steps.push(...(await inLanguage(platform, language)));
 	const shell = await fakeShell({ platform });
 	const { BrowserWindow, Menu } = shell.electron;
 	// index.ts: `app.setName("ompdesk")`; the macOS app menu is labelled with it.
@@ -76,42 +139,8 @@ async function onPlatform(platform: (typeof PLATFORMS)[number]): Promise<Step[]>
 		createdId = win.id;
 		return win;
 	};
-	const prefs = join(shell.userData, "prefs.json");
-
-	for (const language of LANGUAGES) {
-		writeFileSync(prefs, JSON.stringify({ language }));
-		shell.take();
-		createMenu(manager as never, spawn as never);
-		await shell.settle();
-		const frame = shell.take().find(f => f.method === "menu.setApplication");
-		if (!frame) throw new Error("createMenu sent no menu.setApplication");
-		const { menuId, template } = frame.params as { menuId: number; template: Wire[] };
-		steps.push({
-			fn: "src/main/menu.ts#createMenu",
-			input: { platform, language },
-			output: { appName: shell.electron.app.name, template, labels: labelTable(language) },
-		});
-		// Pressing each item (the page's actions, the window actions, the roles Electron runs itself).
-		for (const { item, at } of clickable(template)) {
-			if (item.role) {
-				steps.push({
-					fn: "src/main/menu.ts#click",
-					input: { platform, language, at, label: item.label },
-					output: { native: item.role },
-				});
-				continue;
-			}
-			current = target;
-			spawned.length = 0;
-			shell.take();
-			await shell.emit("menu.click", { menuId, itemId: item.id });
-			steps.push({
-				fn: "src/main/menu.ts#click",
-				input: { platform, language, at, label: item.label },
-				output: { frames: normal(shell.take()), spawned: [...spawned] },
-			});
-		}
-	}
+	// i18n.ts reads the language from the store it opened at load, in the first fake shell's profile.
+	const prefs = join(bootUserData(), "prefs.json");
 
 	// No window (macOS keeps running): the action waits for the spawned window's first paint.
 	writeFileSync(prefs, JSON.stringify({ language: "en" }));
