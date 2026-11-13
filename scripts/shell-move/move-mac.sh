@@ -41,6 +41,24 @@ update_lines() { jq -r 'select(.source=="app-update") | "\(.message) \(.details.
 has_line() { update_lines "$1" | grep -q "^$2"; }
 wait_for() { local n=0; while [ $n -lt $2 ]; do eval "$1" && return 0; sleep 3; n=$((n+3)); done; return 1; }
 
+# What the relaunch left when the new shell did not come up: what runs, what the shell wrote, the system's word on the
+# process and crash reports; then the same bundle started directly (not through `open`), to tell a broken bundle from a
+# broken launch context.
+relaunch_diag() {
+  local APPS=$1 UD=$2 name=$3
+  evidence "diag: processes: $(ps -axo pid,command | grep 'OMPdesk' | grep -v grep | cut -c1-200 | tr '\n' '|')"
+  evidence "diag: shell-webview: $(ls "$UD/shell-webview" 2>&1 | tr '\n' ' ')"
+  evidence "diag: shell log tail: $(tail -n 8 "$UD/shell-webview/shell.log.jsonl" 2>&1 | cut -c1-200 | tr '\n' '|')"
+  evidence "diag: swap.log: $(tr '\n' '|' < "$UD/updates/swap.log" | cut -c1-400)"
+  evidence "diag: crash reports: $(ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i ompdesk | head -3 | tr '\n' ' ')"
+  for r in $(ls -t ~/Library/Logs/DiagnosticReports/*OMPdesk* 2>/dev/null | head -1); do head -c 1800 "$r" | sed 's/^/EVIDENCE: diag crash: /'; done
+  log show --last 6m --predicate 'process == "OMPdesk" OR process == "launchservicesd" AND eventMessage CONTAINS "OMPdesk"' --style compact 2>/dev/null | tail -25 | cut -c1-260 | sed 's/^/EVIDENCE: diag log: /'
+  kill_apps "$APPS/OMPdesk.app/Contents/MacOS"
+  OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-direct.out" 2>&1 &
+  sleep 25
+  evidence "diag: started directly: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | head -1 | cut -c1-160); output: $(head -c 600 "$W/$name-direct.out" | tr '\n' '|')"
+}
+
 # scenario <name> <fail 0|1>
 scenario() {
   local name=$1 fail=$2
@@ -66,6 +84,7 @@ scenario() {
     wait_for "grep -q '^installed' $UD/updates/swap.log" 120; check $? "S1: swap.log says installed"
     evidence "S1 swap.log: $(tr '\n' '|' < "$UD/updates/swap.log" | cut -c1-300)"
     wait_for "grep -q window.created $UD/shell-webview/shell.log.jsonl 2>/dev/null" 180; check $? "S1: the new shell started (window.created)"
+    if ! grep -q window.created "$UD/shell-webview/shell.log.jsonl" 2>/dev/null; then relaunch_diag "$APPS" "$UD" "$name"; fi
     evidence "S1 shell command line: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | head -1 | cut -c1-260)"
     ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | grep -q -- "--user-data-dir=$UD"; check $? "S1: the shell was started with Electron's argv (--user-data-dir)"
     grep -q '"migrate.localStorage"' "$UD/shell-webview/shell.log.jsonl"; check $? "S1: migrate.localStorage in the shell log"
