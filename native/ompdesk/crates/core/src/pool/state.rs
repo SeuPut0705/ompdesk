@@ -2,7 +2,7 @@
 //! (the sidecars, the windows, the hosted views and the full-channel forwarders; they cross as ids).
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use serde_json::{Map, Value, json};
@@ -68,6 +68,8 @@ pub(super) struct Entry {
     pub failure: Option<Value>,
     pub start_wait: Option<StartWait>,
     pub plan_proposal: Option<(String, String)>,
+    /// Which proposal of the tab it is: bumped for every new one (stock rewrites one plan file for a revision).
+    pub plan_generation: u64,
     pub resuming: bool,
     pub unsaved_prompt: Option<String>,
     pub scheduled_retry: Option<Value>,
@@ -125,6 +127,7 @@ impl Entry {
             failure: None,
             start_wait: None,
             plan_proposal: None,
+            plan_generation: 0,
             resuming: false,
             unsaved_prompt: None,
             scheduled_retry: None,
@@ -237,6 +240,13 @@ pub(super) struct Pool {
     pub remembered_by_window: OMap<i64, Vec<SplitLayout>>,
     pub session_owners: OMap<String, Owner>,
     pub request_owners: OMap<String, u64>,
+    /// Questions an agent's answer holds while its attachments go in, by request id → the claim.
+    pub claims: HashMap<String, u64>,
+    /// Plans an agent's approval holds, by tab → (the proposal's generation, the claim).
+    pub plan_claims: HashMap<String, (u64, u64)>,
+    /// The last claim and the last plan generation handed out.
+    pub claim_serial: u64,
+    pub plan_serial: u64,
     pub request_bodies: OMap<String, Held>,
     pub sign_in_requests: HashSet<String>,
     pub answering: HashSet<String>,

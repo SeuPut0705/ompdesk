@@ -78,6 +78,7 @@ import {
 } from "../shared/rpc-types";
 import { failureOf, unsavedSessionKey } from "../shared/session-summary";
 import { isApprovalSelect } from "../shared/tool-approval";
+import { TargetAnswer } from "./agent-control/target-answer";
 import type { BackgroundWorkMember } from "./background-work";
 import { canonicalCwd } from "./canonical-cwd";
 import { type Hub, type HubItem, hub } from "./core/hub";
@@ -195,6 +196,8 @@ export interface TabFacts {
 export interface PendingPlan {
 	title: string;
 	planFilePath: string;
+	/** Which proposal of the tab it is: stock rewrites one plan file for a revised proposal, so the path is no identity. */
+	generation: number;
 }
 
 /** How long "Stop and delete" waits for a stopped turn to end before it gives up (`stopSession`). */
@@ -370,7 +373,8 @@ function poolError(error: unknown): unknown {
 	if (!(error instanceof CoreError)) return error;
 	// A collaborator's own failure comes back as the message it threw.
 	if (error.code === "main_error") return new Error(error.message);
-	if (error.code === "already_answered") return codedError("already_answered", error.message);
+	if (error.code === "already_answered" || error.code === "being_answered")
+		return codedError(error.code, error.message);
 	return error;
 }
 
@@ -678,7 +682,7 @@ export class SidecarPool {
 				if (item.ok === true) waiting.resolve(item.value ?? null);
 				else if (typeof item.code === "string" && item.code !== "main_error")
 					waiting.reject(
-						item.code === "already_answered" || item.code === "session_running"
+						item.code === "already_answered" || item.code === "being_answered" || item.code === "session_running"
 							? codedError(item.code, item.message as string)
 							: new CoreError(item.code, item.message as string),
 					);
@@ -1576,15 +1580,79 @@ export class SidecarPool {
 	 * synthetic `cancel`, and an answer from another window after it is refused (`already_answered`), even while the
 	 * first is still on its way.
 	 */
-	routeSideChannel(id: string, frame: object, tabId?: string, responder?: ClientWindow): Promise<boolean> {
+	routeSideChannel(
+		id: string,
+		frame: object,
+		tabId?: string,
+		responder?: ClientWindow,
+		claim?: number,
+	): Promise<boolean> {
 		return this.#later("routeSideChannel", {
 			id,
 			frame,
 			tab: tabId,
 			responder: responder ? this.#windowId(responder) : undefined,
 			choice: describeAnswer(frame),
+			...(claim === undefined ? {} : { claim }),
 		});
 	}
+
+	/**
+	 * An agent's answer takes a question before its attachments go in (`TargetAnswer`): every other answer to it (the
+	 * person's card, another agent, a device viewing the tab) is refused as `being_answered` until it lands or the claim
+	 * is released. The rule lives in the core's pool (`pool/claims.rs`); these are its calls. Null: not open, or taken.
+	 */
+	claimRequest(tabId: string, requestId: string): number | null {
+		return this.#call<number | null>("claimRequest", { tab: tabId, id: requestId });
+	}
+
+	/** Give a claimed question back unanswered. */
+	releaseRequest(requestId: string, claim: number): void {
+		this.#call("releaseRequest", { id: requestId, claim });
+	}
+
+	/** Whether `requestId` is a question `tabId`'s omp still waits on. */
+	isRequestOpen(tabId: string, requestId: string): boolean {
+		return this.#call<boolean>("isRequestOpen", { tab: tabId, id: requestId });
+	}
+
+	/** Throws `being_answered` when an agent's answer holds the question and `claim` is not its own. */
+	guardAsk(requestId: string, claim?: number): void {
+		this.#call("guardAsk", { id: requestId, ...(claim === undefined ? {} : { claim }) });
+	}
+
+	/** Take the plan `tabId` waits on when it is the proposal at `planFilePath` of `generation`; null otherwise or when held. */
+	claimPlan(tabId: string, planFilePath: string, generation: number): number | null {
+		return this.#call<number | null>("claimPlan", { tab: tabId, file: planFilePath, generation });
+	}
+
+	/** Whether the plan `claim` took is still the pending one (a revision is another generation). */
+	planStillClaimed(tabId: string, claim: number): boolean {
+		return this.#call<boolean>("planStillClaimed", { tab: tabId, claim });
+	}
+
+	releasePlan(tabId: string, claim: number): void {
+		this.#call("releasePlan", { tab: tabId, claim });
+	}
+
+	/**
+	 * Throws `being_answered` for an approve or reject of a plan an agent's approval holds, unless it is the claiming
+	 * step's own (`own`): the window dispatcher and a device viewing the tab both call it.
+	 */
+	guardPlan(tabId: string, own = false): void {
+		this.#call("guardPlan", { tab: tabId, own });
+	}
+
+	/** An answer with attachments is one claimed step in this main (`TargetAnswer`), here for this pool's tabs. */
+	readonly targetAnswer: TargetAnswer = new TargetAnswer({
+		askOpen: (tabId, id) => this.isRequestOpen(tabId, id),
+		claim: (tabId, id) => this.claimRequest(tabId, id),
+		release: (id, claim) => this.releaseRequest(id, claim),
+		route: (tabId, id, response, claim) => this.routeSideChannel(id, response, tabId, undefined, claim),
+		claimPlan: (tabId, planFile, generation) => this.claimPlan(tabId, planFile, generation),
+		planStillClaimed: (tabId, claim) => this.planStillClaimed(tabId, claim),
+		releasePlan: (tabId, claim) => this.releasePlan(tabId, claim),
+	});
 
 	/**
 	 * Each of this window's tabs' status texts, widgets and title, for a page that loaded after they were

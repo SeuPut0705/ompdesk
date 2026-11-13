@@ -32,16 +32,16 @@ export interface TargetAnswerDeps {
 	/** Whether the question `id` is still open on `tabId`. */
 	askOpen(tabId: string, id: string): boolean;
 	/** Take the plan proposal at `planFile` that `tabId` waits on; null when it is not that plan or already taken. */
-	claimPlan(tabId: string, planFile: string, generation: number): symbol | null;
+	claimPlan(tabId: string, planFile: string, generation: number): number | null;
 	/** Whether the claimed plan is still the pending one (a replacement proposal is not). */
-	planStillClaimed(tabId: string, claim: symbol): boolean;
-	releasePlan(tabId: string, claim: symbol): void;
+	planStillClaimed(tabId: string, claim: number): boolean;
+	releasePlan(tabId: string, claim: number): void;
 	/** Take the question so no other answer lands; null when it is not open or already taken. */
-	claim(tabId: string, id: string): symbol | null;
+	claim(tabId: string, id: string): number | null;
 	/** Give a claimed question back unanswered. */
-	release(id: string, claim: symbol): void;
+	release(id: string, claim: number): void;
 	/** Put the claimed answer to the question to its omp (which also ends the claim). */
-	route(tabId: string, id: string, response: ExtensionUIResponse, claim: symbol): Promise<boolean>;
+	route(tabId: string, id: string, response: ExtensionUIResponse, claim: number): Promise<boolean>;
 }
 
 /**

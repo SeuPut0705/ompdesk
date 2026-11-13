@@ -110,7 +110,13 @@ impl Ctx {
         tab: Option<&str>,
         responder: Option<i64>,
         choice: &str,
+        claim: Option<u64>,
     ) -> R<()> {
+        // An agent's answer holds this question while its attachments go in: only the holder's answer passes.
+        if let Err(held) = self.guard_ask(id, claim) {
+            self.settle_err(token, Some(&held.code), &held.message);
+            return Ok(());
+        }
         enum Begin {
             Unknown,
             Refused,
@@ -173,6 +179,16 @@ impl Ctx {
         let ctx = self.clone();
         let (id, frame, choice) = (id.to_string(), frame.clone(), choice.to_string());
         super::spawn(async move {
+            // The holder's answer ends its claim whether or not it was delivered (the question reopens to anyone).
+            struct EndClaim(Ctx, String, Option<u64>);
+            impl Drop for EndClaim {
+                fn drop(&mut self) {
+                    if let Some(claim) = self.2 {
+                        self.0.release_request(&self.1, claim);
+                    }
+                }
+            }
+            let _ends = EndClaim(ctx.clone(), id.clone(), claim);
             let delivered = ctx
                 .out
                 .ask_later("sideChannelLater", &json!({"tab": tab, "frame": frame}))

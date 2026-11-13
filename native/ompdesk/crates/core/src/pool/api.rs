@@ -59,12 +59,11 @@ impl Ctx {
 
     pub(super) fn pending_plan(&self, tab: &str) -> Value {
         self.with(|pool| {
-            pool.entry(tab)
-                .and_then(|entry| entry.plan_proposal.as_ref())
-                .map_or(
-                    Value::Null,
-                    |(title, path)| json!({"title": title, "planFilePath": path}),
-                )
+            pool.entry(tab).map_or(Value::Null, |entry| {
+                entry.plan_proposal.as_ref().map_or(Value::Null, |(title, path)| {
+                    json!({"title": title, "planFilePath": path, "generation": entry.plan_generation})
+                })
+            })
         })
     }
 
@@ -1592,6 +1591,10 @@ impl Ctx {
         let id = (frame["type"] == "extension_ui_response")
             .then(|| frame["id"].as_str().map(str::to_string))
             .flatten();
+        // A question an agent's answer holds takes no answer from a device viewing the tab either.
+        if let Some(id) = &id {
+            self.guard_ask(id, None)?;
+        }
         let seq = self.with(|pool| {
             let entry = pool.entry_any(tab)?;
             let seq = entry.seq;

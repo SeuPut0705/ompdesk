@@ -498,6 +498,7 @@ impl Ctx {
         let (seen, run_ended, retry_started, stepped, hidden, win) = self.with(|pool| {
             let now = pool.now;
             let mut serial = pool.retry_serial;
+            let mut plan_serial = pool.plan_serial;
             let Some(entry) = pool.entry_mut(tab) else {
                 return (None, false, false, false, Vec::new(), 0);
             };
@@ -529,6 +530,8 @@ impl Ctx {
                         if kind == "plan_proposal" {
                             let title = event["title"].as_str().unwrap_or("").to_string();
                             entry.plan_proposal = Some((title, path));
+                            plan_serial += 1;
+                            entry.plan_generation = plan_serial;
                         } else if entry
                             .plan_proposal
                             .as_ref()
@@ -561,6 +564,7 @@ impl Ctx {
             }
             let win = entry.win_id;
             pool.retry_serial = serial;
+            pool.plan_serial = plan_serial;
             (Some(seen), run_ended, retry_started, stepped, hidden, win)
         });
         let Some(seen) = seen else {

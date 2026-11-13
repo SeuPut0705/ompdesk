@@ -19,6 +19,7 @@
 //!   `rpc`, `sideChannelLater` and `exiting`.
 
 mod api;
+mod claims;
 mod later;
 pub mod layout;
 mod listen;
@@ -169,6 +170,58 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
         "size" => now(Value::from(ctx.with(|pool| pool.entries.len()))),
         "tabFacts" => now(ctx.tab_facts(&p.s("tab").unwrap_or_default())),
         "pendingPlan" => now(ctx.pending_plan(&p.s("tab").unwrap_or_default())),
+        "isRequestOpen" => now(Value::from(ctx.is_request_open(
+            &p.s("tab").unwrap_or_default(),
+            &p.s("id").unwrap_or_default(),
+        ))),
+        "claimRequest" => now(ctx.claim_request(
+            &p.s("tab").unwrap_or_default(),
+            &p.s("id").unwrap_or_default(),
+        )),
+        "releaseRequest" => {
+            ctx.release_request(
+                &p.s("id").unwrap_or_default(),
+                p.oi("claim")
+                    .and_then(|c| u64::try_from(c).ok())
+                    .unwrap_or(0),
+            );
+            Outcome::done()
+        }
+        "guardAsk" => Outcome::Now(
+            ctx.guard_ask(
+                &p.s("id").unwrap_or_default(),
+                p.oi("claim").and_then(|c| u64::try_from(c).ok()),
+            )
+            .map(|()| Value::Null),
+        ),
+        "claimPlan" => now(ctx.claim_plan(
+            &p.s("tab").unwrap_or_default(),
+            &p.s("file").unwrap_or_default(),
+            p.oi("generation")
+                .and_then(|c| u64::try_from(c).ok())
+                .unwrap_or(0),
+        )),
+        "planStillClaimed" => now(Value::from(
+            ctx.plan_still_claimed(
+                &p.s("tab").unwrap_or_default(),
+                p.oi("claim")
+                    .and_then(|c| u64::try_from(c).ok())
+                    .unwrap_or(0),
+            ),
+        )),
+        "releasePlan" => {
+            ctx.release_plan(
+                &p.s("tab").unwrap_or_default(),
+                p.oi("claim")
+                    .and_then(|c| u64::try_from(c).ok())
+                    .unwrap_or(0),
+            );
+            Outcome::done()
+        }
+        "guardPlan" => Outcome::Now(
+            ctx.guard_plan(&p.s("tab").unwrap_or_default(), p.b("own"))
+                .map(|()| Value::Null),
+        ),
         "restartHolds" => now(ctx.restart_holds()),
         "runningBridges" => later(async move { ctx.running_bridges().await }),
         "isHostedView" => now(Value::from(ctx.with(|pool| {
@@ -231,6 +284,7 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
                     p.os("tab").as_deref(),
                     p.oi("responder"),
                     &p.os("choice").unwrap_or_default(),
+                    p.oi("claim").and_then(|c| u64::try_from(c).ok()),
                 )
                 .await,
             )

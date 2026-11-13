@@ -400,11 +400,11 @@ interface HostTab extends RunTracking {
 	 */
 	answered: Map<string, string>;
 	/** Asks an agent's answer holds while its attachments go in (`TargetAnswer`), by request id. */
-	askClaims: Map<string, symbol>;
+	askClaims: Map<string, number>;
 	/** The plan proposal this tab's omp waits on (a tab that runs here), and the generation main gave it. */
 	planProposal?: { title: string; planFilePath: string; generation: number };
 	/** The plan an agent's approval holds while its attachments go in. */
-	planClaim?: { plan: object; claim: symbol };
+	planClaim?: { plan: object; claim: number };
 	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
 	linkEvents?: { conn: HostConnection; sender: LinkEventSender };
 	/**
@@ -580,13 +580,14 @@ export class LocalHostServices implements HostServices {
 	/** Files a device sends in parts (`host.files.uploadPart`), by device and upload id, until the last part lands. */
 	/** Plan proposals counted for the tabs that run here: stock rewrites one plan file for a revised proposal. */
 	#planGeneration = 0;
+	#claimSerial = 0;
 	/** An answer with attachments for a tab that runs here is one claimed step (`TargetAnswer`), as `localTabs.targetAnswer` is for a window's. */
 	readonly #answers = new TargetAnswer({
 		askOpen: (tabId, id) => this.#byResume(tabId)?.asks.has(id) === true,
 		claim: (tabId, id) => {
 			const tab = this.#byResume(tabId);
 			if (!tab?.asks.has(id) || tab.askClaims.has(id)) return null;
-			const claim = Symbol(id);
+			const claim = ++this.#claimSerial;
 			tab.askClaims.set(id, claim);
 			return claim;
 		},
@@ -608,7 +609,7 @@ export class LocalHostServices implements HostServices {
 			const plan = tab?.planProposal;
 			if (!tab || !plan || plan.planFilePath !== planFile || plan.generation !== generation || tab.planClaim)
 				return null;
-			const claim = Symbol(tabId);
+			const claim = ++this.#claimSerial;
 			tab.planClaim = { plan, claim };
 			return claim;
 		},
@@ -1101,7 +1102,7 @@ export class LocalHostServices implements HostServices {
 		frame: { type?: unknown; id?: unknown },
 		side: string,
 		from?: HostedTabView,
-		claim?: symbol,
+		claim?: number,
 	): void {
 		if ((frame.type === "host_tool_result" || frame.type === "host_uri_result") && typeof frame.id === "string")
 			tab.hostCalls.delete(frame.id);

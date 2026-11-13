@@ -13,7 +13,8 @@ const ask: AnswerStep = { requestId: "answer-1|r1", companion, askId: "r1", resp
 /** A target: its questions and claims, what its bridge appended (deduped by the note's id, as the bridge does), and what it answered. */
 function target(options: { open?: string[]; routeFails?: boolean; noteFails?: boolean } = {}) {
 	const open = new Set(options.open ?? ["r1"]);
-	const claims = new Map<string, symbol>();
+	const claims = new Map<string, number>();
+	let serial = 0;
 	const appended: string[] = [];
 	const answered: string[] = [];
 	/** The plan file of the pending proposal, and of the proposal the claim took. */
@@ -35,7 +36,7 @@ function target(options: { open?: string[]; routeFails?: boolean; noteFails?: bo
 		claimPlan: (_tab, file, generation) => {
 			if (!open.has("plan") || file !== planFile.current || generation !== planFile.generation || claims.has("plan"))
 				return null;
-			claims.set("plan", Symbol("plan"));
+			claims.set("plan", ++serial);
 			planObject.current = planFile.generation;
 			return claims.get("plan") ?? null;
 		},
@@ -46,7 +47,7 @@ function target(options: { open?: string[]; routeFails?: boolean; noteFails?: bo
 		},
 		claim: (_tab, id) => {
 			if (!open.has(id) || claims.has(id)) return null;
-			const claim = Symbol(id);
+			const claim = ++serial;
 			claims.set(id, claim);
 			return claim;
 		},

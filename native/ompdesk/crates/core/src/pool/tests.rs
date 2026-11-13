@@ -86,6 +86,13 @@ impl Main {
     }
 
     async fn request(&mut self, method: &str, params: Value) -> Value {
+        let frame = self.exchange(method, params).await;
+        assert_eq!(frame["ok"], true, "{method} failed: {frame}");
+        frame["result"].clone()
+    }
+
+    /// The whole reply frame of a request, a refusal included.
+    async fn exchange(&mut self, method: &str, params: Value) -> Value {
         self.next += 1;
         let id = self.next;
         let line = json!({"id": id, "method": method, "params": params}).to_string() + "\n";
@@ -98,8 +105,7 @@ impl Main {
             );
             let frame: Value = serde_json::from_str(&line).unwrap();
             if frame["id"] == id {
-                assert_eq!(frame["ok"], true, "{method} failed: {frame}");
-                return frame["result"].clone();
+                return frame;
             }
             if frame["event"] == "hub.out" {
                 for item in frame["data"]["items"].as_array().unwrap() {
@@ -125,6 +131,17 @@ impl Main {
         params["now"] = json!(1_000);
         let to = self.instance;
         self.request(
+            "hub.call",
+            json!({"to": to, "method": method, "params": params}),
+        )
+        .await
+    }
+
+    /// A call that may be refused: the reply frame as it came.
+    async fn try_call(&mut self, method: &str, mut params: Value) -> Value {
+        params["now"] = json!(1_000);
+        let to = self.instance;
+        self.exchange(
             "hub.call",
             json!({"to": to, "method": method, "params": params}),
         )
@@ -479,4 +496,124 @@ async fn a_new_core_is_seeded_with_the_tabs_main_holds() {
     // The window's closing still releases what was seeded.
     main.call("windowClosed", json!({"win": 1})).await;
     assert_eq!(main.call("size", json!({})).await, 0);
+}
+
+#[tokio::test]
+async fn an_agent_s_answer_claims_the_ask_and_no_other_answer_lands_until_it_is_released() {
+    let mut main = Main::start(opts()).await;
+    main.acquire("a", 1, None, false).await;
+    let request =
+        json!({"type": "extension_ui_request", "id": "r1", "method": "confirm", "title": "Go?"});
+    main.call(
+        "feed",
+        json!({"tab": "a", "event": "extensionUi",
+               "payload": {"request": request, "kinds": {"blocking": true, "signIn": false, "approval": false}}}),
+    )
+    .await;
+    assert_eq!(
+        main.call("isRequestOpen", json!({"tab": "a", "id": "r1"}))
+            .await,
+        true
+    );
+    let claim = main
+        .call("claimRequest", json!({"tab": "a", "id": "r1"}))
+        .await;
+    assert!(claim.as_u64().is_some());
+    // Taken once: a second claim and an answer with no claim are refused.
+    assert_eq!(
+        main.call("claimRequest", json!({"tab": "a", "id": "r1"}))
+            .await,
+        Value::Null
+    );
+    let refused = main.try_call("guardAsk", json!({"id": "r1"})).await;
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["error"]["code"], "being_answered", "{refused}");
+    assert_eq!(
+        main.try_call("guardAsk", json!({"id": "r1", "claim": claim}))
+            .await["ok"],
+        true
+    );
+    // A device viewing the tab is refused the same way.
+    let device = main
+        .try_call("deviceAnswer", json!({"tab": "a", "frame": {"type": "extension_ui_response", "id": "r1"}, "view": 1, "token": 9}))
+        .await;
+    assert_eq!(device["ok"], false);
+    // Released: anyone may answer again, and the claim can be taken anew.
+    main.call("releaseRequest", json!({"id": "r1", "claim": claim}))
+        .await;
+    assert_eq!(
+        main.try_call("guardAsk", json!({"id": "r1"})).await["ok"],
+        true
+    );
+    assert!(
+        main.call("claimRequest", json!({"tab": "a", "id": "r1"}))
+            .await
+            .as_u64()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn a_plan_is_claimed_by_its_file_and_generation_and_a_revision_that_reuses_the_file_is_another_plan()
+ {
+    let mut main = Main::start(opts()).await;
+    main.acquire("a", 1, None, false).await;
+    let proposal = |title: &str| {
+        json!({"tab": "a", "event": "events",
+               "payload": [{"type": "plan_proposal", "planFilePath": "local://PLAN.md", "title": title}]})
+    };
+    main.call("feed", proposal("Plan")).await;
+    let read = main.call("pendingPlan", json!({"tab": "a"})).await;
+    let generation = read["generation"].as_u64().unwrap();
+    // The revision reuses the plan file between the agent's read and its claim.
+    main.call("feed", proposal("Plan, revised")).await;
+    assert_ne!(
+        main.call("pendingPlan", json!({"tab": "a"})).await["generation"],
+        read["generation"]
+    );
+    assert_eq!(
+        main.call(
+            "claimPlan",
+            json!({"tab": "a", "file": "local://PLAN.md", "generation": generation})
+        )
+        .await,
+        Value::Null
+    );
+    let now = main.call("pendingPlan", json!({"tab": "a"})).await["generation"]
+        .as_u64()
+        .unwrap();
+    let claim = main
+        .call(
+            "claimPlan",
+            json!({"tab": "a", "file": "local://PLAN.md", "generation": now}),
+        )
+        .await;
+    assert!(claim.as_u64().is_some());
+    assert_eq!(
+        main.try_call("guardPlan", json!({"tab": "a"})).await["error"]["code"],
+        "being_answered"
+    );
+    assert_eq!(
+        main.try_call("guardPlan", json!({"tab": "a", "own": true}))
+            .await["ok"],
+        true
+    );
+    assert_eq!(
+        main.call("planStillClaimed", json!({"tab": "a", "claim": claim}))
+            .await,
+        true
+    );
+    // A new proposal while the note goes in: the claimed plan is not the pending one any more.
+    main.call("feed", proposal("Plan, revised again")).await;
+    assert_eq!(
+        main.call("planStillClaimed", json!({"tab": "a", "claim": claim}))
+            .await,
+        false
+    );
+    main.call("releasePlan", json!({"tab": "a", "claim": claim}))
+        .await;
+    assert_eq!(
+        main.try_call("guardPlan", json!({"tab": "a"})).await["ok"],
+        true
+    );
 }
