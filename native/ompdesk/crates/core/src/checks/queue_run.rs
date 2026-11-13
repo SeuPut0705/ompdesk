@@ -143,13 +143,6 @@ pub struct Queues {
 }
 
 /// The queues, their saved lanes started again. Call inside the runtime.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "reached through queue::open, which Hub::new takes once admission lands"
-    )
-)]
 pub(crate) fn open_with(
     host: Arc<dyn QueueHost>,
     hands: Arc<dyn Hands>,
