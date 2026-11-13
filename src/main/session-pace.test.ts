@@ -293,6 +293,35 @@ describe("session-pace", () => {
 			expect(paceLine(p)).toContain(" · tools 3 min · checks ×1 61 s (30% of tools) · ");
 		});
 
+		it("adds what `ompdesk check` runs saved by reuse, each run once", () => {
+			const tail = (id: string, saved: number) =>
+				`ompdesk check: ${id}: passed in 3s — 40 results: 38 reused, 2 run now (2 passed, 0 failed) — reuse saved about ${saved}s (${saved} s) — verdict /tmp/v.txt`;
+			const said = (atS: number, id: string, text: string) =>
+				JSON.stringify({
+					type: "message",
+					message: {
+						role: "toolResult",
+						timestamp: T0 + atS * 1000,
+						toolCallId: id,
+						toolName: "bash",
+						content: [{ type: "text", text }],
+					},
+				});
+			const p = pace([
+				user(0),
+				...call(5, "a", "bash", { command: "ompdesk check -- bunx vitest run" }),
+				said(10, "a", `x\n${tail("20261113-021507-ab12", 50)}\n`),
+				...call(20, "b", "bash", { command: "ompdesk check --full -- bunx playwright test" }),
+				said(30, "b", tail("20261113-021600-cd34", 70)),
+				// The same run's line read again from its log counts once.
+				...call(40, "c", "bash", { command: "ompdesk check attach 20261113-021600-cd34" }),
+				said(41, "c", tail("20261113-021600-cd34", 70)),
+			]);
+			expect(p.checks).toEqual({ runs: 2, seconds: 15, savedS: 120 });
+			expect(paceLine(p)).toContain("checks ×2 15 s (");
+			expect(paceLine(p)).toContain("of tools, 2 min saved by reuse)");
+		});
+
 		it("says nothing of checks in a session that ran none", () => {
 			const p = pace(steady(3));
 			expect(p.checks).toBeUndefined();

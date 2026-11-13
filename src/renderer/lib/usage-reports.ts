@@ -21,12 +21,16 @@
  * Anthropic accounts answered 429 313 times on one Mac in a day (22 Oct 2026).
  *
  * A failed read doubles the wait up to {@link USAGE_BACKOFF_MAX_MS} and holds
- * the focus and turn-end reads until one succeeds again.
+ * the focus reads until one succeeds again. A turn's end still reads while
+ * reads fail (its headers just moved the in-use account's report), but no
+ * sooner than {@link USAGE_POLL_MS} after the last read, so a failing day reads
+ * about as often as a healthy poll, never more.
  *
  * The explicit refresh (`refresh: true`) is stock's `omp usage invalidate`
- * for each provider holding a report older than a minute: the bridge has
- * stock probe those accounts now and keeps an account's previous report, with
- * its own age, if the new probe fails (resources/gui-bridge/settings.ts).
+ * for every provider holding a report, whatever its age: a person pressing
+ * Refresh sees the fresh result at once. The bridge has stock probe those
+ * accounts now and keeps an account's previous report, with its own age, if
+ * the new probe fails (resources/gui-bridge/settings.ts).
  */
 
 import { create } from "zustand";
@@ -173,10 +177,15 @@ export function watchUsage(read: () => Promise<boolean>): () => void {
 		failures = ok ? 0 : failures + 1;
 		schedule();
 	};
-	/** Focus, back in view, a turn's end: read now, or once the gap since the last read is over, unless backing off. */
-	const event = () => {
-		if (failures !== 0 || document.visibilityState === "hidden") return;
-		const wait = lastRead + USAGE_EVENT_GAP_MS - Date.now();
+	/**
+	 * Focus, back in view, a turn's end: read now, or once the gap since the last read is over. While reads fail,
+	 * only a turn's end reads (its response headers just moved the in-use account's report, so that account is not
+	 * held in the backoff), and then no sooner than a healthy poll would: failures never read more often than the
+	 * interval.
+	 */
+	const event = (headersMoved: boolean) => {
+		if (document.visibilityState === "hidden" || (failures !== 0 && !headersMoved)) return;
+		const wait = lastRead + (failures === 0 ? USAGE_EVENT_GAP_MS : USAGE_POLL_MS) - Date.now();
 		if (wait <= 0) {
 			void run();
 			return;
@@ -184,17 +193,18 @@ export function watchUsage(read: () => Promise<boolean>): () => void {
 		window.clearTimeout(timer);
 		timer = window.setTimeout(() => void run(), wait);
 	};
-	window.addEventListener("focus", event);
-	document.addEventListener("visibilitychange", event);
+	const nudge = () => event(false);
+	window.addEventListener("focus", nudge);
+	document.addEventListener("visibilitychange", nudge);
 	const unsubscribe = useUsageSignal.subscribe((state, previous) => {
-		if (state.turnEnds !== previous.turnEnds) event();
+		if (state.turnEnds !== previous.turnEnds) event(true);
 	});
 	schedule();
 	return () => {
 		disposed = true;
 		window.clearTimeout(timer);
-		window.removeEventListener("focus", event);
-		document.removeEventListener("visibilitychange", event);
+		window.removeEventListener("focus", nudge);
+		document.removeEventListener("visibilitychange", nudge);
 		unsubscribe();
 	};
 }

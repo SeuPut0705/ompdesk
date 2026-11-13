@@ -1,14 +1,9 @@
 /**
- * Owner-only JSON files for remote-device state (identity, peers, hosts):
- * written atomically with mode 0600 (`writeFileAtomicSync`), so a crash never
- * leaves a half-written key or peer list, and a reader holding the file open on Windows does not lose the save.
+ * Owner-only JSON files of remote-device state are the core's to write (`crates/core/src/remote/store.rs`); main
+ * reads the few it keeps (the run charges) with `readJson`. A save of its own goes through `AtomicSaver`
+ * (`atomic-file.ts`), never a throwing write from an event.
  */
 import { readFileSync } from "node:fs";
-import { writeFileAtomicSync } from "../atomic-file";
-
-export function writeSecureJson(file: string, value: unknown): void {
-	writeFileAtomicSync(file, `${JSON.stringify(value, null, "\t")}\n`, { mode: 0o600 });
-}
 
 /** Parsed JSON, or undefined when the file is missing or not JSON. */
 export function readJson(file: string): unknown {

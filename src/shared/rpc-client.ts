@@ -152,11 +152,11 @@ export interface SessionRpcClient {
 	logout(providerId: string, credentialId: number): Promise<RpcResponse>;
 	/** Removes every stored account of the provider. */
 	disconnectProvider(providerId: string): Promise<RpcResponse>;
-	/** `refresh` has stock probe again any account whose report is a minute old or more (otherwise stock's cache answers). */
+	/** `refresh` has stock probe the account again now, whatever the age of its report (otherwise stock's cache answers). */
 	getProviderAccounts(providerId: string, refresh?: boolean): Promise<RpcResponse>;
 	/** Spends one saved rate-limit reset of one stored account (stock `/usage reset`). */
 	redeemResetPass(providerId: string, credentialId: number, creditId?: string): Promise<RpcResponse>;
-	/** `refresh` has stock probe again any provider whose report is a minute old or more (otherwise stock's cache answers). */
+	/** `refresh` has stock probe the provider's accounts again now, whatever the age of their reports (otherwise stock's cache answers). */
 	getUsage(refresh?: boolean): Promise<RpcResponse>;
 	getSettingsSchema(): Promise<RpcResponse>;
 	getSettings(paths?: string[]): Promise<RpcResponse>;

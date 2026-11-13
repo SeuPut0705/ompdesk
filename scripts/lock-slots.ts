@@ -1,5 +1,5 @@
 /**
- * The machine-wide lock as counting semaphores, one per kind of heavy work
+ * The machine-wide lock: a counting semaphore per kind of heavy work, on top of the computer's heavy slots
  * (`scripts/build-lock.ts` is the command line on top of this):
  *
  *   build       1 slot   builds into out/ never overlap
@@ -7,10 +7,14 @@
  *   vitest      1 slot   a full vitest run and the static checks that run with it (two at once
  *                        failed the real-stock tests that one run passes)
  *   other       1 slot   anything unclassified
- *   heavy       from RAM every hold of any kind also takes one of these first (`acquireHold`), so the
- *                        machine runs at most `heavySlots(RAM)` heavy holds together: one on 16 GB
+ *   heavy       the product's pool (`ompdesk heavy`, native/ompdesk/crates/checks/src/heavy.rs): every hold of any
+ *                        kind also takes one of its slots first (`acquireHold`), so a computer runs at most
+ *                        `pool_size` heavy holds together, whichever project, session or script asks: one on 16 GB.
+ *                        This file never sizes or locks it itself: a hold spawns `ompdesk heavy hold` and gives the
+ *                        slot back by closing its stdin; the size comes from `ompdesk heavy status --json`.
  *
- * Layout under `root` (`/tmp/ompdesk-locks`):
+ * The kinds stay this repository's own (they are about `out/` and this checkout). Layout under `root`
+ * (`/tmp/ompdesk-locks`):
  *
  *   <kind>.<i>/owner     slot i of <kind>; `mkdir` is atomic, so it is the lock. `owner` keeps the
  *                        old single lock's first line (`name HH:MM:SS pid N`), then `since <epoch ms>`
@@ -27,6 +31,7 @@
  * every slot of every kind. Holders still running the old script, and shell users with
  * `until mkdir /tmp/ompdesk-build.lock`, keep working: new waiters queue behind them.
  */
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -36,9 +41,8 @@ import { baseTemp } from "./run-temp";
 
 export type SlotKind = "build" | "playwright" | "vitest" | "other";
 export const SLOT_KINDS: readonly SlotKind[] = ["build", "playwright", "vitest", "other"];
-/** A command's kind, or the machine-wide `heavy` semaphore every hold also takes. */
+/** What `inspectSlots` and `inspectHeavy` list: a kind's slots, and the product pool's under `heavy`. */
 export type LockSlot = SlotKind | "heavy";
-const LOCK_SLOTS: readonly LockSlot[] = [...SLOT_KINDS, "heavy"];
 
 /** Slots per kind. Measured on the 15-core Mac; AGENTS.md › Build lock and gate has the numbers. */
 export const DEFAULT_SLOTS: Readonly<Record<SlotKind, number>> = { build: 1, playwright: 4, vitest: 1, other: 1 };
@@ -55,15 +59,9 @@ export function machineRam(env: NodeJS.ProcessEnv = process.env): number {
 const ramGb = (totalBytes: number) => Math.round(totalBytes / GiB);
 
 /**
- * Heavy holds the machine runs at once: 8 GB stay for macOS, OMPdesk and its sessions, and each hold gets 8 GB
- * (e2e-ci-windows.md › Lock and gate has the measurements). One on 16 GB; never more than the kinds' slots together.
+ * Test or browser workers one heavy hold may run: one per 8 GB of RAM (2 on 16 GB). A share of one hold, not the
+ * pool's size (that is `heavyPoolSize`, from `ompdesk heavy status`), so a config file loads this without spawning.
  */
-export function heavySlots(totalBytes: number): number {
-	const total = Object.values(DEFAULT_SLOTS).reduce((sum, n) => sum + n, 0);
-	return Math.max(1, Math.min(total, Math.floor((ramGb(totalBytes) - 8) / 8)));
-}
-
-/** Test or browser workers one heavy hold may run: one per 8 GB of RAM (2 on 16 GB). */
 export function ramWorkers(totalBytes: number): number {
 	return Math.max(1, Math.floor(ramGb(totalBytes) / 8));
 }
@@ -95,7 +93,7 @@ export interface Locks {
 	root: string;
 	/** The pre-semaphore lock directory; undefined skips the migration check. */
 	legacyDir?: string;
-	slots: Readonly<Record<LockSlot, number>>;
+	slots: Readonly<Record<SlotKind, number>>;
 	/** Time between polls of a waiter. */
 	pollMs: number;
 	/** Waits `ms`; a seam, so tests count polls instead of waiting out the clock. */
@@ -103,6 +101,8 @@ export interface Locks {
 	staleMs: number;
 	ticketStaleMs: number;
 	pid: number;
+	/** What `ompdesk heavy` runs with: `OMPDESK_HEAVY_DIR` and `OMPDESK_HEAVY_SLOTS` move the pool for a test. */
+	env: NodeJS.ProcessEnv;
 	/** Reports waiting and stale takeovers; default stderr. */
 	say: (message: string) => void;
 }
@@ -113,13 +113,13 @@ const LOCK_ROOT = process.platform === "win32" ? path.join(baseTemp(), "ompdesk-
 const LEGACY_DIR =
 	process.platform === "win32" ? path.join(baseTemp(), "ompdesk-build.lock") : "/tmp/ompdesk-build.lock";
 
-/** `OMPDESK_LOCK_SLOTS=playwright=3,heavy=2` overrides the defaults, for measuring a different N. */
-function slotsFromEnv(env: NodeJS.ProcessEnv): Record<LockSlot, number> {
-	const slots: Record<LockSlot, number> = { ...DEFAULT_SLOTS, heavy: heavySlots(machineRam(env)) };
+/** `OMPDESK_LOCK_SLOTS=playwright=3` overrides the defaults, for measuring a different N. The heavy pool is `OMPDESK_HEAVY_SLOTS`. */
+function slotsFromEnv(env: NodeJS.ProcessEnv): Record<SlotKind, number> {
+	const slots: Record<SlotKind, number> = { ...DEFAULT_SLOTS };
 	for (const part of (env.OMPDESK_LOCK_SLOTS ?? "").split(",")) {
 		const [kind, count] = part.split("=");
 		const n = Number(count);
-		if (LOCK_SLOTS.includes(kind as LockSlot) && Number.isInteger(n) && n >= 1) slots[kind as LockSlot] = n;
+		if (SLOT_KINDS.includes(kind as SlotKind) && Number.isInteger(n) && n >= 1) slots[kind as SlotKind] = n;
 	}
 	return slots;
 }
@@ -135,6 +135,7 @@ export function defaultLocks(env: NodeJS.ProcessEnv = process.env): Locks {
 		staleMs: STALE_MS,
 		ticketStaleMs: TICKET_STALE_MS,
 		pid: process.pid,
+		env,
 		say: message => console.error(message),
 	};
 }
@@ -145,13 +146,15 @@ export interface Who {
 }
 
 export interface Lease {
-	kind: LockSlot;
+	kind: SlotKind;
 	slot: number;
-	/** Milliseconds spent waiting for the slot. */
+	/** Milliseconds spent waiting for the slot (the heavy pool's included). */
 	waitedMs: number;
 	/** Whom the last wait was behind, for the `[lock] waited` line. */
 	behind: string;
 	dir: string;
+	/** The pid of the `ompdesk heavy hold` that keeps this hold's heavy slot, which nested commands name in `OMPDESK_HEAVY_HELD`. */
+	heavyPid?: number;
 	/** Refresh the owner file (the heartbeat). */
 	touch(): void;
 	release(): void;
@@ -168,8 +171,8 @@ export interface SlotView {
 	stale?: boolean;
 }
 
-const slotDir = (locks: Locks, kind: LockSlot, slot: number) => path.join(locks.root, `${kind}.${slot}`);
-const queueDir = (locks: Locks, kind: LockSlot) => path.join(locks.root, `${kind}.queue`);
+const slotDir = (locks: Locks, kind: SlotKind, slot: number) => path.join(locks.root, `${kind}.${slot}`);
+const queueDir = (locks: Locks, kind: SlotKind) => path.join(locks.root, `${kind}.queue`);
 
 /** The age of `dir`'s owner file (or of `dir` itself while the owner file is not written yet). */
 function ageMs(dir: string): number | undefined {
@@ -220,7 +223,7 @@ function removeStale(locks: Locks, dir: string, what: string, holder: string): v
 }
 
 /** Live waiters of `kind`, oldest first; dead and untouched tickets are dropped. */
-function liveTickets(locks: Locks, kind: LockSlot): string[] {
+function liveTickets(locks: Locks, kind: SlotKind): string[] {
 	const dir = queueDir(locks, kind);
 	let names: string[];
 	try {
@@ -244,10 +247,10 @@ function liveTickets(locks: Locks, kind: LockSlot): string[] {
 
 let ticketSeq = 0;
 
-/** What every slot of every kind holds right now; a stale slot reads as held, flagged `stale`. */
+/** What every slot of every kind holds right now; a stale slot reads as held, flagged `stale`. The heavy pool is `inspectHeavy`. */
 export function inspectSlots(locks: Locks): SlotView[] {
 	const views: SlotView[] = [];
-	for (const kind of LOCK_SLOTS) {
+	for (const kind of SLOT_KINDS) {
 		for (let slot = 0; slot < locks.slots[kind]; slot++) {
 			const dir = slotDir(locks, kind, slot);
 			const age = ageMs(dir);
@@ -273,7 +276,7 @@ export function inspectSlots(locks: Locks): SlotView[] {
  * Take a slot of `kind`: FIFO among waiters, as long as it takes. A legacy single-lock holder blocks
  * every kind until it releases.
  */
-export async function acquireSlot(locks: Locks, kind: LockSlot, who: Who): Promise<Lease> {
+export async function acquireSlot(locks: Locks, kind: SlotKind, who: Who): Promise<Lease> {
 	fs.mkdirSync(queueDir(locks, kind), { recursive: true });
 	const seq = String(ticketSeq++).padStart(6, "0");
 	const ticket = path.join(queueDir(locks, kind), `${String(Date.now()).padStart(14, "0")}-${locks.pid}-${seq}`);
@@ -320,10 +323,152 @@ export async function acquireSlot(locks: Locks, kind: LockSlot, who: Who): Promi
 	}
 }
 
+/** The environment variable `ompdesk run --heavy` and this lock name a holder's `ompdesk heavy hold` pid in. */
+export const HEAVY_HELD_ENV = "OMPDESK_HEAVY_HELD";
+
+/**
+ * The staged `ompdesk` that runs the pool (`src/main/native-bin.ts` says where; `bun run build:native` stages it).
+ * Present: that one, however old, because the `heavy` commands are a stable wire and `ensureNative` would rebuild
+ * (cargo, outside the pool) every time a peer edits `native/`. Absent: `build` runs `ensureNative` once; on GitHub's
+ * runners it never does and the pool is skipped (undefined): one job owns a runner, so there is nothing to share,
+ * and ci.yml's `static` job (`bun run check:types`, `electron: "false"`) stages no binary
+ * (`.github/actions/install`). Loaded on first use: the vitest and Playwright configs import this file for
+ * `ramWorkers` and must not load `src/main/native-bin.ts` or `build-native.ts` for it.
+ */
+async function heavyBinary(env: NodeJS.ProcessEnv, build: boolean): Promise<string | undefined> {
+	const { nativeBinPath } = await import("../src/main/native-bin");
+	const staged = nativeBinPath("ompdesk");
+	if (fs.existsSync(staged)) return staged;
+	if (env.GITHUB_ACTIONS || !build) return undefined;
+	(await import("./build-native")).ensureNative();
+	return staged;
+}
+
+export interface HeavyStatus {
+	dir: string;
+	size: number;
+	slots: Array<{
+		slot: number;
+		owner: { pid: number; command: string; cwd: string; since: number; weight: number } | null;
+		held: boolean;
+	}>;
+	/** Waiters' pids, oldest first. */
+	queue: number[];
+}
+
+/** `ompdesk heavy status --json`; undefined where no binary is staged (a GitHub runner, or before the first build). */
+export async function heavyStatus(env: NodeJS.ProcessEnv = process.env): Promise<HeavyStatus | undefined> {
+	const bin = await heavyBinary(env, false);
+	if (!bin) return undefined;
+	const result = spawnSync(bin, ["heavy", "status", "--json"], { env, encoding: "utf8", windowsHide: true });
+	if (result.status !== 0)
+		throw new Error(`ompdesk heavy status failed: ${(result.stderr || String(result.error)).trim()}`);
+	return JSON.parse(result.stdout) as HeavyStatus;
+}
+
+/**
+ * How many heavy holds the computer runs at once: the pool's size, `OMPDESK_HEAVY_SLOTS` included, so there is one
+ * copy of the rule (`pool_size` in heavy.rs). 1 where there is no pool to ask, the safe answer for `runSteps`.
+ */
+export async function heavyPoolSize(env: NodeJS.ProcessEnv = process.env): Promise<number> {
+	return (await heavyStatus(env))?.size ?? 1;
+}
+
+/** The pool's slots as `SlotView`s, for `lock-stats`; none where there is no pool. */
+export async function inspectHeavy(locks: Locks): Promise<SlotView[]> {
+	const status = await heavyStatus(locks.env);
+	if (!status) return [];
+	return status.slots.map(({ slot, owner, held }): SlotView => {
+		if (owner) return { kind: "heavy", slot, holder: owner.command, heldMs: Date.now() - owner.since };
+		return held ? { kind: "heavy", slot, holder: "(held; no owner record)" } : { kind: "heavy", slot };
+	});
+}
+
+export interface HeavyLease {
+	/** The `ompdesk heavy hold` process that keeps the slot. */
+	pid: number;
+	waitedMs: number;
+	/** Who held the pool when the wait began, from the waiter's own wait line. */
+	behind: string;
+	/** Gives the slot back: closes the hold's stdin. A holder that dies gives it back the same way. */
+	release(): void;
+}
+
+/** Holds that still wait for their slot: killed when this process ends, so a dead waiter never takes a slot late. */
+const waitingHolds = new Set<ChildProcess>();
+process.on("exit", () => {
+	for (const child of waitingHolds) child.kill();
+});
+
+/**
+ * One heavy slot of the product pool, FIFO behind every other waiter on the computer: spawns `ompdesk heavy hold`
+ * and waits for its `held` line. The child lives in its own process group, so a Ctrl-C in the terminal reaches only
+ * the command, never the slot before `release`. Undefined where the pool is skipped (`heavyBinary`).
+ */
+export async function acquireHeavy(locks: Locks, who: Who): Promise<HeavyLease | undefined> {
+	const bin = await heavyBinary(locks.env, true);
+	if (!bin) return undefined;
+	const started = performance.now();
+	const env: NodeJS.ProcessEnv = {
+		...locks.env,
+		OMPDESK_HEAVY_LABEL: `${who.owner} pid ${locks.pid}: ${who.command.replace(/\s+/g, " ")}`,
+	};
+	delete env[HEAVY_HELD_ENV];
+	const child = spawn(bin, ["heavy", "hold"], {
+		env,
+		stdio: ["pipe", "pipe", "pipe"],
+		detached: process.platform !== "win32",
+		windowsHide: true,
+	});
+	child.stdin.on("error", () => {
+		// The hold already ended; closing a closed pipe is the release it wanted.
+	});
+	let behind = "";
+	child.stderr.setEncoding("utf8");
+	child.stderr.on("data", (chunk: string) => {
+		for (const line of chunk.split("\n")) {
+			if (!line.trim()) continue;
+			locks.say(line);
+			const holder = /held by (.+)$/.exec(line)?.[1];
+			if (holder && holder !== "nobody yet") behind = holder;
+		}
+	});
+	const held = Promise.withResolvers<void>();
+	let out = "";
+	child.stdout.setEncoding("utf8");
+	child.stdout.on("data", (chunk: string) => {
+		out += chunk;
+		if (/^held [\d,]+$/m.test(out)) held.resolve();
+	});
+	child.once("error", held.reject);
+	child.once("close", code => held.reject(new Error(`ompdesk heavy hold ended (exit ${code}) before it held a slot`)));
+	waitingHolds.add(child);
+	try {
+		await held.promise;
+	} finally {
+		waitingHolds.delete(child);
+	}
+	if (child.pid === undefined) throw new Error("ompdesk heavy hold has no pid");
+	// Once held, the hold must not keep this process alive: a script that takes the lock and simply ends (build-cache's
+	// build path) would otherwise wait for the hold forever while the hold waits for this process's stdin to close
+	// (13 Nov 2026: a measurement held a heavy slot and the build slot for six hours). The slot is given back when this
+	// process exits, as before: the exit handler releases it and the OS closes the hold's stdin.
+	child.unref();
+	for (const stream of [child.stdin, child.stdout, child.stderr])
+		(stream as unknown as { unref?: () => void } | null)?.unref?.();
+	return {
+		pid: child.pid,
+		waitedMs: performance.now() - started,
+		behind,
+		release: () => child.stdin.end(),
+	};
+}
+
 /**
  * Take a heavy slot, then a slot of `kind`: the one way a command holds the lock. The heavy queue is one FIFO
- * for every kind and checkout, so a stream of one kind never starves another. `heavyHeld`: an ancestor holds a
- * heavy slot (a locked command nested in another), so this takes only its kind and never waits on its parent.
+ * for every kind, checkout, session and plain script on the computer, so a stream of one kind never starves another.
+ * `heavyHeld`: an ancestor holds a heavy slot (a locked command nested in another), so this takes only its kind and
+ * never waits on its parent.
  */
 export async function acquireHold(
 	locks: Locks,
@@ -331,7 +476,7 @@ export async function acquireHold(
 	who: Who,
 	options: { heavyHeld?: boolean } = {},
 ): Promise<Lease> {
-	const heavy = options.heavyHeld ? undefined : await acquireSlot(locks, "heavy", who);
+	const heavy = options.heavyHeld ? undefined : await acquireHeavy(locks, who);
 	let lease: Lease;
 	try {
 		lease = await acquireSlot(locks, kind, who);
@@ -344,10 +489,7 @@ export async function acquireHold(
 		...lease,
 		waitedMs: heavy.waitedMs + lease.waitedMs,
 		behind: heavy.behind || lease.behind,
-		touch() {
-			lease.touch();
-			heavy.touch();
-		},
+		heavyPid: heavy.pid,
 		release() {
 			lease.release();
 			heavy.release();
@@ -371,7 +513,7 @@ function legacyHolder(locks: Locks): string | undefined {
 	return holder;
 }
 
-function holders(locks: Locks, kind: LockSlot): string[] {
+function holders(locks: Locks, kind: SlotKind): string[] {
 	const names: string[] = [];
 	for (let slot = 0; slot < locks.slots[kind]; slot++) {
 		const dir = slotDir(locks, kind, slot);
@@ -381,7 +523,7 @@ function holders(locks: Locks, kind: LockSlot): string[] {
 }
 
 /** One attempt: a slot when this waiter's rank is below the free count and a `mkdir` wins. */
-function tryTake(locks: Locks, kind: LockSlot, who: Who, ticket: string, started: number): Lease | undefined {
+function tryTake(locks: Locks, kind: SlotKind, who: Who, ticket: string, started: number): Lease | undefined {
 	const free: number[] = [];
 	for (let slot = 0; slot < locks.slots[kind]; slot++) {
 		const dir = slotDir(locks, kind, slot);

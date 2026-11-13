@@ -1309,6 +1309,27 @@ export const en: Record<string, string> = {
 	"usage.resetting": "resetting…",
 	"usage.inUse": "In use",
 	"usage.updatedAgo": "Updated {time} ago",
+	// Why this session is on its account (the rotation's last decision, bridge account-rotation-core.ts RerankSkip/MoveWhy)
+	"usage.rotation.better": "Moved here at the start of this turn: omp ranks this account clearly first.",
+	"usage.rotation.near-limit": "Moved here because the previous account was about to run out.",
+	"usage.rotation.much-better": "Moved here mid-turn: this account has far more room to spare.",
+	"usage.rotation.same": "Stays: this is the account omp ranks first.",
+	"usage.rotation.within-margin":
+		"Stays: another account is only slightly better, and a move would lose the prompt cache.",
+	"usage.rotation.mid-turn":
+		"Stays mid-turn: the account is not near its limit, and a move would lose the prompt cache.",
+	"usage.rotation.no-better": "Stays: no other account has more room right now.",
+	"usage.rotation.usage-unreadable": "Stays: an account's usage couldn't be read, so nothing moves.",
+	"usage.rotation.explicit": "Stays: you pinned this session to this account.",
+	"usage.rotation.restricted": "Stays: this session is limited to an account pool.",
+	"usage.rotation.policy": "Stays: an account policy decides which account is used.",
+	"usage.rotation.blocked": "This account is blocked for this model: the next request uses another one.",
+	"usage.rotation.subagents": "Stays: a subagent of this session is running on it.",
+	"usage.rotation.cold": "Idle for over an hour: the next request picks the best account again.",
+	"usage.rotation.no-choice": "Stays: no other account can serve this model right now.",
+	"usage.rotation.pin-refused": "Stays: the account couldn't be changed.",
+	"usage.rotation.mode": "Even rotation: this session keeps its account until it is blocked.",
+	"usage.rotation.unknown-provenance": "Left to omp: how this session got its account couldn't be read.",
 
 	// First-run onboarding
 
@@ -4468,6 +4489,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.computerUse": "Computer use engine (agent-desktop)",
 	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",
 	"bridgeHealth.feature.scratch": "Scratch folder for a session's throwaway files",
+	"bridgeHealth.feature.checkRuns": "Test suites rerun only what changed, in shared heavy slots",
 	"bridgeHealth.feature.checkoutPeers": "Sessions sharing a checkout",
 	"bridgeHealth.feature.xdevNotice": "Tool list not repeated in the request",
 	"bridgeHealth.feature.contextHookIdle": "No request copy when nothing needs filtering",

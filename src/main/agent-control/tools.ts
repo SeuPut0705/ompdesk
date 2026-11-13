@@ -166,7 +166,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Message OMPdesk session",
 		description:
 			"Send a message to another open session.\n" +
-			'Send a message to any other open session. An idle session starts on it; a running one reads it between its steps (steer, the default). follow_up holds it until that turn ends, and only for a session you opened: to queue its next task behind the one it works on, never for an answer, a result or news it needs now (the user sees a held message waiting in that session\'s queue). To a session you did not open it goes as steer, unless that session shows the user a question card. The session sees it as sent by you, an agent: `<ompdesk-agent-message from="<your title>" session="<your saved id>">`, so it answers you by that saved id. The receipt names the session it reached (title, saved id, computer) and what it is doing. It cannot answer that session\'s pending question: only the user does. See skill://ompdesk.',
+			'Send a message to any other open session. An idle session starts on it; a running one reads it between its steps (steer, the default). follow_up holds it until that turn ends, and only for a session you opened: to queue its next task behind the one it works on, never for an answer, a result or news it needs now (the user sees a held message waiting in that session\'s queue). To a session you did not open it goes as steer. A session that shows the user a question card never takes a steer (it would close the card): the message queues behind the card, which stays open, and is read after the user answers. A session blocked in ompdesk_session_result with wait takes a steer at once: its wait returns early. The session sees it as sent by you, an agent: `<ompdesk-agent-message from="<your title>" session="<your saved id>">`, so it answers you by that saved id. The receipt names the session it reached (title, saved id, computer) and what it is doing, and what will actually happen to the message. It cannot answer that session\'s pending question: only the user does. See skill://ompdesk.',
 		parameters: {
 			type: "object",
 			properties: {
@@ -176,7 +176,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					type: "string",
 					enum: ["follow_up", "steer"],
 					description:
-						"For a running session. steer (default): read between its steps. follow_up: held until its turn ends, only for a session you opened (its next task); any other session gets it as steer unless it shows the user a question card.",
+						"For a running session. steer (default): read between its steps. follow_up: held until its turn ends, only for a session you opened (its next task); any other session gets it as steer. A session showing the user a question card always queues it behind the card, whichever you ask.",
 				},
 				request_id: {
 					type: "string",
@@ -233,7 +233,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Read OMPdesk session result",
 		description:
 			"Read another session's last answer and state, optionally waiting for it.\n" +
-			"Read the last answer and state of one session (session) or several at once (sessions: a compact table). wait: true waits until they have finished (until all, the default, or any), one needs the user's answer, or the timeout passes. See skill://ompdesk.",
+			"Read the last answer and state of one session (session) or several at once (sessions: a compact table). wait: true waits until they have finished (until all, the default, or any), one needs the user's answer, or the timeout passes; it also returns early, saying so, when a message (a steer or a report) reaches you meanwhile, so you read it at once and may wait again. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {

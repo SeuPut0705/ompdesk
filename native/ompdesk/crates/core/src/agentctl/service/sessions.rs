@@ -676,6 +676,9 @@ impl AgentControl {
                 Target::Stored(row) => row.id.clone(),
             })
             .collect();
+        // Inside a blocking wait main owns, the caller cannot read a steer until the call returns: it says so to a
+        // sender (`block`), and the wait ends when a message reaches the caller (`arrivals`).
+        let _blocked = (args.wait == Some(true)).then(|| self.block(&caller.tab_id));
         self.result_until(
             caller, &targets, &ids, &saved, &args, seconds, deadline, per_answer,
         )
@@ -695,7 +698,10 @@ impl AgentControl {
         deadline: Instant,
         per_answer: usize,
     ) -> R<String> {
+        let arrived_before = self.arrivals(&caller.tab_id);
         loop {
+            // Created before the state is read: an arrival from here on wakes the pause below.
+            let arrived = self.arrived.notified();
             let tabs = self.host.state().tabs(&caller.tab_id);
             let current: Vec<Option<Target>> = targets
                 .iter()
@@ -742,7 +748,10 @@ impl AgentControl {
             };
             let timed_out = Instant::now() >= deadline;
             let waiting = args.wait == Some(true);
-            if !waiting || ready || timed_out {
+            // A steer or report reached the waiting session: the call ends so it is read at its next step.
+            let woken =
+                waiting && !ready && !timed_out && self.arrivals(&caller.tab_id) > arrived_before;
+            if !waiting || ready || timed_out || woken {
                 // The opener has the answer now: the session may close once its work landed.
                 {
                     let mut mem = self.mem();
@@ -752,7 +761,12 @@ impl AgentControl {
                         }
                     }
                 }
-                let note = if waiting && timed_out && !ready {
+                let note = if woken {
+                    format!(
+                        "Returned early: a message reached you while you waited (a steer or a report), so you read it at your next step. {done}/{} finished so far; call ompdesk_session_result again to keep waiting.\n",
+                        summaries.len()
+                    )
+                } else if waiting && timed_out && !ready {
                     format!(
                         "Still running after waiting {seconds} s ({done}/{} finished).\n",
                         summaries.len()
@@ -770,9 +784,12 @@ impl AgentControl {
                 ));
             }
             let left = deadline.saturating_duration_since(Instant::now());
-            self.host
-                .next_change(left.as_millis().min(u128::from(self.tuning.poll_ms)) as u64)
-                .await;
+            tokio::select! {
+                () = self.host.next_change(
+                    left.as_millis().min(u128::from(self.tuning.poll_ms)) as u64
+                ) => {}
+                () = arrived => {}
+            }
         }
     }
 

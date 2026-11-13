@@ -136,6 +136,11 @@ pub struct Mem {
     pub utility_tabs: HashMap<String, HashMap<String, Shared<String>>>,
     /// Receipts of `ompdesk_session_send` by `caller|target|request_id` (`#receipts`).
     pub receipts: HashMap<String, String>,
+    /// How many messages (a steer, a report, a child's card, a prompt of the person's) reached each session, by tab id
+    /// (`#arrivals`): a blocking wait of that session returns when its count grows.
+    pub arrivals: HashMap<String, u64>,
+    /// How many blocking waits main owns each session is inside right now (`#blocked`).
+    pub blocked: HashMap<String, usize>,
     /// Recorded calls still running in this process, by key: the same call made again joins it (`#calling`).
     pub calling: HashMap<String, Flight<ToolOutcome>>,
     /// Sessions (`device\npath`) whose saved name `name_untitled` already looked up (`#namesSought`).
@@ -160,12 +165,29 @@ pub struct Mem {
     pub closed_turns: HashMap<String, Shared<Value>>,
 }
 
+/// A session inside a blocking wait main owns; counted until this drops, however the wait ends.
+pub struct Blocked<'a>(&'a AgentControl, String);
+
+impl Drop for Blocked<'_> {
+    fn drop(&mut self) {
+        let mut mem = self.0.mem();
+        if let Some(count) = mem.blocked.get_mut(&self.1) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                mem.blocked.remove(&self.1);
+            }
+        }
+    }
+}
+
 /// The service's shared state; reach it through `AgentControl`, which derefs to it.
 pub struct Inner {
     pub host: Host,
     pub tuning: Tuning,
     pub clock: Clock,
     mem: Mutex<Mem>,
+    /// Woken at every arrival (`arrive`), so a blocking wait notices at once.
+    pub arrived: tokio::sync::Notify,
     fates: Mutex<SessionFates>,
     cleanups: Mutex<PendingCleanups>,
     calls: Option<Mutex<CallJournal>>,
@@ -290,8 +312,31 @@ impl AgentControl {
             mailbox,
             clock,
             mem: Mutex::new(Mem::default()),
+            arrived: tokio::sync::Notify::new(),
             app: std::sync::OnceLock::new(),
         }))
+    }
+
+    /// A message reached `tab_id`: a blocking wait of its own ends (`#arrived`).
+    pub fn arrive(&self, tab_id: &str) {
+        *self.mem().arrivals.entry(tab_id.to_owned()).or_default() += 1;
+        self.arrived.notify_waiters();
+    }
+
+    /// How many messages reached `tab_id` so far.
+    pub fn arrivals(&self, tab_id: &str) -> u64 {
+        self.mem().arrivals.get(tab_id).copied().unwrap_or(0)
+    }
+
+    /// `tab_id` stands inside a blocking tool call main owns until the guard drops (`#whileBlocked`).
+    pub fn block(&self, tab_id: &str) -> Blocked<'_> {
+        *self.mem().blocked.entry(tab_id.to_owned()).or_default() += 1;
+        Blocked(self, tab_id.to_owned())
+    }
+
+    /// Whether `tab_id` is inside a blocking wait of main's.
+    pub fn is_blocked(&self, tab_id: &str) -> bool {
+        self.mem().blocked.get(tab_id).is_some_and(|n| *n > 0)
     }
 
     // ---- public methods of the TypeScript class ---------------------------------------------------------------------

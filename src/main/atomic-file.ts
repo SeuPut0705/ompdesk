@@ -9,6 +9,7 @@ import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { diskFull, isDiskFull } from "./disk-full";
 
 export interface AtomicWriteOptions {
 	/** The file's mode, pinned after the write (the creation mode is masked by the umask). */
@@ -21,6 +22,8 @@ export interface AtomicWriteOptions {
 const SYNC_RETRY_MS: readonly number[] = [10, 20, 40, 80, 160, 320];
 /** Waits of the variants that do not block: 20 ms doubling, about 5 s in all. */
 const RETRY_MS: readonly number[] = [20, 40, 80, 160, 320, 640, 1_280, 2_560];
+/** Waits of a write that found the disk full: 5 s doubling up to a minute, for as long as the disk stays full. */
+const DISK_FULL_RETRY_MS: readonly number[] = [5_000, 10_000, 20_000, 40_000, 60_000];
 
 let counter = 0;
 const tempFor = (file: string): string => `${file}.${process.pid}-${counter++}.tmp`;
@@ -110,6 +113,11 @@ export async function writeFileAtomic(
  * For a writer that must not block and has nobody to throw to (it runs on every state change): one attempt now, and
  * a refused rename again on a timer for about 5 s. `onFailure` hears of a write that never went through. Returns
  * the call-off of a write a newer one replaces.
+ *
+ * A full disk (ENOSPC, EDQUOT) is no failure: the temp file goes, the target keeps its old bytes, `diskFull` names
+ * the file (the person's one notice, `disk-full-notice.ts`) and the same content is tried again on a backoff for as
+ * long as the disk stays full, until a newer write or the call-off replaces it. Nothing is thrown into the caller's
+ * event loop on the way.
  */
 export function writeFileAtomicDeferred(
 	file: string,
@@ -119,29 +127,72 @@ export function writeFileAtomicDeferred(
 ): () => void {
 	let timer: NodeJS.Timeout | undefined;
 	let temp: string | undefined;
-	const give = (error: unknown): void => {
+	let fullTries = 0;
+	const dropTemp = (): void => {
 		if (temp !== undefined) rmSync(temp, { force: true });
-		onFailure?.(error);
+		temp = undefined;
+	};
+	const wait = (ms: number, next: () => void): void => {
+		timer = setTimeout(() => {
+			timer = undefined;
+			next();
+		}, ms);
+		timer.unref();
 	};
 	const attempt = (n: number): void => {
 		try {
 			temp ??= stageSync(file, data, options);
 			renameSync(temp, file);
 		} catch (error) {
-			const wait = temp !== undefined && isRenameBlocked(error) ? RETRY_MS[n] : undefined;
-			if (wait === undefined) {
-				give(error);
+			if (isDiskFull(error)) {
+				dropTemp();
+				diskFull.report(file);
+				const delay = DISK_FULL_RETRY_MS[Math.min(fullTries++, DISK_FULL_RETRY_MS.length - 1)] ?? 60_000;
+				wait(delay, () => attempt(n));
 				return;
 			}
-			timer = setTimeout(() => attempt(n + 1), wait);
-			timer.unref();
+			const retryIn = temp !== undefined && isRenameBlocked(error) ? RETRY_MS[n] : undefined;
+			if (retryIn === undefined) {
+				dropTemp();
+				diskFull.clear(file);
+				onFailure?.(error);
+				return;
+			}
+			wait(retryIn, () => attempt(n + 1));
+			return;
 		}
+		diskFull.clear(file);
 	};
 	attempt(0);
 	return () => {
 		if (timer === undefined) return;
 		clearTimeout(timer);
 		timer = undefined;
-		if (temp !== undefined) rmSync(temp, { force: true });
+		dropTemp();
+		diskFull.clear(file);
 	};
+}
+
+/**
+ * One file's writer for state that lives in memory and is saved on every change: each `save` replaces the one before
+ * it (a newer snapshot always wins, a retry of an older one never lands over it) and never throws, a full disk
+ * included (`writeFileAtomicDeferred`). With no file (a store kept in memory) every call does nothing.
+ */
+export class AtomicSaver {
+	readonly #file: string | null;
+	readonly #options: AtomicWriteOptions;
+	readonly #onFailure: ((error: unknown) => void) | undefined;
+	#callOff: (() => void) | undefined;
+
+	constructor(file: string | null, options: AtomicWriteOptions = {}, onFailure?: (error: unknown) => void) {
+		this.#file = file;
+		this.#options = options;
+		this.#onFailure = onFailure;
+	}
+
+	save(data: string): void {
+		if (this.#file === null) return;
+		this.#callOff?.();
+		this.#callOff = writeFileAtomicDeferred(this.#file, data, this.#options, this.#onFailure);
+	}
 }

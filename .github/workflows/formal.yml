@@ -1,0 +1,143 @@
+# Formal verification (TLA+/TLC through verify-all.ts) on a hosted runner, on demand. A model check, its
+# mutation runs and its stamp take minutes to hours of CPU, so they never run on a developer's machine:
+#   gh workflow run formal.yml --ref <branch> -f only=<model id> [-f stamp=true]
+#   gh run watch <run-id> --interval 120
+# With `stamp`, the updated formal/manifest.json is committed back to the dispatched branch as
+# `chore(formal): stamp <ids> on <sha7>`. A stamp never lands on main directly: dispatch on a branch.
+name: formal
+run-name: ${{ format('formal {0} {1}{2}', inputs.only || 'all', inputs.tier, inputs.stamp && ' stamp' || '') }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "One model id from formal/manifest.json (empty: every model of the tier)"
+        type: string
+        default: ""
+      tier:
+        description: "fast (the models marked fast) or deep (every model)"
+        type: choice
+        options: [fast, deep]
+        default: fast
+      stamp:
+        description: "Stamp the models that passed and commit formal/manifest.json to this branch (never main)"
+        type: boolean
+        default: false
+      skip_mutations:
+        description: "Skip the mutation runs"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: formal-${{ github.ref }}-${{ inputs.only || 'all' }}
+  cancel-in-progress: true
+
+jobs:
+  formal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Refuse a stamp on main
+        if: inputs.stamp && github.ref == 'refs/heads/main'
+        run: |
+          echo "::error::A stamp lands through a branch: dispatch formal.yml on a branch, not main."
+          exit 1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - name: TLC tools cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ompdesk/formal
+          key: formal-tools-${{ runner.os }}-${{ hashFiles('resources/omp-builtin/formal/skills/ompdesk-formal-verify/assets/toolchain.json') }}
+      - name: Verify
+        env:
+          ONLY: ${{ inputs.only }}
+          TIER: ${{ inputs.tier }}
+          STAMP: ${{ inputs.stamp }}
+          SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
+        run: |
+          args=(formal --tier "$TIER")
+          [ -n "$ONLY" ] && args+=(--only "$ONLY")
+          [ "$STAMP" = "true" ] && args+=(--stamp)
+          [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
+          set -o pipefail
+          bun resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/verify-all.ts "${args[@]}" 2>&1 | tee formal-report.txt
+      - name: Job summary
+        if: always()
+        run: |
+          { echo '```'; tail -n 80 formal-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: formal-report-${{ inputs.only || 'all' }}
+          path: |
+            formal-report.txt
+            formal/reports/
+            formal/**/evidence/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.stamp
+        with:
+          name: formal-stamp-${{ inputs.only || 'all' }}
+          path: formal/manifest.json
+          retention-days: 1
+
+  # Verification runs side by side (one group per ref and model); publication is one at a time per ref. The
+  # stamp is written onto the branch's head as it is now, and only for a model whose covered code is the same there
+  # as at the verified commit; a lost push race re-reads the head and checks again, it never rebases the old commit.
+  publish:
+    if: inputs.stamp
+    needs: formal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: formal-publish-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: formal-stamp-${{ inputs.only || 'all' }}
+          path: verified
+      - name: Publish the stamp
+        env:
+          VERIFIED_SHA: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          sha7=${VERIFIED_SHA:0:7}
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin "$GITHUB_REF_NAME"
+            git reset -q --hard "origin/$GITHUB_REF_NAME"
+            refused=0
+            bun scripts/formal-publish.ts verified/manifest.json "$VERIFIED_SHA" --ids-out ids.txt || refused=1
+            ids=$(cat ids.txt)
+            if [ -z "$ids" ]; then
+              [ "$refused" = 1 ] && exit 1
+              echo "Nothing to stamp."
+              exit 0
+            fi
+            git add formal/manifest.json
+            git commit -q -m "chore(formal): stamp ${ids} on ${sha7}"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              [ "$refused" = 1 ] && exit 1
+              exit 0
+            fi
+            echo "push lost a race (attempt $attempt): re-reading the head"
+          done
+          echo "::error::could not publish the stamp after 5 attempts"
+          exit 1

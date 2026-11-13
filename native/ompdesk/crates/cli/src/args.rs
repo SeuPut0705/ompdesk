@@ -765,6 +765,8 @@ pub fn help_text(topic: Option<&str>) -> String {
     for spec in SPECS {
         out.push_str(&format!("  {:<10}{}\n", spec.name, spec.summary));
     }
+    out.push_str("\nWithout a running OMPdesk:\n");
+    out.push_str(ompdesk_checks::cli::HELP);
     out.push_str("  help      `ompdesk help <command>` shows a command's flags.\n\n");
     out.push_str("A message argument of `-` reads it from stdin. --json prints the raw result (or {ok:false,error}) as JSON.\n");
     out.push_str("Exit codes: 0 ok, 1 failed (tool error, agent_blocked, timeout, session_gone, events_lost), 2 usage, 3 OMPdesk not running or refused.\n");

@@ -16,10 +16,12 @@
  * hold per shard, so a long job lets waiters in between its chunks. A non-gate hold past 15 minutes
  * logs a warning that says so, and `bun run lock-stats` flags it.
  *
- * Every child gets `OMPDESK_BUILD_LOCK_HELD=<kinds held>` (plus `heavy`): a nested locked command runs inside its
- * ancestor's hold without waiting or logging, whatever its kind, except a build, which still takes the build slot
- * (but never another heavy one), so nesting never deadlocks (`acquireLock`). Interrupting this process stops the
- * command's whole process group (Electron and its helpers included) and releases its slots.
+ * Every child gets `OMPDESK_BUILD_LOCK_HELD=<kinds held>` and, while this process holds a heavy slot of the computer's
+ * pool (`ompdesk heavy`), `OMPDESK_HEAVY_HELD=<pid of the process that keeps it>`: a nested locked command runs inside
+ * its ancestor's hold without waiting or logging, whatever its kind, except a build, which still takes the build slot
+ * (but never another heavy one), and a nested `ompdesk run --heavy` never waits on its parent either, so nesting never
+ * deadlocks (`acquireLock`). Interrupting this process stops the command's whole process group (Electron and its
+ * helpers included) and releases its slots.
  *
  * Each release appends the holder, command, slot, wait and hold times and exit code to
  * `scripts/lock-log.ts`'s log; `bun run lock-stats` summarizes it.
@@ -27,16 +29,17 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
+import { processAlive } from "../src/main/process-alive";
 import { findOnPath, launcherNames, needsShell, spawnArgs, spawnCommand } from "../src/main/spawn";
 import { appendLockLog, commandKind } from "./lock-log";
 import {
 	acquireHold,
 	defaultLocks,
-	heavySlots,
+	HEAVY_HELD_ENV,
+	heavyPoolSize,
 	inspectSlots,
 	type Lease,
 	MAX_HOLD_MS,
-	machineRam,
 	SLOT_KINDS,
 	type SlotKind,
 	WORKERS,
@@ -70,19 +73,35 @@ const holds = new Set<Hold>();
 
 const ownerId = () => process.env.OMPDESK_LOCK_OWNER || `${os.userInfo().username}@${path.basename(process.cwd())}`;
 
-/** Kinds an ancestor holds (`heavy` for the machine-wide slot): `1` (the single lock's marker) means all of them. */
+/** Kinds an ancestor holds: `1` (the single lock's marker) means all of them. */
 const inherited = new Set((process.env[HELD_ENV] ?? "").split(",").filter(Boolean));
 const covered = (kind: SlotKind) =>
 	inherited.has("1") || inherited.has(kind) || [...holds].some(h => h.lease.kind === kind);
-/** Only an ancestor's heavy slot covers a hold: two phases of one gate wait for each other like any two holds. */
-const heavyInherited = () => inherited.has("1") || inherited.has("heavy");
+/** The heavy holder an ancestor named when this process started (`ompdesk run --heavy` or another locked command). */
+const inheritedHeavy = Number(process.env[HEAVY_HELD_ENV]);
+/**
+ * Only an ancestor's heavy slot covers a hold: two phases of one gate wait for each other like any two holds. An
+ * ancestor that is gone no longer holds anything, so a pid that is not alive does not count.
+ */
+const heavyInherited = () =>
+	inherited.has("1") || (Number.isInteger(inheritedHeavy) && inheritedHeavy > 0 && processAlive(inheritedHeavy));
 
-/** Children see every kind held above them and here. */
+/**
+ * Children see every kind held above them and here, and one live heavy holder: this process's newest hold, else the
+ * ancestor's. That serves a process with one hold (`locked`, `build-cache`). A process with several (the gate's
+ * phases on a big pool) starts each command with its own hold's pid (`run`'s `under`), because a pid in the shared
+ * environment would name a hold that may end while another hold's command still runs, and that command's nested
+ * `ompdesk run --heavy` would then wait for a slot its own parent keeps.
+ */
 function syncEnv(): void {
 	const kinds = new Set([...inherited, ...[...holds].map(h => h.lease.kind)]);
-	if (holds.size > 0) kinds.add("heavy");
 	if (kinds.size === 0) delete process.env[HELD_ENV];
 	else process.env[HELD_ENV] = [...kinds].join(",");
+	const heavy = [...holds].reverse().find(h => h.lease.heavyPid !== undefined)?.lease.heavyPid;
+	if (heavy !== undefined) process.env[HEAVY_HELD_ENV] = String(heavy);
+	else if (Number.isInteger(inheritedHeavy) && inheritedHeavy > 0)
+		process.env[HEAVY_HELD_ENV] = String(inheritedHeavy);
+	else delete process.env[HEAVY_HELD_ENV];
 }
 
 function beat(): void {
@@ -163,6 +182,8 @@ process.on("exit", code => {
 export interface Held {
 	/** Give the slot back now and log the hold; a hold not released here is released when the process exits. */
 	release(exit?: number): void;
+	/** The `ompdesk heavy hold` that keeps this hold's heavy slot; undefined when an ancestor holds it or the pool is skipped. */
+	heavyPid?: number;
 }
 
 export interface AcquireOptions {
@@ -214,7 +235,7 @@ export async function acquireLock(command: readonly string[], options: AcquireOp
 	if (hold.waitedMs > REPORT_WAIT_MS) {
 		console.error(`[lock] waited ${(hold.waitedMs / 1000).toFixed(1)}s for ${lease.behind || "another holder"}`);
 	}
-	return { release: (exit = 0) => release(hold, exit) };
+	return { release: (exit = 0) => release(hold, exit), heavyPid: lease.heavyPid };
 }
 
 export interface RunResult {
@@ -245,9 +266,10 @@ export function resolveLaunch(
 
 /**
  * Run `command` in its own process group. `capture` buffers stdout and stderr
- * together instead of streaming them, for steps that run side by side.
+ * together instead of streaming them, for steps that run side by side. `under`: the hold the command runs in, whose heavy
+ * slot nested commands name (`syncEnv`).
  */
-export function run(command: string[], options: { capture?: boolean } = {}): Promise<RunResult> {
+export function run(command: string[], options: { capture?: boolean; under?: Held } = {}): Promise<RunResult> {
 	const started = performance.now();
 	const [first, ...rest] = command;
 	if (!first) throw new Error("No command");
@@ -256,6 +278,10 @@ export function run(command: string[], options: { capture?: boolean } = {}): Pro
 	const child = spawn(file, args, {
 		// stdin stays closed: a child in its own process group reading the terminal would stop on SIGTTIN.
 		stdio: ["ignore", options.capture ? "pipe" : "inherit", options.capture ? "pipe" : "inherit"],
+		env:
+			options.under?.heavyPid === undefined
+				? process.env
+				: { ...process.env, [HEAVY_HELD_ENV]: String(options.under.heavyPid) },
 		detached: !win,
 		shell,
 	});
@@ -285,7 +311,7 @@ export async function runLocked(
 ): Promise<RunResult> {
 	const held = await acquireLock(command, { kind, via: options.via });
 	try {
-		const result = await run(command, { capture: options.capture });
+		const result = await run(command, { capture: options.capture, under: held });
 		held.release(result.code);
 		return result;
 	} catch (error) {
@@ -295,12 +321,12 @@ export async function runLocked(
 }
 
 /**
- * Run `each` over `items` side by side when the machine has room for more than one heavy hold, else one after
- * another: on 16 GB a typecheck beside a vitest run is two heavy jobs in one hold (e2e-ci-windows.md › Lock on a
- * small machine).
+ * Run `each` over `items` side by side when the computer's pool has room for more than one heavy hold, else one after
+ * another (`heavyPoolSize`): on 16 GB a typecheck beside a vitest run is two heavy jobs in one hold
+ * (e2e-ci-windows.md › Lock on a small machine).
  */
 export async function runSteps<T, R>(items: readonly T[], each: (item: T) => Promise<R>): Promise<R[]> {
-	if (heavySlots(machineRam()) > 1) return Promise.all(items.map(each));
+	if ((await heavyPoolSize()) > 1) return Promise.all(items.map(each));
 	const results: R[] = [];
 	for (const item of items) results.push(await each(item));
 	return results;
@@ -359,7 +385,7 @@ if (import.meta.main) {
 		process.exit(code);
 	}
 	const held = await acquireLock(args, { kind: slotKind });
-	const { code } = await run(args);
+	const { code } = await run(args, { under: held });
 	held.release(code);
 	process.exit(code);
 }

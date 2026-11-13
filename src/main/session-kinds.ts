@@ -7,16 +7,20 @@
  */
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { writeFileAtomicSync } from "./atomic-file";
+import { AtomicSaver } from "./atomic-file";
 
 const StoredKinds = z.object({ chat: z.array(z.string()) });
 
 export class SessionKindStore {
 	readonly #file: string;
+	readonly #saver: AtomicSaver;
 	#chat: Set<string> | null = null;
 
 	constructor(file: string) {
 		this.#file = file;
+		this.#saver = new AtomicSaver(file, {}, err =>
+			console.warn(`[session-kinds] could not persist ${file}: ${err instanceof Error ? err.message : String(err)}`),
+		);
 	}
 
 	#load(): Set<string> {
@@ -33,17 +37,11 @@ export class SessionKindStore {
 		return this.#load().has(sessionId);
 	}
 
-	/** Record a chat session id; persisted atomically, failures only lose the label. */
+	/** Record a chat session id; saved atomically and again later when the disk is full, never thrown. */
 	markChat(sessionId: string): void {
 		const chat = this.#load();
 		if (chat.has(sessionId)) return;
 		chat.add(sessionId);
-		try {
-			writeFileAtomicSync(this.#file, JSON.stringify({ chat: [...chat] }));
-		} catch (err) {
-			console.warn(
-				`[session-kinds] could not persist ${this.#file}: ${err instanceof Error ? err.message : String(err)}`,
-			);
-		}
+		this.#saver.save(JSON.stringify({ chat: [...chat] }));
 	}
 }

@@ -32,7 +32,7 @@ export const FEATURES = {
 	outputStyle: "Output style (concise, detailed, minimal)",
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
-	accountRotation: "Account rotation (even, quota re-rank at turn start)",
+	accountRotation: "Account rotation (even, quota re-rank at turn start and between model calls)",
 	creditSpend: "Credit use off: an account whose plan is spent does not run on credits or extra usage",
 	thinkingDefault: "Auto thinking by default",
 	delegation: "Delegation strength (Solo to Swarm)",
@@ -81,6 +81,7 @@ export const FEATURES = {
 	computerUse: "Computer use engine: agent-desktop, falling back to the built-in prelude (prompt section, notice)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	scratch: "A scratch folder per session for throwaway files (prompt section)",
+	checkRuns: "Heavy commands and test suites through ompdesk run --heavy and ompdesk check (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	xdevNotice: "No xd:// device listed twice in a request (mount notice)",
 	contextHookIdle: "Model requests not copied while the message filters have nothing to drop (recap, mount notice)",
@@ -478,6 +479,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/scratch.ts: only the public `before_agent_start` hook; no internals to probe. */
 	scratch: {},
+	/** modes/check-runs.ts: only the public `before_agent_start` hook; no internals to probe. */
+	checkRuns: {},
 	/** modes/background-checks.ts: reads stock `async.enabled` by id. */
 	backgroundChecks: {
 		pkg: ["Settings.instance"],
@@ -502,10 +505,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * namespaces. Quota re-ranking asks stock's selector (`keys.getWithCredential`, `recordAffinity: false`) for its
 	 * pick, reads a pin's explicitness through `sessions.inherit`'s `include` callback, skips pooled sessions
 	 * (`sessions.permits`) and accounts with a policy (`oauth.policy`), and orders two accounts' own reports
-	 * (`credentials.list`, `usage.report`) with stock's comparator (`orderUsageRankedCandidates`).
+	 * (`credentials.list`, `usage.report`) with stock's comparator (`orderUsageRankedCandidates`). The between-calls
+	 * check (`after_provider_response`) reads the running subagents (`AgentRegistry.list`, `isRunning`).
 	 */
 	accountRotation: {
-		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()"],
+		pkg: [
+			"AgentRegistry.global()",
+			"AgentRegistry.prototype.get()",
+			"AgentRegistry.prototype.list()",
+			"AgentRegistry.prototype.isRunning()",
+		],
 		session: [
 			"sessionId",
 			"modelRegistry.authStorage.oauth.accounts()",
@@ -518,6 +527,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"modelRegistry.authStorage.keys.getWithCredential()",
 			"modelRegistry.authStorage.credentials.list()",
 			"modelRegistry.authStorage.usage.report()",
+			// The between-calls check hangs on this event (the extension runner's emit behind `after_provider_response`).
+			"extensionRunner.emitAfterProviderResponse()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai/auth/blocks": [

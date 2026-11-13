@@ -126,7 +126,7 @@ export function useUsageReports(active = true): UsageReport[] | null {
 
 /**
  * One read of this tab's usage outside the poll, shown by every surface of the tab. `refresh` has stock probe
- * every provider whose report is a minute old first (lib/usage-reports.ts).
+ * every provider's accounts again now, whatever the age of their reports (lib/usage-reports.ts).
  */
 export function useUsageRead(): (refresh?: boolean) => Promise<UsageRead> {
 	const rpc = useTabRpc();

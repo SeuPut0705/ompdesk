@@ -504,10 +504,9 @@ async function resetProjector(
 }
 
 /**
- * A report younger than this already answers a refresh: its provider's cache
- * is left alone. Claude's usage endpoint answers 429 for a minute after a
- * burst (pi-ai usage/claude.ts `FAILURE_BACKOFF_MS`), so repeated clicks and
- * the TUI's own polls would otherwise spend the account's probes for nothing.
+ * The least time between two credit fetches of a provider that only a fetch's `raw` can read the credits from
+ * (ChatGPT's balance), outside an explicit refresh. Claude's usage endpoint answers 429 for a minute after a burst
+ * (pi-ai usage/claude.ts `FAILURE_BACKOFF_MS`), so repeated reads would spend the account's probes for nothing.
  */
 const REFRESH_FRESH_MS = 60_000;
 
@@ -523,6 +522,8 @@ interface WireUsageReport {
 	active?: boolean;
 	lastUsedAt?: number;
 	resetPasses?: ResetPasses;
+	/** Why this session is on this account: the rotation's last decision (see UsageReport.rotation). */
+	rotation?: { why: string; moved: boolean; phase: string; at: number };
 }
 
 /**
@@ -572,9 +573,10 @@ function shapeReport(
 /**
  * One report per stored account; each keeps the identity its own metadata
  * names. `refresh` is stock's user-requested refresh (`omp usage invalidate`)
- * for each provider holding a report older than {@link REFRESH_FRESH_MS}: its
- * cache goes and stock probes its accounts again, one after another. An
- * account left without a report shows its last one (`lastReports`).
+ * for every provider with a report, whatever its age: a person pressing
+ * Refresh sees the fresh result at once. Its cache goes and stock probes its
+ * accounts again, one after another. An account left without a report shows
+ * its last one (`lastReports`).
  */
 async function usage(env: BridgeEnv, session: AgentSession, refresh: boolean) {
 	const reports: WireUsageReport[] = [];
@@ -582,11 +584,9 @@ async function usage(env: BridgeEnv, session: AgentSession, refresh: boolean) {
 		const authStorage = session.modelRegistry.authStorage;
 		const projectReset = await resetProjector(env).catch(() => undefined);
 		// Dynamic on purpose (as resetProjector): account-rotation.ts needs omp internals a static import would make
-		// settings.ts depend on; an omp lacking them just contributes no assignment times.
-		const ledger = await import("./account-rotation").then(
-			module => module.ledgerAssignedAt,
-			() => undefined,
-		);
+		// settings.ts depend on; an omp lacking them just contributes no assignment times or decision.
+		const rotation = await import("./account-rotation").catch(() => undefined);
+		const ledger = rotation?.ledgerAssignedAt;
 		const assignedOf = (provider: string, accounts: readonly StoredAccount[]): ReadonlyMap<number, number> => {
 			try {
 				return ledger?.(provider, accounts) ?? new Map();
@@ -595,10 +595,9 @@ async function usage(env: BridgeEnv, session: AgentSession, refresh: boolean) {
 			}
 		};
 		let raw = (await session.fetchUsageReports()) ?? [];
-		const now = Date.now();
-		const stale = new Set(
-			refresh ? raw.filter(report => now - report.fetchedAt >= REFRESH_FRESH_MS).map(report => report.provider) : [],
-		);
+		// A person's refresh is answered at once: every provider's cache goes, whatever the age of its report. The
+		// refresh is explicit only (the button; the poll never sets it), so it stays as bounded as the clicks.
+		const stale = new Set(refresh ? raw.map(report => report.provider) : []);
 		if (stale.size > 0) {
 			for (const provider of stale) await authStorage.usage.invalidate(provider);
 			raw = (await session.fetchUsageReports()) ?? [];
@@ -636,6 +635,15 @@ async function usage(env: BridgeEnv, session: AgentSession, refresh: boolean) {
 			const account = accountsOf(provider).find(entry => entry.credentialId === Number(id));
 			const last = account && showReport(provider, account.credentialId, null);
 			if (last) reports.push(shapeReport(last, account, projectReset, assignedOf(provider, accountsOf(provider))));
+		}
+		// Why this session is on its account, from the rotation core's last decision (none before its first turn).
+		const decision = rotation?.decisionOf(session.sessionId);
+		if (decision) {
+			for (const report of reports) {
+				if (report.active) {
+					report.rotation = { why: decision.why, moved: decision.moved, phase: decision.phase, at: decision.at };
+				}
+			}
 		}
 	} catch {
 		// Provider usage fetch is best-effort; local session tallies always answer.
@@ -716,15 +724,15 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 	const reporter = authStorage.usage as unknown as CredentialUsageReporter;
 	const read = async (row: (typeof rows)[number]) =>
 		showReport(provider, row.id, await reporter.report(provider, row.credential, { baseUrl }).catch(() => null));
-	// `refresh`, as usage() explains: only when a report is older than REFRESH_FRESH_MS. A provider whose credits are
-	// only in a fetch's `raw` (ChatGPT) is fetched whatever `refresh` says while no fetch of one of its accounts
-	// passed through this bridge (stock's cache, filled by a turn or another omp, answered), at most once per
-	// REFRESH_FRESH_MS: its credits would otherwise wait for the next refresh that finds an old report.
+	// `refresh`, as usage() explains: a person's refresh drops the provider's cache whatever the age of its reports. A
+	// provider whose credits are only in a fetch's `raw` (ChatGPT) is fetched whatever `refresh` says while no fetch
+	// of one of its accounts passed through this bridge (stock's cache, filled by a turn or another omp, answered), at
+	// most once per REFRESH_FRESH_MS: its credits would otherwise wait for the next refresh.
 	const now = Date.now();
 	const viaRaw = creditsInRaw(provider);
 	if (refresh || viaRaw) {
 		const reports = await Promise.all(rows.map(read));
-		const stale = refresh && reports.some(report => report && now - report.fetchedAt >= REFRESH_FRESH_MS);
+		const stale = refresh && rows.length > 0;
 		// An account with no report has nothing to read credits from.
 		const unread =
 			viaRaw &&

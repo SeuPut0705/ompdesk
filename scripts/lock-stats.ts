@@ -2,12 +2,13 @@
  * Summarize the lock's log (`scripts/lock-log.ts`): how long locked commands
  * waited for a slot and held it, per owner, per command kind and per slot
  * (with how busy each slot was), the holds past the 15-minute limit (gate
- * exempt), and the slots held right now.
+ * exempt), and the slots held right now (the kinds', and the computer's heavy
+ * slots from `ompdesk heavy status --json`).
  *
  *   bun run lock-stats [--since 2h]     (s, m, h or d; default 24h; `all` for everything)
  */
 import { LOCK_LOG, type LockLogEntry, readLockLog } from "./lock-log";
-import { defaultLocks, inspectSlots, MAX_HOLD_MS } from "./lock-slots";
+import { defaultLocks, inspectHeavy, inspectSlots, MAX_HOLD_MS } from "./lock-slots";
 
 const UNIT_MS: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 
@@ -148,7 +149,9 @@ if (import.meta.main) {
 	const windowMs = parseSince(since);
 	const from = Date.now() - windowMs;
 	const entries = readLockLog().filter(entry => Date.parse(entry.time) >= from);
-	const live = inspectSlots(defaultLocks());
+	const locks = defaultLocks();
+	// The heavy slots are the computer's pool (`ompdesk heavy status --json`), not this repository's lock folder.
+	const live = [...inspectSlots(locks), ...(await inspectHeavy(locks))];
 	if (entries.length === 0) {
 		console.log(`[lock-stats] no locked runs in ${LOCK_LOG} over the last ${since}`);
 	} else {

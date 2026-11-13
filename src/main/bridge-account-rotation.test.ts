@@ -7,19 +7,28 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	type AccountFacts,
+	decideMove,
+	HOT_PRIMARY_FRACTION,
 	LEDGER_MAX_AGE_MS,
+	lastDecision,
+	MID_TURN_DRAIN_MARGIN,
 	parseLedger,
 	planEvenRotation,
 	type QuotaRerankAuth,
 	type QuotaRerankStock,
+	type RankRead,
 	RERANK_DRAIN_MARGIN,
+	type RerankPhase,
 	type RotationAccount,
 	type RotationAuth,
 	type RotationBlock,
 	type RotationLedger,
 	type RotationStock,
 	recordAssignment,
+	recordDecision,
 	rerankBeforePrompt,
+	rerankMidTurn,
 	rotateBeforePrompt,
 	setAccountRotation,
 	withDrainMargin,
@@ -314,8 +323,11 @@ function quotaAuth(world: QuotaWorld = {}) {
 	return { auth, pins, includeAnswers };
 }
 
-/** Stock's ranking, scripted: its pick, and whether it still ranks that pick first with the pin's drain handicapped. */
-function quotaStock(top: number | undefined, clearly: boolean) {
+/** One account's report as a cool, measured account: the facts the move rule reads. */
+const COOL: AccountFacts = { primaryUsed: 0.3, spent: false, primaryDrain: 0.1, secondaryDrain: 0.01 };
+
+/** Stock's ranking, scripted: its pick, and its reports (`read`: `true`/`false` = whether stock still ranks that pick first past the margin). */
+function quotaStock(top: number | undefined, read: boolean | Partial<RankRead>) {
 	const asked = { top: 0, clearly: 0, margin: [] as Array<[number, number]> };
 	const stock: QuotaRerankStock = {
 		...STOCK,
@@ -323,10 +335,11 @@ function quotaStock(top: number | undefined, clearly: boolean) {
 			asked.top += 1;
 			return top;
 		},
-		clearlyBetter: async (_prompt, topId, pinId) => {
+		compare: async (_prompt, topId, pinId) => {
 			asked.clearly += 1;
 			asked.margin.push([topId, pinId]);
-			return clearly;
+			const base: RankRead = { pin: COOL, top: COOL, topFirstWithMargin: typeof read === "boolean" ? read : false };
+			return typeof read === "boolean" ? base : { ...base, ...read };
 		},
 	};
 	return { stock, asked };
@@ -348,7 +361,7 @@ describe("gui-bridge quota re-rank at turn start", () => {
 
 	it("moves a warm automatic pin to the account stock ranks first when it clearly beats the pin, as an automatic warm pin", async () => {
 		const { step, pins, asked } = rerank({ pin: WARM_PIN }, 9, true);
-		expect(await step).toEqual({ move: true, from: 7, to: 9 });
+		expect(await step).toEqual({ move: true, from: 7, to: 9, why: "better" });
 		// restoredAtMs: stock keeps treating it as an automatic pin (its eviction and failover rules still apply).
 		expect(pins).toEqual([{ sessionId: "s1", credentialId: 9, restoredAtMs: NOW }]);
 		expect(asked.margin).toEqual([[9, 7]]);
@@ -455,5 +468,179 @@ describe("gui-bridge quota re-rank at turn start", () => {
 		expect(withDrainMargin(row, { primary: false, secondary: false })).toEqual(row);
 		// A copy: the candidate stock's ranking returns for the other account is never rewritten.
 		expect(row.secondaryRequiredDrain).toBe(0.01);
+	});
+});
+
+describe("the move rule (decideMove), as a table", () => {
+	const pinHot: AccountFacts = { ...COOL, primaryUsed: 0.86 };
+	const spent: AccountFacts = { ...COOL, spent: true };
+	const hotAt85: AccountFacts = { ...COOL, primaryUsed: HOT_PRIMARY_FRACTION };
+	// Drain of the long window, the one stock compares first.
+	const drain = (secondaryDrain: number): AccountFacts => ({ ...COOL, secondaryDrain });
+
+	it.each<[string, RerankPhase, RankRead, { move: boolean; why: string }]>([
+		[
+			"turn start: the pin's usage is unreadable",
+			"turn-start",
+			{ pin: undefined, top: COOL, topFirstWithMargin: true },
+			{ move: false, why: "usage-unreadable" },
+		],
+		[
+			"turn start: the other account's usage is unreadable",
+			"turn-start",
+			{ pin: COOL, top: undefined, topFirstWithMargin: true },
+			{ move: false, why: "usage-unreadable" },
+		],
+		[
+			"turn start: stock ranks the other first past the margin",
+			"turn-start",
+			{ pin: COOL, top: COOL, topFirstWithMargin: true },
+			{ move: true, why: "better" },
+		],
+		[
+			"turn start: within the margin",
+			"turn-start",
+			{ pin: COOL, top: COOL, topFirstWithMargin: false },
+			{ move: false, why: "within-margin" },
+		],
+		[
+			"turn start: the pin is at the 85% step and the other is cool",
+			"turn-start",
+			{ pin: pinHot, top: COOL, topFirstWithMargin: true },
+			{ move: true, why: "near-limit" },
+		],
+		[
+			"mid-turn: unreadable usage never moves, whatever the drain",
+			"mid-turn",
+			{ pin: undefined, top: drain(1), topFirstWithMargin: true },
+			{ move: false, why: "usage-unreadable" },
+		],
+		[
+			"mid-turn: below the 85% step and the drain gap is small",
+			"mid-turn",
+			{ pin: drain(0.01), top: drain(0.05), topFirstWithMargin: true },
+			{ move: false, why: "mid-turn" },
+		],
+		[
+			"mid-turn: 85% 5h window crossed",
+			"mid-turn",
+			{ pin: hotAt85, top: COOL, topFirstWithMargin: true },
+			{ move: true, why: "near-limit" },
+		],
+		[
+			"mid-turn: just below the 85% step stays",
+			"mid-turn",
+			{ pin: { ...COOL, primaryUsed: 0.849 }, top: COOL, topFirstWithMargin: true },
+			{ move: false, why: "mid-turn" },
+		],
+		[
+			"mid-turn: allowance spent",
+			"mid-turn",
+			{ pin: spent, top: COOL, topFirstWithMargin: true },
+			{ move: true, why: "near-limit" },
+		],
+		[
+			"mid-turn: the pin is hot but so is the other account",
+			"mid-turn",
+			{ pin: pinHot, top: hotAt85, topFirstWithMargin: true },
+			{ move: false, why: "no-better" },
+		],
+		[
+			"mid-turn: drain 8x the pin's pays for the cache",
+			"mid-turn",
+			{ pin: drain(0.01), top: drain(0.08), topFirstWithMargin: true },
+			{ move: true, why: "much-better" },
+		],
+		[
+			"mid-turn: drain just under 8x stays",
+			"mid-turn",
+			{ pin: drain(0.01), top: drain(0.0799), topFirstWithMargin: true },
+			{ move: false, why: "mid-turn" },
+		],
+		[
+			"mid-turn: a pin with nothing left to drain, the other has some",
+			"mid-turn",
+			{ pin: drain(0), top: drain(0.01), topFirstWithMargin: true },
+			{ move: true, why: "much-better" },
+		],
+		[
+			"mid-turn: no window measured on both sides, no ratio",
+			"mid-turn",
+			{
+				pin: { ...COOL, secondaryDrain: undefined, primaryDrain: 0.01 },
+				top: { ...COOL, secondaryDrain: 0.5, primaryDrain: undefined },
+				topFirstWithMargin: true,
+			},
+			{ move: false, why: "mid-turn" },
+		],
+	])("%s", (_name, phase, read, expected) => {
+		expect(decideMove(phase, read)).toEqual(expected);
+	});
+
+	it("mirrors stock's 85% step and keeps the mid-turn margin well above the turn-start one", () => {
+		expect(HOT_PRIMARY_FRACTION).toBe(0.85);
+		expect(MID_TURN_DRAIN_MARGIN).toBeGreaterThan(RERANK_DRAIN_MARGIN);
+	});
+});
+
+describe("gui-bridge quota re-rank between two model calls", () => {
+	const midTurn = (world: QuotaWorld, top: number | undefined, read: Partial<RankRead>, subagents = 0) => {
+		const { auth, pins } = quotaAuth(world);
+		const { stock, asked } = quotaStock(top, read);
+		const step = rerankMidTurn(
+			() => ({ auth, provider: "anthropic", modelId: "m", sessionId: "s1" }),
+			stock,
+			NOW,
+			subagents,
+		);
+		return { step, pins, asked };
+	};
+
+	it("stays below the threshold, and moves once the pin crosses stock's 85% step, as an automatic warm pin", async () => {
+		const below = midTurn({ pin: WARM_PIN }, 9, { pin: { ...COOL, primaryUsed: 0.7 } });
+		expect(await below.step).toEqual({ move: false, why: "mid-turn" });
+		expect(below.pins).toEqual([]);
+		const above = midTurn({ pin: WARM_PIN }, 9, { pin: { ...COOL, primaryUsed: 0.86 } });
+		expect(await above.step).toEqual({ move: true, from: 7, to: 9, why: "near-limit" });
+		expect(above.pins).toEqual([{ sessionId: "s1", credentialId: 9, restoredAtMs: NOW }]);
+	});
+
+	it("does not move a session whose usage is unreadable, however good the other account looks", async () => {
+		const { step, pins } = midTurn({ pin: WARM_PIN }, 9, { pin: undefined });
+		expect(await step).toEqual({ move: false, why: "usage-unreadable" });
+		expect(pins).toEqual([]);
+	});
+
+	it("never moves an explicit pin or a pooled session, and asks stock nothing about them", async () => {
+		const pinned = midTurn({ pin: { credentialId: 7, explicit: true } }, 9, { pin: { ...COOL, primaryUsed: 0.99 } });
+		expect(await pinned.step).toEqual({ move: false, why: "explicit" });
+		expect(pinned.asked).toMatchObject({ top: 0, clearly: 0 });
+		const pooled = midTurn({ pin: WARM_PIN, outsidePool: [9] }, 9, { pin: { ...COOL, primaryUsed: 0.99 } });
+		expect(await pooled.step).toEqual({ move: false, why: "restricted" });
+	});
+
+	it("keeps the session where its subagents run, so no subagent sits on another account than its parent", async () => {
+		const { step, pins, asked } = midTurn({ pin: WARM_PIN }, 9, { pin: { ...COOL, primaryUsed: 0.99 } }, 2);
+		expect(await step).toEqual({ move: false, why: "subagents" });
+		expect(pins).toEqual([]);
+		expect(asked).toMatchObject({ top: 0, clearly: 0 });
+	});
+
+	it("does nothing in even mode", async () => {
+		setAccountRotation({ mode: "even" });
+		const { step } = midTurn({ pin: WARM_PIN }, 9, { pin: { ...COOL, primaryUsed: 0.99 } });
+		expect(await step).toEqual({ move: false, why: "mode" });
+	});
+});
+
+describe("the decision the usage view shows", () => {
+	it("keeps the last decision per session, newest last, and drops the oldest past its cap", () => {
+		recordDecision("a", { why: "same", moved: false, phase: "turn-start", at: 1 });
+		recordDecision("a", { why: "near-limit", moved: true, phase: "mid-turn", at: 2 });
+		expect(lastDecision("a")).toEqual({ why: "near-limit", moved: true, phase: "mid-turn", at: 2 });
+		expect(lastDecision("never")).toBeUndefined();
+		for (let n = 0; n < 70; n++) recordDecision(`s${n}`, { why: "same", moved: false, phase: "turn-start", at: n });
+		expect(lastDecision("a")).toBeUndefined();
+		expect(lastDecision("s69")).toBeDefined();
 	});
 });

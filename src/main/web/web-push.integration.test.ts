@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { WEB_PAIRING_REQUEST, type WebPairingRequest } from "../../shared/mobile-web";
+import { WEB_DEVICE_CHANNELS } from "../../shared/web-host";
 import type { WebPushPayload, WebPushStateResponse } from "../../shared/web-push";
 import { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
@@ -275,8 +276,9 @@ async function phone(
 		await arrived(socket, frames, received => received.length > 0);
 		expect(host.router.isConnected(deviceId)).toBe(true);
 		socket.send(JSON.stringify({ t: "presence", visible: options.visible }));
-		// The socket's frames are handled in order: the answer to a call sent after the presence means it was read.
-		socket.send(JSON.stringify({ t: "inv", id: 9000, ch: "presence-read", a: [] }));
+		// The core refuses an unknown channel itself, so its answer can beat the `web.conns` that carries the presence
+		// to main. A call main answers (`web.reply`) leaves only after every core message sent before it was handled.
+		socket.send(JSON.stringify({ t: "inv", id: 9000, ch: WEB_DEVICE_CHANNELS.UI_PREFS_GET, a: [] }));
 		await arrived(socket, frames, received => received.some(isAnswer(9000)));
 		expect(host.router.isDeviceVisible(deviceId)).toBe(options.visible);
 	}

@@ -4194,6 +4194,63 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		};
 	};
 	/**
+	 * `fixture blocking tool:<name> <json>`: a turn that calls a host tool and stands inside the call, as stock's agent
+	 * does (a host tool call has no way to be cut by a steer). When the result arrives the turn reads the steers that
+	 * were queued meanwhile, answers them and ends.
+	 */
+	let blockedTool: { id: string; settle: () => void } | undefined;
+	const startBlockingTool = (user: AgentMessage, call: string) => {
+		const space = call.indexOf(" ");
+		const id = `blocking-tool-${Date.now()}`;
+		write({
+			type: "host_tool_call",
+			id,
+			toolCallId: "fixture-blocking-tool",
+			toolName: space < 0 ? call : call.slice(0, space),
+			arguments: space < 0 ? {} : (JSON.parse(call.slice(space + 1)) as Record<string, unknown>),
+		});
+		blockedTool = {
+			id,
+			settle: () => {
+				blockedTool = undefined;
+				const turn: AgentMessage[] = [user];
+				const steers = lanes.steering.splice(0);
+				emitQueue();
+				for (const text of steers) {
+					const message: AgentMessage = {
+						role: "user",
+						content: [{ type: "text", text }],
+						steering: true,
+						timestamp: Date.now(),
+					};
+					appendMessage(message);
+					write({ type: "message_start", message });
+					write({ type: "message_end", message });
+					turn.push(message);
+				}
+				const answer: AgentMessage = {
+					role: "assistant",
+					content: [
+						{
+							type: "text",
+							text:
+								steers.length > 0
+									? `Read the steer after the tool returned: ${steers.length}`
+									: "No steer was queued.",
+						},
+					],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "stop",
+				};
+				appendMessage(answer);
+				write({ type: "message_end", message: answer });
+				endTurn([...turn, answer]);
+			},
+		};
+	};
+	/**
 	 * `fixture desktop acting`: an eval run that wants the desktop slot (the bridge's `desktop_slot_acquire`), waiting
 	 * for main's `desktop_slot.grant`. Once granted the run ends (a run that had to wait returns the stale notice) and
 	 * the turn goes on holding the slot until `fixture desktop done` lets go (`desktop_slot_release`) or main revokes.
@@ -4282,6 +4339,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			if (desktopHolding) pushBridgeEvent({ type: "desktop_slot_release", reason: "turn_end" });
 			desktopHolding = false;
 			endTurn([user]);
+		} else if (message.startsWith("fixture blocking tool:")) {
+			startBlockingTool(user, message.slice("fixture blocking tool:".length));
 		} else if (message.startsWith("fixture detached child:")) {
 			// What an agent's `nohup server &` leaves behind: a process that outlives this omp. Its pid goes to the named
 			// file (e2e/session-processes.e2e.ts).
@@ -5629,6 +5688,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			// Stock answers nothing to a host tool's result; the recorded frame is what tests read.
 			case "host_tool_result":
+				if (blockedTool && command.id === blockedTool.id) blockedTool.settle();
 				autopilot.hostToolResult(command);
 				break;
 			case "set_subagent_subscription":

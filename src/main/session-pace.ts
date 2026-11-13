@@ -111,7 +111,22 @@ export interface Pace {
 	 * a `wait` for as long as a backgrounded check it lists was running. Part of `toolS`. Absent without a check, and
 	 * in a paired host's answer from before this field.
 	 */
-	checks?: { runs: number; seconds: number };
+	checks?: { runs: number; seconds: number; savedS?: number };
+}
+
+/**
+ * The last line of an `ompdesk check` run (`native/ompdesk/crates/checks/src/check.rs` `finish`): its id and the
+ * seconds its reused results saved. A run's line reaches the journal in its bash call's result, a `wait`'s or a log
+ * read; each run counts once.
+ */
+const CHECK_SAVED = /ompdesk check: (\d{8}-\d{6}-[0-9a-f]{4}): \w+ in [^\n]*? reuse saved about [^\n(]*\((\d+) s\)/g;
+
+function resultText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((part: { text?: unknown } | null) => (typeof part?.text === "string" ? part.text : ""))
+		.join("\n");
 }
 
 function seconds(entry: Entry): number | undefined {
@@ -163,6 +178,7 @@ export function pace(lines: Iterable<string>): Pace {
 	const checkCalls = new Set<string>();
 	const checkJobs = new Set<string>();
 	const checkIntervals: [number, number][] = [];
+	const checkSaved = new Map<string, number>();
 	let prev: number | undefined;
 	const gaps: [number, number][] = [];
 	for (const line of lines) {
@@ -214,6 +230,8 @@ export function pace(lines: Iterable<string>): Pace {
 			}
 			row.calls++;
 			if (entry.message.isError) row.errors++;
+			for (const [, run, saved] of resultText(entry.message.content).matchAll(CHECK_SAVED))
+				if (run) checkSaved.set(run, Number(saved));
 			const details = entry.message.details;
 			if (name === "bash" && id) {
 				const check = checkCalls.has(id);
@@ -235,6 +253,8 @@ export function pace(lines: Iterable<string>): Pace {
 		}
 	}
 	const wallS = first !== undefined && prev !== undefined ? prev - first : 0;
+	let savedS = 0;
+	for (const saved of checkSaved.values()) savedS += saved;
 	const toolS = unionSeconds(intervals);
 	// A long gap is idle only where no tool ran through it (a `wait` that returned after 20 min is that tool's time).
 	const idleS = gaps.reduce((sum, [from, to]) => sum + (to - from) - unionSeconds(clip(intervals, from, to)), 0);
@@ -252,7 +272,15 @@ export function pace(lines: Iterable<string>): Pace {
 		polls,
 		...(repeatRead ? { repeatRead } : {}),
 		...(polls > 0 ? { pollKinds } : {}),
-		...(checkCalls.size > 0 ? { checks: { runs: checkCalls.size, seconds: unionSeconds(checkIntervals) } } : {}),
+		...(checkCalls.size > 0
+			? {
+					checks: {
+						runs: checkCalls.size,
+						seconds: unionSeconds(checkIntervals),
+						...(savedS > 0 ? { savedS } : {}),
+					},
+				}
+			: {}),
 	};
 }
 
@@ -299,11 +327,15 @@ export function waste(result: Pace): string | undefined {
 
 const span = (s: number): string => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
 
-/** `checks ×46 31 min (82% of tools)`: the checks started, the tool time one ran through, and its share of tool time. */
+/**
+ * `checks ×46 31 min (82% of tools)`: the checks started, the tool time one ran through, and its share of tool time;
+ * `, 12 min saved by reuse` when `ompdesk check` runs reused earlier results.
+ */
 function checksPart(result: Pace): string | undefined {
 	if (!result.checks) return undefined;
 	const share = result.toolS > 0 ? Math.round((result.checks.seconds / result.toolS) * 100) : 0;
-	return `checks ×${result.checks.runs} ${span(result.checks.seconds)} (${share}% of tools)`;
+	const saved = result.checks.savedS ? `, ${span(result.checks.savedS)} saved by reuse` : "";
+	return `checks ×${result.checks.runs} ${span(result.checks.seconds)} (${share}% of tools${saved})`;
 }
 
 /** The one line a done report ends with: `Pace: wall 22 min · model+between-calls 20 min (156 calls, median 4.0 s) · tools 2 min · checks ×3 61 s (51% of tools) · errors 6`. */

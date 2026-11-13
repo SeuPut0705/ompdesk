@@ -15,8 +15,8 @@ import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-
  * - Settings' `provider_accounts` reads the same cache entry as `usage`
  *   (stock `fetchUsageReports`), which the rate-limit headers of every turn
  *   and credential selection also use: keyed by the provider's base URL.
- * - `refresh` is stock's `usage.invalidate` for a provider whose report is a
- *   minute old or more, and leaves a fresher one alone.
+ * - `refresh` is stock's `usage.invalidate` for every provider whose report is shown, whatever its age (a person's
+ *   refresh is answered at once).
  * - An account whose refreshed probe fails keeps its last report, with that
  *   report's own age, on both reads.
  */
@@ -147,10 +147,11 @@ describe.skipIf(!existsSync(omp))("bridge quota reads on stock's usage cache", (
 			// A two-minute-old report: refresh drops stock's cache and the account is probed now.
 			expect(probe.afterStaleRefresh).toEqual({ anthropic: 2, codex: 1 });
 			expect(probe.refreshedAge).toBeLessThan(10_000);
-			// A fresh report answers the next refresh as it is.
-			expect(probe.afterFreshRefresh).toEqual({ anthropic: 2, codex: 1 });
-			// Codex was stale, so it was probed; the probe failed, and both reads keep its last report and age.
-			expect(probe.afterFailedRefresh).toEqual({ anthropic: 2, codex: 2 });
+			// A person's refresh is answered at once, even of a report that is seconds old: the account is probed again.
+			expect(probe.afterFreshRefresh).toEqual({ anthropic: 3, codex: 1 });
+			// Every provider's cache goes on a refresh: Claude is probed once more, and Codex's probe failed, so both
+			// reads keep its last report and age.
+			expect(probe.afterFailedRefresh).toEqual({ anthropic: 4, codex: 2 });
 			expect(probe.codexAfterFailedRefresh).toBe(probe.codexBefore);
 			expect(probe.codexAccountAfterFailedRefresh).toBe(probe.codexBefore);
 			expect(probe.codexAccountUsed).toBe(0.5);

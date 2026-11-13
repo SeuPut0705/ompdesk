@@ -129,6 +129,8 @@ import { systemCacheTools } from "./disk/caches";
 import { DiskCare, registerDiskCareIpc } from "./disk/care";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "./disk/saved-worktrees";
 import { ScratchCare } from "./disk/scratch";
+import { diskFull } from "./disk-full";
+import { bindDiskFullNotice, describeFiles } from "./disk-full-notice";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { EMPTY_APPLY_PLAN } from "./extension-reload";
@@ -793,6 +795,18 @@ function spawnWindow(
 
 app.whenReady().then(async () => {
 	installMainRuntimeLogging();
+	// A full disk is told once, by one notification that goes when the files are saved; the writers retry on their own.
+	bindDiskFullNotice(diskFull, {
+		show: notice => {
+			const shown = appNotification(notice);
+			shown.show();
+			return { close: () => shown.close() };
+		},
+		text: names => ({
+			title: mainT("diskFull.title"),
+			body: mainT("diskFull.body", undefined, { what: describeFiles(names) }),
+		}),
+	});
 	markStartup("app-ready");
 	// A second instance quits at once: it must not take the running one's marker, nor watch anything.
 	if (gotLock) {

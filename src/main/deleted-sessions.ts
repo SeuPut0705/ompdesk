@@ -12,7 +12,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { writeFileAtomicSync } from "./atomic-file";
+import { AtomicSaver } from "./atomic-file";
 
 export const MAX_TOMBSTONES = 2000;
 
@@ -28,11 +28,13 @@ function keyOf(path: string, device?: string): string {
 }
 
 export class DeletedSessions {
-	readonly #file: string | null;
+	readonly #saver: AtomicSaver;
 	readonly #entries = new Map<string, Tombstone>();
 
 	constructor(file: string | null) {
-		this.#file = file;
+		this.#saver = new AtomicSaver(file, { mode: 0o600 }, error =>
+			console.warn(`[deleted-sessions] not saved: ${error}`),
+		);
 		if (!file) return;
 		try {
 			const value: unknown = JSON.parse(readFileSync(file, "utf8"));
@@ -88,12 +90,7 @@ export class DeletedSessions {
 	}
 
 	#save(): void {
-		if (!this.#file) return;
-		try {
-			writeFileAtomicSync(this.#file, JSON.stringify([...this.#entries.values()]), { mode: 0o600 });
-		} catch (error) {
-			console.warn(`[deleted-sessions] not saved: ${error}`);
-		}
+		this.#saver.save(JSON.stringify([...this.#entries.values()]));
 	}
 }
 
