@@ -19,6 +19,7 @@ pub mod migrate;
 pub mod namespaces;
 pub mod native_ui;
 pub mod netmap;
+pub mod preview_core;
 pub mod notify_spec;
 pub mod preload_report;
 pub mod proxy_mac;
