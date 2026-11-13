@@ -33,7 +33,9 @@ export async function modelDigest(repo: string, commit: string, entry: Entry): P
 	const tree = await git(repo, ["ls-tree", "-r", commit, "--", `formal/${entry.dir ?? entry.id}`]);
 	if (!tree.ok) return null;
 	const definition = Object.entries(entry).filter(([name]) => !STAMP_FIELDS.has(name));
-	return createHash("sha256").update(`${tree.out}\n${JSON.stringify(definition)}`).digest("hex");
+	return createHash("sha256")
+		.update(`${tree.out}\n${JSON.stringify(definition)}`)
+		.digest("hex");
 }
 
 export interface Published {
@@ -64,10 +66,7 @@ export async function publish(repo: string, verifiedFile: string, verifiedSha: s
 			refuse(entry.id, "no longer in the branch's manifest");
 			continue;
 		}
-		const [then, now] = await Promise.all([
-			modelDigest(repo, verifiedSha, entry),
-			modelDigest(repo, "HEAD", target),
-		]);
+		const [then, now] = await Promise.all([modelDigest(repo, verifiedSha, entry), modelDigest(repo, "HEAD", target)]);
 		if (!then || then !== now) {
 			refuse(entry.id, "model changed since verification, rerun");
 			continue;
