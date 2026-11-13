@@ -6553,11 +6553,11 @@ export const en: Record<string, string> = {
 	"githubAuth.error.switch": "Couldn't switch GitHub accounts",
 	"githubAuth.error.identity": "Couldn't set the Git name and email",
 	"githubAuth.settings.title": "GitHub account",
-	"modelPicker.defaultFailed": "Couldn't save as default",
 	"modelPicker.connectProvider": "Connect a provider",
 	"modelPicker.smallContextHint": "Too small for a coding session: the first prompt may not fit.",
 	"modelPicker.current": "Current model",
-	"modelPicker.defaultHint": "Your pick also becomes the default for new sessions.",
+	"modelPicker.sessionOnlyHint":
+		"Your pick changes this session only. New sessions start on the default role (Settings › Models & accounts › Model roles).",
 	"modelPicker.keys.move": "move",
 	"modelPicker.keys.pick": "choose",
 	"modelPicker.manageProviders": "Manage providers",

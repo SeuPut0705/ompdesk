@@ -6536,11 +6536,11 @@ export const ko: Record<string, string> = {
 	"githubAuth.error.switch": "GitHub 계정을 전환하지 못했어요",
 	"githubAuth.error.identity": "Git 이름과 이메일을 설정하지 못했어요",
 	"githubAuth.settings.title": "GitHub 계정",
-	"modelPicker.defaultFailed": "기본값으로 저장하지 못했어요",
 	"modelPicker.connectProvider": "프로바이더 연결",
 	"modelPicker.smallContextHint": "코딩 세션에는 너무 작아 첫 요청이 들어가지 않을 수 있어요.",
 	"modelPicker.current": "현재 모델",
-	"modelPicker.defaultHint": "선택한 모델은 새 세션의 기본값도 돼요.",
+	"modelPicker.sessionOnlyHint":
+		"선택한 모델은 이 세션에만 적용돼요. 새 세션은 기본 역할 모델로 시작해요(설정 › 모델 및 계정 › 모델 역할).",
 	"modelPicker.keys.move": "이동",
 	"modelPicker.keys.pick": "선택",
 	"modelPicker.manageProviders": "프로바이더 관리",
