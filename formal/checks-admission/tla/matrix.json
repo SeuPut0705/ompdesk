@@ -1,0 +1,125 @@
+{
+	"runs": [
+		{
+			"name": "one-pool-lanes-fifo-leases-pause",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "one-pool-two-places",
+			"config": "MC.cfg",
+			"constants": {
+				"DeviceLimit": "2"
+			},
+			"expect": "pass"
+		},
+		{
+			"name": "macos-and-hosted-under-the-account-limit-with-an-outside-racer",
+			"config": "MC_account.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "account-of-3-with-two-outside-racers",
+			"config": "MC_account3.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "account-with-a-release-linux-job-ahead-of-a-release-macos-job",
+			"config": "MC_account_two_release.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "supersede-within-one-key",
+			"config": "MC_supersede.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "reuse-a-green-digest",
+			"config": "MC_reuse.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "liveness-one-pool",
+			"config": "MC_live.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "liveness-account",
+			"config": "MC_live_account.cfg",
+			"expect": "pass",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "one-pool-two-release-jobs-five-jobs",
+			"config": "MC.cfg",
+			"constants": {
+				"Jobs": "{\"rel\", \"rel2\", \"br1\", \"br2\", \"out\"}",
+				"Release": "{\"rel\", \"rel2\"}",
+				"Device": "{\"rel\", \"rel2\", \"br1\", \"br2\", \"out\"}",
+				"DeviceLimit": "2"
+			},
+			"expect": "pass",
+			"tier": "deep",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "an-admission-is-reachable",
+			"config": "MC_sanity_NeverAdmits.cfg",
+			"expect": "invariant",
+			"property": "NeverAdmits"
+		},
+		{
+			"name": "a-wait-for-a-place-is-reachable",
+			"config": "MC_sanity_NeverWaitsForAPlace.cfg",
+			"expect": "invariant",
+			"property": "NeverWaitsForAPlace"
+		},
+		{
+			"name": "an-expired-entry-is-reachable",
+			"config": "MC_sanity_NeverExpires.cfg",
+			"expect": "invariant",
+			"property": "NeverExpires"
+		},
+		{
+			"name": "a-refusal-is-reachable",
+			"config": "MC_sanity_NeverRefuses.cfg",
+			"expect": "invariant",
+			"property": "NeverRefuses"
+		},
+		{
+			"name": "a-reuse-is-reachable",
+			"config": "MC_sanity_NeverReuses.cfg",
+			"expect": "invariant",
+			"property": "NeverReuses"
+		},
+		{
+			"name": "a-cancel-of-a-running-job-is-reachable",
+			"config": "MC_sanity_NeverCancelsARunningJob.cfg",
+			"expect": "invariant",
+			"property": "NeverCancelsARunningJob"
+		},
+		{
+			"name": "a-full-account-is-reachable",
+			"config": "MC_sanity_NeverFillsTheAccount.cfg",
+			"expect": "invariant",
+			"property": "NeverFillsTheAccount"
+		},
+		{
+			"name": "a-held-account-place-is-reachable",
+			"config": "MC_sanity_NeverHoldsAnAccountPlace.cfg",
+			"expect": "invariant",
+			"property": "NeverHoldsAnAccountPlace"
+		},
+		{
+			"name": "two-outside-racers-can-take-the-held-place",
+			"config": "MC_sanity_NeverBlockedByLaterAdmit.cfg",
+			"constants": {
+				"Jobs": "{\"relm\", \"lndh\", \"outm\", \"outh\", \"outh2\"}",
+				"Outside": "{\"outm\", \"outh\", \"outh2\"}",
+				"HostedCap": "3"
+			},
+			"expect": "invariant",
+			"property": "NeverBlockedByLaterAdmit"
+		}
+	]
+}
