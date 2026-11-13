@@ -47,6 +47,7 @@ import {
 import { ompLogTail } from "./omp-log-tail";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
+import { createLinkEventDecoder } from "./remote/link-events";
 import { RpcClient, RpcTimeoutError } from "./rpc-client";
 import type { SessionProcesses, SessionProcessHandle } from "./session-processes";
 import { needsShell, spawnArgs, spawnCommand } from "./spawn";
@@ -615,6 +616,11 @@ export class SidecarManager extends EventEmitter {
 	/** The last omp's bridge, kept until the next spawn: frames the lane releases after a stop still project their queues by it. */
 	#spawnRelay: BridgeRelay | null = null;
 	#batcher: EventBatcher | null = null;
+	/**
+	 * The lane sends every `message_update` after the first of its message reduced (`sidecar/stream.rs`); this rebuilds
+	 * them whole, as a paired device rebuilds a host's. The lane sends whole again wherever this may lack the base.
+	 */
+	readonly #rebuild = createLinkEventDecoder();
 	/** What waits for the lane's answer event of a message (`seq`): a stock command's response, a barrier. */
 	readonly #answers = new Map<number, (bin: Uint8Array | null) => void>();
 	#lifeFence = 0;
@@ -1069,6 +1075,9 @@ export class SidecarManager extends EventEmitter {
 		if (typeof frame !== "object" || frame === null) return;
 		// Request bookkeeping no window reads leaves here, before any copy of the frame is made (frame-bookkeeping.ts).
 		let obj = withoutFrameBookkeeping(frame as Frame);
+		// Before anything in main reads it.
+		if (obj.type === "message_update")
+			[obj] = this.#rebuild.events([obj as unknown as AgentSessionEvent]) as unknown as Frame[];
 		// Stock queue lanes are bare text; ids are assigned on arrival, in stream order.
 		if (obj.type === "queue_update" && this.#spawnRelay) obj = projectQueueUpdate(this.#spawnRelay, obj);
 		this.#dispatchFrame(obj);

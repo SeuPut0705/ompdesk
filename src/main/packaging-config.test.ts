@@ -952,17 +952,22 @@ describe("workflows", () => {
 		expect(job?.steps.some(step => step.with?.path?.includes("captures/"))).toBe(true);
 	});
 
-	it("gives a manual batch run every job a push to main runs, before a batch lands", () => {
+	it("gives a manual batch run every Linux and Windows job a push to main runs, and the macOS jobs only with mac", () => {
 		const ci = parse(workflows.find(entry => entry.name === "ci.yml")?.text ?? "") as {
 			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
 			jobs: Record<string, { if?: string; strategy?: { matrix?: { include?: string } } }>;
 		};
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("batch");
-		for (const job of ["win-platform", "mac-smoke", "mac-native", "memory"]) {
-			expect(ci.jobs[job]?.if, job).toContain("inputs.batch");
+		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("mac");
+		expect(ci.jobs["win-platform"]?.if).toContain("inputs.batch");
+		for (const job of ["mac-smoke", "mac-native", "memory"]) {
+			expect(ci.jobs[job]?.if, job).toContain("inputs.mac");
+			expect(ci.jobs[job]?.if, job).not.toContain("inputs.batch");
 		}
-		// The native job's three OS legs, not Linux alone.
-		expect(ci.jobs.native?.strategy?.matrix?.include).toContain("inputs.batch");
+		// The native job's Windows leg comes with batch, its macOS leg with mac; Linux always runs.
+		const legs = ci.jobs.native?.strategy?.matrix?.include ?? "";
+		expect(legs).toMatch(/inputs\.batch\) && ',\{"os":"windows-latest"/);
+		expect(legs).toMatch(/inputs\.mac\) && ',\{"os":"macos-latest"/);
 		for (const job of ["static", "check", "build", "native"]) {
 			expect(ci.jobs[job]?.if ?? "", job).not.toContain("workflow_dispatch'");
 		}
