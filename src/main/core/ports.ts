@@ -42,7 +42,7 @@ export class CorePort<S = unknown> {
 		this.#process = process;
 		this.#handlers = handlers;
 		this.#snapshot = snapshot;
-		this.#unsubscribe = process.on("port", data => this.#receive(data as PortEvent));
+		this.#unsubscribe = process.on("port", (data, _bin, generation) => this.#receive(data as PortEvent, generation));
 	}
 
 	/** The state as main sees it now, numbered: what the subsystem's open request carries first. */
@@ -78,7 +78,7 @@ export class CorePort<S = unknown> {
 		this.#process.call("ports.close", { port: this.id }).catch(() => {});
 	}
 
-	#receive(event: PortEvent): void {
+	#receive(event: PortEvent, generation: number): void {
 		if (event.port !== this.id || this.#closed) return;
 		const { ask, method } = event;
 		let value: unknown;
@@ -88,7 +88,7 @@ export class CorePort<S = unknown> {
 				throw new CoreError("no_port_method", `main has no ${method} on this port`);
 			value = handler ? (handler as (args: unknown) => unknown)(event.args) : null;
 		} catch (error) {
-			if (ask !== undefined) this.#fail(ask, error);
+			if (ask !== undefined) this.#fail(ask, generation, error);
 			return;
 		}
 		if (ask === undefined) {
@@ -96,23 +96,24 @@ export class CorePort<S = unknown> {
 			return;
 		}
 		Promise.resolve(value).then(
-			resolved => this.#answer(ask, { ok: true, value: resolved ?? null }),
-			error => this.#fail(ask, error),
+			resolved => this.#answer(ask, generation, { ok: true, value: resolved ?? null }),
+			error => this.#fail(ask, generation, error),
 		);
 	}
 
-	#fail(ask: number, error: unknown): void {
+	#fail(ask: number, generation: number, error: unknown): void {
 		const code = codeOf(error);
-		this.#answer(ask, {
+		this.#answer(ask, generation, {
 			ok: false,
 			message: error instanceof Error ? error.message : String(error),
 			...(code ? { code } : {}),
 		});
 	}
 
-	#answer(ask: number, body: Record<string, unknown>): void {
+	/** Only the core that asked hears it: the next core numbers its asks from 1 again. */
+	#answer(ask: number, generation: number, body: Record<string, unknown>): void {
 		if (this.#closed) return;
 		const state = this.#snapshot ? { seq: ++this.#seq, state: this.#snapshot() } : {};
-		this.#process.call("ports.answer", { port: this.id, ask, ...body, ...state }).catch(() => {});
+		this.#process.call("ports.answer", { port: this.id, ask, ...body, ...state }, { generation }).catch(() => {});
 	}
 }

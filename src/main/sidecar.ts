@@ -429,6 +429,8 @@ interface LaneEvent {
 }
 interface LaneAsk extends LaneEvent {
 	ask: number;
+	/** The generation of the core that asked (`CoreProcess.generation`), added when the ask is taken from the listener. */
+	generation: number;
 }
 interface ResolveAsk extends LaneAsk {
 	sessionPath: string | null;
@@ -484,7 +486,7 @@ interface AnswerEvent extends LaneEvent {
 	seq: number;
 }
 
-type LaneListener = (name: string, data: LaneEvent, bin: Uint8Array | null) => void;
+type LaneListener = (name: string, data: LaneEvent, bin: Uint8Array | null, generation: number) => void;
 
 /** Every live manager by its tab id: the core's events name the tab they are for. */
 const lanes = new Map<string, LaneListener>();
@@ -518,9 +520,9 @@ function listen(): void {
 	if (listening) return;
 	listening = true;
 	for (const name of LANE_EVENTS) {
-		core().on(`sidecar.${name}`, (data, bin) => {
+		core().on(`sidecar.${name}`, (data, bin, generation) => {
 			const event = data as LaneEvent;
-			lanes.get(event.tab)?.(name, event, bin);
+			lanes.get(event.tab)?.(name, event, bin, generation);
 		});
 	}
 }
@@ -662,7 +664,7 @@ export class SidecarManager extends EventEmitter {
 		super();
 		this.#options = options;
 		this.#isNew = options.fresh === true;
-		lanes.set(this.#tab, (name, data, bin) => this.#onLane(name, data, bin));
+		lanes.set(this.#tab, (name, data, bin, generation) => this.#onLane(name, data, bin, generation));
 		listen();
 	}
 
@@ -789,10 +791,13 @@ export class SidecarManager extends EventEmitter {
 		);
 	}
 
-	/** An answer to one of the lane's asks (it drops one it no longer waits for). */
-	#answer(method: string, ask: number, params: object = {}): void {
+	/**
+	 * An answer to one of the lane's asks (it drops one it no longer waits for). It goes only to the core that asked:
+	 * the next core numbers its asks from 1 again, and the tab may have a lane there.
+	 */
+	#answer(method: string, { ask, generation }: LaneAsk, params: object = {}): void {
 		core()
-			.call(method, { tab: this.#tab, ask, ...params })
+			.call(method, { tab: this.#tab, ask, ...params }, { generation })
 			.catch(() => {
 				// A core that ended meanwhile took the lane with it.
 			});
@@ -825,20 +830,20 @@ export class SidecarManager extends EventEmitter {
 
 	// ---- What the lane says -------------------------------------------------------------------------------------
 
-	#onLane(name: string, data: LaneEvent, bin: Uint8Array | null): void {
+	#onLane(name: string, data: LaneEvent, bin: Uint8Array | null, generation: number): void {
 		switch (name) {
 			case "resolve":
-				return this.#onResolve(data as ResolveAsk);
+				return this.#onResolve({ ...(data as ResolveAsk), generation });
 			case "launch":
-				return this.#onLaunch(data as LaunchAsk);
+				return this.#onLaunch({ ...(data as LaunchAsk), generation });
 			case "exit":
-				return this.#onExit(data as ExitAsk);
+				return this.#onExit({ ...(data as ExitAsk), generation });
 			case "gateAsk":
-				return this.#onGate(data as LaneAsk);
+				return this.#onGate({ ...(data as LaneAsk), generation });
 			case "slow":
-				return this.#onSlow(data as SlowAsk);
+				return this.#onSlow({ ...(data as SlowAsk), generation });
 			case "sessionWait":
-				return this.#onSessionWait(data as SessionWaitAsk);
+				return this.#onSessionWait({ ...(data as SessionWaitAsk), generation });
 			case "status":
 				return this.#onStatus(data as StatusEvent);
 			case "spawned":
@@ -1140,7 +1145,7 @@ export class SidecarManager extends EventEmitter {
 			// A start that a restart or a stop superseded while this resolved must not spawn.
 			if (this.#staleAsk(ask.cmd)) return;
 			if (session === "owned") {
-				this.#answer("sidecar.resolved", ask.ask, {
+				this.#answer("sidecar.resolved", ask, {
 					outcome: "owned",
 					message: this.#options.sessionOwnedText?.() ?? "This session is still open in another omp process.",
 				});
@@ -1148,7 +1153,7 @@ export class SidecarManager extends EventEmitter {
 			}
 			if (!resolution.ok) {
 				// No usable omp: nothing ran, nothing failed. Machine setup installs it and main starts this tab then.
-				this.#answer("sidecar.resolved", ask.ask, { outcome: "waiting", message: resolution.error });
+				this.#answer("sidecar.resolved", ask, { outcome: "waiting", message: resolution.error });
 				return;
 			}
 			this.#runtime = resolution.runtime;
@@ -1157,7 +1162,7 @@ export class SidecarManager extends EventEmitter {
 			this.#builtinMcp = builtinMcp;
 			this.#defaultBrowser = defaultBrowser;
 			this.#egoBrowserDir = egoBrowserDir;
-			this.#answer("sidecar.resolved", ask.ask, { outcome: "ok" });
+			this.#answer("sidecar.resolved", ask, { outcome: "ok" });
 		});
 	}
 
@@ -1229,12 +1234,12 @@ export class SidecarManager extends EventEmitter {
 				PI_NOTIFICATIONS: "off",
 				...OMP_TELEMETRY_OFF,
 			});
-			this.#answer("sidecar.launched", ask.ask, {
+			this.#answer("sidecar.launched", ask, {
 				start: { bin: spawnCommand(bin), args: spawnArgs(bin, args), env, cwd, shell: needsShell(bin) },
 				hostTools: this.#hostTools(),
 			});
 		} catch (err) {
-			this.#answer("sidecar.launched", ask.ask, { error: err instanceof Error ? err.message : String(err) });
+			this.#answer("sidecar.launched", ask, { error: err instanceof Error ? err.message : String(err) });
 		}
 	}
 
@@ -1247,7 +1252,7 @@ export class SidecarManager extends EventEmitter {
 	#onExit(ask: ExitAsk): void {
 		if (this.#staleAsk(ask.cmd)) return;
 		const answer = (plan: "restart" | { fallback: string } | { bootModel: string }) =>
-			this.#answer("sidecar.exitPlan", ask.ask, { plan });
+			this.#answer("sidecar.exitPlan", ask, { plan });
 		if (ask.booted) return answer("restart");
 		const missing = ask.fallbackArmed ? null : parseModelRestoreFailure(ask.stderr);
 		if (missing) {
@@ -1276,7 +1281,7 @@ export class SidecarManager extends EventEmitter {
 		this.#startGate = null;
 		const bridge = this.#bridge;
 		const run = gate && bridge?.connected ? gate(bridge, this.#options.cwd).catch(() => null) : Promise.resolve(null);
-		void run.then(cwd => this.#answer("sidecar.gated", ask.ask, { cwd }));
+		void run.then(cwd => this.#answer("sidecar.gated", ask, { cwd }));
 	}
 
 	/** The omp's own log tail, for a start that has not answered (`reportSlowStart`, the slow tab's message). */
@@ -1285,7 +1290,7 @@ export class SidecarManager extends EventEmitter {
 		const read = this.#options.readOmpLog ?? ompLogTail;
 		void read(ask.pid, new Date(ask.spawnedAt))
 			.catch(() => [] as string[])
-			.then(lines => this.#answer("sidecar.slowLog", ask.ask, { lines }));
+			.then(lines => this.#answer("sidecar.slowLog", ask, { lines }));
 	}
 
 	/**
@@ -1298,7 +1303,7 @@ export class SidecarManager extends EventEmitter {
 		const sessionFree = this.#options.sessionFree;
 		void (
 			sessionFree ? sessionFree(ask.sessionPath).catch(() => "free" as const) : Promise.resolve("free" as const)
-		).then(outcome => this.#answer("sidecar.sessionFreed", ask.ask, { outcome }));
+		).then(outcome => this.#answer("sidecar.sessionFreed", ask, { outcome }));
 	}
 
 	/** Context for one GUI-side command; learns the session identity first when a session change left it unknown. */

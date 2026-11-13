@@ -212,13 +212,13 @@ interface Paired {
 	privateKey: KeyObject | null;
 }
 
-async function pair(options: { withKey?: boolean; name?: string } = {}): Promise<Paired> {
+async function pair(options: { withKey?: boolean; name?: string; instance?: string } = {}): Promise<Paired> {
 	const keys = options.withKey === false ? null : generateKeyPairSync("ec", { namedCurve: "P-256" });
 	const response = await post(
 		"/api/pair",
 		{
 			name: options.name ?? "Test phone",
-			clientInstanceId: "browser-1",
+			clientInstanceId: options.instance ?? "browser-1",
 			...(keys ? { publicKeyJwk: keys.publicKey.export({ format: "jwk" }) } : {}),
 		},
 		{ "user-agent": "TestBrowser/1.0" },
@@ -1185,4 +1185,34 @@ describe("after the core restarts", () => {
 			expect(frames.some(frame => frame.t === "evt" && frame.ch === IPC_EVENTS.SESSIONS_CHANGED)).toBe(true),
 		);
 	}, 20_000);
+
+	it("answers a call only to the core that made it: a handler that outlives a restart settles no call of the next core", async () => {
+		// A fresh core numbers its calls from 1, so the next core's first call has the old one's number.
+		await restartCore();
+		const gates = new Map<string, () => void>();
+		handlers.set(IPC_COMMANDS.SESSIONS_LIST, async (_caller, tag) => {
+			const gate = Promise.withResolvers<void>();
+			gates.set(String(tag), gate.resolve);
+			await gate.promise;
+			return { from: tag };
+		});
+		const first = await pair({ instance: "first" });
+		const second = await pair({ instance: "second" });
+		const early = await open(first, await ticketFor(first));
+		await early.arrived(frames => frames.length > 0);
+		early.socket.send(JSON.stringify({ t: "inv", id: 1, ch: IPC_COMMANDS.SESSIONS_LIST, a: ["first"] }));
+		await vi.waitFor(() => expect(gates.has("first")).toBe(true));
+
+		await restartCore();
+		const late = await open(second, await ticketFor(second));
+		await late.arrived(frames => frames.length > 0);
+		late.socket.send(JSON.stringify({ t: "inv", id: 1, ch: IPC_COMMANDS.SESSIONS_LIST, a: ["second"] }));
+		await vi.waitFor(() => expect(gates.has("second")).toBe(true));
+
+		// The first device's handler finishes after the restart, then the second's.
+		gates.get("first")?.();
+		gates.get("second")?.();
+		await late.arrived(frames => frames.some(frame => frame.t === "res"));
+		expect(late.frames.find(frame => frame.t === "res")).toMatchObject({ id: 1, ok: true, v: { from: "second" } });
+	}, 30_000);
 });
