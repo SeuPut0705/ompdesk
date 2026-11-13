@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asksForMac, hubArgs, parseArgs, route } from "./ci-run";
+import { asksForMac, hubArgs, parseArgs, readGate, route } from "./ci-run";
 
 describe("ci-run arguments", () => {
 	it("reads the workflow, the ref and every -f field", () => {
@@ -48,34 +48,74 @@ describe("ci-run arguments", () => {
 
 describe("ci-run route", () => {
 	const answered = (out: string) => ({ code: 0, out, err: "" });
+	const gateOn = () => "on" as const;
+	const gateOff = () => "off" as const;
+	const unread = () => {
+		throw new Error("the gate is read only for macOS work no hub took");
+	};
+	const down = { code: 3, out: "", err: "ompdesk: OMPdesk is not running" };
+	// What every computer's ompdesk 0.128.0 answers: it predates check control.
+	const old = { code: 2, out: "", err: 'ompdesk: unknown command "checks"\nRun `ompdesk help` for the commands.' };
 
 	it("prints the hub's answer, a refusal as exit 2", () => {
-		expect(route(true, answered("Checks held: run chk-1 waits.\n"))).toEqual({
+		expect(route(true, answered("Checks held: run chk-1 waits.\n"), unread)).toEqual({
 			via: "hub",
 			code: 0,
 			text: "Checks held: run chk-1 waits.",
 		});
-		expect(route(false, answered("Checks refused: nothing was started.\nWhy: paused by the owner"))).toMatchObject({
-			via: "hub",
-			code: 2,
-		});
+		expect(
+			route(false, answered("Checks refused: nothing was started.\nWhy: paused by the owner"), unread),
+		).toMatchObject({ via: "hub", code: 2 });
 	});
 
-	it("dispatches without macOS directly when OMPdesk does not answer, and refuses macOS then", () => {
-		const down = { code: 3, out: "", err: "ompdesk: OMPdesk is not running" };
-		expect(route(false, down)).toEqual({ via: "direct", why: "ompdesk: OMPdesk is not running" });
-		expect(route(false, undefined)).toEqual({ via: "direct", why: "no ompdesk command found" });
-		expect(route(true, down)).toMatchObject({
+	it("dispatches without macOS directly whenever no hub answers", () => {
+		expect(route(false, down, unread)).toEqual({ via: "direct", why: "ompdesk: OMPdesk is not running" });
+		expect(route(false, undefined, unread)).toEqual({ via: "direct", why: "no ompdesk command found" });
+		expect(route(false, old, unread)).toMatchObject({ via: "direct" });
+	});
+
+	it("dispatches macOS directly while no hub answers and the ticket gate is off", () => {
+		for (const hub of [down, old, undefined]) {
+			expect(route(true, hub, gateOff)).toMatchObject({
+				via: "direct",
+				why: expect.stringContaining("the ticket gate is off"),
+			});
+		}
+	});
+
+	it("refuses macOS without a hub while the ticket gate is on, or cannot be read", () => {
+		for (const hub of [down, old, undefined]) {
+			expect(route(true, hub, gateOn)).toMatchObject({
+				via: "refused",
+				code: 2,
+				why: expect.stringContaining("open OMPdesk (a version with checks)"),
+			});
+		}
+		expect(route(true, down, () => ({ unknown: "HTTP 502" }))).toMatchObject({
 			via: "refused",
-			code: 2,
-			why: expect.stringContaining("open OMPdesk"),
+			why: expect.stringContaining("HTTP 502"),
 		});
-		expect(route(true, undefined)).toMatchObject({ via: "refused", code: 2 });
 	});
 
 	it("never sends macOS work around a hub that answered with an error", () => {
 		const broken = { code: 1, out: "", err: "ompdesk: checks_source: gh is not signed in" };
-		expect(route(true, broken)).toMatchObject({ via: "refused", code: 1, why: expect.stringContaining("signed in") });
-		expect(route(false, broken)).toMatchObject({ via: "direct", why: expect.stringContaining("signed in") });
+		expect(route(true, broken, gateOff)).toMatchObject({
+			via: "refused",
+			code: 1,
+			why: expect.stringContaining("signed in"),
+		});
+		expect(route(false, broken, unread)).toMatchObject({ via: "direct", why: expect.stringContaining("signed in") });
+	});
+});
+
+describe("ci-run ticket gate", () => {
+	it("is off while the repository's device list is unset or empty, on while it names a computer", () => {
+		const reply =
+			(ok: boolean, out: string, err = "") =>
+			() => ({ ok, out, err });
+		expect(readGate(reply(false, "", "variable CHECKS_ADMISSION_DEVICES was not found"))).toBe("off");
+		expect(readGate(reply(true, "\n"))).toBe("off");
+		expect(readGate(reply(true, "MACBOOK MINI\n"))).toBe("on");
+		expect(readGate(reply(false, "", "HTTP 502: Bad Gateway"))).toEqual({ unknown: "HTTP 502: Bad Gateway" });
 	});
 });

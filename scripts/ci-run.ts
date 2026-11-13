@@ -13,9 +13,12 @@
  * reused) and dispatches with the admission ticket queue-gate.yml checks. It prints the hub's answer; the run id in it
  * is what `ompdesk checks wait <run>` waits on.
  *
- * When OMPdesk does not answer (closed, restarting), an app restart must not stop every CI dispatch: a dispatch that
- * asks for no macOS goes out directly with `gh workflow run` (it needs no ticket), and one that asks for macOS is
- * refused with "open OMPdesk" (exit 2), because only the hub holds the macOS queue and the key.
+ * When no hub answers (OMPdesk closed or restarting, or an `ompdesk` from before check control, which answers
+ * `unknown command "checks"`), an app restart or an old install must not stop every CI dispatch: while the ticket gate
+ * is off (the repo variable CHECKS_ADMISSION_DEVICES empty or unset) the dispatch goes out directly with
+ * `gh workflow run`, macOS included, and says the hub was not used. Only while the gate is on is a macOS dispatch
+ * without a hub refused with "open OMPdesk (a version with checks)" (exit 2): queue-gate.yml would refuse it anyway.
+ * A hub that answered with an error of its own never has macOS work sent around it.
  *
  * Exit 0: started, held in the hub's queue or reused (the hub's words say which); 2: refused; 1: the dispatch failed.
  */
@@ -84,24 +87,41 @@ export type Route =
 	| { via: "direct"; why: string }
 	| { via: "refused"; code: 1 | 2; why: string };
 
-/** Where the dispatch goes, given what the hub answered. */
-export function route(mac: boolean, hub: HubAnswer | undefined): Route {
+/** No checks hub answered: no `ompdesk`, OMPdesk not running, or an `ompdesk` from before check control. */
+export function noHub(hub: HubAnswer | undefined): boolean {
+	return !hub || hub.code === NOT_RUNNING || /unknown command "checks"/.test(hub.err + hub.out);
+}
+
+/** queue-gate.yml's ticket gate for the repo: `on` when it checks tickets, `off` when not, else why it is unknown. */
+export type Gate = "on" | "off" | { unknown: string };
+
+/** Where the dispatch goes, given what the hub answered; `gate` is read only for macOS work no hub took. */
+export function route(mac: boolean, hub: HubAnswer | undefined, gate: () => Gate): Route {
 	if (hub?.code === 0) {
 		const text = hub.out.trim();
 		return { via: "hub", code: text.startsWith("Checks refused") ? 2 : 0, text };
 	}
-	if (!mac) {
-		const why = hub ? (hub.err || hub.out).trim() || `ompdesk exited ${hub.code}` : "no ompdesk command found";
-		return { via: "direct", why };
-	}
-	if (!hub || hub.code === NOT_RUNNING) {
-		return {
-			via: "refused",
-			code: 2,
-			why: "OMPdesk does not answer, and only its checks hub may start macOS work: open OMPdesk and run this again.",
-		};
-	}
-	return { via: "refused", code: 1, why: `the checks hub did not start it: ${(hub.err || hub.out).trim()}` };
+	const why = hub ? (hub.err || hub.out).trim() || `ompdesk exited ${hub.code}` : "no ompdesk command found";
+	if (!mac) return { via: "direct", why };
+	if (!noHub(hub)) return { via: "refused", code: 1, why: `the checks hub did not start it: ${why}` };
+	const state = gate();
+	if (state === "off") return { via: "direct", why: `${why}; the ticket gate is off` };
+	return {
+		via: "refused",
+		code: 2,
+		why:
+			state === "on"
+				? "no checks hub answered, and this repository's queue gate admits macOS work only with a hub's ticket: open OMPdesk (a version with checks) and run this again."
+				: `no checks hub answered, and whether this repository's queue gate wants a ticket could not be read (${state.unknown}): open OMPdesk (a version with checks) and run this again.`,
+	};
+}
+
+/** Reads the ticket gate: the repo variable CHECKS_ADMISSION_DEVICES, as queue-gate.yml's callers pass it. */
+export function readGate(read: (args: string[]) => { ok: boolean; out: string; err: string }): Gate {
+	const got = read(["variable", "get", "CHECKS_ADMISSION_DEVICES"]);
+	if (got.ok) return got.out.trim() === "" ? "off" : "on";
+	if (/not found/i.test(got.err)) return "off";
+	return { unknown: got.err.trim() || "gh failed" };
 }
 
 function gh(args: string[]): { ok: boolean; out: string; err: string } {
@@ -140,11 +160,9 @@ export const RUNNER_LIMITS = {
 	siblings: (process.env.OMPDESK_CI_SIBLINGS ?? "").split(",").filter(Boolean),
 };
 
-/** OMPdesk is not there: a run without macOS goes out as `gh workflow run` would send it. */
+/** No hub took it: the run goes out as `gh workflow run` would send it, with one line saying the hub was not used. */
 async function dispatchDirectly(args: CiRunArgs, ref: string, why: string): Promise<number> {
-	console.log(
-		`ci-run: the checks hub did not take it (${why}); this dispatch asks for no macOS, so it goes out directly.`,
-	);
+	console.log(`ci-run: dispatched directly, the checks hub was not used (${why}).`);
 	if (!gh(["api", `repos/{owner}/{repo}/git/ref/heads/${ref}`]).ok) fail(`${ref} is not pushed: push it first`, 2);
 	const fields = Object.entries(args.inputs).flatMap(([key, value]) => ["-f", `${key}=${value}`]);
 	const started = Date.now();
@@ -197,7 +215,7 @@ async function main(argv: string[]): Promise<number> {
 	const bin = ompdesk();
 	const ran = bin ? spawnSync(bin, command, { encoding: "utf8" }) : undefined;
 	const hub = ran ? { code: ran.status ?? 1, out: ran.stdout ?? "", err: ran.stderr ?? "" } : undefined;
-	const way = route(mac, hub);
+	const way = route(mac, hub, () => readGate(gh));
 	switch (way.via) {
 		case "hub":
 			console.log(way.text);
