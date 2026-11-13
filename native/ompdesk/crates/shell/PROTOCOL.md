@@ -714,10 +714,56 @@ Deviations:
 
 ### 15.8 `updater.*` (SX4)
 
+The app's own updater (`.omp/rules/app-updater.md`): the release check, the token, the downloads, the macOS staging
+and swap helper, the Windows installer. It lives in the shell because its network is Chromium's (the system proxy,
+PAC and certificate store, through `net.rs`'s `CefURLRequest`) and its secret is `safeStorage`'s key, which the shell
+holds. Node keeps what needs Node's other state: the windows the status goes to and their words (`mainT`), the
+automatic install's scheduler (`app-auto-update.ts`, reading the tab pool), the restart confirm and the quit path
+(`app-quit.ts`), the window presence an install remembers, the runtime log, and the next launch's report of the last
+install (`update-log-core.ts`, read synchronously before the first window). Client: `src/main/shell-host/modules/updater.ts`.
+
+`RawStatus` is `UpdateStatus` (`src/shared/ipc-types.ts`) with an error spelled as words to translate:
+`{state: "error", key, suffix?, detail?, showInBanner?}` → `message = mainT(key)` plus ` (suffix)` when there is one.
+`key` is one of `updates.checkFailed`, `updates.releaseInvalid`, `updates.installerMissing`, `updates.noResult`,
+`updates.downloadFailed`, `updates.hashMismatch`, `updates.openInstallerFailed`, `updates.unsupportedArchitecture`,
+`updates.failed`. A `downloaded` status never carries `restartAt` or `installing`: those are Node's (the scheduler's
+countdown, the install Node began). `State = {status: RawStatus, installable: boolean, mode: UpdateInstallMode}`;
+`installable` is `restartableUpdate()` (a relaunch with its bundle staged, or a Windows installer downloaded).
+
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
+| `updater.start` | Node | `{version}` | `State` — once, from `setupUpdater`. `version` is `appVersion()`. Detects the install mode, applies the dev seams (`OMP_DEV_UPDATE_*`, unpackaged only), sweeps macOS Downloads of installer debris, and starts the background check: 3 s later, then every 5 min, skipped while an update downloads or is downloaded. |
+| `updater.check` | Node | `{}` | `State` once the check settled — a person's check: a check under way is joined and settles as asked (its failure or "no result" reaches the banner). A downloaded update or a macOS transfer in flight answers at once, unchanged. |
+| `updater.download` | Node | `{}` | `State` — downloads the update an `available` status names (macOS DMG to Downloads or staging; Windows installer to the updater cache); a failure is an error status with `showInBanner`. |
+| `updater.install` | Node | `{trigger: "auto"\|"user click"\|"quit", presence?: "hidden"\|"minimized"\|"behind"}` | `{then: "quit"\|"quit-for-update"\|"none"}` — Node already began the install (`installing` shown). `quit`: relaunch mode armed to reopen after the swap, or the Windows dev dry install: Node runs `requestQuit()`. `quit-for-update`: the Windows installer (`--updated --force-run`) was started off the reader thread and the answer comes once that attempt ended, started or not; Node then runs electron-updater's quit (`before-quit-for-update`, `app.quit()`). `none`: nothing is staged; an error status went out. |
+| `updater.quit` (event) | Node | `{trigger, presence?}` | An approved quit with a downloaded update (Node's `will-quit`, or the quit watchdog's forced exit). Relaunch mode: the detached swap helper starts once (`SWAP_SCRIPT`, waiting for the shell's pid). Windows, when no install was started yet: the installer starts silently (`--updated /S`) on a thread `shutdown` joins. Both write `<userData>/update-install.json` and log `swap helper`. |
+| `updater.authInfo` | Node | `{}` | `UpdateAuthInfo` |
+| `updater.authTest` | Node | `{token?}` | `UpdateAuthTestResult` — a given token is tried as is (trimmed); none: the token the next check would use. |
+| `updater.authSave` | Node | `{token}` | `UpdateAuthTestResult` — stored (encrypted with `safeStorage`'s key) only when the repository answers `ok` to it. Errors: `keychain_would_ask`, `safe_storage_unavailable`. |
+| `updater.authClear` | Node | `{}` | `UpdateAuthInfo` — the stored token and the dropped marker removed. |
+| `updater.status` (event) | shell→Node | `State` | after every change; Node mirrors it (`updateStatus()`, `restartableUpdate()` read the mirror synchronously). |
+| `updater.log` (event) | shell→Node | `{message: "check"\|"download"\|"swap", details}` | one decision line of `gui-runtime.jsonl` (source `app-update`); the token is already cut out, Node passes each `reason` through `scrubUpdateText`. |
+| `updater.loginEnv` | shell→Node | `{}` | `{token?: string, path: string}` — `GH_TOKEN`/`GITHUB_TOKEN` of Node's launch environment, else the login shell's; `spawnPath()` for `gh`. |
 
 Deviations:
+
+- The token never reaches Node: the shell resolves it (`env` through `updater.loginEnv`, `gh auth token`, the stored
+  `update-token.bin`), decrypts and encrypts it with OSCrypt's `v10` forms itself, and reads the macOS key in its own
+  process (`sys_mac::keychain::key_json`, dialogs off). A read that would ask drops the stored token, as before; the
+  shim's own one-shot (mail accounts) is unaffected and may read the item once more in the same run.
+- The swap helper waits for the shell's pid (it waited for Node's, which exits before the shell lets go of the bundle).
+- Both platforms download the same way: the API asset endpoint's redirect taken by hand (no `authorization` to the
+  CDN), a `.partial` that resumes with `Range`, 30 s without bytes fails as retryable, SHA-512 checked before the file
+  is used. Windows' installer was electron-updater's (no resume, a `temp-` file removed on failure); it now resumes and
+  keeps electron-updater's cache (`%LOCALAPPDATA%\ompdesk-updater\pending\`, `update-info.json`), reusing a cached
+  installer whose SHA-512 matches.
+- The release metadata's schema errors read in serde's and this module's words (`version must be semver`), not zod's
+  `path: message` list; codes are unchanged.
+- Decision lines go through `updater.log`, not `Ctx::runtime_log` (§15.4 rule 1 still holds: Node writes the file):
+  the app-updater rule runs every failure reason through `scrubUpdateText`, whose diagnostics redactor
+  (`resources/gui-bridge/redactor.ts`) is TypeScript; the shell cuts the token out before the event, Node the rest.
+- Error statuses carry the `MAIN_TEXT` key, not the text (§15.4 rule 2): the shell shows none of it, Node localizes
+  it as it reaches the windows.
 
 ### 15.9 `boot.*` (SX5)
 
