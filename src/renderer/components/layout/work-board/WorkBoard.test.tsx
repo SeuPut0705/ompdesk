@@ -20,7 +20,7 @@ import { useTodoStore } from "../../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
-import { bareEmail, shortAccountLabel } from "../AccountLimit";
+import { bareEmail } from "../AccountLimit";
 
 const { document, window, Element, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -1210,16 +1210,6 @@ describe("WorkBoard account limit", () => {
 		withAgent();
 		await mount();
 		expect(pane.querySelector("[data-board-spend]")).toBeNull();
-	});
-});
-
-describe("shortAccountLabel", () => {
-	it("drops a parenthesized name that repeats the address and keeps any other", () => {
-		expect(shortAccountLabel("user7616@example.com (user7616)")).toBe("user7616@example.com");
-		expect(shortAccountLabel("user7616@example.com (use…")).toBe("user7616@example.com");
-		expect(shortAccountLabel("work@example.com (Work account)")).toBe("work@example.com (Work account)");
-		expect(shortAccountLabel("user7616@example.com (user76...")).toBe("user7616@example.com");
-		expect(shortAccountLabel("plain label")).toBe("plain label");
 	});
 });
 

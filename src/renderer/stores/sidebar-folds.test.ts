@@ -45,6 +45,8 @@ describe("remembered folds", () => {
 		folds.setDeviceArchivedOpen("dev-1", true);
 		folds.setStarterOpen(true);
 		folds.setUsageCollapsed(true);
+		folds.setUsageGroupFolded("anthropic", true);
+		folds.setUsageGroupFolded("openai-codex", false);
 
 		// The next start reads the mirror synchronously: no pref read yet.
 		const second = await launch();
@@ -55,6 +57,7 @@ describe("remembered folds", () => {
 		expect(state.chats).toEqual({ [LOCAL_DEVICE]: true });
 		expect(state.deviceArchived).toEqual({ "dev-1": true });
 		expect([state.archivedOpen, state.starterOpen, state.usageCollapsed]).toEqual([true, true, true]);
+		expect(state.usageGroups).toEqual({ anthropic: true, "openai-codex": false });
 		expect(get).not.toHaveBeenCalled();
 	});
 

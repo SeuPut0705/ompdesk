@@ -79,6 +79,7 @@ export function UsageGauges({
 	compact = false,
 	columns,
 	tracks,
+	maxColumns = MAX_USAGE_COLUMNS,
 	session,
 }: {
 	limits: readonly UsageLimit[];
@@ -88,6 +89,8 @@ export function UsageGauges({
 	columns?: readonly string[];
 	/** With `columns`: the grid's column count, when a list of several providers shares one wider than this one's. */
 	tracks?: number;
+	/** With `columns`: columns on one line before the rest wrap ({@link MAX_USAGE_COLUMNS}); a narrow list asks for fewer. */
+	maxColumns?: number;
 	/** The work board's session: its model's scoped window joins the compact gauges (`accountWindows`). */
 	session?: { model: string | null };
 }) {
@@ -107,7 +110,7 @@ export function UsageGauges({
 			style={
 				columns
 					? ({
-							"--omp-usage-columns": Math.min(Math.max(columns.length, tracks ?? 0), MAX_USAGE_COLUMNS),
+							"--omp-usage-columns": Math.min(Math.max(columns.length, tracks ?? 0), maxColumns),
 						} as CSSProperties)
 					: undefined
 			}

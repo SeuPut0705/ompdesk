@@ -988,6 +988,30 @@ export const SURFACES: readonly Surface[] = [
 		parity: { session: "work" },
 	},
 	{
+		id: "sidebar-usage",
+		area: "A",
+		title: "Session list with the usage block listing four Claude and four ChatGPT accounts, the session's own marked",
+		open: openDrawer,
+		ready: "[data-rail-pin='usage'] [data-usage-account]",
+		// Parity only, and only over a host whose fake omp reports those accounts (`OMP_GUI_TEST_USAGE_ACCOUNTS=many`).
+		when: () => false,
+		parity: { session: "work", available: () => process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "many" },
+	},
+	{
+		id: "sidebar-usage-end",
+		area: "A",
+		title: "The same usage block scrolled to its last account: the block scrolls inside its cap, the sidebar does not",
+		open: async (page, look) => {
+			await openDrawer(page, look);
+			await page.locator("[data-sidebar-usage-scroll]").evaluate(list => {
+				list.scrollTop = list.scrollHeight;
+			});
+		},
+		ready: "[data-rail-pin='usage'] [data-usage-account]",
+		when: () => false,
+		parity: { session: "work", available: () => process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "many" },
+	},
+	{
 		id: "sidebar-family",
 		area: "A",
 		title: "Session list with the work session's child running on the paired computer and the other computer's section folded to its count",

@@ -902,7 +902,7 @@ export const ko: Record<string, string> = {
 	"sidebar.menu.showToAgents": "다른 에이전트에게 보이기",
 	"sidebar.agentHiddenFailed": "에이전트 공개 설정을 저장하지 못했어요",
 	"sidebar.pin.usage": "사용 한도",
-	"sidebar.pin.usageMore": "+{count}개 더 보기",
+	"sidebar.pin.usageOpen": "설정에서 계정 열기",
 	"sidebar.pin.unpin": "사이드바에서 고정 해제",
 	"sidebar.pin.menu": "{name} 메뉴",
 	"sidebar.pinned": "고정됨",
