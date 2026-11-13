@@ -473,6 +473,7 @@ fi`,
 
 		it("says the previous app is lost when there was none to put back, and leaves what is there", async () => {
 			const { dest, src } = staged();
+			fs.mkdirSync(path.dirname(dest), { recursive: true });
 			expect(await runSwap(999_999, src, dest, { relaunch: "1" })).toBe(0);
 
 			expect(markerOf(dest)).toBe("new");
