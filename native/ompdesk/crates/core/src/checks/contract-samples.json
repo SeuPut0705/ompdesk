@@ -88,6 +88,18 @@
       "failed",
       "removed"
     ],
+    "WhyCode": [
+      "newer-run",
+      "pool-full",
+      "release-ahead",
+      "paused",
+      "green-on-same-inputs",
+      "placed-on",
+      "batched",
+      "flaky",
+      "failed-jobs",
+      "other"
+    ],
     "Outcome": [
       "pass",
       "fail",
@@ -263,6 +275,51 @@
         "action": "hold",
         "mode": "enforce",
         "ownerOverride": false
+      }
+    ],
+    "DecisionWhy": [
+      {
+        "code": "newer-run",
+        "run": "run-42"
+      },
+      {
+        "code": "pool-full",
+        "pool": "github-macos",
+        "running": 5,
+        "limit": 5
+      },
+      {
+        "code": "release-ahead",
+        "pool": "github-macos",
+        "running": 5,
+        "limit": 5
+      },
+      {
+        "code": "paused"
+      },
+      {
+        "code": "green-on-same-inputs",
+        "run": "run-40"
+      },
+      {
+        "code": "placed-on",
+        "pool": "device-mini"
+      },
+      {
+        "code": "batched",
+        "batch": "batch-3"
+      },
+      {
+        "code": "flaky",
+        "fails": 3,
+        "runs": 20
+      },
+      {
+        "code": "failed-jobs",
+        "count": 2
+      },
+      {
+        "code": "other"
       }
     ],
     "TestResult": [
@@ -503,6 +560,10 @@
             "run": "run-0",
             "action": "cancel-superseded",
             "reason": "run-1 is a newer run of the same ref and workflow",
+            "why": {
+              "code": "newer-run",
+              "run": "run-1"
+            },
             "at": 1794000100000
           }
         ],
@@ -797,6 +858,10 @@
               "run": "run-0",
               "action": "cancel-superseded",
               "reason": "run-1 is a newer run of the same ref and workflow",
+              "why": {
+                "code": "newer-run",
+                "run": "run-1"
+              },
               "at": 1794000100000
             }
           ],

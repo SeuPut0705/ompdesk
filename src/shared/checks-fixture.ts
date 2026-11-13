@@ -157,7 +157,7 @@ export function createFakeChecksHub(): FakeChecksHub {
 	};
 }
 
-const SESSION: Origin = { kind: "session", session: "0a1b2c3d", device: "local", goal: "goal-7" };
+const SESSION: Origin = { kind: "session", session: "0a1b2c3d", device: "local", goal: "Ship release 2" };
 
 /** A red run's answer, as an agent would receive it. */
 export function sampleAnswer(runId = "run-41"): Answer {
@@ -361,6 +361,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				run: "run-39",
 				action: "cancel-superseded",
 				reason: "run-42 is a newer run of the same ref and workflow",
+				why: { code: "newer-run", run: "run-42" },
 				at: asOf - 6 * minute,
 			},
 			{
@@ -368,6 +369,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				run: "run-42",
 				action: "hold",
 				reason: "macOS is full (5 of 5) and a release job is ahead",
+				why: { code: "release-ahead", pool: "github-macos", running: 5, limit: 5 },
 				at: asOf - 6 * minute,
 			},
 		],

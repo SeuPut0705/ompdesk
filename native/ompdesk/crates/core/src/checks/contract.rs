@@ -116,6 +116,22 @@ words! {
 }
 
 words! {
+    /// Why a policy acted, as a code the screens translate (`DecisionWhy`).
+    WhyCode {
+        NewerRun = "newer-run",
+        PoolFull = "pool-full",
+        ReleaseAhead = "release-ahead",
+        Paused = "paused",
+        GreenOnSameInputs = "green-on-same-inputs",
+        PlacedOn = "placed-on",
+        Batched = "batched",
+        Flaky = "flaky",
+        FailedJobs = "failed-jobs",
+        Other = "other",
+    }
+}
+
+words! {
     QueueState {
         Waiting = "waiting",
         Testing = "testing",
@@ -331,7 +347,8 @@ pub struct Policy {
     pub owner_override: Option<bool>,
 }
 
-/// One line of the "Decided automatically" log.
+/// One line of the "Decided automatically" log. `reason` is English for agents and logs; `why` is what a screen
+/// shows, translated from its code.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Decision {
@@ -339,7 +356,51 @@ pub struct Decision {
     pub run: RunId,
     pub action: PolicyAction,
     pub reason: String,
+    pub why: DecisionWhy,
     pub at: Timestamp,
+}
+
+/// Why a policy acted. On the wire a union tagged by `code` (TS `DecisionWhySchema`), each code with its own fields:
+/// `newer-run {run}`, `pool-full {pool, running, limit}`, `release-ahead {pool, running, limit}`, `paused`,
+/// `green-on-same-inputs {run}`, `placed-on {pool}`, `batched {batch}`, `flaky {fails, runs}`, `failed-jobs {count}`,
+/// `other`. A flat struct here, not a tagged enum, so a workspace build reads its numbers (serde's
+/// `arbitrary_precision`); build one with `DecisionWhy::new(code)` and set that code's fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecisionWhy {
+    pub code: WhyCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<PoolId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fails: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runs: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+}
+
+impl DecisionWhy {
+    pub fn new(code: WhyCode) -> DecisionWhy {
+        DecisionWhy {
+            code,
+            run: None,
+            pool: None,
+            running: None,
+            limit: None,
+            batch: None,
+            fails: None,
+            runs: None,
+            count: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -843,6 +904,47 @@ pub(crate) mod samples {
         }
     }
 
+    /// Every code of `DecisionWhy` with the fields it carries.
+    fn why_samples() -> Vec<DecisionWhy> {
+        let full = |code| DecisionWhy {
+            pool: Some("github-macos".into()),
+            running: Some(5),
+            limit: Some(5),
+            ..DecisionWhy::new(code)
+        };
+        vec![
+            DecisionWhy {
+                run: Some("run-42".into()),
+                ..DecisionWhy::new(WhyCode::NewerRun)
+            },
+            full(WhyCode::PoolFull),
+            full(WhyCode::ReleaseAhead),
+            DecisionWhy::new(WhyCode::Paused),
+            DecisionWhy {
+                run: Some("run-40".into()),
+                ..DecisionWhy::new(WhyCode::GreenOnSameInputs)
+            },
+            DecisionWhy {
+                pool: Some("device-mini".into()),
+                ..DecisionWhy::new(WhyCode::PlacedOn)
+            },
+            DecisionWhy {
+                batch: Some("batch-3".into()),
+                ..DecisionWhy::new(WhyCode::Batched)
+            },
+            DecisionWhy {
+                fails: Some(3),
+                runs: Some(20),
+                ..DecisionWhy::new(WhyCode::Flaky)
+            },
+            DecisionWhy {
+                count: Some(2),
+                ..DecisionWhy::new(WhyCode::FailedJobs)
+            },
+            DecisionWhy::new(WhyCode::Other),
+        ]
+    }
+
     pub(crate) fn snapshot() -> Snapshot {
         Snapshot {
             as_of: 1_794_000_700_000,
@@ -872,6 +974,10 @@ pub(crate) mod samples {
                 run: "run-0".into(),
                 action: PolicyAction::CancelSuperseded,
                 reason: "run-1 is a newer run of the same ref and workflow".into(),
+                why: DecisionWhy {
+                    run: Some("run-1".into()),
+                    ..DecisionWhy::new(WhyCode::NewerRun)
+                },
                 at: 1_794_000_100_000,
             }],
             answers: vec![RunResult {
@@ -929,6 +1035,7 @@ pub(crate) mod samples {
         enums.insert("PolicyAction".into(), words(PolicyAction::ALL));
         enums.insert("PolicyMode".into(), words(PolicyMode::ALL));
         enums.insert("QueueState".into(), words(QueueState::ALL));
+        enums.insert("WhyCode".into(), words(WhyCode::ALL));
         enums.insert("Outcome".into(), words(Outcome::ALL));
         enums.insert("TestState".into(), words(TestState::ALL));
         enums.insert("AnswerVerdict".into(), words(AnswerVerdict::ALL));
@@ -979,6 +1086,7 @@ pub(crate) mod samples {
                 owner_override: Some(false),
             }]),
         );
+        types.insert("DecisionWhy".into(), of(why_samples()));
         types.insert(
             "TestResult".into(),
             of(vec![TestResult {
