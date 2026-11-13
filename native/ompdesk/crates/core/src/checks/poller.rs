@@ -597,8 +597,8 @@ impl Engine {
                 !active(&tracked.run) || value.iter().any(|run| run.id == *id)
             });
             changed |= watched.runs.len() != before;
+            self.claims.see_github(repo, &value, now);
             for run in value {
-                self.claims.of_github(repo, &run, now);
                 changed |= watched.upsert(run, now);
             }
             watched.forget_old();

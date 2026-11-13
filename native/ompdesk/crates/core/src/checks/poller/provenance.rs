@@ -97,6 +97,16 @@ impl Claims {
         self.github.get(&key)
     }
 
+    /// Decides the claims of the runs of one read of GitHub's list, oldest first: GitHub lists newest first, and two
+    /// dispatches of one workflow on one ref that show in the same read must bind in the order they were sent.
+    pub fn see_github(&mut self, repo: &str, runs: &[GithubRun], now: Timestamp) {
+        let mut order: Vec<&GithubRun> = runs.iter().collect();
+        order.sort_by_key(|run| (run.created_at, run.id));
+        for run in order {
+            self.of_github(repo, run, now);
+        }
+    }
+
     /// The claim on a local check: the hub's own start, else the session whose process tag the journal names.
     pub fn of_local(&self, run: &LocalRun) -> Option<Claim> {
         if let Some(claim) = self.local.get(&run.id) {

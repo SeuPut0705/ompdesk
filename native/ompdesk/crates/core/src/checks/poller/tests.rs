@@ -513,6 +513,36 @@ fn who_started_a_run_is_the_hubs_record_and_nothing_the_run_says() {
 }
 
 #[test]
+fn two_dispatches_of_one_workflow_that_show_in_one_read_bind_in_the_order_sent() {
+    let mut engine = watching();
+    for (id, who, after) in [("run-1", "a", T0 - 61_000), ("run-2", "b", T0 - 60_500)] {
+        engine.claims().expect(Expected {
+            repo: REPO.to_owned(),
+            workflow: "ci.yml".to_owned(),
+            git_ref: "omp/agent/checks-poller".to_owned(),
+            after,
+            claim: claim(id, session(who)),
+        });
+    }
+    let ask = runs_ask(&mut engine, T0);
+    let older = run(11, "in_progress", T0);
+    let newer = GithubRun {
+        created_at: older.created_at + 400,
+        ..run(12, "in_progress", T0)
+    };
+    // GitHub lists runs newest first.
+    engine.apply(T0, &ask, fresh(vec![newer, older]));
+    let runs = engine.runs(T0);
+    let origin = |id: &str| runs.iter().find(|run| run.id == id).unwrap().origin.clone();
+    assert_eq!(origin("run-1"), session("a"));
+    assert_eq!(origin("run-2"), session("b"));
+    assert_eq!(
+        engine.claims().github_of("run-1"),
+        Some((REPO.to_owned(), 11))
+    );
+}
+
+#[test]
 fn a_job_is_told_by_how_it_stands_and_only_when_it_takes_a_runner() {
     let mut engine = watching();
     let ask = runs_ask(&mut engine, T0);
