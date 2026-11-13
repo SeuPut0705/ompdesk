@@ -965,8 +965,13 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
                 })
                 .cloned()
                 .collect();
+            let arm_input =
+                names.contains("input-event") && !e.watch_events.contains("input-event");
             e.watch_events = names;
             drop(e);
+            if arm_input {
+                crate::cdp::watch_input(wc_id);
+            }
             ok(call)
         }
         "ignoreBeforeUnload" => ok(call),

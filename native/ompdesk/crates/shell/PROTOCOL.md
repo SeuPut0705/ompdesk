@@ -189,7 +189,7 @@ instead of resizing a bitmap), `Page.printToPDF` (`transferMode: "ReturnAsBase64
 | `render-process-gone` | `[{reason, exitCode}]` (`crashed`, `killed`, `oom`, `launch-failed`, `integrity-failure`, `abnormal-exit`, `clean-exit`) |
 | `console-message` | `[{level: "debug"\|"info"\|"warning"\|"error", message, lineNumber, sourceId}]` |
 | `context-menu` | `[{x, y, isEditable, selectionText, misspelledWord, dictionarySuggestions: string[], mediaType: "none"\|"image"\|…, linkURL, srcURL, editFlags: {canUndo, canRedo, canCut, canCopy, canPaste, canSelectAll}}]` — optional (see below). |
-| `input-event` | `[{type: "mouseUp"\|"keyUp"}]` — **real** OS input only (CDP-dispatched input never produces it) |
+| `input-event` | `[{type: "mouseUp"\|"keyUp"}]` — a trusted pointer or key release on the page: a person's, or browser-process input sent through the DevTools protocol (`sendInputEvent`), as Electron's; never a script's `dispatchEvent` |
 | `will-prevent-unload` | `[]` — an offscreen page's beforeunload prompt; the Preview's listener always prevents it (the page unloads): the shim then sends `wc.op ignoreBeforeUnload`. Optional. |
 | `preload-error` | `[preloadPath, {message, stack}]` — the shell's injected `shell.js` threw |
 | `destroyed` | `[]` — last event of a page |
@@ -401,8 +401,12 @@ What the Rust shell does differently from this table or from Electron. README.md
   document is not asked about (`transition.rs`): the main script prevents every navigation it is asked about that it did
   not start, which would cancel a DevTools reload.
 - **`wc.event`**: `did-navigate` carries status 200 / "OK" (CEF gives none there); `did-start-navigation` is per frame,
-  with `frameProcessId`/`frameRoutingId` 0; `input-event` (real mouse-up/key-up) is not produced; `will-prevent-unload` is
+  with `frameProcessId`/`frameRoutingId` 0; `will-prevent-unload` is
   not produced (the before-unload dialog is accepted without asking).
+- **`input-event`** comes from the page: once a page watches it, the shell enables `Runtime` and `Page` on the page's
+  DevTools session and registers a script in an isolated world of its own (`ompdesk-input`) that reports each trusted
+  `pointerup`/`keyup` through a binding only that world has (`input_watch.rs`); the binding's calls never reach a
+  debugger, and a debugger's detach arms the page again. A release on an out-of-process frame is not seen.
 - **`wc.windowOpen`** is sent but not waited for: the popup is always cancelled.
 - **`wc.op`**: `setBackgroundThrottling` and `ignoreBeforeUnload` are accepted and do nothing; `copyImageAt` copies through
   the page's clipboard API; `executeJavaScript` is CDP `Runtime.evaluate` (by value, promises awaited).

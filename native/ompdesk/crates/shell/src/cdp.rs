@@ -54,13 +54,19 @@ fn on_message(wc_id: u64, value: Value) {
         }
         return;
     }
-    if !entry.borrow().cdp_attached {
-        return;
-    }
     let Some(method) = value.get("method").and_then(Value::as_str) else {
         return;
     };
-    let mut data = json!({ "wcId": wc_id, "method": method, "params": value.get("params").cloned().unwrap_or(json!({})) });
+    let params = value.get("params").cloned().unwrap_or(json!({}));
+    // The input watch's binding is the shell's own: never a debugger's to see.
+    if let Some(kind) = shell_core::input_watch::input_event(method, &params) {
+        crate::wc::emit(wc_id, "input-event", json!([{ "type": kind }]));
+        return;
+    }
+    if !entry.borrow().cdp_attached {
+        return;
+    }
+    let mut data = json!({ "wcId": wc_id, "method": method, "params": params });
     if let Some(session) = value.get("sessionId") {
         data["sessionId"] = session.clone();
     }
@@ -148,6 +154,26 @@ pub fn detach(wc_id: u64) {
     if let Some(entry) = wc(wc_id) {
         entry.borrow_mut().cdp_attached = false;
     }
+    // A debugger may have disabled `Runtime` or `Page`, which drops the input watch's binding and script.
+    if wc(wc_id).is_some_and(|e| e.borrow().watch_events.contains("input-event")) {
+        watch_input(wc_id);
+    }
+}
+
+/// Arms the page's `input-event` (`shell_core::input_watch`) once CEF created its browser.
+pub fn watch_input(wc_id: u64) {
+    crate::wc::with_browser(wc_id, move |_| {
+        for (method, params) in shell_core::input_watch::arm_commands() {
+            send(wc_id, method, Some(params), None, move |result| {
+                if let Err((code, message)) = result {
+                    crate::log::log(
+                        "wc.input_watch_failed",
+                        json!({ "wcId": wc_id, "method": method, "code": code, "message": message }),
+                    );
+                }
+            });
+        }
+    });
 }
 
 /// `executeJavaScript`: `Runtime.evaluate` by value, a promise awaited; a throw is `failed` with the page's message.
