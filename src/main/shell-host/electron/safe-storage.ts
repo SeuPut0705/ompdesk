@@ -87,7 +87,12 @@ export function keychainFetcher(exe: string, userData: string): KeyFetcher {
 				windowsHide: true,
 				stdio: ["ignore", "pipe", "ignore"],
 			});
-			const parsed: unknown = JSON.parse(out.trim().split("\n").at(-1) ?? "");
+			let parsed: unknown = null;
+			try {
+				parsed = JSON.parse(out.trim().split("\n").at(-1) ?? "");
+			} catch {
+				// not a JSON line: answered below as unreadable
+			}
 			if (typeof parsed === "object" && parsed !== null) {
 				if (
 					"kind" in parsed &&

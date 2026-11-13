@@ -2,6 +2,9 @@
  * The `electron` shim against a fake shell: Electron's semantics (events, synchronous getters, the quit sequence,
  * `ipcMain` feeding main's `IpcRegistry`, protocol and net streaming, menus) over the host protocol's frames.
  */
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IpcRegistry } from "../../web/ipc-registry";
 import { Answered, ShellClient } from "../client";
@@ -573,20 +576,22 @@ describe("webContents", () => {
 			args: [-105, "NAME_NOT_RESOLVED", "https://nope.invalid/", true, 0, 0],
 		});
 		await expect(failed).rejects.toThrow(/ERR_FAILED \(-105\)/);
-		const outside = webContents.loadFile("C:/elsewhere/page.html");
+		const elsewhere = join(tmpdir(), "elsewhere", "page.html");
+		const outside = webContents.loadFile(elsewhere);
 		void outside.catch(() => undefined);
 		await settle();
 		const last = fake.callsOf("wc.op").at(-1);
-		expect((last?.params.args as { url: string } | undefined)?.url).toBe("file:///C:/elsewhere/page.html");
+		expect((last?.params.args as { url: string } | undefined)?.url).toBe(pathToFileURL(elsewhere).href);
 	});
 
 	it("maps loadFile through the renderer root the shell serves, when it names one", async () => {
 		node.close();
 		shell.close();
-		await boot({ ...FACTS, rendererRoot: "C:/repo/out-abc/renderer" });
+		const root = join(tmpdir(), "repo", "out-abc", "renderer");
+		await boot({ ...FACTS, rendererRoot: root });
 		await ready();
 		const { webContents } = new electron.BrowserWindow({});
-		void webContents.loadFile("C:/repo/out-abc/renderer/index.html", { query: { slot: "0" } });
+		void webContents.loadFile(join(root, "index.html"), { query: { slot: "0" } });
 		await settle();
 		expect(fake.callsOf("wc.op").at(-1)?.params).toMatchObject({ args: { url: "app://ompdesk/index.html?slot=0" } });
 	});

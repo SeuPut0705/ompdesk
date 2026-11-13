@@ -5,7 +5,7 @@
  * `insertText`, `executeJavaScriptInIsolatedWorld` and the `debugger` are built on the DevTools protocol.
  */
 import { EventEmitter } from "node:events";
-import { join, relative, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { WcState } from "../facts";
 import { encodeBin } from "./binary-json";
@@ -246,13 +246,17 @@ export class WebContents extends EventEmitter implements PageRecord {
 		return loaded;
 	}
 
-	/** The renderer the shell serves (`out/renderer/…` as `app://ompdesk/…`); any other file by its `file:` URL. */
+	/**
+	 * The renderer the shell serves (`out/renderer/…` as `app://ompdesk/…`); any other file by its `file:` URL. A
+	 * relative path is the app's, as in Electron.
+	 */
 	loadFile(filePath: string, options: { query?: Record<string, string>; hash?: string } = {}): Promise<void> {
 		const root = rendererRoot(this.#host.facts);
-		const inside = relative(root, filePath);
+		const file = resolve(this.#host.facts.appPath, filePath);
+		const inside = relative(root, file);
 		const base =
 			inside === "" || inside.startsWith("..") || inside.includes(":")
-				? pathToFileURL(filePath)
+				? pathToFileURL(file)
 				: new URL(`app://ompdesk/${inside.split(sep).map(encodeURIComponent).join("/")}`);
 		for (const [key, value] of Object.entries(options.query ?? {})) base.searchParams.set(key, value);
 		if (options.hash) base.hash = options.hash;
