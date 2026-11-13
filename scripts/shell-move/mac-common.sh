@@ -49,3 +49,11 @@ item_where() { security find-generic-password -s "ompdesk Safe Storage" 2>&1 | s
 item_acl() { echo "keychain $(item_where)"; security dump-keychain -a 2>/dev/null | awk '/ompdesk Safe Storage/{f=1} f' | sed -n '1,40p' | grep -E 'description: cdhash|requirement|authorizations' | head -5; }
 kill_apps() { pkill -f "$1" 2>/dev/null; sleep 3; }
 
+# start_feed <port> <asset>: the stand-in api.github.com (feed.ts, --platform mac) on 127.0.0.1:<port>, proven to answer.
+start_feed() {
+  (cd "$REPO" && bun scripts/shell-move/feed.ts --setup "$2" --platform mac --version 0.200.0 --cert-dir "$W/cert" --port "$1" >"$W/feed.log" 2>&1) & FEED=$!
+  sleep 4
+  curl -sk --resolve "api.github.com:$1:127.0.0.1" "https://api.github.com:$1/repos/SeuPut0705/ompdesk" | grep -q full_name
+  check $? "the stand-in feed answers the repository probe on :$1"
+  head -3 "$W/feed.log"
+}

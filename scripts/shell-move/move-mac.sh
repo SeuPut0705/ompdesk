@@ -33,12 +33,11 @@ curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.
 mkdir mnt && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint mnt rel.dmg >/dev/null && ditto mnt/OMPdesk.app rel.app && hdiutil detach mnt >/dev/null
 bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
-(cd "$REPO" && bun scripts/shell-move/feed.ts --setup "$W/new.dmg" --platform mac --version 0.200.0 --cert-dir "$W/cert" --port $FEEDPORT >"$W/feed.log" 2>&1) & FEED=$!
-sleep 3
+start_feed $FEEDPORT "$W/new.dmg"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:$FEEDPORT" --ignore-certificate-errors)
 update_lines() { jq -r 'select(.source=="app-update") | "\(.message) \(.details.event // "") \(.details.outcome // "") \(.details.mode // "")"' "$1/logs/gui-runtime.jsonl" 2>/dev/null; }
 has_line() { update_lines "$1" | grep -q "^$2"; }
-wait_for() { local n=0; while [ $n -lt $3 ]; do eval "$1" && return 0; sleep 3; n=$((n+3)); done; return 1; }
+wait_for() { local n=0; while [ $n -lt $2 ]; do eval "$1" && return 0; sleep 3; n=$((n+3)); done; return 1; }
 
 # scenario <name> <fail 0|1>
 scenario() {

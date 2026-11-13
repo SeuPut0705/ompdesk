@@ -32,8 +32,7 @@ ditto rel.app adhoc.app
 bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 codesign --force --deep -s - adhoc.app >/dev/null 2>&1; codesign --verify --deep adhoc.app; check $? "the ad-hoc copy of the released app is signed (codesign -s -)"
 evidence "release-form requirement of the released app: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
-(cd "$REPO" && bun scripts/shell-move/feed.ts --setup "$W/rel.dmg" --platform mac --version 0.200.0 --cert-dir "$W/cert" --port 18443 >"$W/feed.log" 2>&1) & FEED=$!
-sleep 3
+start_feed 18443 "$W/rel.dmg"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:18443" --ignore-certificate-errors)
 
 seed_with() { # seed_with <app> <userData> <port>: the released app saves a token and Local Storage, then quits
