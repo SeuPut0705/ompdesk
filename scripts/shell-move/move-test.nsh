@@ -39,7 +39,9 @@
 ; read the person's profile. It sits in %TEMP%, not in the install folder, because the same launcher starts the old app
 ; again when the move is undone (the released Electron takes its profile from --user-data-dir only, so the launcher names it), and the folder it lives in is then the old one. It also opens CEF's debugging port
 ; (OMP_MOVE_DEBUG_PORT) so the run can read the page's Local Storage, and with OMP_MOVE_FAIL=start it sets
-; OMP_GUI_TEST_SHELL_FAIL_START=1, the shell's seam that exits 1 after CEF init (the new app never comes up).
+; OMP_GUI_TEST_SHELL_FAIL_START=1, the shell's seam that exits 1 after CEF init (the new app never comes up). Every app it starts
+; also gets api.github.com mapped to a closed port: the old Electron it brings back would otherwise ask the real GitHub, find the
+; real latest release and start its own setup (a window of the real installer, 21:17 in run 43500402418).
 !macro ompMoveTestAfterInstall
   ReadEnvStr $R9 OMP_GUI_TEST_USER_DATA_DIR
   ReadEnvStr $R7 OMP_MOVE_HOME
@@ -54,7 +56,7 @@
     ${if} $R5 == "start"
       FileWrite $R8 "set $\"OMP_GUI_TEST_SHELL_FAIL_START=1$\"$\r$\n"
     ${endif}
-    FileWrite $R8 "start $\"$\" $\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --user-data-dir=$\"$R9$\" --remote-debugging-port=$R6 %*$\r$\n"
+    FileWrite $R8 "start $\"$\" $\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --user-data-dir=$\"$R9$\" --host-resolver-rules=$\"MAP api.github.com 127.0.0.1:1$\" --remote-debugging-port=$R6 %*$\r$\n"
   ${endif}
   FileClose $R8
   StrCpy $launchLink "$TEMP\ompdesk-move-test.cmd"
