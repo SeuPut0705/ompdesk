@@ -410,10 +410,14 @@ What the Rust shell does differently from this table or from Electron. README.md
   creation) are accepted and do nothing; on a window that cannot take focus `show` and `showInactive` do not activate and
   `win.state.focused` stays false.
 - **`win.closeRequested`**: no answer within 5 s closes the window.
-- **`view.*`**: a view is hidden until its first `setVisible`/`setBounds` with a non-empty size.
+- **`view.*`**: a view is hidden until its first `setVisible`/`setBounds` with a non-empty size; an empty `setBounds` only
+  hides the view (a zero-sized browser view is a fatal check in Chromium).
 - **`session.*`**: `setProxy` writes Chromium's `proxy` preference; `resolveProxy` is answered from the user's WinINET /
   WinHTTP settings, not Chromium's resolver; `setSpellCheckerLanguages` and `addWordToSpellCheckerDictionary` are accepted
-  and do nothing; `session.create` reports `spellCheckerLanguages: []`.
+  and do nothing; `session.create` reports `spellCheckerLanguages: []`. `clearCache`/`clearStorageData` do nothing for a
+  partition without the `persist:` prefix (it keeps nothing past its pages; clearing a Chrome-style in-memory context
+  ends the process). Creating the Preview's two in-memory contexts logs Chromium's non-fatal `NOTREACHED hit. Observers
+  can only be added once!` on stderr.
 - **`protocol.request`**: request headers are one `[name, value]` pair per value; a failed head fails the request with
   `ERR_FAILED`.
 - **`ipc.sendSync`** is sent from a `prompt()` the Preview preload's `__ompdeskSendSync` makes (message starting with NUL +
@@ -427,6 +431,10 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **`theme.setSource`** is pushed into every page as CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme`).
 - **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; `resolveHost` ignores `cacheUsage`; request headers
   `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
+- **Application menu accelerators** are matched by a message hook for typed keys; a key sent through the DevTools protocol
+  (the e2e harness) reaches the shell as an unhandled key event and is matched there.
+- **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs every host request (`host.request`); a Rust panic writes
+  `%TEMP%/ompdesk-shell-panic.log`.
 - **`menu.popup`** answers `null` when another popup is open; popup choices never emit `menu.click`.
 - **macOS**: `facts.safeStorage` is `{kind: "mac-v10-lazy"}` (the key is fetched with `--keychain-key <userData>`, never at
   launch); every CEF process runs with `--use-mock-keychain`; Cmd-Q sends `app.quitRequested`. All macOS code is

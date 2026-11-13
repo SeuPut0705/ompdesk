@@ -115,8 +115,11 @@ file name).
   from Chromium's resolver.
 - **Display bounds** are physical pixels divided by each display's own scale (Electron's DIP space differs on mixed-DPI
   setups).
-- **`theme.setSource`** changes what Node reports; CEF pages keep following the OS colour scheme (the `cef` crate has no
-  per-browser setting).
+- **`theme.setSource`** changes what Node reports and is pushed into every page as CDP `Emulation.setEmulatedMedia`
+  (`prefers-color-scheme`).
+- **Preview partitions** (no `persist:` prefix) are in-memory request contexts that keep nothing, so `clearCache` and
+  `clearStorageData` do nothing for them; creating the two Preview contexts logs a non-fatal Chromium `NOTREACHED` line.
+- **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs each host request; a Rust panic writes `%TEMP%/ompdesk-shell-panic.log`.
 - **Dialogs** run on a thread of their own so their modal loop does not block CEF's UI thread; macOS `messageBox` is
   an app-modal alert, not a sheet.
 - **Notifications** are WinRT toasts keyed on the AppUserModelID; an unpackaged run without a Start-menu shortcut with
