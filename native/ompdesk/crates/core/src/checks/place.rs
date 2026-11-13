@@ -161,6 +161,7 @@ mod tests {
             check_store_bytes: None,
             as_of: 0,
             offline: false,
+            foreign: Vec::new(),
         }
     }
 

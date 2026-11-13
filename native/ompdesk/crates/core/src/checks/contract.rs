@@ -463,6 +463,20 @@ pub struct StartRequest {
     /// The caller's folder, set by main (the tool has no such argument).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// A named workflow run instead of the one policy picks for `purpose` (`ompdesk checks start --workflow`, the
+    /// front door `scripts/ci-run.ts` uses). The agent tool has no such argument.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<WorkflowAsk>,
+}
+
+/// A workflow run named by the caller: its file, the inputs it is dispatched with, and whether it asks for macOS
+/// runners (which decides its pool and, from main or a `MAC_REFS` branch, the release lane).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowAsk {
+    pub file: String,
+    pub inputs: std::collections::BTreeMap<String, String>,
+    pub macos: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1001,6 +1015,11 @@ pub(crate) mod samples {
                 repo: Some("example/app".into()),
                 git_ref: Some("omp/agent/feature".into()),
                 cwd: Some("/work/app".into()),
+                workflow: Some(WorkflowAsk {
+                    file: "ci.yml".into(),
+                    inputs: std::collections::BTreeMap::from([("batch".into(), "true".into())]),
+                    macos: false,
+                }),
             }]),
         );
         types.insert(

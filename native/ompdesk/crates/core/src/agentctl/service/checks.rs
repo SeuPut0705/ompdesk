@@ -322,6 +322,7 @@ impl AgentControl {
                     repo: args.repo,
                     git_ref: args.git_ref,
                     cwd,
+                    workflow: args.workflow,
                 };
                 match hub.start(origin, request).await {
                     Ok(reply) => Ok(start_text(&reply)),

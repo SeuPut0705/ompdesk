@@ -374,6 +374,26 @@ fn build_checks(p: &Parsed) -> Result<Built, String> {
                 a.insert("rerun".into(), "failed".into());
             }
             p.args_into(&mut a, &["purpose", "scope", "repo", "ref"]);
+            match p.str("workflow") {
+                Some(file) => {
+                    let mut inputs = Map::new();
+                    for pair in p.list("input").unwrap_or_default() {
+                        let Some((key, value)) = pair.split_once('=') else {
+                            return Err(format!("--input takes KEY=VALUE, not {pair:?}"));
+                        };
+                        inputs.insert(key.into(), value.into());
+                    }
+                    let macos = p.bool("macos");
+                    a.insert(
+                        "workflow".into(),
+                        json!({ "file": file, "inputs": inputs, "macos": macos }),
+                    );
+                }
+                None if p.list("input").is_some() || p.bool("macos") => {
+                    return Err("--input and --macos go with --workflow FILE".into());
+                }
+                None => {}
+            }
         }
         "wait" => {
             one_of(p.str("until"), &["result", "any"], "until")?;
@@ -677,7 +697,7 @@ pub static SPECS: &[Spec] = &[
     },
     Spec {
         name: "checks",
-        usage: "checks start [--purpose branch|release|land] [--scope changed|full] [--rerun-failed] [--repo OWNER/NAME] [--ref BRANCH] | checks wait RUN [--until result|any] [--timeout SECONDS] | checks status [--scope mine|repo|all] [--repo OWNER/NAME]",
+        usage: "checks start [--purpose branch|release|land] [--scope changed|full] [--rerun-failed] [--repo OWNER/NAME] [--ref BRANCH] [--workflow FILE [--input KEY=VALUE]... [--macos]] | checks wait RUN [--until result|any] [--timeout SECONDS] | checks status [--scope mine|repo|all] [--repo OWNER/NAME]",
         summary: "Start checks on CI, wait for their result, or see what runs (ompdesk_checks).",
         flags: &[
             ("purpose", S),
@@ -685,6 +705,9 @@ pub static SPECS: &[Spec] = &[
             ("rerun-failed", B),
             ("repo", S),
             ("ref", S),
+            ("workflow", S),
+            ("input", M),
+            ("macos", B),
             ("until", S),
             ("timeout", N),
         ],
@@ -1106,6 +1129,23 @@ mod tests {
                 tool(
                     "ompdesk_checks",
                     json!({ "op": "start", "rerun": "failed", "purpose": "release" }),
+                ),
+            ),
+            (
+                &[
+                    "checks",
+                    "start",
+                    "--workflow",
+                    "ci.yml",
+                    "--input",
+                    "batch=true",
+                    "--input",
+                    "mac=true",
+                    "--macos",
+                ],
+                tool(
+                    "ompdesk_checks",
+                    json!({ "op": "start", "workflow": { "file": "ci.yml", "inputs": { "batch": "true", "mac": "true" }, "macos": true } }),
                 ),
             ),
             (

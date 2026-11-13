@@ -325,6 +325,7 @@ mod tests {
             repo: None,
             git_ref: None,
             cwd: None,
+            workflow: None,
         };
         let reply = hub.start(samples::session(), request).await.unwrap();
         assert_eq!(reply.decision, StartDecision::Refused);

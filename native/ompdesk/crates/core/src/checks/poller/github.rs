@@ -317,7 +317,7 @@ impl GhSource {
             return Ok(());
         }
         // A spent quota already holds the budget until its reset; anything else is a pause GitHub asks for.
-        if answer.retry_after.is_some() || !answer.rate.is_some_and(|rate| rate.remaining == 0) {
+        if answer.retry_after.is_some() || answer.rate.is_none_or(|rate| rate.remaining != 0) {
             let wait = answer
                 .retry_after
                 .map_or(SECONDARY_PAUSE_MS, |seconds| seconds.saturating_mul(1000));
@@ -833,6 +833,49 @@ impl GithubSource for GhSource {
             let endpoint = format!("repos/{repo}");
             let body = self.body(&endpoint, "{private}").await?;
             Ok(self.parsed::<Visibility>(&endpoint, &body)?.private)
+        })
+    }
+
+    fn file<'a>(
+        &'a self,
+        repo: &'a str,
+        sha: &'a str,
+        path: &'a str,
+    ) -> Fut<'a, Result<Option<String>, SourceError>> {
+        Box::pin(async move {
+            use base64::Engine as _;
+            #[derive(Deserialize)]
+            struct Content {
+                content: String,
+                encoding: String,
+            }
+            let repo = repo_name(repo)?;
+            if sha.is_empty() || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(SourceError::new("failed", format!("not a commit: {sha}")));
+            }
+            let endpoint = format!("repos/{repo}/contents/{}?ref={sha}", path_of(path));
+            let body = match self.get(&endpoint, "{content, encoding}").await? {
+                Got::Body(body) => body,
+                Got::Refused { status: 404, .. } => return Ok(None),
+                Got::Refused { status, message } => {
+                    return Err(SourceError::new(
+                        "failed",
+                        format!("{message} (HTTP {status})"),
+                    ));
+                }
+            };
+            let content = self.parsed::<Content>(&endpoint, &body)?;
+            let unreadable = |why: &str| SourceError::new("failed", format!("{path}: {why}"));
+            if content.encoding != "base64" {
+                return Err(unreadable("not served as base64"));
+            }
+            let packed: String = content.content.split_whitespace().collect();
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(packed)
+                .map_err(|_| unreadable("not base64"))?;
+            String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|_| unreadable("not UTF-8"))
         })
     }
 }

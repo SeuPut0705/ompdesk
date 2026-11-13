@@ -1024,6 +1024,18 @@ export const ARGS = {
 				rerun: z.enum(RERUNS).optional(),
 				repo: z.string().trim().regex(GITHUB_REPO, "repo is owner/name").optional(),
 				ref: z.string().trim().min(1).max(250).optional(),
+				// The CLI's `--workflow` (scripts/ci-run.ts); not in the tool's schema: policy picks an agent's workflow.
+				workflow: z
+					.object({
+						file: z
+							.string()
+							.trim()
+							.regex(/^[\w.-]+\.ya?ml$/, "workflow is a file name such as ci.yml"),
+						inputs: z.record(z.string().regex(/^[\w-]+$/), z.string().max(1000)),
+						macos: z.boolean(),
+					})
+					.strict()
+					.optional(),
 			})
 			.strict(),
 		z

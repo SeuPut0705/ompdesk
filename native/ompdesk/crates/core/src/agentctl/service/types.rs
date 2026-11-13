@@ -1409,6 +1409,9 @@ pub struct ChecksArgs {
     pub repo: Option<String>,
     #[serde(default, rename = "ref")]
     pub git_ref: Option<String>,
+    /// start, from the CLI only (`--workflow`, what `scripts/ci-run.ts` sends): a named workflow run.
+    #[serde(default)]
+    pub workflow: Option<crate::checks::contract::WorkflowAsk>,
     /// wait: the run a start answered.
     #[serde(default)]
     pub run: Option<String>,

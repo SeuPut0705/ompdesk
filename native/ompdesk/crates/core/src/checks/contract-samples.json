@@ -334,7 +334,14 @@
         "rerun": "failed",
         "repo": "example/app",
         "ref": "omp/agent/feature",
-        "cwd": "/work/app"
+        "cwd": "/work/app",
+        "workflow": {
+          "file": "ci.yml",
+          "inputs": {
+            "batch": "true"
+          },
+          "macos": false
+        }
       }
     ],
     "StartReply": [

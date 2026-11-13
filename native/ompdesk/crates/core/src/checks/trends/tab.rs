@@ -372,6 +372,7 @@ mod tests {
             check_store_bytes: bytes,
             as_of: 0,
             offline: false,
+            foreign: Vec::new(),
         };
         let local = Local {
             flaky: &[

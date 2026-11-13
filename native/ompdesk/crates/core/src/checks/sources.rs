@@ -187,6 +187,14 @@ pub trait GithubSource: Send + Sync {
 
     /// Whether the repo is private (placement: a private repo goes local first, a public one to runners).
     fn is_private<'a>(&'a self, repo: &'a str) -> Fut<'a, Result<bool, SourceError>>;
+
+    /// A file of the repo at a commit (a workflow, `.ompdesk/checks.json`), as text; None when it is not there.
+    fn file<'a>(
+        &'a self,
+        repo: &'a str,
+        sha: &'a str,
+        path: &'a str,
+    ) -> Fut<'a, Result<Option<String>, SourceError>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -308,6 +316,8 @@ pub struct GithubFacts {
     pub archives: BTreeMap<u64, Vec<u8>>,
     /// The private repos; every other is public.
     pub private: Vec<RepoId>,
+    /// A file's text, by `repo\nsha\npath`.
+    pub files: BTreeMap<String, String>,
     /// Every read and write fails with this while it is set.
     pub down: Option<SourceError>,
 }
@@ -471,6 +481,17 @@ impl GithubSource for FakeGithub {
 
     fn is_private<'a>(&'a self, repo: &'a str) -> Fut<'a, Result<bool, SourceError>> {
         Box::pin(async move { self.read(|facts| facts.private.iter().any(|of| of == repo)) })
+    }
+
+    fn file<'a>(
+        &'a self,
+        repo: &'a str,
+        sha: &'a str,
+        path: &'a str,
+    ) -> Fut<'a, Result<Option<String>, SourceError>> {
+        Box::pin(async move {
+            self.read(|facts| facts.files.get(&format!("{repo}\n{sha}\n{path}")).cloned())
+        })
     }
 }
 

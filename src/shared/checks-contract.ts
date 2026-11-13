@@ -303,6 +303,14 @@ export const AnswerSchema = z.strictObject({
 });
 export type Answer = z.infer<typeof AnswerSchema>;
 
+/** A workflow run the caller names (`ompdesk checks start --workflow`, what `scripts/ci-run.ts` sends); the agent tool has none. */
+export const WorkflowAskSchema = z.strictObject({
+	file: z.string(),
+	inputs: z.record(z.string(), z.string()),
+	macos: z.boolean(),
+});
+export type WorkflowAsk = z.infer<typeof WorkflowAskSchema>;
+
 /** `start`. No placement or lane argument: policy decides both and reports them back. `cwd` is main's, never the tool's. */
 export const StartRequestSchema = z.strictObject({
 	purpose: z.enum(PURPOSES),
@@ -311,6 +319,7 @@ export const StartRequestSchema = z.strictObject({
 	repo: z.string().optional(),
 	ref: z.string().optional(),
 	cwd: z.string().optional(),
+	workflow: WorkflowAskSchema.optional(),
 });
 export type StartRequest = z.infer<typeof StartRequestSchema>;
 
