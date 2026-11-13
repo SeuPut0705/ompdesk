@@ -111,7 +111,11 @@ impl Read for PipeConn {
         if buf.is_empty() {
             return Ok(0);
         }
-        self.transfer(buf.as_mut_ptr(), buf.len(), false)
+        match self.transfer(buf.as_mut_ptr(), buf.len(), false) {
+            // The peer closed its end: the stream ends (ERROR_BROKEN_PIPE, ERROR_NO_DATA and ERROR_PIPE_NOT_CONNECTED).
+            Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(0),
+            other => other,
+        }
     }
 }
 
@@ -196,7 +200,8 @@ impl PipeListener {
         } else {
             // SAFETY: reads this thread's last error.
             match unsafe { GetLastError() } {
-                ERROR_PIPE_CONNECTED => Ok(()),
+                // A client that connected and already closed (ERROR_NO_DATA) still left its bytes to read.
+                ERROR_PIPE_CONNECTED | ERROR_NO_DATA => Ok(()),
                 ERROR_IO_PENDING => {
                     // SAFETY: waits for the pending connect on a live event.
                     unsafe { WaitForSingleObject(event, INFINITE) };

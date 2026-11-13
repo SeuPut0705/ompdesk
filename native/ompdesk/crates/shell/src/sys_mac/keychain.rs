@@ -17,7 +17,8 @@ use std::path::Path;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use security_framework::passwords::get_generic_password;
+use security_framework::os::macos::keychain::SecKeychain;
+use security_framework::passwords::{get_generic_password, set_generic_password};
 use serde_json::{Value, json};
 
 const SERVICE: &str = "ompdesk Safe Storage";
@@ -29,21 +30,42 @@ const ERR_SEC_USER_CANCELED: i32 = -128;
 const ERR_SEC_AUTH_FAILED: i32 = -25293;
 const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25308;
 
+/// What the one-shot answers when a read would show a keychain dialog (the item's access list does not include this
+/// process, the keychain is locked): the shim keys on this exact string and asks the person to enter the secret again.
+pub const WOULD_ASK: &str = "keychain-would-ask";
+
+/// Chromium's `AddRandomPasswordToKeychain`: 16 random bytes as base64, the password OSCrypt derives its key from.
+fn make_item() -> Result<Vec<u8>, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|e| format!("no random bytes for a new keychain item: {e}"))?;
+    let password = STANDARD.encode(bytes).into_bytes();
+    set_generic_password(SERVICE, ACCOUNT, &password)
+        .map_err(|e| format!("creating the keychain item \"{SERVICE}\" failed: {e}"))?;
+    Ok(password)
+}
+
 /// `{"kind":"mac-v10","password":"<base64>"}` (the item's password bytes) or `{"unavailable":"<why>"}`. The profile
-/// folder is not needed: macOS keeps the key in the keychain, not beside the profile.
+/// folder is not needed: macOS keeps the key in the keychain, not beside the profile. User interaction is switched off
+/// for the read, so a read that would show a dialog fails with `errSecInteractionNotAllowed` and answers
+/// `unavailable: "keychain-would-ask"`: no dialog is ever shown by this process. A missing item is created, as
+/// Chromium's OSCrypt does (creating one never asks).
 pub fn key_json(_user_data: &Path) -> Value {
-    match get_generic_password(SERVICE, ACCOUNT) {
+    // Held until the read is over; dropping it restores the previous setting.
+    let _no_dialogs = SecKeychain::disable_user_interaction().ok();
+    let found = match get_generic_password(SERVICE, ACCOUNT) {
+        Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => make_item().map_err(Err),
+        Ok(password) => Ok(password),
+        Err(error) => Err(Ok(error)),
+    };
+    match found {
         Ok(password) => json!({ "kind": "mac-v10", "password": STANDARD.encode(password) }),
-        Err(error) => {
+        Err(Err(why)) => json!({ "unavailable": why }),
+        Err(Ok(error)) => {
             let why = match error.code() {
-                ERR_SEC_ITEM_NOT_FOUND => {
-                    format!("the keychain has no item \"{SERVICE}\" for account \"{ACCOUNT}\"")
-                }
+                ERR_SEC_INTERACTION_NOT_ALLOWED => WOULD_ASK.to_string(),
                 ERR_SEC_USER_CANCELED | ERR_SEC_AUTH_FAILED => {
                     format!("access to the keychain item \"{SERVICE}\" was denied")
-                }
-                ERR_SEC_INTERACTION_NOT_ALLOWED => {
-                    format!("the keychain is locked and cannot ask for access to \"{SERVICE}\"")
                 }
                 code => format!(
                     "reading the keychain item \"{SERVICE}\" failed: {error} (OSStatus {code})"

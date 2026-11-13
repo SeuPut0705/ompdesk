@@ -864,10 +864,9 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
                 .get("color")
                 .and_then(Value::as_str)
                 .and_then(color::parse_css)
+                && let Some(page) = wc_view(wc_id)
             {
-                if let Some(page) = wc_view(wc_id) {
-                    page.set_background_color(c.argb());
-                }
+                page.set_background_color(c.argb());
             }
         }
         "setTitleBarOverlay" => {

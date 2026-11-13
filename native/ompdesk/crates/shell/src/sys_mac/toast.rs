@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use block2::{Block, RcBlock};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
+use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
 use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSArray, NSString};
 
@@ -47,31 +47,32 @@ fn id_of_response(response: *mut AnyObject) -> Option<u64> {
 
 /// `userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:`
 extern "C" fn did_receive(
-    _this: &AnyObject,
+    _this: *mut AnyObject,
     _cmd: Sel,
     _center: *mut AnyObject,
     response: *mut AnyObject,
-    handler: *mut Block<dyn Fn()>,
+    handler: *mut AnyObject,
 ) {
     if let (Some(id), Some(emit)) = (id_of_response(response), EMIT.get()) {
         emit(id, "click", None);
     }
-    // SAFETY: the center hands over a live completion block that must be called exactly once.
-    unsafe { (*handler).call(()) };
+    // SAFETY: the center hands over a live completion block (an object pointer) that must be called exactly once. Raw
+    // pointers throughout: they sidestep the lifetimes that keep `&Block` arguments from being a `MethodImplementation`.
+    unsafe { (*handler.cast::<Block<dyn Fn()>>()).call(()) };
 }
 
 /// `userNotificationCenter:willPresentNotification:withCompletionHandler:`: show the banner (and its list entry) even
 /// when the app is the active one; the sound stays whatever the content asked for.
 extern "C" fn will_present(
-    _this: &AnyObject,
+    _this: *mut AnyObject,
     _cmd: Sel,
     _center: *mut AnyObject,
     _notification: *mut AnyObject,
-    handler: *mut Block<dyn Fn(usize)>,
+    handler: *mut AnyObject,
 ) {
     // UNNotificationPresentationOptionSound 2 | List 8 | Banner 16
     // SAFETY: as above.
-    unsafe { (*handler).call((2 | 8 | 16,)) };
+    unsafe { (*handler.cast::<Block<dyn Fn(usize)>>()).call((2 | 8 | 16,)) };
 }
 
 fn delegate_class() -> Result<&'static AnyClass, String> {
@@ -86,11 +87,11 @@ fn delegate_class() -> Result<&'static AnyClass, String> {
             unsafe {
                 builder.add_method(
                     sel!(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:),
-                    did_receive as extern "C" fn(&AnyObject, Sel, *mut AnyObject, *mut AnyObject, *mut Block<dyn Fn()>),
+                    did_receive as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject, *mut AnyObject, *mut AnyObject),
                 );
                 builder.add_method(
                     sel!(userNotificationCenter:willPresentNotification:withCompletionHandler:),
-                    will_present as extern "C" fn(&AnyObject, Sel, *mut AnyObject, *mut AnyObject, *mut Block<dyn Fn(usize)>),
+                    will_present as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject, *mut AnyObject, *mut AnyObject),
                 );
             }
             Some(builder.register())
@@ -107,7 +108,7 @@ fn install_delegate(center: &AnyObject) -> Result<(), String> {
     // SAFETY: a plain `new` of the registered class; the center keeps only a weak reference, so the object is leaked on purpose.
     let delegate: *mut AnyObject = unsafe { msg_send![class, new] };
     // SAFETY: `delegate` is a live object that conforms to UNUserNotificationCenterDelegate.
-    unsafe { msg_send![center, setDelegate: delegate] };
+    let _: () = unsafe { msg_send![center, setDelegate: delegate] };
     let _ = DELEGATE.set(delegate as usize);
     Ok(())
 }
@@ -142,8 +143,8 @@ pub fn show(spec: &ToastSpec, emit: Emit) -> Result<(), String> {
 
     let id = spec.id;
     let post_center = center.clone();
-    let after_permission = RcBlock::new(move |granted: bool, error: *mut AnyObject| {
-        if !granted {
+    let after_permission = RcBlock::new(move |granted: Bool, error: *mut AnyObject| {
+        if !granted.as_bool() {
             let why = if error.is_null() {
                 "the user did not allow notifications for this app".to_string()
             } else {

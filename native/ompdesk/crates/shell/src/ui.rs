@@ -4,9 +4,11 @@ use std::sync::{Arc, Mutex};
 
 use cef::*;
 
+type Job = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
 wrap_task! {
     struct ClosureTask {
-        f: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+        f: Job,
     }
     impl Task {
         fn execute(&self) {

@@ -19,8 +19,10 @@ pub fn decode(bytes: &[u8]) -> Option<String> {
         (1, rest) => Some(rest.iter().map(|&b| b as char).collect()),
         (0, rest) => {
             let units: Vec<u16> = rest
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect();
             Some(String::from_utf16_lossy(&units))
         }

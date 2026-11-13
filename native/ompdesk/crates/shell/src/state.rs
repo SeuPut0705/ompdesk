@@ -74,6 +74,9 @@ pub enum Role {
     Offscreen,
 }
 
+/// A CDP call's answer: the result, or `(code, message)`.
+pub type CdpCallback = Box<dyn FnOnce(Result<Value, (String, String)>)>;
+
 /// `wc.state` (PROTOCOL.md §4).
 #[derive(Clone, Default, PartialEq)]
 pub struct WcState {
@@ -122,7 +125,7 @@ pub struct WcEntry {
     pub cdp_registration: Option<Registration>,
     pub cdp_next_id: i32,
     /// CDP calls waiting for their answer, by the id the shell chose.
-    pub cdp_pending: HashMap<i32, Box<dyn FnOnce(Result<Value, (String, String)>)>>,
+    pub cdp_pending: HashMap<i32, CdpCallback>,
     pub painted: Option<Painted>,
     pub view_size: (i32, i32),
     pub frame_rate: i32,

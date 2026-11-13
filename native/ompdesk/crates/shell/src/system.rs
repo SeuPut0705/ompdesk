@@ -13,9 +13,12 @@ use shell_core::sys::desk as native;
 #[cfg(target_os = "macos")]
 use shell_core::sys_mac::desk as native;
 
+// Which of these a platform's glue uses differs (the network poll is Windows-only, the accessibility probe macOS-only).
+#[allow(unused_imports)]
 pub use native::{
     accessibility_trusted, cursor_point, register_hotkey, set_blockers, unregister_hotkey,
 };
+#[allow(unused_imports)]
 pub use native::{displays, idle_seconds, on_battery, online, reduced_motion, theme};
 
 /// Creates the hidden message window and starts the network poll. Call once on the UI thread, from

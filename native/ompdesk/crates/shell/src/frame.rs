@@ -67,7 +67,9 @@ pub fn encode(
     match format {
         Format::Jpeg => {
             let rgb: Vec<u8> = pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|p| [p[2], p[1], p[0]])
                 .collect();
             let encoder = jpeg_encoder::Encoder::new(&mut out, quality.clamp(1, 100));
@@ -81,7 +83,9 @@ pub fn encode(
         }
         Format::Png => {
             let rgba: Vec<u8> = pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|p| [p[2], p[1], p[0], p[3]])
                 .collect();
             let mut encoder = png::Encoder::new(&mut out, w, h);
@@ -131,7 +135,12 @@ mod tests {
         let flat: Vec<u8> = (0..16 * 16).flat_map(|_| [10, 20, 30, 255]).collect();
         let (out, w, h) = scale_bgra(&flat, 16, 16, 4);
         assert_eq!((w, h), (4, 4));
-        assert!(out.chunks_exact(4).all(|p| p == [10, 20, 30, 255]));
+        assert!(
+            out.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [10, 20, 30, 255])
+        );
     }
 
     #[test]

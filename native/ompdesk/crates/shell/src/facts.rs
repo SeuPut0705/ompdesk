@@ -39,7 +39,7 @@ pub fn chromium_locale(tag: &str) -> String {
     let mut parts = tag.split('-');
     let language = parts.next().unwrap_or("en").to_ascii_lowercase();
     let region = parts
-        .last()
+        .next_back()
         .map(str::to_ascii_uppercase)
         .unwrap_or_default();
     match (language.as_str(), region.as_str()) {

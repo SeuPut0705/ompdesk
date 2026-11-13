@@ -1061,17 +1061,17 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
                 .unwrap_or("default")
                 .to_string();
             with_browser(wc_id, move |b| {
-                if let (Some(h), Some(value)) = (b.host(), value_create()) {
-                    if let Some(ctx) = h.request_context() {
-                        value.set_string(Some(&cs(&policy)));
-                        let mut value = value;
-                        let mut error = CefString::default();
-                        ctx.set_preference(
-                            Some(&cs("webrtc.ip_handling_policy")),
-                            Some(&mut value),
-                            Some(&mut error),
-                        );
-                    }
+                if let (Some(h), Some(value)) = (b.host(), value_create())
+                    && let Some(ctx) = h.request_context()
+                {
+                    value.set_string(Some(&cs(&policy)));
+                    let mut value = value;
+                    let mut error = CefString::default();
+                    ctx.set_preference(
+                        Some(&cs("webrtc.ip_handling_policy")),
+                        Some(&mut value),
+                        Some(&mut error),
+                    );
                 }
                 ok(call);
             })

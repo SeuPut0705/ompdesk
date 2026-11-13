@@ -75,14 +75,11 @@ pub fn trash_item(path: &str) -> Result<(), String> {
         return Err(format!("'{path}' does not exist"));
     }
     let target = NSURL::fileURLWithPath(&NSString::from_str(path));
-    // SAFETY: NSFileManager's trash call with an NSURL, no result URL wanted and an error out-parameter.
-    unsafe {
-        NSFileManager::defaultManager()
-            .trashItemAtURL_resultingItemURL_error(&target, None)
-            .map_err(|e: Retained<NSError>| {
-                format!("moving '{path}' to the Trash: {}", e.localizedDescription())
-            })
-    }
+    NSFileManager::defaultManager()
+        .trashItemAtURL_resultingItemURL_error(&target, None)
+        .map_err(|e: Retained<NSError>| {
+            format!("moving '{path}' to the Trash: {}", e.localizedDescription())
+        })
 }
 
 pub fn beep() {

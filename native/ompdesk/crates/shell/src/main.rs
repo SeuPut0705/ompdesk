@@ -300,20 +300,18 @@ fn browser(argv: Vec<String>) -> i32 {
         eprintln!("[shell] cannot start Node ({}): {error}", program.display());
         return 1;
     }
-    node::watch(|code| lifecycle::node_gone(code));
+    node::watch(lifecycle::node_gone);
 
     // Everything Electron's main does before `whenReady` arrives as `app.init`; CEF starts from it.
-    let init_call = loop {
-        match boot.recv_timeout(Duration::from_secs(180)) {
-            Ok(Boot::Init(call)) => break call,
-            Ok(Boot::Exit(code)) => {
-                node::stop(Duration::from_secs(3));
-                return code;
-            }
-            Ok(Boot::NodeGone) | Err(_) => {
-                node::stop(Duration::from_secs(1));
-                return 1;
-            }
+    let init_call = match boot.recv_timeout(Duration::from_secs(180)) {
+        Ok(Boot::Init(call)) => call,
+        Ok(Boot::Exit(code)) => {
+            node::stop(Duration::from_secs(3));
+            return code;
+        }
+        Ok(Boot::NodeGone) | Err(_) => {
+            node::stop(Duration::from_secs(1));
+            return 1;
         }
     };
     let init = app::parse_init(&init_call.params);
