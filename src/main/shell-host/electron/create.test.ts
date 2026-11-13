@@ -170,6 +170,25 @@ afterEach(() => {
 	holder.electron = null;
 });
 
+// A parity suite's shell (`startTestShell`) has gone through `app.init` and `app.ready` before the test makes its shim:
+// one made then without `attached` would hold every CEF request for an `app.ready` that never comes again.
+describe("a shim made on a connection already past app.ready", () => {
+	it("sends its requests at once and no second app.init", async () => {
+		const [a, b] = duplexPair();
+		node = new ShellClient(a);
+		shell = new ShellClient(b);
+		fake = fakeShell(shell);
+		await shell.event("app.ready");
+		const late = createElectron(node, FACTS, { attached: true, exitProcess: () => {} });
+		expect(late.app.isReady()).toBe(true);
+		const win = new late.BrowserWindow({ show: false });
+		win.destroy();
+		await settle();
+		expect(fake.callsOf("win.op").map(call => call.params.op)).toEqual(["destroy"]);
+		expect(fake.callsOf("app.init")).toEqual([]);
+	});
+});
+
 describe("app", () => {
 	beforeEach(() => boot());
 

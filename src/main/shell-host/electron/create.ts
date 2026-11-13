@@ -20,6 +20,11 @@ export interface CreateOptions {
 	exitProcess?(code: number): void;
 	/** Whether to set `process.resourcesPath` and `process.versions` (the real instance does). */
 	patchProcess?: boolean;
+	/**
+	 * The connection already went through `hello`, `app.init` and `app.ready` (`startTestShell`): the shim is ready at
+	 * once and sends no `app.init`. Without it a shim made after `app.ready` would hold every CEF request forever.
+	 */
+	attached?: boolean;
 }
 
 /** Requests that need CEF wait for `app.ready` (the shell has no context before it); `app.*` and `hello` never wait. */
@@ -44,6 +49,7 @@ function gated(client: HostClient, ready: Promise<void>): HostClient {
 export function createElectron(client: HostClient, facts: HostFacts, options: CreateOptions = {}) {
 	const { promise: ready, resolve: markReady } = Promise.withResolvers<void>();
 	client.on("app.ready", () => markReady());
+	if (options.attached) markReady();
 	const host = new Host(gated(client, ready), facts);
 	if (options.patchProcess) {
 		Object.defineProperty(process, "resourcesPath", {
@@ -61,6 +67,7 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 	const app = new App(host, initState, {
 		closeWindows: () => closeAll(),
 		...(options.exitProcess ? { exitProcess: options.exitProcess } : {}),
+		...(options.attached ? { attached: true } : {}),
 	});
 
 	const sessions = new Map<string, Session>();

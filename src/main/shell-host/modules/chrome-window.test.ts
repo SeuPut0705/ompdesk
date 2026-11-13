@@ -42,7 +42,8 @@ async function start(
 		},
 	});
 	pointChromeAt(() => shell?.client as never);
-	holder.electron = createElectron(shell.client, shell.facts);
+	// The test shell is past `app.ready` already: a shim made now must not wait for it.
+	holder.electron = createElectron(shell.client, shell.facts, { attached: true, exitProcess: () => {} });
 	return { client: shell.client, userData: shell.userData };
 }
 

@@ -19,6 +19,8 @@ export interface AppDeps {
 	closeWindows(): Promise<boolean>;
 	/** Ends the process; tests replace it. */
 	exitProcess?(code: number): void;
+	/** The connection is already past `app.init` and `app.ready` (a parity suite's shell): ready now, no init sent. */
+	attached?: boolean;
 }
 
 class CommandLine {
@@ -108,7 +110,10 @@ export class App extends EventEmitter {
 					}
 				: undefined;
 		this.#serve();
-		setImmediate(() => this.#sendInit());
+		if (deps.attached) {
+			this.#ready = true;
+			this.#initSent = true;
+		} else setImmediate(() => this.#sendInit());
 	}
 
 	#serve(): void {
