@@ -381,9 +381,12 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
         .await
         .unwrap();
     assert_eq!(waited, entry);
+    let queue = Arc::downgrade(&hub.core.queue);
     drop(hub);
     assert!(host.start_batch(REPO, "feat", SHA).await.is_err());
     assert!(!mine.exists());
+    // The hub was the queues' owner: they drop with it, which stops their lanes (queue_run.rs).
+    assert!(queue.upgrade().is_none());
 }
 
 #[tokio::test]

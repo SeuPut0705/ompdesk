@@ -15,6 +15,10 @@
 //! again after `RETRY_FIRST_MS`, doubling to `RETRY_MAX_MS`; nothing of it reaches the queue as a result. The queue is
 //! saved after every step and its lanes start again from what was saved (`LandQueue::resume`).
 //!
+//! The queues end with their owner: dropping `Queues` (the hub closing) cancels `Shared::stop`, every lane returns at
+//! its next turn and cancels the scope of each candidate's work, so no lane or step outlives the hub and a hub opened
+//! again over the same folder is the only one acting on its bases.
+//!
 //! `GitHands` is the real `Hands`: git in a bare clone the queue owns per repository, with `git/land.rs`, the landing
 //! git Autopilot uses too.
 
@@ -126,6 +130,8 @@ struct Shared {
     host: Arc<dyn QueueHost>,
     hands: Arc<dyn Hands>,
     tuning: Tuning,
+    /// Cancelled when `Queues` drops: every lane and the work it started ends.
+    stop: Scope,
     lanes: Mutex<HashMap<Key, mpsc::UnboundedSender<Msg>>>,
     shown: Mutex<HashMap<Key, Vec<QueueEntry>>>,
     entries: watch::Sender<Arc<Vec<QueueEntry>>>,
@@ -144,6 +150,12 @@ pub struct Queues {
     shared: Arc<Shared>,
 }
 
+impl Drop for Queues {
+    fn drop(&mut self) {
+        self.shared.stop.cancel();
+    }
+}
+
 /// The queues. Their saved lanes start at the first `enqueue`, or at once by a task of their own when a runtime runs,
 /// so a caller may open them before what `hands` reads is ready.
 pub(crate) fn open_with(
@@ -155,6 +167,7 @@ pub(crate) fn open_with(
         host,
         hands,
         tuning,
+        stop: Scope::detached(),
         lanes: Mutex::default(),
         shown: Mutex::default(),
         entries: watch::Sender::new(Arc::default()),
@@ -316,22 +329,28 @@ impl Lane {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Msg>) {
         let resumed = self.queue.resume();
         self.after(resumed);
+        let stop = self.shared.stop.clone();
         loop {
-            let msg = match self.queue.next_wake() {
-                Some(at) => {
-                    let wait = Duration::from_millis(at.saturating_sub(clock::now_ms()));
-                    tokio::select! {
-                        msg = rx.recv() => msg.map(Some),
-                        () = clock::sleep(wait) => Some(None),
+            let wake = self.queue.next_wake();
+            let msg = tokio::select! {
+                biased;
+                () = stop.on_cancel() => break,
+                msg = rx.recv() => match msg {
+                    Some(msg) => Some(msg),
+                    None => break,
+                },
+                () = async {
+                    match wake {
+                        Some(at) => clock::sleep(Duration::from_millis(at.saturating_sub(clock::now_ms()))).await,
+                        None => std::future::pending().await,
                     }
-                }
-                None => rx.recv().await.map(Some),
-            };
-            let Some(msg) = msg else {
-                return;
+                } => None,
             };
             let effects = self.take(msg);
             self.after(effects);
+        }
+        for scope in self.work.values() {
+            scope.cancel();
         }
     }
 

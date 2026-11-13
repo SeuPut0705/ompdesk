@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -529,4 +530,124 @@ async fn a_queue_opened_again_shows_what_it_had_and_a_build_is_the_same_commit()
     .unwrap()
     .clone();
     assert_eq!(shown[0].id, run.queues.entries().borrow()[0].id);
+}
+
+/// Hands whose build holds until its scope is cancelled, counting the builds under way; the queue is kept in memory.
+struct Holding {
+    saved: Mutex<Option<LandQueue>>,
+    building: AtomicUsize,
+    started: mpsc::UnboundedSender<()>,
+}
+
+impl Hands for Holding {
+    fn tip<'a>(
+        &'a self,
+        _repo: &'a str,
+        _base: &'a str,
+        _scope: Scope,
+    ) -> Fut<'a, Result<Option<Sha>, Failure>> {
+        Box::pin(async { Ok(Some("t0".to_owned())) })
+    }
+
+    fn build<'a>(
+        &'a self,
+        _repo: &'a str,
+        _base: &'a str,
+        _candidate: &'a str,
+        _tip: &'a str,
+        _parts: &'a [Part],
+        scope: Scope,
+    ) -> Fut<'a, Result<Result<Sha, Unbuilt>, Failure>> {
+        Box::pin(async move {
+            self.building.fetch_add(1, Ordering::SeqCst);
+            let _ = self.started.send(());
+            scope.on_cancel().await;
+            self.building.fetch_sub(1, Ordering::SeqCst);
+            Err(no_git())
+        })
+    }
+
+    fn land<'a>(
+        &'a self,
+        _repo: &'a str,
+        _base: &'a str,
+        _commit: &'a str,
+        _scope: Scope,
+    ) -> Fut<'a, Result<Landing, Failure>> {
+        Box::pin(async { Err(no_git()) })
+    }
+
+    fn drop_branch<'a>(&'a self, _repo: &'a str, _candidate: &'a str) -> Fut<'a, ()> {
+        Box::pin(async {})
+    }
+
+    fn name(&self) -> String {
+        "o/r".into()
+    }
+
+    fn save(&self, queue: &LandQueue) {
+        *self.saved.lock().unwrap() = Some(queue.clone());
+    }
+
+    fn saved(&self) -> Vec<LandQueue> {
+        self.saved.lock().unwrap().clone().into_iter().collect()
+    }
+}
+
+async fn build_started(started: &mut mpsc::UnboundedReceiver<()>) {
+    tokio::time::timeout(Duration::from_secs(60), started.recv())
+        .await
+        .expect("a build within a minute")
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dropped_queue_ends_its_lanes_and_their_work_and_one_opened_again_is_the_only_lane() {
+    let (started_tx, mut started) = mpsc::unbounded_channel();
+    let hands = Arc::new(Holding {
+        saved: Mutex::default(),
+        building: AtomicUsize::new(0),
+        started: started_tx,
+    });
+    let (told, _) = mpsc::unbounded_channel();
+    let host = Arc::new(Host {
+        remote: PathBuf::from("/nowhere/remote.git"),
+        work: PathBuf::from("/nowhere/work"),
+        starts: Mutex::default(),
+        answers: Mutex::default(),
+        push_before_first_run: Mutex::default(),
+        told,
+    });
+    let tuning = Tuning {
+        batch_size: 1,
+        window_ms: 60 * 60_000,
+    };
+    let queues = open_with(host.clone(), hands.clone(), tuning);
+    let request = LandRequest {
+        repo: "o/r".into(),
+        branch: "b1".into(),
+        sha: "s1".into(),
+        base: "main".into(),
+        pr: None,
+        title: "change b1".into(),
+        scope: StartScope::Changed,
+    };
+    queues.enqueue(origin(), request).await.unwrap();
+    build_started(&mut started).await;
+
+    // The hub closes with the build under way: the lane and its build end, and with them the last hold on the queues.
+    let mut entries = queues.entries();
+    drop(queues);
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while entries.changed().await.is_ok() {}
+    })
+    .await
+    .expect("every lane and its work end within a minute of the queues dropping");
+    assert_eq!(hands.building.load(Ordering::SeqCst), 0);
+
+    // Opened again over what was saved, the one lane builds the same candidate again, alone.
+    let again = open_with(host, hands.clone(), tuning);
+    build_started(&mut started).await;
+    assert_eq!(hands.building.load(Ordering::SeqCst), 1);
+    drop(again);
 }
