@@ -28,8 +28,9 @@ class OmpdeskCheckReporter {
 		} catch {}
 	}
 	onTestEnd(test, result) {
-		// The same split Playwright's --test-list reads: project, file, then the titles.
-		const [project, , ...titles] = test.titlePath();
+		// A reporter's titlePath() starts with the root suite's empty title, then the project, the file and the titles;
+		// --test-list names project, file and titles (its own split runs on the path without the root).
+		const [, project, , ...titles] = test.titlePath();
 		const file = path.relative(this.root, test.location.file).split(path.sep).join("/");
 		this.write({
 			runner: "playwright",
