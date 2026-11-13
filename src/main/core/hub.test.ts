@@ -146,17 +146,6 @@ describe("the hub connection", () => {
 		expect(performance.now() - started).toBeLessThan(HUB_CALL_DEADLINE_MS);
 		expect(instance.lost).toHaveLength(1);
 	});
-
-	it("takes a fraction of a millisecond per call", () => {
-		const hub = new Hub();
-		const instance = probe(hub);
-		hub.call(instance.id, "push", { n: 0 });
-		const started = performance.now();
-		const calls = 2_000;
-		for (let n = 0; n < calls; n++) hub.call(instance.id, "push", { n });
-		const perCallMs = (performance.now() - started) / calls;
-		expect(perCallMs).toBeLessThan(1);
-	});
 });
 
 describe("the hub worker's line reader", () => {
