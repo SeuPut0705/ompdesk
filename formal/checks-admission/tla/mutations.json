@@ -63,12 +63,12 @@
 			"isolate": true
 		},
 		{
-			"name": "hold-blocks-the-holder",
-			"why": "Every held place counts against every job, the holder's own and those ahead of it included: a release entry whose pool frees with one account place left is kept out by its own hold.",
+			"name": "hold-counts-for-entries-ahead",
+			"why": "Every held place counts against every waiting job, those ahead of the holder included: a release Linux entry that waited first is kept out of the account's free place by the hold of a release macOS entry behind it.",
 			"search": "HeldAhead(j) == {r \\in Jobs : Holds(r) /\\ Ahead(r, j)}",
 			"replace": "HeldAhead(j) == {r \\in Jobs : Holds(r)}",
 			"breaks": "FirstInLineCanStart",
-			"config": "MC_account.cfg",
+			"config": "MC_account_two_release.cfg",
 			"isolate": true
 		},
 		{
@@ -194,11 +194,11 @@
 		},
 		{
 			"name": "strict-head-of-line",
-			"why": "The pump waits for the first entry in line even when that entry cannot start: a release macOS job that waits for a macOS runner keeps every Linux job out of free places.",
+			"why": "The pump waits for the first entry in line even when that entry cannot start: a release macOS job that waits for a macOS runner keeps every Linux job out of the account places it does not hold.",
 			"search": "Ahead(r, j) /\\ Room(r))",
 			"replace": "Ahead(r, j))",
 			"breaks": "FirstInLineCanStart",
-			"config": "MC_account.cfg"
+			"config": "MC_account3.cfg"
 		},
 		{
 			"name": "no-lease-sweep",

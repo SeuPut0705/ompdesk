@@ -62,7 +62,8 @@ The frozen set is `Properties.md`.
 | `MC.cfg` | one heavy pool of 1 slot; a release job, two branch jobs, one outside job; pause and lapses on |
 | `MC.cfg` + `DeviceLimit = 2` | the same with 2 slots |
 | `MC_account.cfg` | macOS limit 1, account limit 2; a release macOS job, a land and a local Linux job, an outside macOS job and an outside Linux job; lapses on |
-| `MC_account.cfg` + 3 places | account limit 3; release macOS, land Linux, an outside macOS job and two outside Linux jobs |
+| `MC_account3.cfg` | account limit 3; release macOS, land Linux, an outside macOS job and two outside Linux jobs |
+| `MC_account_two_release.cfg` | account limit 2; a release Linux job and a release macOS job, an outside macOS job and an outside Linux job |
 | `MC_supersede.cfg` | hosted pool of 2; release, land, two branch jobs and an outside job, all one repo, ref and workflow; pause on |
 | `MC_reuse.cfg` | hosted pool of 2; three branch jobs, two of one digest and two of one key |
 | `MC_live.cfg`, `MC_live_account.cfg` | as `MC.cfg` (no pause) and `MC_account.cfg`, under `Fairness`: the two liveness properties |

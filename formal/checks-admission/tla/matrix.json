@@ -20,14 +20,13 @@
 		},
 		{
 			"name": "account-of-3-with-two-outside-racers",
-			"config": "MC_account.cfg",
-			"constants": {
-				"Jobs": "{\"relm\", \"lndh\", \"outm\", \"outh\", \"outh2\"}",
-				"Outside": "{\"outm\", \"outh\", \"outh2\"}",
-				"HostedCap": "3"
-			},
-			"expect": "pass",
-			"timeoutSec": 1800
+			"config": "MC_account3.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "account-with-a-release-linux-job-ahead-of-a-release-macos-job",
+			"config": "MC_account_two_release.cfg",
+			"expect": "pass"
 		},
 		{
 			"name": "supersede-within-one-key",
