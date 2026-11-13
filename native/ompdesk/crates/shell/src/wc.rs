@@ -567,29 +567,34 @@ wrap_download_handler! {
         wc_id: u64,
     }
     impl DownloadHandler {
-        fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> i32 {
-            let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
-            if session::downloads_denied(&partition) {
-                host::event(
-                    "session.download",
-                    json!({
-                        "partition": partition, "wcId": self.wc_id,
-                        "url": url.map(|u| u.to_string()).unwrap_or_default(),
-                        "filename": "", "mimeType": "", "totalBytes": 0,
-                    }),
-                );
-                return 0;
-            }
+        fn can_download(&self, _browser: Option<&mut Browser>, _url: Option<&CefString>, _method: Option<&CefString>) -> i32 {
+            // A denied partition's download is let through to `on_before_download`, the first place its name is known,
+            // and cancelled there.
             1
         }
 
         fn on_before_download(
             &self,
             _browser: Option<&mut Browser>,
-            _item: Option<&mut DownloadItem>,
-            _suggested_name: Option<&CefString>,
+            item: Option<&mut DownloadItem>,
+            suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
         ) -> i32 {
+            let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
+            if session::downloads_denied(&partition) {
+                // Returning true without running the callback cancels the download (CEF's contract).
+                host::event(
+                    "session.download",
+                    json!({
+                        "partition": partition, "wcId": self.wc_id,
+                        "url": item.as_ref().map(|i| string_of(&i.url())).unwrap_or_default(),
+                        "filename": suggested_name.map(|n| n.to_string()).unwrap_or_default(),
+                        "mimeType": item.as_ref().map(|i| string_of(&i.mime_type())).unwrap_or_default(),
+                        "totalBytes": item.as_ref().map(|i| i.total_bytes().max(0)).unwrap_or(0),
+                    }),
+                );
+                return 1;
+            }
             if let Some(callback) = callback {
                 callback.cont(Some(&cs("")), 1);
             }
@@ -678,7 +683,7 @@ wrap_keyboard_handler! {
     }
     impl KeyboardHandler {
         fn on_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, _os_event: Option<&mut cef::sys::MSG>) -> i32 {
-            let _ = self.wc_id;
+            note_focus(self.wc_id);
             if event.is_some_and(application_accelerator) {
                 return 1;
             }
@@ -694,8 +699,57 @@ wrap_keyboard_handler! {
     }
     impl KeyboardHandler {
         fn on_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, _os_event: *mut u8) -> i32 {
-            let _ = self.wc_id;
+            note_focus(self.wc_id);
             swallow_browser_shortcut(event)
+        }
+    }
+}
+
+/// `wc_id` holds its window's keyboard focus (it took the OS focus, or a key it left unhandled came from it).
+fn note_focus(wc_id: u64) {
+    let Some(win_id) = wc(wc_id).and_then(|e| e.borrow().win_id) else {
+        return;
+    };
+    if let Some(window) = state::win(win_id) {
+        window.borrow_mut().focused_wc = Some(wc_id);
+    }
+}
+
+/// The page an edit command (`copy`, `paste`, `selectAll`, …) sent to `wc_id` acts on: for a window's own page, the
+/// page of that window holding the keyboard focus (a Preview view the person typed in), as Electron's menu roles act
+/// on the focused webContents; otherwise `wc_id` itself.
+fn edit_target(wc_id: u64) -> u64 {
+    let Some(window) = wc(wc_id)
+        .and_then(|e| e.borrow().win_id)
+        .and_then(state::win)
+    else {
+        return wc_id;
+    };
+    let (win_id, page, focused) = {
+        let w = window.borrow();
+        (w.id, w.wc_id, w.focused_wc)
+    };
+    match focused {
+        Some(focused)
+            if wc_id == page
+                && wc(focused).is_some_and(|e| {
+                    let e = e.borrow();
+                    e.win_id == Some(win_id) && !e.closing
+                }) =>
+        {
+            focused
+        }
+        _ => wc_id,
+    }
+}
+
+wrap_focus_handler! {
+    struct ShellFocus {
+        wc_id: u64,
+    }
+    impl FocusHandler {
+        fn on_got_focus(&self, _browser: Option<&mut Browser>) {
+            note_focus(self.wc_id);
         }
     }
 }
@@ -789,6 +843,10 @@ wrap_client! {
 
         fn keyboard_handler(&self) -> Option<KeyboardHandler> {
             (self.role != 2).then(|| ShellKeyboard::new(self.wc_id))
+        }
+
+        fn focus_handler(&self) -> Option<FocusHandler> {
+            (self.role != 2).then(|| ShellFocus::new(self.wc_id))
         }
 
         fn render_handler(&self) -> Option<RenderHandler> {
@@ -1094,7 +1152,7 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
             ok(call);
         }),
         "undo" | "redo" | "cut" | "copy" | "paste" | "pasteAndMatchStyle" | "selectAll"
-        | "delete" => with_browser(wc_id, move |b| {
+        | "delete" => with_browser(edit_target(wc_id), move |b| {
             if let Some(f) = focused_frame(&b) {
                 match name.as_str() {
                     "undo" => f.undo(),
@@ -1259,11 +1317,17 @@ pub fn cdp_request(call: Call) {
             let method = call.str("method").unwrap_or_default();
             let params = call.params.get("params").cloned();
             let session = call.str("sessionId");
+            let debugger = call.params.get("debugger").and_then(Value::as_bool) == Some(true);
             with_browser(wc_id, move |_| {
-                cdp::send(wc_id, &method, params, session, move |r| match r {
+                let answer = move |r: Result<Value, (String, String)>| match r {
                     Ok(result) => call.ok(json!({ "result": result })),
                     Err((code, message)) => call.err(&code, message),
-                })
+                };
+                if debugger {
+                    cdp::send_debugger(wc_id, &method, params, session, answer)
+                } else {
+                    cdp::send(wc_id, &method, params, session, answer)
+                }
             })
         }
         "wc.frame" => crate::wcframe::request(call, wc_id),

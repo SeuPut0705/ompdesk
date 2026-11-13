@@ -147,6 +147,19 @@ for (const [language, theme] of variants([
 					path: path.join(captures, `agent-${language}-${theme}-1000.png`),
 				});
 			}
+			// What the agent sets on the page (here a viewport override) lasts only while it holds the page.
+			const innerWidth = () =>
+				app.evaluate(async ({ webContents }) => {
+					const child = webContents.getAllWebContents().find(contents => contents.getTitle() === "Second page");
+					return child?.executeJavaScript("innerWidth");
+				});
+			await session.send("Emulation.setDeviceMetricsOverride", {
+				width: 271,
+				height: 500,
+				deviceScaleFactor: 1,
+				mobile: false,
+			});
+			expect(await innerWidth()).toBe(271);
 
 			await banner
 				.getByRole("button", { name: language === "ko" ? "직접 조작하기" : "Take over", exact: true })
@@ -156,6 +169,7 @@ for (const [language, theme] of variants([
 			await expect.poll(() => live.connected, { timeout: 10_000 }).toBe(false);
 			await expect(allow).toBeVisible();
 			await expect(page.locator("[data-preview-status]")).toHaveText("Second page");
+			await expect.poll(innerWidth).not.toBe(271);
 		} finally {
 			await browser?.disconnect().catch(() => {});
 			await exitApp(app);

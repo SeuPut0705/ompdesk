@@ -22,6 +22,11 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 			response.destroy();
 			return;
 		}
+		if (request.url === "/edit") {
+			response.writeHead(200, { "Content-Type": "text/html" });
+			response.end('<!doctype html><title>Edit fixture</title><input id=field aria-label="Field">');
+			return;
+		}
 		response.writeHead(200, { "Content-Type": "text/html" });
 		response.end(
 			'<!doctype html><title>Local preview fixture</title><h1>Real preview page</h1><a href="/next">Next</a>',
@@ -86,6 +91,25 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 		});
 		expect(security).toEqual({ title: "Local preview fixture", node: "undefined", ipc: "undefined" });
 		expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused())).toBe(false);
+		// The application menu's edit commands (Cmd/Ctrl+A, C, V, X, Z) act on the page holding the keyboard focus, as
+		// Electron's menu roles do: a Preview page the person typed in, not the window's own page.
+		await page.getByRole("textbox", { name: "Preview URL" }).fill(`${url}edit`);
+		await page.getByRole("textbox", { name: "Preview URL" }).press("Enter");
+		await expect(page.locator("[data-preview-status]")).toHaveText("Edit fixture");
+		await expect.poll(() => app.windows().some(candidate => candidate.url() === `${url}edit`)).toBe(true);
+		const editPage = app.windows().find(candidate => candidate.url() === `${url}edit`);
+		if (!editPage) throw new Error("No Preview page target");
+		const field = editPage.getByRole("textbox", { name: "Field" });
+		await field.fill("abc");
+		// A key the page leaves alone reaches the shell from that page: the window's focus is the Preview page now.
+		await field.press("Shift");
+		// What the menu's Select All runs: the window's page is told to select all.
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.selectAll());
+		await field.pressSequentially("x");
+		await expect(field).toHaveValue("x");
+		await page.getByRole("textbox", { name: "Preview URL" }).fill(url);
+		await page.getByRole("textbox", { name: "Preview URL" }).press("Enter");
+		await expect(page.locator("[data-preview-status]")).toHaveText("Local preview fixture");
 		const palette = page.getByRole("dialog").getByRole("combobox");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+k", palette);
 		await palette.fill("Background tasks");

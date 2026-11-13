@@ -781,6 +781,10 @@ describe("webContents", () => {
 			sessionId: "S",
 		});
 		expect(await webContents.debugger.sendCommand("Runtime.evaluate", { expression: "1" }, "S")).toEqual({ ok: 1 });
+		// The debugger's commands go to its own session in the shell; the shim's own stay on the page's.
+		const sent = fake.callsOf("wc.cdp.send").map(call => call.params);
+		expect(sent[0]).not.toHaveProperty("debugger");
+		expect(sent.at(-1)).toMatchObject({ method: "Runtime.evaluate", sessionId: "S", debugger: true });
 		await shell.event("wc.cdp.detached", { wcId: webContents.id, reason: "target closed" });
 		await settle();
 		expect(messages).toEqual([["Page.loadEventFired", { t: 1 }, "S"], ["detach:target closed"]]);
@@ -999,16 +1003,15 @@ describe("session and protocol", () => {
 		);
 		await settle();
 		expect(fake.callsOf("session.op").map(call => call.params.op)).toContain("setDownloads");
-		ses.emitDownload(
-			{
-				getURL: () => "https://x/f.zip",
-				getFilename: () => "f.zip",
-				getMimeType: () => "",
-				getTotalBytes: () => 1,
-				cancel() {},
-			},
-			null,
-		);
+		await shell.event("session.download", {
+			partition: ses.partition,
+			wcId: 0,
+			url: "https://x/f.zip",
+			filename: "f.zip",
+			mimeType: "application/zip",
+			totalBytes: 1,
+		});
+		await settle();
 		expect(downloads).toEqual(["https://x/f.zip f.zip"]);
 		expect(electron.session.defaultSession.partition).toBe("app");
 	});

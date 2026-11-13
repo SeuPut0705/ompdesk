@@ -152,10 +152,10 @@ window closes without `win.closeRequested`; the shell then emits `win.event clos
 | `wc.event` | shell→Node | `{wcId, name, args}` | Electron's webContents events, in Electron's argument shapes (below). Delivered after the `wc.state` that shows their effect. |
 | `wc.windowOpen` | shell→Node | `{wcId, url, frameName, disposition, features, referrer?}` | `{action: "deny"}` — `setWindowOpenHandler`; the app only ever denies (it opens the Preview tab or the system browser itself), so the shell treats anything but `deny` as deny. The shell waits for the answer (2 s, then denies). |
 | `wc.navigate` | shell→Node | `{wcId, kind: "will-navigate"\|"will-frame-navigate"\|"will-redirect", url, isMainFrame, isSameDocument, isRedirect}` | `{prevent: boolean}` — emitted only for pages whose Node side registered a listener for that kind (`wc.op watchEvents`, below), so a page nobody watches never blocks. The shell holds the navigation (CEF `OnBeforeBrowse`) for the answer (2 s, then **prevents**). |
-| `wc.cdp.attach` | Node | `{wcId}` | `{}` — start forwarding `wc.cdp.message` (Electron `debugger.attach`). |
-| `wc.cdp.detach` | Node | `{wcId}` | `{}` |
-| `wc.cdp.send` | Node | `{wcId, method, params?, sessionId?}` | `{result}`; protocol error → `error.code "cdp"`. Works with or without `attach` (the shell registers its DevTools observer on first use); the shim builds `capturePage`, `printToPDF`, `sendInputEvent`, `insertText`, `executeJavaScriptInIsolatedWorld` and the Preview relay on it. |
-| `wc.cdp.message` (event) | shell→Node | `{wcId, method, params, sessionId?}` | protocol events and, for `sessionId`, the target's; only while attached. |
+| `wc.cdp.attach` | Node | `{wcId}` | `{}` — Electron `debugger.attach`: a DevTools session of the debugger's own on the page; `wc.cdp.message` carries its events. |
+| `wc.cdp.detach` | Node | `{wcId}` | `{}` — its session ends, and with it what it set on the page (emulation, interception, scripts, auto-attach). |
+| `wc.cdp.send` | Node | `{wcId, method, params?, sessionId?, debugger?: true}` | `{result}`; protocol error → `error.code "cdp"`. Without `debugger` it goes to the page's own session and works with or without `attach` (the shell registers its DevTools observer on first use); the shim builds `capturePage`, `printToPDF`, `sendInputEvent`, `insertText` and `executeJavaScriptInIsolatedWorld` on it. With `debugger` (the shim's `debugger.sendCommand`) it goes to the debugger's own session, or to `sessionId`, one under it. |
+| `wc.cdp.message` (event) | shell→Node | `{wcId, method, params, sessionId?}` | the debugger's session's events (no `sessionId`) and those of the sessions under it; only while attached. The page's own session's events never come here. |
 | `wc.cdp.detached` (event) | shell→Node | `{wcId, reason}` | the page went away or DevTools took the page. |
 | `wc.frame` | Node | `{wcId, format: "jpeg"\|"png", quality?: 0..100, width?: number}` | `{width, height}` + `bin` = the page's **latest painted frame** encoded (offscreen browsers only), scaled to `width` DIP-independent pixels when given, never larger than the source. Encode only what is sent. |
 | `wc.paint` (event) | shell→Node | `{wcId, width, height, scale}` | an offscreen browser painted (dirty rect dropped; the full frame is `wc.frame`). |
@@ -220,7 +220,7 @@ with the page), a name without `persist:` is in memory only, `persist:<name>` is
 |---|---|---|---|
 | `session.create` | Node | `{partition, cache?: boolean}` | `{userAgent, acceptLanguages, spellCheckerLanguages: string[], availableSpellCheckerLanguages: string[], cachePath: string \| null}` — idempotent; the shim mirrors these for `getUserAgent()`, `getSpellCheckerLanguages()`, `availableSpellCheckerLanguages` and `getCachePath()`. `cachePath` is the folder of the partition's HTTP cache on disk (`app`: the shell's own `<userData>/shell-webview/Default/Cache`; `persist:<n>`: that partition's cache folder; an in-memory partition: `null`); disk care measures it and `session.op clearCache` must empty it, for `app` too |
 | `session.op` | Node | `{partition, op, args}` | `setProxy {mode: "direct"\|"system"\|"fixed_servers"\|"pac_script", proxyRules?, pacScript?, proxyBypassRules?}`, `resolveProxy {url}` → `{result: "PROXY h:p; DIRECT"}`, `clearCache`, `clearStorageData`, `setUserAgent {userAgent, acceptLanguages?}`, `setSpellCheckerLanguages {languages}`, `addWordToSpellCheckerDictionary {word}`, `setPermissions {mode: "deny-all"\|"default"}` (the Preview denies every permission request **and** check; no round trip), `setDownloads {mode: "deny"\|"default"}` (denied: the shell cancels, and tells Node with `session.download`), `registerPreload {id, source}` (below), `handleScheme {scheme}`, `unhandleScheme {scheme}` |
-| `session.download` (event) | shell→Node | `{partition, wcId, url, filename, mimeType, totalBytes}` | a cancelled download (`setDownloads deny`) |
+| `session.download` (event) | shell→Node | `{partition, wcId, url, filename, mimeType, totalBytes}` | a cancelled download (`setDownloads deny`): the shim emits the partition's `will-download` with the page's `webContents` |
 
 `registerPreload {id, source}`: the shell runs `source` (a classic script) in every frame's main world of that
 partition before page scripts. It runs with one extra global function, `__ompdeskSendSync(channel, payload)`, a
@@ -411,7 +411,13 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **`wc.windowOpen`** is sent but not waited for: the popup is always cancelled.
 - **`wc.op`**: `setBackgroundThrottling` and `ignoreBeforeUnload` are accepted and do nothing; `copyImageAt` copies through
   the page's clipboard API; `executeJavaScript` is CDP `Runtime.evaluate` (by value, promises awaited).
-- **`wc.cdp.send`**: every call times out after 60 s with `timeout`.
+- **`wc.cdp.send`**: every call times out after 60 s with `timeout`. The debugger's session is a flat session the shell
+  attaches to the page's own target (`Target.getTargetInfo`, `Target.attachToTarget {flatten: true}`) on the page's
+  DevTools channel; commands sent before it exists wait for it, and `wc.cdp.detach` is `Target.detachFromTarget`.
+- **Edit `wc.op`s** (`undo`, `redo`, `cut`, `copy`, `paste`, `pasteAndMatchStyle`, `selectAll`, `delete`) sent to a
+  window's own page act on the page of that window that last took keyboard focus (it took the OS focus, or a key it
+  left unhandled came from it), as Electron's menu roles act on the focused webContents: a Preview view the person
+  typed in.
 - **`wc.frame`**: `width` scales by area averaging, never up.
 - **`win.op`**: `setMenuBarVisibility`, `setAutoHideMenuBar`, `setBackgroundMaterial` (Mica is set at creation) are
   accepted and do nothing. `setProgressBar {value, mode?}`: Windows shows it through `ITaskbarList3` (`value` 0..1

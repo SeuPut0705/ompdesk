@@ -63,12 +63,37 @@ fn on_message(wc_id: u64, value: Value) {
         crate::wc::emit(wc_id, "input-event", json!([{ "type": kind }]));
         return;
     }
-    if !entry.borrow().cdp_attached {
+    let session = value.get("sessionId").and_then(Value::as_str);
+    let (attached, debugger) = {
+        let e = entry.borrow();
+        (e.cdp_attached, e.cdp_session.clone())
+    };
+    // The page's own session is the shell's (its input watch, captures, scripts): a debugger never sees it, except
+    // for the end of the debugger's session there.
+    let Some(session) = session else {
+        let ended = method == "Target.detachedFromTarget"
+            && debugger.is_some()
+            && params.get("sessionId").and_then(Value::as_str) == debugger.as_deref();
+        if ended && attached {
+            {
+                let mut e = entry.borrow_mut();
+                e.cdp_attached = false;
+                e.cdp_session = None;
+            }
+            host::event(
+                "wc.cdp.detached",
+                json!({ "wcId": wc_id, "reason": "target closed" }),
+            );
+        }
+        return;
+    };
+    if !attached {
         return;
     }
+    // The debugger's session is its page; the sessions under it (its frames and workers) keep their ids.
     let mut data = json!({ "wcId": wc_id, "method": method, "params": params });
-    if let Some(session) = value.get("sessionId") {
-        data["sessionId"] = session.clone();
+    if debugger.as_deref() != Some(session) {
+        data["sessionId"] = json!(session);
     }
     host::event("wc.cdp.message", data);
 }
@@ -143,20 +168,122 @@ pub fn send(
     });
 }
 
+/// `debugger.attach`: a DevTools session of the debugger's own, attached flat to this page's target, so what it sets
+/// ends with it (as Electron's debugger, a client of its own). Commands sent meanwhile wait for it (`send_debugger`).
 pub fn attach(wc_id: u64) {
-    if let Some(entry) = wc(wc_id) {
-        entry.borrow_mut().cdp_attached = true;
-        ensure_observer(&entry);
+    let Some(entry) = wc(wc_id) else { return };
+    {
+        let mut e = entry.borrow_mut();
+        if e.cdp_attached {
+            return;
+        }
+        e.cdp_attached = true;
+        e.cdp_session = None;
+    }
+    let opened = move |session: Option<String>| {
+        let Some(entry) = wc(wc_id) else { return };
+        let waiting = {
+            let mut e = entry.borrow_mut();
+            // Detached before the session existed: it goes at once.
+            if !e.cdp_attached {
+                if let Some(session) = &session {
+                    send(
+                        wc_id,
+                        "Target.detachFromTarget",
+                        Some(json!({ "sessionId": session })),
+                        None,
+                        |_| {},
+                    );
+                }
+                return;
+            }
+            e.cdp_session = session.clone();
+            std::mem::take(&mut e.cdp_waiting)
+        };
+        if session.is_none() {
+            crate::log::log("wc.debugger_session_failed", json!({ "wcId": wc_id }));
+        }
+        for run in waiting {
+            run(session.clone());
+        }
+    };
+    crate::wc::with_browser(wc_id, move |_| {
+        send(wc_id, "Target.getTargetInfo", None, None, move |info| {
+            let Some(target) = info.ok().and_then(|i| {
+                i.pointer("/targetInfo/targetId")
+                    .and_then(Value::as_str)
+                    .map(String::from)
+            }) else {
+                return opened(None);
+            };
+            let params = json!({ "targetId": target, "flatten": true });
+            send(
+                wc_id,
+                "Target.attachToTarget",
+                Some(params),
+                None,
+                move |attached| {
+                    opened(attached.ok().and_then(|a| {
+                        a.get("sessionId").and_then(Value::as_str).map(String::from)
+                    }));
+                },
+            );
+        });
+    });
+}
+
+/// `debugger.detach`: its session ends, and with it everything it set on the page.
+pub fn detach(wc_id: u64) {
+    let Some(entry) = wc(wc_id) else { return };
+    let (waiting, session) = {
+        let mut e = entry.borrow_mut();
+        e.cdp_attached = false;
+        (std::mem::take(&mut e.cdp_waiting), e.cdp_session.take())
+    };
+    for run in waiting {
+        run(None);
+    }
+    if let Some(session) = session {
+        send(
+            wc_id,
+            "Target.detachFromTarget",
+            Some(json!({ "sessionId": session })),
+            None,
+            |_| {},
+        );
     }
 }
 
-pub fn detach(wc_id: u64) {
-    if let Some(entry) = wc(wc_id) {
-        entry.borrow_mut().cdp_attached = false;
+/// A debugger's command (`debugger.sendCommand`): on its own session, or on `session_id`, one of the sessions under it.
+pub fn send_debugger(
+    wc_id: u64,
+    method: &str,
+    params: Option<Value>,
+    session_id: Option<String>,
+    done: impl FnOnce(Result<Value, Failure>) + 'static,
+) {
+    if session_id.is_some() {
+        return send(wc_id, method, params, session_id, done);
     }
-    // A debugger may have disabled `Runtime` or `Page`, which drops the input watch's binding and script.
-    if wc(wc_id).is_some_and(|e| e.borrow().watch_events.contains("input-event")) {
-        watch_input(wc_id);
+    let Some(entry) = wc(wc_id) else {
+        return done(Err(("gone".into(), format!("no page {wc_id}"))));
+    };
+    let method = method.to_owned();
+    let run = move |session: Option<String>| match session {
+        Some(session) => send(wc_id, &method, params, Some(session), done),
+        None => done(Err((
+            "failed".into(),
+            "Debugger is not attached to the target.".into(),
+        ))),
+    };
+    let (attached, session) = {
+        let e = entry.borrow();
+        (e.cdp_attached, e.cdp_session.clone())
+    };
+    match (attached, session) {
+        (true, Some(session)) => run(Some(session)),
+        (true, None) => entry.borrow_mut().cdp_waiting.push(Box::new(run)),
+        (false, _) => run(None),
     }
 }
 

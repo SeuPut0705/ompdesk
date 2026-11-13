@@ -122,6 +122,11 @@ pub struct WcEntry {
     pub watch_events: HashSet<String>,
     pub watch_nav: HashSet<String>,
     pub cdp_attached: bool,
+    /// The debugger's own DevTools session (a flat session the shell attached to this page's target): Electron's
+    /// debugger is a session of its own, so detaching it drops everything it set (emulation, interception, scripts).
+    pub cdp_session: Option<String>,
+    /// Debugger commands that arrived while its session was being made; they run once it exists (`None`: it failed).
+    pub cdp_waiting: Vec<Box<dyn FnOnce(Option<String>)>>,
     pub cdp_registration: Option<Registration>,
     /// The DevTools observer was added (whatever `add_dev_tools_message_observer` returned): CEF adds each page's once.
     pub cdp_observer_added: bool,
@@ -160,6 +165,8 @@ impl WcEntry {
             watch_events: HashSet::new(),
             watch_nav: HashSet::new(),
             cdp_attached: false,
+            cdp_session: None,
+            cdp_waiting: Vec::new(),
             cdp_registration: None,
             cdp_observer_added: false,
             cdp_next_id: 0,
@@ -220,6 +227,9 @@ pub struct WinEntry {
     pub close_pending: bool,
     pub destroyed: bool,
     pub views: Vec<u64>,
+    /// The page of this window (its own or a Preview view) that last took keyboard focus: edit commands of the
+    /// application menu act on it, as Electron's roles act on the focused webContents.
+    pub focused_wc: Option<u64>,
     pub sent_state: Option<Value>,
 }
 
@@ -242,6 +252,7 @@ impl WinEntry {
             close_pending: false,
             destroyed: false,
             views: Vec::new(),
+            focused_wc: None,
             sent_state: None,
         }
     }

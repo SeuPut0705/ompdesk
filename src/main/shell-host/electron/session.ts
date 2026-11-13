@@ -222,11 +222,33 @@ export class Session extends EventEmitter {
 		);
 		return id;
 	}
+}
 
-	/** Dispatches the shell's `session.download` (a download it cancelled). */
-	emitDownload(item: DownloadItem, contents: unknown): void {
-		this.emit("will-download", makeEvent(), item, contents);
-	}
+/** What the shell reports of a download it cancelled (`session.download`). */
+interface ShellDownload {
+	partition: string;
+	wcId: number;
+	url: string;
+	filename: string;
+	mimeType: string;
+	totalBytes: number;
+}
+
+/**
+ * Serves `session.download`: the session's `will-download` with the page that started it. The shell has already
+ * cancelled the download (`setDownloads deny`, sent once a listener was added), so `cancel()` does nothing more.
+ */
+export function serveDownloads(host: Host, sessions: (partition: string) => Session | undefined): void {
+	host.client.on("session.download", (download: ShellDownload) => {
+		const item: DownloadItem = {
+			getURL: () => download.url,
+			getFilename: () => download.filename,
+			getMimeType: () => download.mimeType,
+			getTotalBytes: () => download.totalBytes,
+			cancel() {},
+		};
+		sessions(download.partition)?.emit("will-download", makeEvent(), item, host.pages.get(download.wcId) ?? null);
+	});
 }
 
 /** Serves `protocol.request`: runs the partition's handler for the scheme, answers with the head and streams the body. */

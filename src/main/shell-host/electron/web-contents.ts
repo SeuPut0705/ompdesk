@@ -66,7 +66,7 @@ export class Debugger extends EventEmitter {
 
 	sendCommand(method: string, params?: unknown, sessionId?: string): Promise<unknown> {
 		if (!this.#attached) return Promise.reject(new Error("Debugger is not attached to the target."));
-		return this.#contents.cdp(method, params, sessionId);
+		return this.#contents.cdp(method, params, sessionId, true);
 	}
 
 	/** The shell's `wc.cdp.message`. */
@@ -153,12 +153,14 @@ export class WebContents extends EventEmitter implements PageRecord {
 		return this.#host.client.call<T>("wc.op", { wcId: this.id, op, args });
 	}
 
-	async cdp(method: string, params?: unknown, sessionId?: string): Promise<unknown> {
+	/** A DevTools command on the page's own session, or (`debugger`) on the `debugger`'s session of its own. */
+	async cdp(method: string, params?: unknown, sessionId?: string, debuggerSession = false): Promise<unknown> {
 		const answer = await this.#host.client.call<{ result: unknown }>("wc.cdp.send", {
 			wcId: this.id,
 			method,
 			...(params === undefined ? {} : { params }),
 			...(sessionId === undefined ? {} : { sessionId }),
+			...(debuggerSession ? { debugger: true } : {}),
 		});
 		return answer.result;
 	}

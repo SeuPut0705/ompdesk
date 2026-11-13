@@ -116,16 +116,23 @@ for (const [language, theme] of variants([
 				path: path.join(captures, `${name}-${language}-${theme}.png`),
 			});
 		};
-		/** Act on the preview page's own webContents in main. */
+		/** Act on the preview page's own webContents in main: the page starts a download, or its renderer is crashed. */
 		const child = (op: "zoom" | "download" | "crash") =>
 			app.evaluate(
-				({ webContents }, source) => {
+				async ({ webContents }, source) => {
 					const contents = webContents
 						.getAllWebContents()
 						.find(candidate => candidate.getURL().startsWith(`http://${source.host}/`));
 					if (!contents) throw new Error("No preview page");
-					if (source.op === "download") contents.downloadURL(`http://${source.host}/file.zip`);
-					else if (source.op === "crash") contents.forcefullyCrashRenderer();
+					if (source.op === "download")
+						await contents.executeJavaScript(
+							"(() => { const a = document.createElement('a'); a.href = '/file.zip'; document.body.append(a); a.click(); })()",
+						);
+					else if (source.op === "crash") {
+						contents.debugger.attach("1.3");
+						await contents.debugger.sendCommand("Page.crash").catch(() => {});
+						contents.debugger.detach();
+					}
 					return contents.getZoomFactor();
 				},
 				{ host, op },
