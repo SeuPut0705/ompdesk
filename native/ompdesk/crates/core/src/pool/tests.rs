@@ -617,3 +617,46 @@ async fn a_plan_is_claimed_by_its_file_and_generation_and_a_revision_that_reuses
         true
     );
 }
+
+#[tokio::test]
+async fn a_tab_a_paired_host_runs_keeps_the_host_s_plan_generation_and_a_local_tab_is_numbered_here()
+ {
+    let mut main = Main::start(opts()).await;
+    main.acquire("local", 1, None, false).await;
+    main.call(
+        "acquire",
+        json!({"cwd": "/work", "win": 1, "tab": "remote", "kind": "agent", "device": "dev-1"}),
+    )
+    .await;
+    let proposal = |tab: &str, generation: Option<u64>| {
+        let mut event =
+            json!({"type": "plan_proposal", "planFilePath": "local://PLAN.md", "title": "Plan"});
+        if let Some(generation) = generation {
+            event["generation"] = json!(generation);
+        }
+        json!({"tab": tab, "event": "events", "payload": [event]})
+    };
+    // This computer has numbered other plans already, so its counter is not the host's.
+    for _ in 0..3 {
+        main.call("feed", proposal("local", None)).await;
+    }
+    assert_eq!(
+        main.call("pendingPlan", json!({"tab": "local"})).await["generation"],
+        3
+    );
+    main.call("feed", proposal("remote", Some(42))).await;
+    assert_eq!(
+        main.call("pendingPlan", json!({"tab": "remote"})).await["generation"],
+        42
+    );
+    // The host's number is what a claim names; this computer's counter is not consulted for it.
+    assert!(
+        main.call(
+            "claimPlan",
+            json!({"tab": "remote", "file": "local://PLAN.md", "generation": 42})
+        )
+        .await
+        .as_u64()
+        .is_some()
+    );
+}

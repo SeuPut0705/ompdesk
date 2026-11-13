@@ -530,8 +530,16 @@ impl Ctx {
                         if kind == "plan_proposal" {
                             let title = event["title"].as_str().unwrap_or("").to_string();
                             entry.plan_proposal = Some((title, path));
-                            plan_serial += 1;
-                            entry.plan_generation = plan_serial;
+                            // A tab a paired host runs keeps the host's own number: it is what that host's answer step
+                            // compares. Only a tab of this computer is numbered here.
+                            entry.plan_generation =
+                                match (entry.device.is_some(), event["generation"].as_u64()) {
+                                    (true, Some(host)) => host,
+                                    _ => {
+                                        plan_serial += 1;
+                                        plan_serial
+                                    }
+                                };
                         } else if entry
                             .plan_proposal
                             .as_ref()

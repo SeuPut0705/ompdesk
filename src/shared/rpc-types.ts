@@ -2917,6 +2917,8 @@ export type AgentSessionEvent =
 			suggestedFileName?: string;
 			planContent: string;
 			options: string[];
+			/** The generation of a tab a paired host runs: that host numbers its plans, and the answer names it. */
+			generation?: number;
 	  }
 	// The proposal stopped waiting (answered in any window or by an agent, or a prompt replied to it).
 	| { type: "plan_proposal_resolved"; planFilePath: string }

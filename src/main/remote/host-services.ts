@@ -402,7 +402,7 @@ interface HostTab extends RunTracking {
 	/** Asks an agent's answer holds while its attachments go in (`TargetAnswer`), by request id. */
 	askClaims: Map<string, number>;
 	/** The plan proposal this tab's omp waits on (a tab that runs here), and the generation main gave it. */
-	planProposal?: { title: string; planFilePath: string; generation: number };
+	planProposal?: { title: string; planFilePath: string; generation: number; event: AgentSessionEvent };
 	/** The plan an agent's approval holds while its attachments go in. */
 	planClaim?: { plan: object; claim: number };
 	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
@@ -1750,6 +1750,9 @@ export class LocalHostServices implements HostServices {
 			// The asks the device still shows may be gone (the omp restarted or withdrew them meanwhile),
 			// and the omp may have raised others: the whole open list replaces the device's.
 			this.#emit(existing, "openAsks", [...existing.asks.values()]);
+			// A plan still waiting for approval: the device's pool keeps this host's generation for it, the same one
+			// its agent's answer carries back.
+			if (existing.planProposal) this.#emit(existing, "events", [existing.planProposal.event]);
 			// The device's waiting row and retry countdown may date from before it lost this computer.
 			this.#emit(existing, "awaitingConnection", existing.awaitingConnection === true);
 			this.#emit(existing, "scheduledRetry", scheduledRetryArg(existing.scheduledRetry));
@@ -2082,6 +2085,11 @@ export class LocalHostServices implements HostServices {
 					// Not the sidecar's: this computer's resume coordinator sets the wait and the tab's scheduled retry
 					// (`setScheduledRetry`; a view forwards its window tab's, #createTab), and `tab.open` sends the asks.
 					break;
+				case "events":
+					// The plan proposals leave stamped with this host's generation (`#stampPlans`): the target's is the
+					// one the device's pool keeps and its agent's answer carries back.
+					sidecar.on(name, (events: AgentSessionEvent[]) => this.#emit(tab, name, this.#stampPlans(tab, events)));
+					break;
 				default:
 					sidecar.on(name, (arg: unknown) => this.#emit(tab, name, arg));
 			}
@@ -2141,20 +2149,7 @@ export class LocalHostServices implements HostServices {
 			change(() => {
 				// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
 				let news = false;
-				for (const event of events) {
-					if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
-					if (event.type === "plan_proposal")
-						tab.planProposal = {
-							title: event.title ?? "",
-							planFilePath: event.planFilePath,
-							generation: ++this.#planGeneration,
-						};
-					else if (
-						event.type === "plan_proposal_resolved" &&
-						tab.planProposal?.planFilePath === event.planFilePath
-					)
-						tab.planProposal = undefined;
-				}
+				for (const event of events) if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
 				return news;
 			});
 			// A tab a window shows is counted by the pool; a device's own tab waits on this computer's account too.
@@ -2275,6 +2270,31 @@ export class LocalHostServices implements HostServices {
 			kind: sidecar.kind,
 			omp: tab.omp,
 		};
+	}
+
+	/**
+	 * Gives each `plan_proposal` of a tab that runs here its generation (stock rewrites one plan file for a revised
+	 * proposal, so the path is no identity), keeps the stamped event for a device that comes back, and clears it when
+	 * the proposal resolves. A tab that views another's omp keeps none: that omp's own pool numbers its plans.
+	 */
+	#stampPlans(tab: HostTab, events: AgentSessionEvent[]): AgentSessionEvent[] {
+		if (tab.viewing) return events;
+		let out: AgentSessionEvent[] | undefined;
+		events.forEach((event, index) => {
+			if (event.type === "plan_proposal") {
+				const stamped = { ...event, generation: ++this.#planGeneration };
+				tab.planProposal = {
+					title: event.title ?? "",
+					planFilePath: event.planFilePath,
+					generation: stamped.generation,
+					event: stamped as AgentSessionEvent,
+				};
+				out ??= events.slice();
+				out[index] = stamped as AgentSessionEvent;
+			} else if (event.type === "plan_proposal_resolved" && tab.planProposal?.planFilePath === event.planFilePath)
+				tab.planProposal = undefined;
+		});
+		return out ?? events;
 	}
 
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {

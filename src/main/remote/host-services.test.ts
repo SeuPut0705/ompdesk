@@ -5217,3 +5217,78 @@ describe("a device answering a window's tab meets the pool's claims", () => {
 		expect(view.commands).toEqual([]);
 	});
 });
+
+describe("a paired tab's plan generation is the host's, end to end", () => {
+	const proposal = (title: string) => ({
+		type: "plan_proposal",
+		planFilePath: "/p/plan.md",
+		title,
+		planContent: "x",
+		options: [],
+	});
+	const proposals = (conn: FakeConnection) =>
+		conn
+			.tabEvents()
+			.filter(event => event.name === "events")
+			.flatMap(event => event.arg as { type: string; generation?: number }[])
+			.filter(event => event.type === "plan_proposal");
+
+	it("stamps the generation it issued on the proposal it forwards, and on the one a returning device is sent", async () => {
+		const { services, sidecars } = setup();
+		const first = new FakeConnection(peer("device-x"));
+		await services.call(first.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, first);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		// This host has numbered other plans already (the device's own counter is another, so the two are unequal).
+		sidecar.emit("events", [proposal("one")]);
+		sidecar.emit("events", [proposal("two")]);
+		sidecar.emit("events", [proposal("three")]);
+		const sent = proposals(first).map(event => event.generation);
+		expect(sent).toEqual([1, 2, 3]);
+		// The link drops and comes back: the pending plan is sent again with the very same generation.
+		services.disconnected(first.peer, first);
+		const second = new FakeConnection(peer("device-x"));
+		await services.call(second.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, second);
+		expect(proposals(second).map(event => event.generation)).toEqual([3]);
+	});
+
+	it("answers with attachments for the host's generation, whatever number the device holds for other plans", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("events", [proposal("one")]);
+		sidecar.emit("events", [proposal("two")]);
+		const forwarded = proposals(x).at(-1)?.generation;
+		expect(forwarded).toBe(2);
+		const answer = (planGeneration: number) =>
+			services.call(
+				x.peer,
+				"tab.command",
+				{
+					rtab: "t1",
+					command: {
+						type: "agent_control_answer",
+						requestId: `answer-${planGeneration}|plan`,
+						companion: {
+							content: "note",
+							details: { id: `answer-${planGeneration}` },
+							delivery: { triggerTurn: false },
+						},
+						plan: { type: "plan_approval", approved: true },
+						planFile: "/p/plan.md",
+						planGeneration,
+					},
+				},
+				x,
+			);
+		// What the device's own pool numbered (another counter) is refused; the host's own number is accepted.
+		await expect(answer(9)).rejects.toThrow(/plan changed since you read it/);
+		expect(sidecar.commands).toEqual([]);
+		await answer(forwarded ?? 0);
+		expect(sidecar.commands.map(command => command.type)).toEqual(["agent_control_mail", "plan_approval"]);
+	});
+});
