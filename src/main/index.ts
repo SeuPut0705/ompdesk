@@ -53,6 +53,8 @@ import {
 } from "../shared/agent-control";
 import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
+import { sampleSnapshot } from "../shared/checks-fixture";
+import { sampleNames } from "../shared/checks-frame-fixture";
 import { COMPUTER_USE_PREF } from "../shared/computer-use";
 import { CREDIT_SPEND_PREF } from "../shared/credit-spend";
 import { DEFAULT_BROWSER_PREF } from "../shared/default-browser";
@@ -107,6 +109,8 @@ import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes }
 import type { Autopilot } from "./autopilot";
 import { askBackgroundWork } from "./background-work";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
+import { CoreChecksHub } from "./checks/client";
+import { ChecksRelay, namesFor } from "./checks/relay";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import {
 	answersWithin,
@@ -118,7 +122,7 @@ import {
 } from "./connectivity";
 import { installCliLaunchers } from "./control-socket/cli-install";
 import { takeHubMinute } from "./core/hub";
-import { core, stopCore } from "./core/process";
+import { CORE_EXITED, core, stopCore } from "./core/process";
 import { routeCoreSaves } from "./core-saves";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -1416,6 +1420,39 @@ app.whenReady().then(async () => {
 		.catch(error =>
 			console.warn(`[remote] devices unavailable: ${error instanceof Error ? error.message : String(error)}`),
 		);
+	// Check control: the hub's frame to every window and paired phone's page (`checks/relay.ts`). An unpackaged launch
+	// with OMP_GUI_TEST_CHECKS opens the core's scripted hub instead: `busy` shows its sample snapshot, anything else
+	// an empty one. The real hub answers nothing until its parts land, and then no frame is sent.
+	const testChecks = !app.isPackaged ? process.env.OMP_GUI_TEST_CHECKS : undefined;
+	const checksHub = new CoreChecksHub({ fake: testChecks !== undefined });
+	if (testChecks === "busy")
+		checksHub
+			.apply({ op: "snapshot", snapshot: sampleSnapshot(Date.now()) })
+			.catch((error: unknown) =>
+				console.warn(
+					`[checks] the scripted hub took no snapshot: ${error instanceof Error ? error.message : String(error)}`,
+				),
+			);
+	const hereId = (await remoteIdentity).deviceId;
+	const checksRelay = new ChecksRelay({
+		hub: checksHub,
+		names: async snapshot =>
+			testChecks !== undefined
+				? sampleNames()
+				: namesFor(snapshot, {
+						here: { id: hereId, name: devices.deviceName() },
+						hosts: devices.state().hosts,
+						sessions: (await sessionIndex.listKnown()) ?? [],
+					}),
+		send: frame => {
+			for (const target of [...BrowserWindow.getAllWindows(), ...(webHost?.windows.all() ?? [])])
+				if (!target.isDestroyed()) target.webContents.send(IPC_EVENTS.CHECKS_FRAME, frame);
+		},
+		onLost: listener => core().on(CORE_EXITED, listener),
+	});
+	checksRelay.start();
+	ipc.handle(IPC_COMMANDS.CHECKS_GET, () => checksRelay.current());
+	ipc.handle(IPC_COMMANDS.CHECKS_SET_PAUSED, (_caller, paused: unknown) => checksRelay.setPaused(paused === true));
 	hostModelsChanged.current = () => devices.hostModelsChanged();
 	// Devices that use this computer as their host say "n sessions wait together" from its own count (its account).
 	let lastModelWaitLocal = "{}";

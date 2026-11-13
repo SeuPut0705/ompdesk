@@ -126,6 +126,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	},
 	[C.BRIDGE_HEALTH_TAKE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.DISK_FULL_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.CHECKS_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.CHECKS_SET_PAUSED]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 
 	// Sessions and their tabs.
 	[C.RPC_COMMAND]: { dir: "invoke", permission: "workspace", mode: "pass" },
@@ -540,6 +542,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.UPDATER_STATUS]: { dir: "push", mode: "pass" },
 	[E.BRIDGE_HEALTH]: { dir: "push", mode: "pass" },
 	[E.DISK_FULL]: { dir: "push", mode: "pass" },
+	[E.CHECKS_FRAME]: { dir: "push", mode: "pass" },
 	[E.REMOTE_STATE]: { dir: "push", mode: "pass" },
 	[E.REMOTE_TAILNET]: { dir: "push", mode: "pass" },
 	[E.WORKTREE_PROMPTS]: { dir: "push", mode: "pass" },

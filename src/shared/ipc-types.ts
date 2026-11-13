@@ -24,6 +24,7 @@ import type {
 	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
+import type { ChecksFrame } from "./checks-frame";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { CreditSpendState } from "./credit-spend";
 import type { AgentBrowserStatus, ChromiumBrowserId } from "./default-browser";
@@ -171,6 +172,8 @@ export const IPC_EVENTS = {
 	BRIDGE_HEALTH: "bridge-health:changed",
 	/** The files main could not save for lack of space changed; payload is the whole DiskFullState. */
 	DISK_FULL: "disk-full:state",
+	/** Check control's frame changed (src/main/checks/relay.ts); payload is the whole ChecksFrame, or null for none. */
+	CHECKS_FRAME: "checks:frame",
 	/** Remote devices state changed (host role and paired hosts); payload is the whole RemoteState. */
 	REMOTE_STATE: "remote:state",
 	/** The tailnet's computers changed while a window watches them; payload is the whole TailnetComputer[]. */
@@ -421,6 +424,10 @@ export const IPC_COMMANDS = {
 	BRIDGE_HEALTH_TAKE: "bridge-health:take",
 	/** The files waiting for space (payload: none; answer: DiskFullState) */
 	DISK_FULL_GET: "disk-full:get",
+	/** Check control's frame now (payload: none; answer: ChecksFrame, or null while main has no hub to read) */
+	CHECKS_GET: "checks:get",
+	/** Pause or resume admission, the owner's one control over checks (payload: boolean) */
+	CHECKS_SET_PAUSED: "checks:set-paused",
 	/** Cancel a tab's wait for the internet connection (payload: tab id) */
 	RESUME_CANCEL_WAIT: "resume:cancel-wait",
 	/** Stop what this launch resumed on one tab (the resuming row's Stop; payload: tab id) */
@@ -2231,6 +2238,8 @@ export interface OmpApi {
 		onBridgeHealth(callback: () => void): () => void;
 		/** Fires with the files main could not save for lack of space; an empty list means all are saved. */
 		onDiskFull(callback: (state: DiskFullState) => void): () => void;
+		/** Fires with check control's frame at each change; null when main has none to show. */
+		onChecksFrame(callback: (frame: ChecksFrame | null) => void): () => void;
 		/** The window's tab list changed because another window joined or left one of its tabs, or closed it. */
 		onTabListChanged(callback: (payload: IpcTabListChangedPayload) => void): () => void;
 		/** The calling agent asks this window to show (or, once the person approved it, close) a session's tab. */
@@ -2262,6 +2271,12 @@ export interface OmpApi {
 	diskFull: {
 		/** The files main could not save for lack of space right now (empty once all are saved). */
 		get(): Promise<DiskFullState>;
+	};
+	checks: {
+		/** Check control's frame now; null while main has no hub to read. */
+		get(): Promise<ChecksFrame | null>;
+		/** Pause or resume admission: while paused the hub refuses every new start ("paused by the owner"). */
+		setPaused(paused: boolean): Promise<void>;
 	};
 	/** Turns that continue by themselves: after the connection returns, and after a relaunch. */
 	resume: {

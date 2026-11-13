@@ -32,6 +32,7 @@ import type {
 	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
+import type { ChecksFrame } from "./checks-frame";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { CreditSpendState } from "./credit-spend";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
@@ -391,6 +392,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<UpdateStatus>(IPC_EVENTS.UPDATER_STATUS, callback),
 			onBridgeHealth: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.BRIDGE_HEALTH, () => callback()),
 			onDiskFull: callback => subscribe<DiskFullState>(IPC_EVENTS.DISK_FULL, callback),
+			onChecksFrame: callback => subscribe<ChecksFrame | null>(IPC_EVENTS.CHECKS_FRAME, callback),
 			onTabListChanged: callback => subscribe<IpcTabListChangedPayload>(IPC_EVENTS.TAB_LIST_CHANGED, callback),
 			onAgentControlView: callback => subscribe<AgentControlViewEvent>(AGENT_CONTROL_VIEW, callback),
 			onAgentControlApp: callback => subscribe<AgentAppEvent>(AGENT_CONTROL_APP, callback),
@@ -416,6 +418,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 		},
 		diskFull: {
 			get: () => transport.invoke(IPC_COMMANDS.DISK_FULL_GET),
+		},
+		checks: {
+			get: () => transport.invoke(IPC_COMMANDS.CHECKS_GET),
+			setPaused: paused => transport.invoke(IPC_COMMANDS.CHECKS_SET_PAUSED, paused),
 		},
 
 		resume: {

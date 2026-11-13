@@ -69,6 +69,7 @@ import {
 	boardUsage,
 	familyEdits,
 } from "./fixture-board";
+import { CHECKS_FIXTURE, checksFrame } from "./fixture-checks";
 import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
 import { MCP_SERVERS } from "./fixture-mcp";
 import { memoryAnswer } from "./fixture-memory";
@@ -525,6 +526,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	/** The machine's research pick (`MODEL_SETUP_PICK_*`), as the host's pref would hold it. */
 	let researchPick: string | null = null;
 	let creditSpend = false;
+	/** `?checks=busy|idle` (./fixture-checks.ts): the frame main's relay would hold; none without the flag. */
+	let checks = CHECKS_FIXTURE === "busy" || CHECKS_FIXTURE === "idle" ? checksFrame(CHECKS_FIXTURE) : null;
 	const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
 		calls.push({ channel, args });
 		// Each case reads the one payload shape its channel carries.
@@ -604,6 +607,14 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				};
 			case IPC_COMMANDS.UPDATER_GET_STATUS:
 				return { state: "idle" };
+			case IPC_COMMANDS.CHECKS_GET:
+				return checks;
+			case IPC_COMMANDS.CHECKS_SET_PAUSED:
+				if (checks) {
+					checks = { ...checks, snapshot: { ...checks.snapshot, paused: payload === true } };
+					emit(IPC_EVENTS.CHECKS_FRAME, checks);
+				}
+				return undefined;
 			case IPC_COMMANDS.DISK_CARE_GET_STATE:
 			case IPC_COMMANDS.DISK_CARE_RUN:
 				return diskCareState();
