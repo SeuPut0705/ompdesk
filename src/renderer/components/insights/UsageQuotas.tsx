@@ -35,7 +35,6 @@ function resetCountdown(resetsAt: number | undefined, t: Translate, now: number)
 	return t("usage.resetsIn", { time: formatSpan(ms) });
 }
 
-
 export function limitValueText(limit: UsageLimit, t: Translate): string {
 	const hasUnit = Boolean(limit.unit && limit.unit !== "unknown");
 	if (!hasUnit && limit.usedFraction !== undefined) {
