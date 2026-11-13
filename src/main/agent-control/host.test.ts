@@ -1544,9 +1544,10 @@ describe("AgentControlRuntime", () => {
 			await runtime.run(win, "kid00002", T.report, { kind: "done", text: "All checks pass" });
 			expect(received).toEqual([]);
 			up = true;
-			// The next sweep tick hands it over: in the core, a tick asks main for its state, then for the tab and the
-			// mail, three round trips that a loaded runner can stretch past the poll's default second.
-			await expect.poll(() => received, { timeout: 10_000 }).toEqual(["main0001"]);
+			// The next sweep tick hands it over, and every tick after it again until the opener's journal holds it (this
+			// fake's answer never says so): the poll may first look after the second.
+			await expect.poll(() => received, { timeout: 5_000 }).toContain("main0001");
+			expect(new Set(received)).toEqual(new Set(["main0001"]));
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });
 		}
@@ -1748,7 +1749,8 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		await vi.waitFor(() => expect(answers).toHaveLength(2), { timeout: 5_000 });
 		answers[1]?.(false);
 		await second;
-	});
+		// Two tool calls, each through the core and its card, on a loaded runner.
+	}, 20_000);
 
 	it("refuses with no window open and names an unknown tool", async () => {
 		const { backend, deps } = outsideSetup();

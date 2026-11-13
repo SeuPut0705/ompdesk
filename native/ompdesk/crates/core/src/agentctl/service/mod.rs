@@ -140,8 +140,14 @@ pub struct Mem {
     pub calling: HashMap<String, Flight<ToolOutcome>>,
     /// Sessions (`device\npath`) whose saved name `name_untitled` already looked up (`#namesSought`).
     pub names_sought: HashSet<String>,
-    /// When each session last reported done, review, a question or a blocker to the one that opened it (`#reportedAt`).
-    pub reported_at: HashMap<String, f64>,
+    /// The turn in which each session (`sender\nreceiver`) last reported done, review, a question or a blocker
+    /// (`#reportedAt`): its `busySince` as main saw it at the report. The TypeScript kept the report's time and
+    /// compared it with `busySince`; the core's clock and main's are two processes' (on Windows a tick apart), so
+    /// "the same turn" is told by main's own stamp instead.
+    pub reported_in: HashMap<String, Option<f64>>,
+    /// The turn in which each session (`sender\nreceiver`) sent its last mail, the same way: a turn with another
+    /// `busySince` is one it carried on with.
+    pub mailed_in: HashMap<String, Option<f64>>,
     /// The newest dispatch queued as a follow-up behind each busy child's turn (`#queuedFollowUp`).
     pub queued_follow_up: HashMap<String, QueuedFollowUp>,
     /// Sends with a request id still on their way (`#inflight`).
@@ -358,7 +364,9 @@ impl AgentControl {
             mem.cards_told.remove(tab_id);
             mem.last_spend.remove(tab_id);
             mem.queued_follow_up.remove(tab_id);
-            mem.reported_at
+            mem.reported_in
+                .retain(|key, _| !key.split('\n').any(|part| part == tab_id));
+            mem.mailed_in
                 .retain(|key, _| !key.split('\n').any(|part| part == tab_id));
         }
         self.mailbox.forget(tab_id);

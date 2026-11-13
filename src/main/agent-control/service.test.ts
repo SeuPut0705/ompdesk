@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { type ClosedChild, AGENT_CONTROL_TOOLS as T, wrapAgentMessage } from "../../shared/agent-control";
@@ -272,8 +272,9 @@ class FakeHost implements AgentControlHost {
 	tombstoneAt = new Map<string, number>();
 	tombstones = (): Tombstones => {
 		const tombstones: Tombstones = { byPath: [], byId: {} };
+		// The store keeps this computer's file as node's `path.resolve` spells it (`deleted-sessions.ts`).
 		for (const [key, at] of this.tombstoneAt)
-			if (key.startsWith("/")) tombstones.byPath.push({ path: key, at });
+			if (key.startsWith("/")) tombstones.byPath.push({ path: resolve(key), at });
 			else tombstones.byId[key] = at;
 		return tombstones;
 	};
@@ -2422,7 +2423,8 @@ describe("ompdesk_schedule", () => {
 		expect(once?.kind).toBe("once");
 		const at = once?.kind === "once" ? Date.parse(once.at) : 0;
 		expect(at).toBeGreaterThanOrEqual(before + 30 * 60_000);
-		expect(at).toBeLessThan(Date.now() + 30 * 60_000 + 1);
+		// The core reads its own clock: on Windows it may run a tick (about 16 ms) ahead of this process's.
+		expect(at).toBeLessThan(Date.now() + 30 * 60_000 + 50);
 		await service.run("main0001", T.schedule, {
 			action: "create",
 			name: "h",
@@ -4371,12 +4373,18 @@ describe("ompdesk_report: sessions tell their opener", () => {
 
 	it("stops listing a child as waiting once it carries on with a new turn", async () => {
 		const { host, service, a } = await family();
-		await service.run(a, T.report, { kind: "question", text: "Keep the old API?" });
 		const child = host.tabsById.get(a);
 		if (!child) throw new Error("no child");
-		// The person answered in the child's own tab: its next turn started after the question.
+		// It asks from within a turn main stamped.
 		child.busy = true;
-		child.busySince = Date.now() + 1;
+		child.busySince = Date.now() - 60_000;
+		await service.run(a, T.report, { kind: "question", text: "Keep the old API?" });
+		const waiting = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
+		expect(waiting?.waiting).toBe(true);
+		// The person answered in the child's own tab: its next turn started after the question. Main stamps it with
+		// its own clock, which may read a few ms behind the core's (two processes; a tick on Windows): it still counts
+		// as a new turn.
+		child.busySince = Date.now() - 10;
 		const item = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
 		expect(item?.waiting).toBeUndefined();
 		expect(item?.state).toBe("running");

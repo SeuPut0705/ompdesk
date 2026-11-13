@@ -423,13 +423,15 @@ impl AgentControl {
         // steps instead.
         let reported = self
             .mem()
-            .reported_at
+            .reported_in
             .get(&format!("{}\n{}", target.tab_id, caller.tab_id))
             .copied();
         let follow_up = args.delivery.as_deref() == Some("follow_up");
+        // It reported in the turn it runs now: main's stamp of that turn is the one it had at the report.
         let promoted = running
             && follow_up
-            && reported.is_some_and(|at| at >= target.busy_since.unwrap_or(0.0));
+            && reported
+                .is_some_and(|turn| target.busy_since.is_none() || turn == target.busy_since);
         // A follow-up queues the next task of a session the caller opened behind its turn. Any other session would hold
         // it in its queue until that turn ends, so it gets a steer, unless a card of the person's is open there.
         let steer = !follow_up || promoted || (!own_child && target.asks.is_empty());
@@ -669,7 +671,14 @@ impl AgentControl {
         let Some(mail) = self.mailbox.state(&tab.tab_id, opener) else {
             return fields;
         };
-        let carried_on = tab.busy && tab.busy_since.unwrap_or(0.0) > mail.last.at;
+        // A turn main stamped other than the one the mail was sent in is one it carried on with.
+        let mailed_in = self
+            .mem()
+            .mailed_in
+            .get(&format!("{}\n{opener}", tab.tab_id))
+            .copied()
+            .flatten();
+        let carried_on = tab.busy && tab.busy_since.is_some_and(|since| Some(since) != mailed_in);
         fields.insert(
             "report".into(),
             json!({
@@ -832,6 +841,9 @@ impl AgentControl {
             let seeded = self.journal_marks(&caller.tab_id).await.dispatch;
             self.mailbox.seed(&caller.tab_id, seeded);
         }
+        self.mem()
+            .mailed_in
+            .insert(format!("{}\n{to}", caller.tab_id), caller.busy_since);
         let outcome = self.mailbox.post(mail.clone()).await.map_err(Fail::other)?;
         if let Some(parent) = &parent {
             self.host.review_changed(parent);
@@ -840,10 +852,9 @@ impl AgentControl {
             && outcome != Posted::Stale
             && WAITS_AFTER_REPORT.contains(&args.kind.as_str())
         {
-            let at = self.now();
             self.mem()
-                .reported_at
-                .insert(format!("{}\n{to}", caller.tab_id), at);
+                .reported_in
+                .insert(format!("{}\n{to}", caller.tab_id), caller.busy_since);
         }
         let mut waiting = self.queued_note(caller, tabs).await;
         if let Some(gap) = custody
