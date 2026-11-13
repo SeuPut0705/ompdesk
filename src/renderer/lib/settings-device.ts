@@ -21,19 +21,27 @@ function tabOn(tabs: readonly SessionTab[], device: string | undefined): Session
 	return mine.find(tab => tab.id === kept) ?? mine[0];
 }
 
+let switching = false;
+
+/** True while `showSettingsOf` moves the focus: a page may stay open then (AppShell's `leavePageOnSessionSelect`). */
+export const settingsDeviceSwitching = (): boolean => switching;
+
 /**
  * Focus a tab on `device` (undefined = this computer): the one the person left there, else the first, else a new chat
  * tab in that device's own default workspace (a device with no tab open has none to focus, and a chat tab starts no
- * project). The Settings page stays open; only what its scope follows changes.
+ * project). The Settings page stays open: any other change of the focused tab returns to the session view, which is
+ * not what asking for another device's settings means.
  */
 export async function showSettingsOf(device: string | undefined): Promise<void> {
 	if (focusedTabDevice() === device) return;
 	const { tabs, activeTabId } = useTabsStore.getState();
 	if (activeTabId) lastFocused.set(keyOf(focusedTabDevice()), activeTabId);
 	const target = tabOn(tabs, device);
-	if (target) {
-		await useTabsStore.getState().switchTab(target.id);
-		return;
+	switching = true;
+	try {
+		if (target) await useTabsStore.getState().switchTab(target.id);
+		else await useTabsStore.getState().openTab({ kind: "chat", ...(device === undefined ? {} : { device }) });
+	} finally {
+		switching = false;
 	}
-	await useTabsStore.getState().openTab({ kind: "chat", ...(device === undefined ? {} : { device }) });
 }
