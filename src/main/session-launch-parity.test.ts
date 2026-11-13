@@ -28,13 +28,15 @@ import type { SidecarManager } from "./sidecar";
 const spawned = vi.hoisted(() => ({ bin: "", ompInstalled: true }));
 vi.mock("electron", () => ({
 	app: {
-		getPreferredSystemLanguages: () => ["ko-KR"],
-		getLocale: () => "ko",
 		getPath: () => tmpdir(),
 		getVersion: () => "0.0.0-test",
 	},
 }));
-vi.mock("./i18n", () => ({ ompFailureText: (reason: string) => reason, mainT: (key: string) => key }));
+vi.mock("./shell-host/modules/boot", () => ({
+	ompFailureText: (reason: string) => reason,
+	mainT: (key: string) => key,
+	deviceLanguage: () => "ko",
+}));
 vi.mock("./runtime-log", () => ({ writeRuntimeLog: () => {} }));
 vi.mock("./shell-env", async importOriginal => ({
 	...(await importOriginal<typeof ShellEnvModule>()),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { fillText } from "../shared/fill-text";
-import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
+import type { MainTextKey } from "./shell-host/modules/boot";
 
 describe("main's English counts of one", () => {
 	it("say the noun in the singular and never pick a verb for the count", () => {

@@ -1,44 +1,22 @@
 /**
- * Pure tray vocabulary: every string the native menu shows, the menu itself as a
- * template, and the signature that decides whether the menu has to be rebuilt.
- * Lives outside `tray.ts` because that module needs electron.
+ * Pure tray vocabulary: the menu as a template, and the signature that decides whether the menu has to be rebuilt.
+ * The strings are the shell's text table's `tray.*` keys (`boot_core/main-text.json`). Lives outside `tray.ts`
+ * because that module needs electron.
  */
 
 import type { MenuItemConstructorOptions } from "electron";
 import type { RunProgressState, TrayState, UpdateStatus } from "../shared/ipc-types";
 import type { UiLanguage } from "../shared/ui-language";
+import { type MainTextKey, mainTemplate } from "./shell-host/modules/boot";
 
 export type TrayStatus = TrayState["status"];
 export type TrayLang = UiLanguage;
 
-/** Tray-label strings, translated in main (the renderer reports the language). */
-export const TRAY_LABELS = {
-	open: { en: "Open OMPdesk", ko: "OMPdesk 열기" },
-	hide: { en: "Hide OMPdesk", ko: "OMPdesk 숨기기" },
-	quit: { en: "Quit", ko: "종료" },
-	updateCheck: { en: "Check for updates", ko: "업데이트 확인" },
-	updateChecking: { en: "Checking for updates…", ko: "업데이트 확인 중…" },
-	updateDownload: { en: "Download v{version}", ko: "v{version} 다운로드" },
-	updateDownloading: { en: "Downloading v{version}…", ko: "v{version} 다운로드 중…" },
-	updateDownloadingPercent: { en: "Downloading v{version}… {percent}%", ko: "v{version} 다운로드 중… {percent}%" },
-	updateRestart: { en: "Restart to update to v{version}", ko: "다시 시작해서 v{version} 업데이트" },
-	updateInstalling: { en: "Installing v{version}…", ko: "v{version} 설치 중…" },
-	updateOpenInstaller: { en: "Open installer for v{version}", ko: "v{version} 설치 프로그램 열기" },
-	updateUpToDate: { en: "OMPdesk is up to date", ko: "OMPdesk가 최신 버전이에요" },
-	updateFailed: { en: "Update failed — try again", ko: "업데이트 실패 — 다시 시도" },
-	statusIdle: { en: "Ready", ko: "준비됨" },
-	statusStreaming: { en: "Working", ko: "작업 중" },
-	// The renderer's attention words (`attention.*`), pinned by native-labels.test.ts.
-	statusQuestion: { en: "Needs input", ko: "답변 필요" },
-	statusApproval: { en: "Needs approval", ko: "승인 필요" },
-	statusChildWaiting: { en: "Child waiting", ko: "하위 세션 대기" },
-	statusError: { en: "Error", ko: "오류" },
-} as const;
+export type TrayLabelKey = MainTextKey extends infer K ? (K extends `tray.${infer Key}` ? Key : never) : never;
 
-export type TrayLabelKey = keyof typeof TRAY_LABELS;
-
+/** A tray label; a placeholder without a value reads as nothing. */
 export function t(lang: TrayLang, key: TrayLabelKey, params?: Record<string, string | number>): string {
-	const text: string = TRAY_LABELS[key][lang];
+	const text = mainTemplate(`tray.${key}`, lang);
 	return params ? text.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? "")) : text;
 }
 

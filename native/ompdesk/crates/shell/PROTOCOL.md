@@ -598,16 +598,16 @@ file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `i
   until the other slice landed it goes through the shim namespaces as today (chrome owns the windows: preview and
   services keep using `win.*` ids Node assigns until SX1 lands, then take SX1's functions).
 
-### 15.2 The contract's own frames (`core.*`, `log.*`, `i18n.*`)
+### 15.2 The contract's own frames (`core.*`, `log.*`)
 
-Served by `src/main/shell-host/modules/relay.ts` (`serveShellRelays`, `publishLabels`, both called in `index.ts` before
-`whenReady`); reached from Rust through `Ctx` and `shell_core::labels`. No module adds frames to these namespaces.
+Served by `src/main/shell-host/modules/relay.ts` (`serveShellRelays`, called in `index.ts` before `whenReady`);
+reached from Rust through `Ctx`. No module adds frames to these namespaces. The text modules show is the shell's own
+(`shell_core::labels`, over `boot_core/main-text.json`, §15.9).
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
 | `core.call` | shell→Node | `{method, params, timeoutMs?}` + `bin` | the core's answer to `method` (its `bin` too). A fault keeps the core's `code` and message; `{cancel: id}` cancels the request in the core. Used through `Ctx::core`. When the core moves under the shell only `Ctx::core`'s body changes. |
 | `log.runtime` (event) | shell→Node | `{report: RuntimeLogReport, windowId?}` | one line of `<userData>/logs/gui-runtime.jsonl`, written by Node's `writeRuntimeLog` (`runtime-log-core.ts`: rotation, normalising, context). Used through `Ctx::runtime_log`. |
-| `i18n.labels` (event) | Node | `{language: "en"\|"ko", text: {[key]: string}}` | **transitional, deleted by SX5** (§15.4 rule 2): the whole label table for the UI language: every `MAIN_TEXT` key as is, every `TRAY_LABELS` key as `tray.<key>`, placeholders unfilled. Sent before `whenReady` and after every language change; each replaces the last. Read with `shell_core::labels::label(key, params)` (`fillText`'s rule; `None` before the first table or for an unknown key), the API that stays after SX5. |
 
 ### 15.3 Parity proof, per slice
 
@@ -652,17 +652,12 @@ on GitHub's runners.
    batch; a module writes a line with `Ctx::runtime_log` (`log.runtime`, §15.2). The shell's own diagnostic log
    (`log.rs`, `OMPDESK_SHELL_TRACE`) stays the shell's and is not that file. When Node goes (S's last step) the writer
    moves once, with its rotation rule.
-2. **One label API for modules; SX5 moves the strings.** A module that shows text (a menu, the tray, a dialog it
-   opens) reads it only through `shell_core::labels::label(key, params)`, keyed as `MAIN_TEXT` and `tray.<key>` are
-   today; it never holds a Rust literal. Who fills that table changes once, inside SX5, and no other slice notices:
-   - **Until SX5's i18n commit (transitional):** Node pushes the table (`i18n.labels`, §15.2) from `i18n-text.ts` and
-     `tray-labels.ts`. A slice that needs a new string adds it there (English and Korean).
-   - **SX5 moves i18n into the shell:** `MAIN_TEXT`, `TRAY_LABELS`, the language choice (`getMainLanguage`: the
-     `language` pref, else the locale from `facts`) and `fillText`'s rule become `boot_core`'s, and `labels` reads them
-     there. Node's remaining `mainT` callers read a mirror the shell pushes (`boot.labels`, 9c's mirror pattern) or
-     ask it, as SX5 decides and records in §15.9. In the same commits SX5 deletes `i18n.labels`, `publishLabels` and
-     `labelTable` (`relay.ts`), `i18n.ts`, `i18n-text.ts` and the tables of `tray-labels.ts`, and moves the strings any
-     slice added meanwhile.
+2. **One label API for modules; the strings are the shell's.** A module that shows text (a menu, the tray, a dialog it
+   opens) reads it only through `shell_core::labels::label(key, params)`, keyed as `MAIN_TEXT` was and `tray.<key>`;
+   it never holds a Rust literal. The table is `boot_core/main-text.json` (SX5 moved `i18n-text.ts` and
+   `tray-labels.ts`'s tables there), the language the `boot` module's choice (the `language` pref, else the app
+   locale). A new string is added to that file, in English and Korean. Node's `mainT` reads the copy the shell pushes
+   (`boot.labels`, §15.9).
 
    Text Node already sends in a request (menu templates, dialog options) stays in that request.
 3. **Parity suites reach Rust through the real shell over the wire**, never through a second test binary or an FFI
@@ -733,6 +728,8 @@ Deviations:
 | `boot.power` (event) | shell→Node | `{name}` | `suspend`, `resume`, `lock-screen`, `unlock-screen`, `on-ac`, `on-battery`, `shutdown` |
 | `boot.online` (event) | shell→Node | `{online}` | Chromium's link state: once in `ready` (before `app.ready`), then on every change of the 3 s poll; Node mirrors it (`onlineMirror`) |
 | `boot.resolveHost` | Node | `{host}` | `{endpoints: [{address, family}]}` — the app session's resolver; `invalid` for an empty host, `failed` with `net::ERR_…` |
+| `boot.labels` (event) | shell→Node | `{language: "en"\|"ko", text: {[key]: {en, ko}}, appLocale, preferredLanguages}` | main's whole text table (`boot_core/main-text.json`: `MAIN_TEXT`'s keys, `TRAY_LABELS`'s as `tray.<key>`), the UI language (the `language` pref read from `<userData>/prefs.json`, else the app locale) and the locale facts. Once in `ready` (before `app.ready`), then after every `boot.language`. Node's `mainT`, `getMainLanguage` and `deviceLanguage` read this copy (`mirrorLabels`). |
+| `boot.language` | Node | `{language: "en"\|"ko"\|null}` | `{}` — the person changed the `language` pref (`null`: cleared); answered after the new `boot.labels` went out, and the shell's own `labels::label` answers in it from then on. |
 
 The lid policy (`boot_core::lid`, was `power/lid-awake.ts`) runs on a thread of its own from `ready` to `shutdown`
 (which releases at once and waits up to 5 s for a backend call under way): while any blocker is held and the computer

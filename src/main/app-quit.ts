@@ -8,7 +8,6 @@
 import { app, autoUpdater, BrowserWindow, dialog, type MessageBoxOptions } from "electron";
 import { type BackgroundWork, backgroundWorkSentence } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
-import { getMainLanguage, mainT } from "./i18n";
 import {
 	assessQuitRisk,
 	QuitLatch,
@@ -19,6 +18,7 @@ import {
 } from "./quit-guard";
 import { QuitWatchdog, type QuitWatchdogReason } from "./quit-watchdog";
 import { writeRuntimeLog } from "./runtime-log";
+import { getMainLanguage, mainT } from "./shell-host/modules/boot";
 
 const latch = new QuitLatch();
 let asking = false;

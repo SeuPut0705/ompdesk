@@ -5,7 +5,9 @@
  * cannot read.
  */
 import { describe, expect, it, vi } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import type { TrayState, UpdateStatus } from "../shared/ipc-types";
+import { seedLabels } from "./shell-host/modules/boot";
 import {
 	aggregateProgress,
 	aggregateTrayStatus,
@@ -16,6 +18,9 @@ import {
 	trayTooltip,
 	trayUpdateItem,
 } from "./tray-labels";
+
+// Main's text is the shell's (`boot.labels`); the table itself stands in.
+seedLabels("en", MAIN_TEXT);
 
 function state(overrides: Partial<TrayState> = {}): TrayState {
 	return { status: "idle", language: "en", projectName: "alpha", ...overrides };

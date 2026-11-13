@@ -59,7 +59,7 @@ const VERSION_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;
 const INSTALL_HINT = "OMPdesk's machine setup installs the omp package on its own.";
 
-/** Why omp is unusable; the GUI localizes this (src/main/i18n.ts `ompFailureText`). `error` stays the English text. */
+/** Why omp is unusable; the GUI localizes this (`shell-host/modules/boot.ts` `ompFailureText`). `error` stays the English text. */
 export type OmpFailure =
 	| { kind: "not-found" }
 	| { kind: "override-missing"; path: string }

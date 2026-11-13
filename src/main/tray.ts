@@ -10,7 +10,7 @@ import winTray from "../../resources/brand/tray.png?inline";
 import macTemplate2x from "../../resources/brand/trayTemplate@2x.png?inline";
 import macTemplate from "../../resources/brand/trayTemplate.png?inline";
 import type { TrayState, UpdateStatus } from "../shared/ipc-types";
-import { getMainLanguage } from "./i18n";
+import { getMainLanguage } from "./shell-host/modules/boot";
 import {
 	menuSignature,
 	type TrayMenuActions,

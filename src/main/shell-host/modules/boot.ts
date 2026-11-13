@@ -3,13 +3,26 @@
  * shell's. `omp-media://` streams (the shell serves the file; Node only registers it and, for a paired device's page,
  * streams the shell's reads into a `Response`), keep-awake's blockers (the shell also holds the lid of a charging laptop
  * while one is held, `boot_core::lid`), the power and network events main reacts to, the app's theme over the OS's,
- * the global shortcut and the resolver the reachability probe asks.
+ * the global shortcut, the resolver the reachability probe asks, and main's text: the shell's table
+ * (`boot_core/main-text.json`) and UI language, mirrored here for `mainT`.
  */
+import type mainText from "../../../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
+import { fillText } from "../../../shared/fill-text";
+import { deviceLanguageTag } from "../../../shared/reply-language";
+import type { UiLanguage } from "../../../shared/ui-language";
+import type { EditLabels } from "../../editable-context-menu";
+import type { OmpFailure } from "../../omp-runtime";
 import type { KeepAwakeBlocker } from "../../remote/keep-awake";
 import type { HostClient } from "../electron/host";
 import { type ModuleClient, shellHost, shellModule } from "./client";
 
 type None = Record<string, never>;
+
+/** A key of main's text table (`MAIN_TEXT`'s, and `TRAY_LABELS`'s as `tray.<key>`). */
+export type MainTextKey = keyof typeof mainText;
+export type MainLanguage = UiLanguage;
+/** The table as the shell pushes it: every key in both languages, placeholders unfilled. */
+export type MainTextTable = Record<string, Record<MainLanguage, string>>;
 
 /** What `omp-media://` answers for a request (`boot_core::media::answer`): the body is `length` bytes from `start`. */
 export interface MediaHead {
@@ -33,6 +46,8 @@ export type BootSpec = {
 		registerShortcut: { params: { accelerator: string }; result: { registered: boolean } };
 		/** Answered once the shell applied it and pushed `theme.changed`, so the shim's `nativeTheme` already agrees. */
 		themeSource: { params: { source: "system" | "light" | "dark" }; result: None };
+		/** The person changed the `language` pref (`null`: cleared, the locale decides); answered after `labels`. */
+		language: { params: { language: string | null }; result: None };
 	};
 	posts: {
 		mediaRelease: { url: string; owner: number };
@@ -44,6 +59,9 @@ export type BootSpec = {
 		power: { name: "suspend" | "resume" | "lock-screen" | "unlock-screen" | "on-ac" | "on-battery" | "shutdown" };
 		online: { online: boolean };
 		shortcut: { accelerator: string };
+		/** The UI language, the whole table and the locale it was chosen from; once before `app.ready`, then after
+		 * every language change. */
+		labels: Labels;
 	};
 	asks: None;
 };
@@ -113,4 +131,90 @@ export function onlineMirror(boot: BootClient): { isOnline(): boolean } {
 		online = data.online;
 	});
 	return { isOnline: () => online };
+}
+
+/** What `boot.labels` carries. */
+export interface Labels {
+	language: MainLanguage;
+	text: MainTextTable;
+	/** Chromium's locale (`app.getLocale()`) and the system's preferred languages, from the shell's facts. */
+	appLocale: string;
+	preferredLanguages: string[];
+}
+
+/** The shell's latest `boot.labels`. */
+let labels: Labels | null = null;
+
+/** `key`'s template in `language`, placeholders unfilled, for a caller with its own fill rule; the key itself before
+ * the shell's table came. */
+export function mainTemplate(key: MainTextKey, language: MainLanguage = getMainLanguage()): string {
+	return labels?.text[key]?.[language] ?? key;
+}
+
+/** Mirrors the shell's text from now on; call before `app.init` goes out (the first table comes before `app.ready`). */
+export function mirrorLabels(boot: BootClient): void {
+	boot.on("labels", data => {
+		labels = data;
+	});
+}
+
+/** Tests: main's text as the shell would push it, without a shell. */
+export function seedLabels(language: MainLanguage, text: MainTextTable): void {
+	labels = { language, text, appLocale: "en-US", preferredLanguages: ["en-US"] };
+}
+
+/** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
+export function deviceLanguage(): string | undefined {
+	return labels ? deviceLanguageTag(labels.preferredLanguages, labels.appLocale) : undefined;
+}
+
+/** The UI language: the person's `language` pref, else the app locale (the shell decides; English before it said). */
+export function getMainLanguage(): MainLanguage {
+	return labels?.language ?? "en";
+}
+
+/** `key` in `language`, its `{name}` placeholders filled (`fillText`). The key itself before the shell's table came. */
+export function mainT(
+	key: MainTextKey,
+	language: MainLanguage = getMainLanguage(),
+	params?: Record<string, string | number>,
+): string {
+	return fillText(mainTemplate(key, language), params);
+}
+
+/** The edit items' names, for the Edit menu and the text-field context menu. */
+export function editLabels(language = getMainLanguage()): EditLabels {
+	return {
+		undo: mainT("menu.undo", language),
+		redo: mainT("menu.redo", language),
+		cut: mainT("menu.cut", language),
+		copy: mainT("menu.copy", language),
+		paste: mainT("menu.paste", language),
+		selectAll: mainT("menu.selectAll", language),
+		addToDictionary: mainT("menu.addToDictionary", language),
+		copyImage: mainT("menu.copyImage", language),
+	};
+}
+
+/** User-facing text for why the system omp is unusable, in the UI language. */
+export function ompFailureText(reason: OmpFailure, language = getMainLanguage()): string {
+	switch (reason.kind) {
+		case "not-found":
+			return mainT("omp.notFound", language);
+		case "override-missing":
+			return mainT("omp.overrideMissing", language, { path: reason.path });
+		case "cannot-run":
+			return mainT("omp.cannotRun", language, { bin: reason.bin, detail: reason.detail });
+		case "too-old":
+			return mainT("omp.tooOld", language, { version: reason.version, minimum: reason.minimum });
+		case "compiled":
+			return mainT("omp.compiled", language, { bin: reason.bin });
+		case "bun-too-old":
+			return mainT("omp.bunTooOld", language, {
+				bin: reason.bin,
+				bun: reason.bun,
+				bunVersion: reason.bunVersion,
+				minimum: reason.minimum,
+			});
+	}
 }

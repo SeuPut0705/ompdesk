@@ -5,10 +5,11 @@
  */
 import type { MessageBoxOptions } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { fillText } from "../shared/fill-text";
 import { confirmQuit, confirmUpdateRestart, installQuitGuard, requestQuit, setQuitResumes } from "./app-quit";
-import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { QUIT_EXIT_TIMEOUT_MS } from "./quit-watchdog";
+import type { MainTextKey } from "./shell-host/modules/boot";
 
 const electron = vi.hoisted(() => {
 	const beforeQuit: Array<(event: { preventDefault(): void }) => void> = [];
@@ -37,8 +38,8 @@ vi.mock("electron", () => ({
 	dialog: { showMessageBox: electron.showMessageBox },
 }));
 vi.mock("./runtime-log", () => ({ writeRuntimeLog: electron.log }));
-// The real ./i18n opens the prefs store at load; the text table is what matters here.
-vi.mock("./i18n", () => ({
+// The shell pushes main's text (`boot.labels`); here the table itself stands in.
+vi.mock("./shell-host/modules/boot", () => ({
 	getMainLanguage: () => "en",
 	mainT: (key: MainTextKey, _language: string, params?: Record<string, number>) => fillText(MAIN_TEXT[key].en, params),
 }));

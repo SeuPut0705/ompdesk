@@ -7,9 +7,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
 import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
-import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
+import type { MainTextKey } from "./shell-host/modules/boot";
 import { appAutoUpdatePrefChanged, noteAppStarted, readRelaunchPresence, setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
 
@@ -102,7 +103,7 @@ vi.mock("./app-quit", () => ({
 	requestQuit: () => {},
 }));
 vi.mock("./hang-watchdog", () => ({ markMainStep: () => {} }));
-vi.mock("./i18n", () => ({
+vi.mock("./shell-host/modules/boot", () => ({
 	mainT: (key: MainTextKey) => MAIN_TEXT[key].en,
 }));
 vi.mock("./runtime-log", () => ({

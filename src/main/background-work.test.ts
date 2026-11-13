@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { fillText } from "../shared/fill-text";
 import {
 	askBackgroundWork,
@@ -10,7 +11,7 @@ import {
 	namedBackgroundWork,
 	summarizeJobRows,
 } from "./background-work";
-import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
+import type { MainTextKey } from "./shell-host/modules/boot";
 
 type JobType = "bash" | "task" | "eval";
 const job = (type: JobType, label: string, status = "running", depth = 0) => ({

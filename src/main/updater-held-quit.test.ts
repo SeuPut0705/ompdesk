@@ -8,8 +8,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { NO_BACKGROUND_WORK } from "./background-work";
-import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
+import type { MainTextKey } from "./shell-host/modules/boot";
 import { IpcRegistry } from "./web/ipc-registry";
 
 const mocks = vi.hoisted(() => ({
@@ -56,7 +57,7 @@ vi.mock("./app-quit", () => ({
 	requestQuit: () => {},
 }));
 vi.mock("./hang-watchdog", () => ({ markMainStep: () => {} }));
-vi.mock("./i18n", () => ({ mainT: (key: MainTextKey) => MAIN_TEXT[key].en }));
+vi.mock("./shell-host/modules/boot", () => ({ mainT: (key: MainTextKey) => MAIN_TEXT[key].en }));
 vi.mock("./runtime-log", () => ({
 	writeRuntimeLog: (report: { message: string; details: Record<string, unknown> }) => mocks.runtimeLog.push(report),
 }));

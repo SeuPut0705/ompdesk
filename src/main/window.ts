@@ -13,7 +13,6 @@ import { appIconPath } from "./app-icon";
 import { quitRisk, requestQuit } from "./app-quit";
 import { editableContextMenuTemplate } from "./editable-context-menu";
 import { softwareCompositing } from "./gpu-fallback";
-import { editLabels, getMainLanguage, mainT } from "./i18n";
 import type { LastWindowClose } from "./quit-guard";
 import {
 	type ApplicationResourceIdentity,
@@ -24,6 +23,7 @@ import {
 } from "./renderer-recovery";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { SafeStore } from "./safe-store";
+import { editLabels, getMainLanguage, mainT } from "./shell-host/modules/boot";
 import type { WindowPresence } from "./update-log-core";
 import type { ClientWindow } from "./web/client-window";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";

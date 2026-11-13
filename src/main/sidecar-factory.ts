@@ -4,7 +4,6 @@
  * both come from here, so a session runs the same way whoever opened it.
  */
 import { dirname, join } from "node:path";
-import { app } from "electron";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { AUTOPILOT_FRAME_TYPES } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { CHECKOUT_FILES_EVENT } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
@@ -20,7 +19,7 @@ import { creditSpendEnabled } from "../shared/credit-spend";
 import { parseDefaultBrowser, resolveAgentBrowser } from "../shared/default-browser";
 import { eccEnabled } from "../shared/ecc";
 import { pstackEnabled } from "../shared/pstack";
-import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
+import { replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import type { SetupPlatform } from "../shared/setup";
 import { agentBrowserStatus, resolveEgoBrowser } from "./agent-browsers";
 import { computerUseSpawn } from "./agent-desktop";
@@ -29,13 +28,13 @@ import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { builtinReaState, spawnReaState } from "./builtin-mcp";
 import { controlEnvFor } from "./control-socket/env";
-import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
 import { writeRuntimeLog } from "./runtime-log";
 import type { SessionKindStore } from "./session-kinds";
 import type { SessionProcesses } from "./session-processes";
 import { shellSpawnEnv } from "./shell-env";
+import { deviceLanguage, mainT, ompFailureText } from "./shell-host/modules/boot";
 import { SidecarManager, type SidecarOptions } from "./sidecar";
 import { markStartup } from "./startup-timing";
 import { turnStagesReport } from "./turn-stages-log";
@@ -130,11 +129,6 @@ export interface LocalSidecarDeps {
 	tuning?: SidecarOptions["tuning"];
 	/** Whose the processes an omp starts are (session-processes.ts); absent: none followed (tests). */
 	sessionProcesses?: Pick<SessionProcesses, "open">;
-}
-
-/** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
-export function deviceLanguage(): string | undefined {
-	return deviceLanguageTag(app.getPreferredSystemLanguages(), app.getLocale());
 }
 
 /**

@@ -5,6 +5,7 @@
 pub mod lid;
 pub mod media;
 pub mod powercfg;
+pub mod text;
 
 /// JavaScript's `\s` (and what `String.prototype.trim` removes): the rules here were written against it.
 pub(crate) fn js_space(c: char) -> bool {

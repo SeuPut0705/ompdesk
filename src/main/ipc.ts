@@ -158,8 +158,6 @@ import { DesktopSlotHost } from "./desktop-slot-host";
 import { savedWorktreesForSpawn } from "./disk/saved-worktrees";
 import { openInExternalEditor } from "./editor";
 import { isOpenableExternalUrl } from "./external-url";
-import { getMainLanguage, mainT } from "./i18n";
-import type { MainTextKey } from "./i18n-text";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { readOriginFacts, readProjectOrigin } from "./local/git/origin";
 import { WORKTREE_PREPARE_BUDGET_MS } from "./local/git/worktree-seed";
@@ -192,12 +190,10 @@ import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, onSessionDeleted, recordSessionDelete, renameSession } from "./session-mutations";
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
-import { shellHost } from "./shell-host/modules/client";
-import { publishLabels } from "./shell-host/modules/relay";
+import { bootModule, deviceLanguage, getMainLanguage, type MainTextKey, mainT } from "./shell-host/modules/boot";
 import { readClipboardText } from "./shell-host/shell-calls";
 import { updateSidebarPrefs } from "./sidebar-prefs";
 import type { SidebarProjects } from "./sidebar-projects";
-import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
@@ -2131,9 +2127,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncJudgeAssist();
 			remoteDevices.hostJudgeAssistChanged();
 		}
-		if (payload.key === "language" && isUiLanguage(payload.value)) {
-			createMenu(windowManager, deps.spawnWindow);
-			publishLabels(shellHost());
+		if (payload.key === "language") {
+			// The shell chooses the language and pushes main's text again; the menu is rebuilt in it once that came.
+			bootModule()
+				.call("language", { language: isUiLanguage(payload.value) ? payload.value : null })
+				.then(
+					() => createMenu(windowManager, deps.spawnWindow),
+					(error: unknown) => console.warn(`[i18n] boot.language: ${String(error)}`),
+				);
 		}
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();

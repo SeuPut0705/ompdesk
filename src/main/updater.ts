@@ -43,10 +43,9 @@ import { confirmUpdateRestart, disarmQuitWatchdog, onQuitForcedExit, requestQuit
 import { writeFileAtomicSync } from "./atomic-file";
 import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
-import { mainT } from "./i18n";
-import type { MainTextKey } from "./i18n-text";
 import { OmpNsisUpdater } from "./nsis-updater";
 import { writeRuntimeLog } from "./runtime-log";
+import { type MainTextKey, mainT } from "./shell-host/modules/boot";
 import { systemIdleSeconds } from "./shell-host/shell-calls";
 import {
 	checkRepoAccess,

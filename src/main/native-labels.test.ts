@@ -7,11 +7,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { en } from "../renderer/locales/en";
 import { ko } from "../renderer/locales/ko";
 import { UI_LANGUAGES } from "../shared/ui-language";
-import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
+import { type MainTextKey, seedLabels } from "./shell-host/modules/boot";
 import { statusLabel } from "./tray-labels";
+
+seedLabels("en", MAIN_TEXT);
 
 const RENDERER = { en, ko };
 const source = (file: string) => fs.readFileSync(path.join(__dirname, file), "utf8");

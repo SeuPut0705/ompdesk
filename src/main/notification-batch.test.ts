@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import type { UiLanguage } from "../shared/ui-language";
 import { formatBatchSummary, type NoticeKind, NotificationBatcher } from "./notification-batch";
+import { seedLabels } from "./shell-host/modules/boot";
+
+// Main's text is the shell's (`boot.labels`); the table itself stands in.
+seedLabels("en", MAIN_TEXT);
 
 interface Shown {
 	title: string;

@@ -5,7 +5,7 @@ import { app, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_EVENTS, type MenuAction } from "../shared/ipc-types";
 import { editRoleItems } from "./editable-context-menu";
-import { editLabels, getMainLanguage, mainT } from "./i18n";
+import { editLabels, getMainLanguage, mainT } from "./shell-host/modules/boot";
 import type { SpawnWindow, WindowManager } from "./window";
 
 function sendMenuAction(windowManager: WindowManager, spawnWindow: SpawnWindow, action: MenuAction): void {

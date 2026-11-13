@@ -1,66 +1,32 @@
 //! The text the shell shows itself (menus, tray, dialogs a moved module opens), in the UI language, read by every
-//! module through `label` (PROTOCOL.md §15.4 rule 2). Transitional source until SX5 moves i18n into the shell: Node
-//! pushes the whole table (`MAIN_TEXT`, and `TRAY_LABELS` as `tray.<key>`) for the current language with the event
-//! `i18n.labels {language, text}` at start and on every language change (§15.2). SX5 then fills it from `boot_core`.
+//! module through `label` (PROTOCOL.md §15.4 rule 2). The table is `boot_core::text`'s; the language is set by the
+//! `boot` module (the stored `language` pref, else the app locale) when CEF is up and on every change Node reports.
 
-use std::collections::HashMap;
 use std::sync::RwLock;
 
-use serde_json::Value;
+use crate::boot_core::js_space;
+use crate::boot_core::text::{self, Lang};
 
-struct Table {
-    language: String,
-    text: HashMap<String, String>,
+static LANGUAGE: RwLock<Option<Lang>> = RwLock::new(None);
+
+/// The UI language `label` answers in from now on.
+pub fn set_language(lang: Lang) {
+    *LANGUAGE.write().unwrap() = Some(lang);
 }
 
-static TABLE: RwLock<Option<Table>> = RwLock::new(None);
-
-/// Takes `i18n.labels`'s data; the table it replaces is dropped whole.
-pub fn set(data: &Value) -> Result<(), String> {
-    let language = data
-        .get("language")
-        .and_then(Value::as_str)
-        .ok_or("i18n.labels without a language")?;
-    let text = data
-        .get("text")
-        .and_then(Value::as_object)
-        .ok_or("i18n.labels without a text table")?
-        .iter()
-        .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
-        .collect();
-    *TABLE.write().unwrap() = Some(Table {
-        language: language.to_string(),
-        text,
-    });
-    Ok(())
-}
-
-/// The UI language of the table (`en`, `ko`); `None` before Node pushed one.
+/// The UI language (`en`, `ko`); `None` before the `boot` module chose one.
 pub fn language() -> Option<String> {
-    TABLE.read().unwrap().as_ref().map(|t| t.language.clone())
+    LANGUAGE
+        .read()
+        .unwrap()
+        .map(|lang| lang.as_str().to_string())
 }
 
-/// `key`'s text with its `{name}` placeholders filled from `params` (`fill`); `None` before Node pushed a table or for
-/// a key it does not have.
+/// `key`'s text with its `{name}` placeholders filled from `params` (`fill`); `None` before the language was chosen or
+/// for a key the table does not have.
 pub fn label(key: &str, params: &[(&str, &str)]) -> Option<String> {
-    let table = TABLE.read().unwrap();
-    let template = table.as_ref()?.text.get(key)?;
-    Some(fill(template, params))
-}
-
-/// JavaScript's `\s` (and what `String.prototype.trim` removes).
-fn js_space(c: char) -> bool {
-    matches!(
-        c,
-        '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-    )
+    let lang = (*LANGUAGE.read().unwrap())?;
+    Some(fill(text::template(lang, key)?, params))
 }
 
 /// JavaScript's `Number(text)` for text that starts with a digit and holds no space.
@@ -174,19 +140,50 @@ mod tests {
     }
 
     #[test]
-    fn reads_the_table_node_pushed() {
+    fn reads_the_table_in_the_chosen_language() {
         assert_eq!(label("tray.quit", &[]), None);
-        set(&serde_json::json!({
-            "language": "ko",
-            "text": { "tray.updateDownload": "v{version} 다운로드", "n": 3 }
-        }))
-        .unwrap();
+        set_language(Lang::Ko);
         assert_eq!(language().as_deref(), Some("ko"));
         assert_eq!(
             label("tray.updateDownload", &[("version", "2.0")]).as_deref(),
             Some("v2.0 다운로드")
         );
-        assert_eq!(label("n", &[]), None);
-        assert!(set(&serde_json::json!({ "text": {} })).is_err());
+        assert_eq!(label("no.such.key", &[]), None);
+    }
+
+    /// JavaScript's `String(value)` of a captured parameter.
+    fn js_string(value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Number(n) => match n.as_f64() {
+                Some(f) if f.fract() == 0.0 && f.abs() < 1e21 => format!("{}", f as i64),
+                Some(f) => f.to_string(),
+                None => n.to_string(),
+            },
+            other => other.to_string(),
+        }
+    }
+
+    #[test]
+    fn replays_fill_text_as_captured() {
+        let captured: serde_json::Value =
+            serde_json::from_str(include_str!("boot_core/captured.json")).unwrap();
+        let cases = captured["fill"].as_array().unwrap();
+        assert_eq!(cases.len(), 26);
+        for case in cases {
+            let owned: Vec<(String, String)> = case["params"]
+                .as_object()
+                .map(|o| o.iter().map(|(k, v)| (k.clone(), js_string(v))).collect())
+                .unwrap_or_default();
+            let params: Vec<(&str, &str)> = owned
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            assert_eq!(
+                fill(case["template"].as_str().unwrap(), &params),
+                case["out"].as_str().unwrap(),
+                "{case}"
+            );
+        }
     }
 }

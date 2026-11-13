@@ -139,7 +139,6 @@ import {
 	softwareCompositing,
 } from "./gpu-fallback";
 import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-watchdog";
-import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { type IpcDeps, registerIpcHandlers } from "./ipc";
 import { markLaunchStable, startLaunchGuard } from "./launch-guard";
@@ -192,9 +191,18 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
-import { awakeBlocker, bootModule, mediaResponse, onlineMirror } from "./shell-host/modules/boot";
+import {
+	awakeBlocker,
+	bootModule,
+	deviceLanguage,
+	getMainLanguage,
+	mainT,
+	mediaResponse,
+	mirrorLabels,
+	onlineMirror,
+} from "./shell-host/modules/boot";
 import { shellHost } from "./shell-host/modules/client";
-import { publishLabels, serveShellRelays } from "./shell-host/modules/relay";
+import { serveShellRelays } from "./shell-host/modules/relay";
 import {
 	accessibilityTrusted,
 	defaultSessionCachePath,
@@ -203,7 +211,7 @@ import {
 	screenRecordingGranted,
 } from "./shell-host/shell-calls";
 import { SidebarProjects } from "./sidebar-projects";
-import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
+import { localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { nextSnowflake } from "./snowflake";
 import { markStartup } from "./startup-timing";
@@ -298,6 +306,8 @@ app.commandLine.appendSwitch(
 	[blinkSettings, "dnsPrefetchingEnabled=false"].filter(Boolean).join(","),
 );
 const boot = bootModule();
+// Main's text and UI language are the shell's (`boot.labels`, before `app.ready`): every `mainT` reads this copy.
+mirrorLabels(boot);
 /** Chromium's link state (`net.isOnline()`); the shell's first `boot.online` arrives before `app.ready`. */
 const link = onlineMirror(boot);
 const bootWarn = (message: string) =>
@@ -802,9 +812,8 @@ function spawnWindow(
 	return win;
 }
 
-// What every module moved into the shell needs from main: the core, the runtime log and the labels (PROTOCOL.md §15.2).
+// What every module moved into the shell needs from main: the core and the runtime log (PROTOCOL.md §15.2).
 serveShellRelays(shellHost(), { core, writeRuntimeLog });
-publishLabels(shellHost());
 
 app.whenReady().then(async () => {
 	installMainRuntimeLogging();
