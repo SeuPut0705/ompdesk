@@ -98,6 +98,32 @@ describe("the hub connection", () => {
 		expect(core().pid).not.toBe(before);
 	});
 
+	it("never hands a question of the next core the answer to one the lost core asked", async () => {
+		const hub = new Hub();
+		const stale = Promise.withResolvers<string>();
+		let asked = 0;
+		const old = probe(hub, () => {
+			asked++;
+			return stale.promise;
+		});
+		const unanswered = hub.callLater(old.id, "askLater").catch((error: unknown) => error);
+		// Main took the question (its promise is pending) before the core is lost.
+		hub.barrier();
+		expect(asked).toBe(1);
+		killCoreAfter(200);
+		expect(() => hub.call(old.id, "wait")).toThrow(CoreError);
+		expect(await unanswered).toBeInstanceOf(CoreError);
+		// The next core's first question carries the number the lost core's had.
+		const fresh = Promise.withResolvers<string>();
+		const next = probe(hub, () => fresh.promise);
+		const answer = hub.callLater(next.id, "askLater");
+		hub.barrier();
+		stale.resolve("stale");
+		await new Promise(resolve => setImmediate(resolve));
+		fresh.resolve("fresh");
+		await expect(answer).resolves.toBe("fresh");
+	});
+
 	it("wakes main at once when the core ends in the middle of a call (the quit, a crash)", () => {
 		const hub = new Hub();
 		const instance = probe(hub);
