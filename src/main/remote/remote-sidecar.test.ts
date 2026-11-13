@@ -691,7 +691,11 @@ describe("RemoteSidecar", () => {
 			arg: { active: [], ended: { providerId: "anthropic", error: null } },
 		});
 		expect(relays.at(-1)).toBeNull();
-		await expect(fetch(`http://127.0.0.1:${port}/callback?code=abc&state=xyz`)).rejects.toThrow();
+		// The close reaches the core's stand-in a moment later; a request in that moment hears 409, never the host.
+		await vi.waitFor(() => expect(fetch(`http://127.0.0.1:${port}/callback?code=abc&state=xyz`)).rejects.toThrow());
+		expect(
+			link.sent.filter(request => request.method === SIGN_IN_CALLBACK_METHOD).map(request => request.params),
+		).toHaveLength(1);
 		sidecar.dispose();
 	});
 
