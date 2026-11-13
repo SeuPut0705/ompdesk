@@ -40,9 +40,10 @@ on:
       - scripts/shell-drag-check.ts
       - native/ompdesk/crates/shell/**
 
+# A run in progress finishes (the hour a macOS run takes is lost to every push otherwise); the newest push waits its turn.
 concurrency:
   group: shell-batch-checks-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
