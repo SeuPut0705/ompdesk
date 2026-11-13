@@ -488,8 +488,11 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 			expect(held?.details).toMatchObject({ event: "error", manual: true });
 			expect(rig.statuses.items.slice(seen)).toEqual([]);
 
-			// A newer release is what the rolled-back app waits for: it is fetched and replaces the held one.
-			rig.stand.latest = () => releaseOf(rig.stand.origin, "2.1.0");
+			// A newer release is what the rolled-back app waits for: it is fetched and replaces the held one. Its bytes
+			// differ (Windows reuses a cached installer whose SHA-512 matches without fetching it).
+			const newerPayload = Buffer.from(PAYLOAD.map(byte => byte ^ 0xff));
+			rig.stand.payload = newerPayload;
+			rig.stand.latest = () => releaseOf(rig.stand.origin, "2.1.0", { payload: newerPayload });
 			await rig.updater.call("check", {});
 			await downloadFound(rig);
 			const [newer] = await rig.statuses.until(

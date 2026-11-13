@@ -980,7 +980,7 @@ impl Service {
                 Ok(())
             }
             Err(failure) => {
-                self.log("download", json!({ "event": "failed", "mode": "nsis", "reason": self.scrub(&failure.text()) }));
+                self.log("download", json!({ "event": "failed", "version": version, "mode": "nsis", "reason": self.scrub(&failure.text()) }));
                 Err(failure)
             }
         }
