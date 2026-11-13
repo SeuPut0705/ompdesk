@@ -24,7 +24,7 @@
 #              shell, an ad-hoc item never asked about, a profile without ciphertext never reading; no SecurityAgent or
 #              coreauthd line. macOS 27 has no hosted runner: the owner's Mac covers it.
 # macOS jobs (release 2 takes no hosted macOS runner until release 1 is cut): a push runs only the Windows jobs (move-win and
-# title-bar on windows-latest); the macOS jobs run when the head commit message contains `[mac]`, or on a manual dispatch.
+# title-bar on windows-latest); the macOS jobs run when the head commit message carries the bracketed word mac, or on a manual dispatch.
 # Deleted with the branch's landing; the checks that stay move into ci.yml's batch run.
 name: shell-batch-checks
 
