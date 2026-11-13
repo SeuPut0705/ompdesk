@@ -192,8 +192,30 @@ async function main(): Promise<void> {
 		console.log("shell-drag-check: ok");
 	} finally {
 		cdp?.close();
-		child.kill();
-		fs.rmSync(root, { recursive: true, force: true });
+		await stop(child);
+		await removeTree(root);
+	}
+}
+
+/** Ends the shell and, on Windows, the Node main it spawned (killing the shell alone leaves Node holding the profile). */
+async function stop(child: ReturnType<typeof spawn>): Promise<void> {
+	if (child.exitCode !== null || child.pid === undefined) return;
+	const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
+	if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+	else child.kill();
+	await Promise.race([exited, sleep(10_000)]);
+}
+
+/** Removes the temp profile, retrying while a dying process still holds a file; a leftover only warns: the drag result stands. */
+async function removeTree(dir: string): Promise<void> {
+	for (let attempt = 0; attempt < 20; attempt++) {
+		try {
+			fs.rmSync(dir, { recursive: true, force: true });
+			return;
+		} catch (error) {
+			if (attempt === 19) console.warn(`shell-drag-check: could not remove ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+			else await sleep(500);
+		}
 	}
 }
 

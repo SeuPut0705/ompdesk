@@ -326,8 +326,11 @@ fn match_key(msg: &MSG) -> Option<Option<Hit>> {
     if popup_open() || !in_focused_app_window(msg.hwnd) {
         return None;
     }
-    let held = held_mods();
-    let repeat = msg.lParam & (1 << 30) != 0;
+    fire(vk, held_mods(), msg.lParam & (1 << 30) != 0)
+}
+
+/// What the binding of `vk` with `held` does, if there is one (see `match_key` for the answer's shape).
+fn fire(vk: u16, held: Mods, repeat: bool) -> Option<Option<Hit>> {
     BINDINGS.with(|bindings| {
         let mut bindings = bindings.borrow_mut();
         let index = find_binding(&bindings, vk, held)?;
@@ -360,6 +363,22 @@ fn match_key(msg: &MSG) -> Option<Option<Hit>> {
             })),
         }
     })
+}
+
+/// A key the page did not take, which CEF hands the shell as an event instead of a window message (a key sent through the
+/// DevTools protocol, as the e2e harness does, never passes the message hook): fires the application menu's accelerator
+/// for it, like the hook does for a typed key. True when the key was an accelerator.
+pub fn accelerator_for_event(vk: u16, held: Mods) -> bool {
+    if popup_open() {
+        return false;
+    }
+    let Some(hit) = fire(vk, held, false) else {
+        return false;
+    };
+    if let (Some(hit), Some(on_hit)) = (hit, ON_HIT.with(Cell::get)) {
+        on_hit(hit);
+    }
+    true
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

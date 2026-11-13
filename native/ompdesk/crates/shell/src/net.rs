@@ -177,7 +177,7 @@ fn start(call: Call, params: &FetchParams, body: Option<Vec<u8>>) {
             flags |= flag.0;
         }
     }
-    request.set_flags(flags);
+    request.set_flags(flags as _);
     if wanted.allow_stored_credentials {
         // A first-party request: SameSite cookies go with it, as with Electron's `useSessionCookies`.
         request.set_first_party_for_cookies(Some(&cs(&params.url)));

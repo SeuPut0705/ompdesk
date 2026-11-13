@@ -92,9 +92,11 @@ pub fn remote_debugging_port(args: &[String]) -> Option<u16> {
 
 /// True when `rel` stays inside its root: only plain names, no `..`, no drive, no root.
 pub fn is_plain_relative(rel: &str) -> bool {
-    Path::new(rel)
-        .components()
-        .all(|c| matches!(c, Component::Normal(_)))
+    // A drive (`C:`) or a backslash is no plain name on any platform, whatever this one's path rules say.
+    !rel.contains([':', '\\'])
+        && Path::new(rel)
+            .components()
+            .all(|c| matches!(c, Component::Normal(_)))
 }
 
 #[cfg(test)]

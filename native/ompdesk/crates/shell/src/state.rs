@@ -265,6 +265,14 @@ pub fn wc(id: u64) -> Option<Rc<RefCell<WcEntry>>> {
     ui_state(|u| u.wcs.get(&id).cloned())
 }
 
+/// The OS window handle as an integer: Windows' `HWND` is a struct around the pointer, macOS' `NSView*` is the pointer.
+pub fn native_handle(window: &cef::Window) -> isize {
+    #[cfg(windows)]
+    return window.window_handle().0 as isize;
+    #[cfg(not(windows))]
+    return window.window_handle() as isize;
+}
+
 pub fn win(id: u64) -> Option<Rc<RefCell<WinEntry>>> {
     ui_state(|u| u.windows.get(&id).cloned())
 }
@@ -278,7 +286,7 @@ pub fn win_by_handle(handle: isize) -> Option<u64> {
     ui_state(|u| {
         u.windows.values().find_map(|w| {
             let w = w.borrow();
-            let h = w.window.as_ref()?.window_handle().0 as isize;
+            let h = native_handle(w.window.as_ref()?);
             (h == handle).then_some(w.id)
         })
     })

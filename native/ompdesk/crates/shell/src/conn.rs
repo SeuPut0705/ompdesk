@@ -123,9 +123,14 @@ mod tests {
             .into_owned();
         let mut listener = Listener::bind(&name).unwrap();
         assert!(Listener::bind(&name).is_err(), "a second owner is refused");
+        // The refused second `bind` probed the socket by connecting: that closed connection is accepted first on unix.
         let server = std::thread::spawn(move || {
-            let mut conn = listener.accept().unwrap();
-            take_hand_over(&mut conn).unwrap()
+            loop {
+                let mut conn = listener.accept().unwrap();
+                if let Ok(hand_over) = take_hand_over(&mut conn) {
+                    return hand_over;
+                }
+            }
         });
         hand_over(
             &name,

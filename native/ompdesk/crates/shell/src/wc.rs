@@ -606,20 +606,63 @@ wrap_permission_handler! {
     }
 }
 
+/// Keys the page did not take never become browser shortcuts (Ctrl+W closing the page, Ctrl+T/N, F5…): the app's own
+/// shortcuts live in the page. Alt combinations stay with the system (Alt+F4 closes the window).
+fn swallow_browser_shortcut(event: Option<&KeyEvent>) -> i32 {
+    let Some(event) = event else { return 0 };
+    const CTRL: u32 = 1 << 2;
+    const ALT: u32 = 1 << 3;
+    let f5 = event.windows_key_code == 0x74;
+    i32::from(
+        (event.modifiers & CTRL != 0 && event.modifiers & ALT == 0 && event.is_system_key == 0)
+            || f5,
+    )
+}
+
+/// A key the page left alone that is an accelerator of the application menu (Windows: typed keys are matched by the
+/// message hook before they get here, so this is a key sent through the DevTools protocol).
+#[cfg(windows)]
+fn application_accelerator(event: &KeyEvent) -> bool {
+    use shell_core::accelerator::Mods;
+    if event.type_ != cef::sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN.into() {
+        return false;
+    }
+    let held = Mods {
+        shift: event.modifiers & (1 << 1) != 0,
+        ctrl: event.modifiers & (1 << 2) != 0,
+        alt: event.modifiers & (1 << 3) != 0,
+        meta: event.modifiers & (1 << 7) != 0,
+    };
+    u16::try_from(event.windows_key_code)
+        .is_ok_and(|vk| shell_core::sys::menu::accelerator_for_event(vk, held))
+}
+
+// The platform's native event is the one parameter that differs: a `MSG` on Windows, a bare pointer on macOS.
+#[cfg(windows)]
 wrap_keyboard_handler! {
     struct ShellKeyboard {
         wc_id: u64,
     }
     impl KeyboardHandler {
-        /// Keys the page did not take never become browser shortcuts (Ctrl+W closing the page, Ctrl+T/N, F5…): the app's
-        /// own shortcuts live in the page. Alt combinations stay with the system (Alt+F4 closes the window).
         fn on_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, _os_event: Option<&mut cef::sys::MSG>) -> i32 {
-            let Some(event) = event else { return 0 };
             let _ = self.wc_id;
-            const CTRL: u32 = 1 << 2;
-            const ALT: u32 = 1 << 3;
-            let f5 = event.windows_key_code == 0x74;
-            i32::from((event.modifiers & CTRL != 0 && event.modifiers & ALT == 0 && event.is_system_key == 0) || f5)
+            if event.is_some_and(application_accelerator) {
+                return 1;
+            }
+            swallow_browser_shortcut(event)
+        }
+    }
+}
+
+#[cfg(not(windows))]
+wrap_keyboard_handler! {
+    struct ShellKeyboard {
+        wc_id: u64,
+    }
+    impl KeyboardHandler {
+        fn on_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, _os_event: *mut u8) -> i32 {
+            let _ = self.wc_id;
+            swallow_browser_shortcut(event)
         }
     }
 }

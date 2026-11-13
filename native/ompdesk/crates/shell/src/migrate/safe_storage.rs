@@ -116,6 +116,13 @@ pub fn facts(user_data: &Path, log: &mut dyn FnMut(&str, Value)) -> Value {
     }
 }
 
+#[cfg_attr(
+    not(windows),
+    allow(
+        dead_code,
+        reason = "only the Windows key is read here: the macOS key is fetched lazily"
+    )
+)]
 enum Key {
     Windows(Vec<u8>),
 }

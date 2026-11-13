@@ -4,7 +4,6 @@
 
 use std::cell::Cell;
 
-use cef::*;
 use serde_json::{Value, json};
 use shell_core::menu_model::{self, Hit, Item};
 
@@ -79,7 +78,7 @@ fn window_handle(id: u64) -> Option<isize> {
         .borrow()
         .window
         .as_ref()
-        .map_or(0, |w| w.window_handle().0 as isize);
+        .map_or(0, state::native_handle);
     Some(handle)
 }
 

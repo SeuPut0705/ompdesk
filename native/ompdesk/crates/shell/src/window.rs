@@ -24,18 +24,10 @@ fn num(v: &Value, key: &str) -> Option<i32> {
 
 // ------------------------------------------------------------------ state mirror
 
-/// The OS window handle as an integer: Windows' `HWND` is a struct around the pointer, macOS' `NSView*` is the pointer.
-fn native_handle(window: &Window) -> isize {
-    #[cfg(windows)]
-    return window.window_handle().0 as isize;
-    #[cfg(not(windows))]
-    return window.window_handle() as isize;
-}
-
 /// A window that cannot take focus (`setFocusable(false)`) never reports focus.
 fn focusable(window: &Window) -> bool {
     #[cfg(windows)]
-    return shell_core::sys::winops::is_focusable(native_handle(window));
+    return shell_core::sys::winops::is_focusable(state::native_handle(window));
     #[cfg(not(windows))]
     return {
         let _ = window;
@@ -95,7 +87,7 @@ fn state_json(entry: &Snap) -> Value {
     let fullscreen = window.is_fullscreen() != 0;
     let bounds = window.bounds();
     #[cfg(windows)]
-    let normal = shell_core::sys::winops::normal_rect(native_handle(window))
+    let normal = shell_core::sys::winops::normal_rect(state::native_handle(window))
         .map(|(x, y, w, h)| rect_json(x, y, w, h));
     #[cfg(not(windows))]
     let normal = None;
@@ -225,6 +217,7 @@ wrap_panel_delegate! {
 
 // ------------------------------------------------------------------ the window delegate
 
+#[cfg(windows)]
 fn caption_colors(overlay: &Overlay, dark_fallback: bool) -> shell_core::sys::caption::Colors {
     let (bg, fg) = if dark_fallback {
         (Rgba(0x21, 0x21, 0x24, 255), Rgba(255, 255, 255, 255))
@@ -720,7 +713,7 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
         (e.window.clone(), e.offscreen, e.wc_id)
     };
     #[cfg(windows)]
-    let hwnd = window.as_ref().map(native_handle).unwrap_or(0);
+    let hwnd = window.as_ref().map(state::native_handle).unwrap_or(0);
     // An offscreen window has no OS window: only what makes sense for a page.
     if offscreen {
         return match name {

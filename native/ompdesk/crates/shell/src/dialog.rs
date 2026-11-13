@@ -5,7 +5,6 @@
 //! looked up on the UI thread; the system disables it while the dialog is open. On macOS AppKit wants the main thread,
 //! so the dialog runs there.
 
-use cef::*;
 use serde_json::{Value, json};
 use shell_core::dialog_spec::{FileDialogSpec, MessageBoxSpec};
 
@@ -50,10 +49,7 @@ fn owner_handle(win_id: Option<u64>) -> isize {
         return 0;
     };
     let entry = entry.borrow();
-    entry
-        .window
-        .as_ref()
-        .map_or(0, |w| w.window_handle().0 as isize)
+    entry.window.as_ref().map_or(0, state::native_handle)
 }
 
 /// Answers `call` with what `show` returns: `ok` with its JSON, or `failed` with its message.
