@@ -145,6 +145,22 @@ describe("an answer with attachments is one step on the answered session's compu
 		expect(t.answered).toEqual(["r1"]);
 	});
 
+	it("a note whose reply is lost may be in: says so, never 'not sent', and the resend appends it at most once", async () => {
+		const t = target();
+		t.send.mockImplementationOnce(async command => {
+			if (command.type === "agent_control_mail") t.appended.push(String(command.details.id));
+			throw new Error("ompdesk-core did not answer in time");
+		});
+		await expect(t.answers.run("tab", ask, t.send)).rejects.toThrow(
+			/the attachments may have reached that session; the answer was not sent\. Sending the same answer again is safe/,
+		);
+		expect(t.answered).toEqual([]);
+		expect(t.claims.size).toBe(0);
+		await t.answers.run("tab", ask, t.send);
+		expect(t.appended).toEqual(["answer-1"]);
+		expect(t.answered).toEqual(["r1"]);
+	});
+
 	it("a resend after a lost reply does nothing more", async () => {
 		const t = target();
 		await t.answers.run("tab", ask, t.send);

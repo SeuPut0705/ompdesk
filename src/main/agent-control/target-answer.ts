@@ -107,8 +107,13 @@ export class TargetAnswer {
 		try {
 			noted = await send(note);
 		} catch (error) {
+			// No answer from the target's omp (a timeout, a lost reply): the note may be in it. Nothing is claimed as
+			// either way; the question opens again, and the same answer sent again adds the note at most once (the
+			// bridge refuses a mail id it holds) and then answers.
 			deps.release(step.askId, claim);
-			throw failed(error instanceof Error ? error.message : String(error));
+			throw new Error(
+				`no word came back about what goes with the answer (${error instanceof Error ? error.message : String(error)}): the attachments may have reached that session; the answer was not sent. Sending the same answer again is safe.`,
+			);
 		}
 		if (!noted.success) {
 			deps.release(step.askId, claim);
