@@ -32,6 +32,7 @@ pub mod poller;
 pub mod queue;
 pub mod results;
 pub mod sources;
+pub mod ticket;
 pub mod trends;
 
 use std::collections::HashMap;

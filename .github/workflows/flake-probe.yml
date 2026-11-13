@@ -37,6 +37,10 @@ on:
         type: choice
         options: [all, macos, windows, ubuntu]
         default: all
+      ticket:
+        description: "The admission ticket OMPdesk's checks hub minted for a macOS probe (queue-gate.yml)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -57,6 +61,9 @@ jobs:
       mac: ${{ inputs.os == 'macos' || inputs.os == 'all' }}
       mac-refs: ${{ vars.MAC_REFS }}
       dedupe: false
+      ticket: ${{ inputs.ticket }}
+    secrets:
+      admission-key: ${{ secrets.CHECKS_ADMISSION_KEY }}
 
   probe:
     name: probe (${{ matrix.os }})

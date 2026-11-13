@@ -8,7 +8,12 @@
 #      `gh variable set MAC_REFS --body "branch-a branch-b"`). Any other ref fails here with the reason, and its macOS
 #      jobs (`needs: gate`, `if: needs.gate.outputs.mac_ok == 'true'`) never start. Pushes to main, schedules and
 #      release.yml are always admitted.
-#   2. The same commit is checked once. A dispatch whose commit already has a successful run of the same workflow with
+#   2. A macOS dispatch carries an admission ticket (design docs/design/check-control.md §7 criterion 1): an HMAC-SHA256 of
+#      repo, ref, commit and expiry under the owner's admission key, which OMPdesk's checks hub mints for each dispatch
+#      it makes (native/ompdesk/crates/core/src/checks/ticket.rs). A run started by hand has none and fails here with
+#      "start it with ompdesk_checks". Off while the Actions secret CHECKS_ADMISSION_KEY is unset (a notice says so).
+#      Pushes, schedules and dispatches that ask for no macOS need none.
+#   3. The same commit is checked once. A dispatch whose commit already has a successful run of the same workflow with
 #      the same inputs (the run name, which every caller builds from its inputs) cancels itself, unless `force` or a
 #      re-run (attempt 2 and later). A failed or cancelled run covers nothing, and a run still going is not a twin:
 #      the caller's concurrency group already lets the newest dispatch replace it.
@@ -41,6 +46,14 @@ on:
         description: "Run even when the commit already has a green run of the same name"
         type: boolean
         default: false
+      ticket:
+        description: "The admission ticket OMPdesk's checks hub minted for this dispatch (not in the run name: it changes nothing that runs)"
+        type: string
+        default: ""
+    secrets:
+      admission-key:
+        description: "secrets.CHECKS_ADMISSION_KEY, the owner's admission key in hex (unset: tickets are not checked)"
+        required: false
     outputs:
       mac_ok:
         description: "'true' when the run may start its macOS jobs"
@@ -59,7 +72,7 @@ jobs:
     outputs:
       mac_ok: ${{ steps.admit.outputs.mac_ok }}
     steps:
-      - name: macOS is for release-bound work
+      - name: macOS is for release-bound work, started through ompdesk_checks
         id: admit
         env:
           EVENT: ${{ github.event_name }}
@@ -67,6 +80,10 @@ jobs:
           MAC_REFS: ${{ inputs.mac-refs }}
           REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TICKET: ${{ inputs.ticket }}
+          ADMISSION_KEY: ${{ secrets.admission-key }}
         run: |
           set -euo pipefail
           ok=false
@@ -78,11 +95,39 @@ jobs:
               if [ "$ref" = "$REF_NAME" ]; then ok=true; fi
             done
           fi
-          echo "mac_ok=$ok" >> "$GITHUB_OUTPUT"
           if [ "$ok" != true ]; then
+            echo "mac_ok=false" >> "$GITHUB_OUTPUT"
             echo "::error title=macOS is reserved for release-bound work::$REF_NAME is not in MAC_REFS (now: '${MAC_REFS:-empty}'). Main adds a branch with: gh variable set MAC_REFS --body \"<branch> ...\""
             exit 1
           fi
+          why=""
+          if [ "$EVENT" = workflow_dispatch ] && [ "$MAC" = true ]; then
+            if [ -z "${ADMISSION_KEY:-}" ]; then
+              echo "::notice title=Admission tickets are off::CHECKS_ADMISSION_KEY is not set, so this macOS dispatch needs no ticket."
+            else
+              rest=${TICKET#v1.}
+              expires=${rest%%.*}
+              mac=${rest#*.}
+              now=$(( $(date +%s) * 1000 ))
+              if [ -z "$TICKET" ]; then
+                why="it has no admission ticket"
+              elif [ "$rest" = "$TICKET" ] || ! [[ "$expires" =~ ^[0-9]{1,16}$ ]] || ! [[ "$mac" =~ ^[0-9a-f]{64}$ ]]; then
+                why="its admission ticket is malformed"
+              elif [ "$now" -ge "$expires" ]; then
+                why="its admission ticket expired"
+              else
+                want=$(printf 'ompdesk-checks-ticket-v1\n%s\n%s\n%s\n%s' "$REPO" "$REF_NAME" "$SHA" "$expires" |
+                  openssl dgst -sha256 -mac HMAC -macopt "hexkey:$ADMISSION_KEY" -r | cut -d' ' -f1)
+                if [ "$want" != "$mac" ]; then why="its admission ticket is not for $REF_NAME at ${SHA:0:12}"; fi
+              fi
+            fi
+          fi
+          if [ -n "$why" ]; then
+            echo "mac_ok=false" >> "$GITHUB_OUTPUT"
+            echo "::error title=Start it with ompdesk_checks::This macOS dispatch was not started by OMPdesk's checks hub: $why. Start it with the ompdesk_checks tool (or ompdesk checks start), which queues it with every other session's."
+            exit 1
+          fi
+          echo "mac_ok=true" >> "$GITHUB_OUTPUT"
 
       # Fails open: a lookup that errors leaves the run going. The job's own failure is for the admission above only.
       - name: The same commit and inputs are checked once
