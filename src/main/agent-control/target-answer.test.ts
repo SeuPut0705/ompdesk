@@ -17,8 +17,8 @@ function target(options: { open?: string[]; routeFails?: boolean; noteFails?: bo
 	const appended: string[] = [];
 	const answered: string[] = [];
 	/** The plan file of the pending proposal, and of the proposal the claim took. */
-	const planFile = { current: "/p/plan-1.md" };
-	const planObject = { current: "" };
+	const planFile = { current: "/p/plan-1.md", generation: 1 };
+	const planObject = { current: 0 };
 	let routeFails = options.routeFails ?? false;
 	const send = vi.fn(async (command: RpcCommand) => {
 		if (command.type === "agent_control_mail") {
@@ -32,14 +32,15 @@ function target(options: { open?: string[]; routeFails?: boolean; noteFails?: bo
 	});
 	const answers = new TargetAnswer({
 		askOpen: (_tab, id) => open.has(id),
-		claimPlan: (_tab, file) => {
-			if (!open.has("plan") || file !== planFile.current || claims.has("plan")) return null;
+		claimPlan: (_tab, file, generation) => {
+			if (!open.has("plan") || file !== planFile.current || generation !== planFile.generation || claims.has("plan"))
+				return null;
 			claims.set("plan", Symbol("plan"));
-			planObject.current = planFile.current;
+			planObject.current = planFile.generation;
 			return claims.get("plan") ?? null;
 		},
 		planStillClaimed: (_tab, claim) =>
-			claims.get("plan") === claim && open.has("plan") && planObject.current === planFile.current,
+			claims.get("plan") === claim && open.has("plan") && planObject.current === planFile.generation,
 		releasePlan: (_tab, claim) => {
 			if (claims.get("plan") === claim) claims.delete("plan");
 		},
@@ -208,6 +209,7 @@ describe("an answer with attachments is one step on the answered session's compu
 				companion,
 				plan: { type: "plan_approval", approved: false } as RpcCommand,
 				planFile: "/p/plan-1.md",
+				planGeneration: 1,
 			},
 			t.send,
 		);
@@ -221,6 +223,7 @@ describe("an answer with attachments is one step on the answered session's compu
 			companion,
 			plan: { type: "plan_approval", approved: true } as RpcCommand,
 			planFile: "/p/plan-1.md",
+			planGeneration: 1,
 		};
 
 		it("refuses the person's approval while the note goes in, then approves that plan once", async () => {
@@ -242,6 +245,7 @@ describe("an answer with attachments is one step on the answered session's compu
 			const t = target({ open: ["plan"] });
 			t.send.mockImplementationOnce(async command => {
 				t.planFile.current = "/p/plan-2.md";
+				t.planFile.generation = 2;
 				if (command.type === "agent_control_mail") t.appended.push(String(command.details.id));
 				return { success: true };
 			});
@@ -250,6 +254,26 @@ describe("an answer with attachments is one step on the answered session's compu
 			);
 			expect(t.answered).toEqual([]);
 			expect(t.claims.size).toBe(0);
+		});
+
+		it("refuses a revised proposal that reuses the plan file, between the snapshot and the claim", async () => {
+			const t = target({ open: ["plan"] });
+			t.planFile.generation = 2;
+			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(/the plan changed since you read it/);
+			expect(t.send).not.toHaveBeenCalled();
+			expect(t.appended).toEqual([]);
+			expect(t.answered).toEqual([]);
+		});
+
+		it("sends no approval to a revised proposal that reuses the plan file while the note goes in", async () => {
+			const t = target({ open: ["plan"] });
+			t.send.mockImplementationOnce(async command => {
+				t.planFile.generation = 2;
+				if (command.type === "agent_control_mail") t.appended.push(String(command.details.id));
+				return { success: true };
+			});
+			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(/no approval was sent to any plan/);
+			expect(t.answered).toEqual([]);
 		});
 
 		it("says so when the plan is closed meanwhile", async () => {
@@ -266,7 +290,7 @@ describe("an answer with attachments is one step on the answered session's compu
 			const t = target({ open: ["plan"] });
 			t.planFile.current = "/p/plan-2.md";
 			await expect(t.answers.run("tab", plan, t.send)).rejects.toThrow(
-				/not open any more, or another answer holds it/,
+				/not pending any more, or the plan changed since you read it/,
 			);
 			expect(t.send).not.toHaveBeenCalled();
 		});

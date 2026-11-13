@@ -1026,9 +1026,7 @@ impl AgentControl {
         if asks.is_empty()
             && let Some(plan) = &target.plan
         {
-            return self
-                .answer_plan(caller, target, &plan.title, &plan.plan_file_path, args)
-                .await;
+            return self.answer_plan(caller, target, plan, args).await;
         }
         if asks.is_empty() {
             return fail(if !target.asks.is_empty() {
@@ -1281,8 +1279,7 @@ impl AgentControl {
         &self,
         caller: &ControlTab,
         target: &ControlTab,
-        plan_title: &str,
-        plan_file: &str,
+        plan: &super::types::TabPlan,
         args: &AnswerArgs,
     ) -> R<String> {
         let resolved = self
@@ -1304,10 +1301,10 @@ impl AgentControl {
         let name = format!(
             "\"{}\"",
             one_line(
-                if plan_title.is_empty() {
+                if plan.title.is_empty() {
                     "plan"
                 } else {
-                    plan_title
+                    &plan.title
                 },
                 100
             )
@@ -1350,10 +1347,10 @@ impl AgentControl {
             .companion(
                 caller,
                 target,
-                if plan_title.is_empty() {
+                if plan.title.is_empty() {
                     "plan"
                 } else {
-                    plan_title
+                    &plan.title
                 },
                 "plan",
                 resolved,
@@ -1364,7 +1361,7 @@ impl AgentControl {
                 self.host
                     .answer_with_companion(
                         &target.tab_id,
-                        json!({ "plan": command, "planFile": plan_file }),
+                        json!({ "plan": command, "planFile": plan.plan_file_path, "planGeneration": plan.generation }),
                         &companion,
                     )
                     .await?

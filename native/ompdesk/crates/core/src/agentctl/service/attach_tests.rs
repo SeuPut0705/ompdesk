@@ -669,7 +669,7 @@ async fn pictures_for_a_paired_device_stay_under_the_links_frame_cap() {
 #[tokio::test]
 async fn a_plan_answer_with_attachments_names_the_plan_it_was_about() {
     let mut plan = tab("b");
-    plan["plan"] = json!({ "title": "Ship it", "planFilePath": "/p/plan-1.md" });
+    plan["plan"] = json!({ "title": "Ship it", "planFilePath": "/p/plan-1.md", "generation": 7 });
     let (control, asked) = rig(
         9_430,
         state(vec![tab("a"), plan]),
@@ -689,6 +689,7 @@ async fn a_plan_answer_with_attachments_names_the_plan_it_was_about() {
     let steps = commands(&asked, "agent_control_answer");
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0]["planFile"], "/p/plan-1.md");
+    assert_eq!(steps[0]["planGeneration"], 7);
     assert_eq!(steps[0]["plan"]["type"], "plan_approval");
     control.host.port().close();
 }

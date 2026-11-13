@@ -86,6 +86,9 @@ pub struct TabPlan {
     #[serde(default)]
     pub title: String,
     pub plan_file_path: String,
+    /// Which proposal of the tab it is (main bumps it for every new or revised one): the answer names it.
+    #[serde(default)]
+    pub generation: Option<u64>,
 }
 
 /// A tab's git-worktree binding (`IpcTabWorktree`).

@@ -139,7 +139,7 @@ import {
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
-import { type AnswerStep, TargetAnswer } from "./agent-control/target-answer";
+import type { AnswerStep } from "./agent-control/target-answer";
 import { appNotification } from "./app-icon";
 import { quitApproved, requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
@@ -794,15 +794,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	/** The plan approvals an agent's attachment step sends for the plan it claimed (`TargetAnswer`). */
 	const ownPlanApprovals = new WeakSet<object>();
-	const targetAnswer = new TargetAnswer({
-		askOpen: (tabId, id) => sidecarPool.isRequestOpen(tabId, id),
-		claimPlan: (tabId, planFile) => sidecarPool.claimPlan(tabId, planFile),
-		planStillClaimed: (tabId, claim) => sidecarPool.planStillClaimed(tabId, claim),
-		releasePlan: (tabId, claim) => sidecarPool.releasePlan(tabId, claim),
-		claim: (tabId, id) => sidecarPool.claimRequest(tabId, id),
-		release: (id, claim) => sidecarPool.releaseRequest(id, claim),
-		route: (tabId, id, response, claim) => sidecarPool.routeSideChannel(id, response, tabId, undefined, claim),
-	});
 
 	const dispatchRpcCommand = async (
 		win: ClientWindow,
@@ -930,27 +921,27 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			}
 		}
 		// A plan an agent's approval holds (`SidecarPool.claimPlan`) takes no other approve or reject.
-		if (
-			cmd.type === "plan_approval" &&
-			issuerTabId &&
-			sidecarPool.planClaimed(issuerTabId) &&
-			!ownPlanApprovals.has(payload)
-		)
-			return {
-				id: _id,
-				type: "response",
-				command: cmd.type,
-				success: false,
-				error: "An agent is answering this plan right now",
-				code: "being_answered",
-			};
+		if (cmd.type === "plan_approval" && issuerTabId) {
+			try {
+				sidecarPool.guardPlan(issuerTabId, ownPlanApprovals.has(payload));
+			} catch (err) {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+					code: "being_answered",
+				};
+			}
+		}
 		// An answer with attachments is one step where the answered session runs (`target-answer.ts`): this main for its
 		// own tabs; a paired host's tab goes on to that host's main below.
 		if (cmd.type === "agent_control_answer" && !sidecar.device) {
 			if (!issuerTabId)
 				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
 			try {
-				await targetAnswer.run(issuerTabId, cmd as AnswerStep, (command, own) => {
+				await sidecarPool.targetAnswer.run(issuerTabId, cmd as AnswerStep, (command, own) => {
 					const inner = { ...payload, command };
 					if (own) ownPlanApprovals.add(inner);
 					return dispatchRpcCommand(win, sidecar, issuerTabId, inner, channel);

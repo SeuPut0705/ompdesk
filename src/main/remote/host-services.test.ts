@@ -10,7 +10,7 @@ import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { type AgentReviewItem, type AgentReviewResult, wrapAgentMessage } from "../../shared/agent-control";
-import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
@@ -5081,5 +5081,139 @@ describe("LocalHostServices agent browsing tunnel (host.previewRelay.*)", () => 
 		await services.call(x.peer, PREVIEW_RELAY_METHODS.open, { rtab: "t1" }, x);
 		server.sockets[0]?.send("a screenshot that does not fit");
 		await vi.waitFor(() => expect(server.sockets[0]?.readyState).toBe(WebSocket.CLOSED));
+	});
+});
+
+describe("an answer with attachments for a tab a device runs here", () => {
+	const companion = {
+		content: "What goes with my answer (the answer follows):",
+		details: { id: "answer-1" },
+		delivery: { triggerTurn: false },
+	};
+	const step = (extra: Record<string, unknown>) => ({
+		type: "agent_control_answer",
+		requestId: "answer-1|ask-1",
+		companion,
+		...extra,
+	});
+	const response = { type: "extension_ui_response", id: "ask-1", value: "Blue" };
+
+	async function hosted() {
+		const context = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "ask-1",
+			method: "select",
+			title: "Pick",
+			options: ["Red", "Blue"],
+		});
+		const call = (command: Record<string, unknown>) =>
+			context.services.call(x.peer, "tab.command", { rtab: "t1", command }, x);
+		return { ...context, x, sidecar, call };
+	}
+
+	it("appends the note and then answers, in the host's one step", async () => {
+		const { sidecar, call } = await hosted();
+		await call(step({ askId: "ask-1", response }));
+		expect(sidecar.commands.map(command => command.type)).toEqual(["agent_control_mail"]);
+		expect(sidecar.sideFrames).toEqual([response]);
+	});
+
+	it("refuses every other answer while the note goes in, then lands the agent's once", async () => {
+		const { services, sidecar, call, x } = await hosted();
+		const note = Promise.withResolvers<void>();
+		const held = sidecar.rpcClient.command;
+		sidecar.rpcClient.command = async command => {
+			await note.promise;
+			return held(command);
+		};
+		const answering = call(step({ askId: "ask-1", response }));
+		await new Promise(resolve => setTimeout(resolve, 20));
+		const person = await services
+			.call(x.peer, "tab.sideChannel", { rtab: "t1", frame: { ...response, value: "Red" } }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(person)).toBe("being_answered");
+		note.resolve();
+		await answering;
+		expect(sidecar.sideFrames).toEqual([response]);
+	});
+
+	it("refuses an ask that closed meanwhile and appends nothing", async () => {
+		const { sidecar, call } = await hosted();
+		sidecar.emit("extensionUi", { type: "extension_ui_request", id: "c", method: "cancel", targetId: "ask-1" });
+		await expect(call(step({ askId: "ask-1", response }))).rejects.toThrow(/not open any more/);
+		expect(sidecar.commands).toEqual([]);
+		expect(sidecar.sideFrames).toEqual([]);
+	});
+
+	it("refuses a plan approval from a device while an agent's approval holds that plan, and approves the plan once", async () => {
+		const { services, sidecar, call, x } = await hosted();
+		sidecar.emit("events", [{ type: "plan_proposal", planFilePath: "/p/plan.md", title: "Plan" }]);
+		const note = Promise.withResolvers<void>();
+		const held = sidecar.rpcClient.command;
+		sidecar.rpcClient.command = async command => {
+			if (command.type === "agent_control_mail") await note.promise;
+			return held(command);
+		};
+		const answering = call(
+			step({
+				requestId: "answer-1|plan",
+				plan: { type: "plan_approval", approved: true },
+				planFile: "/p/plan.md",
+				planGeneration: 1,
+			}),
+		);
+		await new Promise(resolve => setTimeout(resolve, 20));
+		const person = await services
+			.call(x.peer, "tab.command", { rtab: "t1", command: { type: "plan_approval", approved: false } }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(person)).toBe("being_answered");
+		note.resolve();
+		await answering;
+		expect(sidecar.commands.map(command => command.type)).toEqual(["agent_control_mail", "plan_approval"]);
+	});
+
+	it("sends no approval to a revised plan that reuses the plan file", async () => {
+		const { sidecar, call } = await hosted();
+		sidecar.emit("events", [{ type: "plan_proposal", planFilePath: "/p/plan.md", title: "Plan" }]);
+		sidecar.emit("events", [{ type: "plan_proposal", planFilePath: "/p/plan.md", title: "Plan, revised" }]);
+		await expect(
+			call(
+				step({
+					requestId: "answer-1|plan",
+					plan: { type: "plan_approval", approved: true },
+					planFile: "/p/plan.md",
+					planGeneration: 1,
+				}),
+			),
+		).rejects.toThrow(/plan changed since you read it/);
+		expect(sidecar.commands).toEqual([]);
+	});
+});
+
+describe("a device answering a window's tab meets the pool's claims", () => {
+	it("is refused a plan approval the pool says an agent's approval holds", async () => {
+		const context = setup();
+		const guard = vi.fn((_tabId: string) => {
+			throw codedError("being_answered", "An agent is answering this plan right now");
+		});
+		context.local.localTabs.guardPlan = guard as never;
+		context.local.owned.set("/s/local.jsonl", { tabId: "win1", winId: 1 });
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set("/s/local.jsonl", view);
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/local.jsonl" }, x);
+		const refused = await context.services
+			.call(x.peer, "tab.command", { rtab: "t1", command: { type: "plan_approval", approved: true } }, x)
+			.catch((error: unknown) => error);
+		expect(guard).toHaveBeenCalledWith("win1");
+		expect(ipcErrorCode(refused)).toBe("being_answered");
+		expect(view.commands).toEqual([]);
 	});
 });

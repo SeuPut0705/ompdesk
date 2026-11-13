@@ -25,14 +25,14 @@ export interface AnswerCompanion {
 
 export type AnswerStep = { requestId: string; companion: AnswerCompanion } & (
 	| { askId: string; response: ExtensionUIResponse }
-	| { plan: RpcCommand; planFile: string }
+	| { plan: RpcCommand; planFile: string; planGeneration: number }
 );
 
 export interface TargetAnswerDeps {
 	/** Whether the question `id` is still open on `tabId`. */
 	askOpen(tabId: string, id: string): boolean;
 	/** Take the plan proposal at `planFile` that `tabId` waits on; null when it is not that plan or already taken. */
-	claimPlan(tabId: string, planFile: string): symbol | null;
+	claimPlan(tabId: string, planFile: string, generation: number): symbol | null;
 	/** Whether the claimed plan is still the pending one (a replacement proposal is not). */
 	planStillClaimed(tabId: string, claim: symbol): boolean;
 	releasePlan(tabId: string, claim: symbol): void;
@@ -98,8 +98,11 @@ export class TargetAnswer {
 		if (!("askId" in step)) {
 			// The same claim as an ask's, on that very plan: the person's approve or reject and another agent's are
 			// refused (`being_answered`) until this lands, and the approval goes only to the plan the answer was about.
-			const claim = deps.claimPlan(tabId, step.planFile);
-			if (claim === null) throw gone;
+			const claim = deps.claimPlan(tabId, step.planFile, step.planGeneration);
+			if (claim === null)
+				throw new Error(
+					"That plan is not pending any more, or the plan changed since you read it, or another answer holds it: nothing was added to the session and nothing approved.",
+				);
 			try {
 				let noted: { success: boolean; error?: string };
 				try {

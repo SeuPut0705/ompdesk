@@ -196,6 +196,8 @@ export type RpcCommand =
 			plan?: RpcCommand;
 			/** The plan file of the proposal the answer was about: only that very plan is approved. */
 			planFile?: string;
+			/** Which proposal of the tab the answer was about (`PendingPlan.generation`): a revised plan reuses the file. */
+			planGeneration?: number;
 	  }
 	// One attachment of `ompdesk_session_send` / `ompdesk_report` read where this session's omp runs
 	// (gui-bridge agent-control.ts `agent_control.attachment`): `{path}` a file, `{image}` the n-th newest picture of

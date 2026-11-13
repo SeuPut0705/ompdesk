@@ -3995,7 +3995,7 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 			options: [],
 		};
 		a.emitEvents([frame]);
-		expect(pool.pendingPlan("tab-a")).toEqual({ title: "Plan", planFilePath: "local://PLAN.md" });
+		expect(pool.pendingPlan("tab-a")).toEqual({ title: "Plan", planFilePath: "local://PLAN.md", generation: 1 });
 		a.emitEvents([{ type: "plan_proposal_resolved", planFilePath: "local://other.md" }]);
 		expect(pool.pendingPlan("tab-a")).not.toBeNull();
 		a.emitEvents([{ type: "plan_proposal_resolved", planFilePath: "local://PLAN.md" }]);
@@ -4003,6 +4003,30 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		a.emitEvents([frame]);
 		a.emit("status", { status: "restarting" });
 		expect(pool.pendingPlan("tab-a")).toBeNull();
+	});
+
+	it("claims a plan only at the generation the agent read, so a revision that reuses the plan file is refused", () => {
+		const { pool, a } = observed();
+		const frame = {
+			type: "plan_proposal",
+			planFilePath: "local://PLAN.md",
+			title: "Plan",
+			planContent: "x",
+			options: [],
+		};
+		a.emitEvents([frame]);
+		const read = pool.pendingPlan("tab-a");
+		a.emitEvents([{ ...frame, title: "Plan, revised" }]);
+		expect(pool.claimPlan("tab-a", "local://PLAN.md", read?.generation ?? 0)).toBeNull();
+		const now = pool.pendingPlan("tab-a");
+		const claim = pool.claimPlan("tab-a", "local://PLAN.md", now?.generation ?? 0);
+		expect(claim).not.toBeNull();
+		expect(() => pool.guardPlan("tab-a")).toThrow(/answering this plan/);
+		expect(() => pool.guardPlan("tab-a", true)).not.toThrow();
+		a.emitEvents([{ ...frame, title: "Plan, revised again" }]);
+		expect(claim && pool.planStillClaimed("tab-a", claim)).toBe(false);
+		if (claim) pool.releasePlan("tab-a", claim);
+		expect(() => pool.guardPlan("tab-a")).not.toThrow();
 	});
 });
 

@@ -71,6 +71,7 @@ import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation } from "../../shared/terminal-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import { type AnswerStep, TargetAnswer } from "../agent-control/target-answer";
 import { AtomicSaver } from "../atomic-file";
 import type { BackgroundWorkMember } from "../background-work";
 import type { BridgeConnectResult } from "../bridge-health";
@@ -289,10 +290,11 @@ export interface HostServicesDeps {
 		| "noteTouched"
 		| "notePrompted"
 		| "beginMove"
-	> & {
-		/** Counts the tabs a device runs here among those waiting on one provider (model-wait-count.ts). */
-		modelWait?: Pick<ModelWaitTracker, "observe" | "forget" | "snapshot">;
-	};
+	> &
+		Partial<Pick<SidecarPool, "targetAnswer" | "guardPlan">> & {
+			/** Counts the tabs a device runs here among those waiting on one provider (model-wait-count.ts). */
+			modelWait?: Pick<ModelWaitTracker, "observe" | "forget" | "snapshot">;
+		};
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
 	graceMs?: number;
@@ -397,6 +399,12 @@ interface HostTab extends RunTracking {
 	 * `peer:<id>`: a device viewing it); everyone else's late answer is refused.
 	 */
 	answered: Map<string, string>;
+	/** Asks an agent's answer holds while its attachments go in (`TargetAnswer`), by request id. */
+	askClaims: Map<string, symbol>;
+	/** The plan proposal this tab's omp waits on (a tab that runs here), and the generation main gave it. */
+	planProposal?: { title: string; planFilePath: string; generation: number };
+	/** The plan an agent's approval holds while its attachments go in. */
+	planClaim?: { plan: object; claim: symbol };
 	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
 	linkEvents?: { conn: HostConnection; sender: LinkEventSender };
 	/**
@@ -570,6 +578,49 @@ export class LocalHostServices implements HostServices {
 	/** Moves a device's command has on its way, by `resumeId` (turn-resume.ts `trackMove`). */
 	readonly #moves = new MovesInFlight();
 	/** Files a device sends in parts (`host.files.uploadPart`), by device and upload id, until the last part lands. */
+	/** Plan proposals counted for the tabs that run here: stock rewrites one plan file for a revised proposal. */
+	#planGeneration = 0;
+	/** An answer with attachments for a tab that runs here is one claimed step (`TargetAnswer`), as `localTabs.targetAnswer` is for a window's. */
+	readonly #answers = new TargetAnswer({
+		askOpen: (tabId, id) => this.#byResume(tabId)?.asks.has(id) === true,
+		claim: (tabId, id) => {
+			const tab = this.#byResume(tabId);
+			if (!tab?.asks.has(id) || tab.askClaims.has(id)) return null;
+			const claim = Symbol(id);
+			tab.askClaims.set(id, claim);
+			return claim;
+		},
+		release: (id, claim) => {
+			for (const tab of this.#tabs.values()) if (tab.askClaims.get(id) === claim) tab.askClaims.delete(id);
+		},
+		route: async (tabId, id, response, claim) => {
+			const tab = this.#byResume(tabId);
+			try {
+				if (!tab?.asks.has(id)) return false;
+				this.#answer(tab, response, "host", undefined, claim);
+				return true;
+			} finally {
+				tab?.askClaims.delete(id);
+			}
+		},
+		claimPlan: (tabId, planFile, generation) => {
+			const tab = this.#byResume(tabId);
+			const plan = tab?.planProposal;
+			if (!tab || !plan || plan.planFilePath !== planFile || plan.generation !== generation || tab.planClaim)
+				return null;
+			const claim = Symbol(tabId);
+			tab.planClaim = { plan, claim };
+			return claim;
+		},
+		planStillClaimed: (tabId, claim) => {
+			const tab = this.#byResume(tabId);
+			return tab?.planClaim?.claim === claim && tab.planProposal === tab.planClaim.plan;
+		},
+		releasePlan: (tabId, claim) => {
+			const tab = this.#byResume(tabId);
+			if (tab?.planClaim?.claim === claim) tab.planClaim = undefined;
+		},
+	});
 	readonly #parts = new Map<string, { chunks: Buffer[]; bytes: number; next: number; timer?: NodeJS.Timeout }>();
 	/** Live connections that have talked to us; `sessions.changed` goes to each. */
 	readonly #conns = new Set<HostConnection>();
@@ -1040,10 +1091,25 @@ export class LocalHostServices implements HostServices {
 	 * answer to an ask wins: the other parties' cards close as answered elsewhere (`answered:<id>`, the pool's synthetic
 	 * cancel), and their later answer is refused (`already_answered`) instead of reaching the omp.
 	 */
-	#answer(tab: HostTab, frame: { type?: unknown; id?: unknown }, side: string, from?: HostedTabView): void {
+	#byResume(resumeId: string): HostTab | undefined {
+		for (const tab of this.#tabs.values()) if (tab.resumeId === resumeId) return tab;
+		return undefined;
+	}
+
+	#answer(
+		tab: HostTab,
+		frame: { type?: unknown; id?: unknown },
+		side: string,
+		from?: HostedTabView,
+		claim?: symbol,
+	): void {
 		if ((frame.type === "host_tool_result" || frame.type === "host_uri_result") && typeof frame.id === "string")
 			tab.hostCalls.delete(frame.id);
 		const id = frame.type === "extension_ui_response" && typeof frame.id === "string" ? frame.id : undefined;
+		// An agent's answer holds the question while its attachments go in: no other answer lands (`being_answered`).
+		const held = id === undefined ? undefined : tab.askClaims.get(id);
+		if (held !== undefined && held !== claim)
+			throw codedError("being_answered", "An agent is answering this question right now");
 		const first = id === undefined ? undefined : tab.answered.get(id);
 		if (first !== undefined && first !== side)
 			throw codedError("already_answered", "Another device already answered this request");
@@ -1918,6 +1984,7 @@ export class LocalHostServices implements HostServices {
 			origin,
 			views: new Set(),
 			answered: new Map(),
+			askClaims: new Map(),
 		};
 		this.#tabs.set(this.#key(peer.deviceId, rtab), tab);
 		// The resume rules first: a failure they turn into a connection wait reaches the device
@@ -2073,7 +2140,20 @@ export class LocalHostServices implements HostServices {
 			change(() => {
 				// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
 				let news = false;
-				for (const event of events) if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
+				for (const event of events) {
+					if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
+					if (event.type === "plan_proposal")
+						tab.planProposal = {
+							title: event.title ?? "",
+							planFilePath: event.planFilePath,
+							generation: ++this.#planGeneration,
+						};
+					else if (
+						event.type === "plan_proposal_resolved" &&
+						tab.planProposal?.planFilePath === event.planFilePath
+					)
+						tab.planProposal = undefined;
+				}
 				return news;
 			});
 			// A tab a window shows is counted by the pool; a device's own tab waits on this computer's account too.
@@ -2252,6 +2332,28 @@ export class LocalHostServices implements HostServices {
 		const tab = this.#tab(peer, params.rtab);
 		const client = tab.sidecar.rpcClient;
 		if (!client) throw codedError("sidecar_not_connected", "Sidecar not connected");
+		// An answer with attachments is one claimed step where the answered session runs: this computer's, for a tab
+		// that runs here or a window's tab a device views.
+		if (params.command.type === "agent_control_answer") {
+			const window =
+				tab.viewing === "window" && tab.sessionFile ? this.#deps.localTabs.sessionOwner(tab.sessionFile) : null;
+			const send = (command: RpcCommand) => this.#run(tab, client, command, params.timeoutMs);
+			const step = params.command as unknown as AnswerStep;
+			const windowAnswers = this.#deps.localTabs.targetAnswer;
+			if (window && !windowAnswers)
+				throw codedError("unsupported", "This computer cannot answer a window's session with attachments");
+			await (window && windowAnswers
+				? windowAnswers.run(window.tabId, step, send)
+				: this.#answers.run(tab.resumeId, step, send));
+			return { type: "response", command: "agent_control_answer", success: true, data: null } as RpcResponse;
+		}
+		// A plan an agent's approval holds takes no other approve or reject, from this device or any other.
+		if (params.command.type === "plan_approval") {
+			const window =
+				tab.viewing === "window" && tab.sessionFile ? this.#deps.localTabs.sessionOwner(tab.sessionFile) : null;
+			if (window) this.#deps.localTabs.guardPlan?.(window.tabId);
+			else if (tab.planClaim) throw codedError("being_answered", "An agent is answering this plan right now");
+		}
 		// The client device forwards its renderer's RpcCommand verbatim; omp and
 		// the local handlers validate the command itself. A Stop is logged with the device and the control it named,
 		// and reaches omp without that origin.
