@@ -335,7 +335,7 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The markdown chunk gains `remark-dollar-math.ts` (13 Nov 2026: prices stay text, Pandoc's rule on single-dollar math;
 // the phone's first screen renders replies with it): measured 2,201,852 by the runner's build of the branch, 902
 // bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_201_900;
+const WEB_FIRST_SCREEN_JS_BYTES = 2_199_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
