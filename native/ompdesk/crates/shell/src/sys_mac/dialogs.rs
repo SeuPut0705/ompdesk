@@ -5,12 +5,12 @@
 #![allow(unsafe_code)]
 
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
-use objc2::{class, msg_send};
+use objc2::runtime::{AnyObject, Bool};
+use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSArray, NSString, NSURL};
 
 use crate::dialog_spec::{
-    FileDialogSpec, MessageBoxResult, MessageBoxSpec, MessageType, default_extension,
+    DialogCancel, FileDialogSpec, MessageBoxResult, MessageBoxSpec, MessageType, default_extension,
     split_default_path,
 };
 
@@ -23,8 +23,20 @@ fn string_of(value: Option<Retained<NSString>>) -> String {
 }
 
 /// NSAlert, run as an application-modal dialog (the owner `winId` does not get a sheet: `runModal` blocks the app's
-/// main thread until a button is chosen, which is what the caller waits for).
-pub fn message_box(_owner: isize, spec: &MessageBoxSpec) -> Result<MessageBoxResult, String> {
+/// main thread until a button is chosen, which is what the caller waits for). A `cancel` aborts the modal session
+/// (`abortModal`, queued on the main thread, whose modal run loop runs it): the answer is `cancelId`. A cancel that
+/// lands in the instant between `runModal` returning and `disarm` aborts the next modal session, if one starts first.
+pub fn message_box(
+    _owner: isize,
+    spec: &MessageBoxSpec,
+    cancel: &DialogCancel,
+) -> Result<MessageBoxResult, String> {
+    if cancel.is_cancelled() {
+        return Ok(MessageBoxResult {
+            response: spec.cancel_id,
+            checkbox_checked: spec.checkbox_checked,
+        });
+    }
     // SAFETY: NSAlert messages on the main thread; every argument is a live object or a plain value of the declared type.
     unsafe {
         let alert: Retained<AnyObject> = msg_send![class!(NSAlert), new];
@@ -64,8 +76,22 @@ pub fn message_box(_owner: isize, spec: &MessageBoxSpec) -> Result<MessageBoxRes
             let state: isize = isize::from(spec.checkbox_checked);
             let _: () = msg_send![&*checkbox, setState: state];
         }
-        // NSAlertFirstButtonReturn is 1000; a button's response is 1000 + its index.
+        // `sharedApplication` is the process's one NSApplication, readable from any thread, and
+        // `performSelectorOnMainThread:withObject:waitUntilDone:` is safe from any thread; `abortModal` then runs on the
+        // main thread in the modal session's run loop (common modes).
+        cancel.arm(|| {
+            let app: Retained<AnyObject> = msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![
+                &*app,
+                performSelectorOnMainThread: sel!(abortModal),
+                withObject: std::ptr::null::<AnyObject>(),
+                waitUntilDone: Bool::NO
+            ];
+        });
+        // NSAlertFirstButtonReturn is 1000; a button's response is 1000 + its index. An aborted session answers
+        // NSModalResponseAbort (-1001), which is `cancelId`.
         let code: isize = msg_send![&*alert, runModal];
+        cancel.disarm();
         let response = usize::try_from(code - 1000)
             .ok()
             .filter(|i| *i < spec.buttons.len())

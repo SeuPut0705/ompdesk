@@ -359,6 +359,58 @@ pub fn split_default_path(path: &str, is_dir: impl Fn(&str) -> bool) -> DefaultP
     }
 }
 
+// ------------------------------------------------------------------ closing a box from outside
+
+type Closer = Box<dyn FnOnce() + Send>;
+
+#[derive(Default)]
+struct CancelState {
+    cancelled: bool,
+    closer: Option<Closer>,
+}
+
+/// A message box that Node may cancel (`{cancel: id}`, Electron's `signal`): the box then closes as if the person
+/// backed out, and the answer is `cancelId`. The OS code `arm`s it with what closes its box once the box exists and
+/// `disarm`s it once the box returned; `cancel` comes from the host's reader thread at any moment, also before the
+/// box exists (the box then closes as soon as it is armed) or after it returned (nothing happens).
+#[derive(Default)]
+pub struct DialogCancel {
+    state: std::sync::Mutex<CancelState>,
+}
+
+impl DialogCancel {
+    pub fn cancel(&self) {
+        let closer = {
+            let mut state = self.state.lock().unwrap();
+            state.cancelled = true;
+            state.closer.take()
+        };
+        if let Some(close) = closer {
+            close();
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.state.lock().unwrap().cancelled
+    }
+
+    /// The box is up and `close` closes it. Runs `close` at once when the box was cancelled already.
+    pub fn arm(&self, close: impl FnOnce() + Send + 'static) {
+        let mut state = self.state.lock().unwrap();
+        if state.cancelled {
+            drop(state);
+            close();
+        } else {
+            state.closer = Some(Box::new(close));
+        }
+    }
+
+    /// The box is gone: a later `cancel` closes nothing.
+    pub fn disarm(&self) {
+        self.state.lock().unwrap().closer = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +418,48 @@ mod tests {
 
     fn spec(options: Value) -> MessageBoxSpec {
         MessageBoxSpec::from_json(&options)
+    }
+
+    #[test]
+    fn a_cancel_closes_an_armed_box_once() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let closed = Arc::new(AtomicUsize::new(0));
+        let cancel = DialogCancel::default();
+        let count = closed.clone();
+        cancel.arm(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
+        assert_eq!(closed.load(Ordering::SeqCst), 0);
+        cancel.cancel();
+        cancel.cancel();
+        assert_eq!(closed.load(Ordering::SeqCst), 1);
+        assert!(cancel.is_cancelled());
+    }
+
+    #[test]
+    fn a_cancel_before_the_box_is_up_closes_it_when_armed() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let cancel = DialogCancel::default();
+        cancel.cancel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let flag = closed.clone();
+        cancel.arm(move || flag.store(true, Ordering::SeqCst));
+        assert!(closed.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_cancel_after_the_box_returned_closes_nothing() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let cancel = DialogCancel::default();
+        let closed = Arc::new(AtomicBool::new(false));
+        let flag = closed.clone();
+        cancel.arm(move || flag.store(true, Ordering::SeqCst));
+        cancel.disarm();
+        cancel.cancel();
+        assert!(!closed.load(Ordering::SeqCst));
     }
 
     #[test]

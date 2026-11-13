@@ -16,7 +16,7 @@ use windows::Win32::UI::Shell::{
     SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
 };
 use windows::core::{HRESULT, PCWSTR};
-use windows_sys::Win32::Foundation::HMODULE;
+use windows_sys::Win32::Foundation::{HMODULE, HWND as RawHwnd, LPARAM, WPARAM};
 use windows_sys::Win32::System::ApplicationInstallationAndServicing::{
     ACTCTXW, ActivateActCtx, CreateActCtxW, DeactivateActCtx, ReleaseActCtx,
 };
@@ -24,13 +24,15 @@ use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows_sys::Win32::UI::Controls::{
     TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TASKDIALOGCONFIG_0, TD_ERROR_ICON, TD_INFORMATION_ICON,
     TD_WARNING_ICON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_POSITION_RELATIVE_TO_WINDOW,
-    TDF_USE_COMMAND_LINKS, TDF_VERIFICATION_FLAG_CHECKED,
+    TDF_USE_COMMAND_LINKS, TDF_VERIFICATION_FLAG_CHECKED, TDM_CLICK_BUTTON, TDN_CREATED,
+    TDN_DESTROYED,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, PostMessageW};
 
 use super::comthread;
 use crate::dialog_spec::{
-    ButtonPlan, FileDialogSpec, MessageBoxResult, MessageBoxSpec, MessageType, default_extension,
-    split_default_path,
+    ButtonPlan, DialogCancel, FileDialogSpec, MessageBoxResult, MessageBoxSpec, MessageType,
+    default_extension, split_default_path,
 };
 
 /// The title of a box that gave none.
@@ -147,11 +149,55 @@ fn task_dialog_api() -> Result<&'static TaskDialogApi, String> {
     API.as_ref().map_err(Clone::clone)
 }
 
-/// Shows the message box and waits for it. `owner` is the window handle (0 for none).
-pub fn message_box(owner: isize, spec: &MessageBoxSpec) -> Result<MessageBoxResult, String> {
+/// TaskDialog's notifications: once the box exists, a cancel clicks its IDCANCEL (the Esc key's answer, allowed by
+/// `TDF_ALLOW_DIALOG_CANCELLATION`); once it is gone, a cancel does nothing.
+unsafe extern "system" fn on_task_dialog(
+    hwnd: RawHwnd,
+    msg: u32,
+    _wparam: WPARAM,
+    _lparam: LPARAM,
+    data: isize,
+) -> i32 {
+    // SAFETY: `data` is the `&DialogCancel` `message_box` put in `lpCallbackData`; it outlives TaskDialogIndirect,
+    // which is the only caller of this function.
+    let cancel = unsafe { &*(data as *const DialogCancel) };
+    match msg as i32 {
+        TDN_CREATED => {
+            let hwnd = hwnd as isize;
+            cancel.arm(move || {
+                // SAFETY: a plain message post; a handle that is gone meanwhile only makes the post fail.
+                unsafe {
+                    PostMessageW(
+                        hwnd as RawHwnd,
+                        TDM_CLICK_BUTTON as u32,
+                        IDCANCEL as WPARAM,
+                        0,
+                    )
+                };
+            });
+        }
+        TDN_DESTROYED => cancel.disarm(),
+        _ => {}
+    }
+    0
+}
+
+/// Shows the message box and waits for it. `owner` is the window handle (0 for none). A `cancel` closes it as the Esc
+/// key does: the answer is `cancelId`.
+pub fn message_box(
+    owner: isize,
+    spec: &MessageBoxSpec,
+    cancel: &DialogCancel,
+) -> Result<MessageBoxResult, String> {
     comthread::init();
     let api = task_dialog_api()?;
     let plan = ButtonPlan::new(spec);
+    if cancel.is_cancelled() {
+        return Ok(MessageBoxResult {
+            response: spec.cancel_id,
+            checkbox_checked: spec.checkbox_checked,
+        });
+    }
 
     let title = wide(if spec.title.is_empty() {
         APP_NAME
@@ -211,6 +257,8 @@ pub fn message_box(owner: isize, spec: &MessageBoxSpec) -> Result<MessageBoxResu
     };
     config.nDefaultButton = plan.default_button;
     config.pszVerificationText = checkbox.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+    config.pfCallback = Some(on_task_dialog);
+    config.lpCallbackData = cancel as *const DialogCancel as isize;
 
     let mut pressed = 0i32;
     let mut verified = 0i32;
@@ -226,6 +274,7 @@ pub fn message_box(owner: isize, spec: &MessageBoxSpec) -> Result<MessageBoxResu
         // SAFETY: the cookie came from the activation above, on this thread.
         unsafe { DeactivateActCtx(0, cookie) };
     }
+    cancel.disarm();
     if hr < 0 {
         return Err(format!(
             "the message box could not be shown (HRESULT 0x{:08X})",
@@ -427,4 +476,60 @@ pub fn save_dialog(owner: isize, spec: &FileDialogSpec) -> Result<Option<String>
     // SAFETY: the dialog returned OK, so its result is readable.
     let item = unsafe { dialog.GetResult() }.map_err(describe("reading the chosen file"))?;
     path_of(&item).map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use serde_json::json;
+
+    use super::*;
+
+    fn confirm_spec() -> MessageBoxSpec {
+        MessageBoxSpec::from_json(&json!({
+            "type": "question",
+            "title": "Outside process",
+            "message": "Allow?",
+            "buttons": ["Allow", "Don't allow"],
+            "defaultId": 1,
+            "cancelId": 1,
+        }))
+    }
+
+    /// The control socket's confirm card (`ipc.ts` `confirmOutside`) times out: the box that is up closes and the
+    /// answer is its `cancelId` (refused). The box returning at all is the proof it closed.
+    #[test]
+    fn a_cancelled_box_closes_and_answers_its_cancel_id() {
+        let cancel = Arc::new(DialogCancel::default());
+        let (done, answered) = mpsc::channel();
+        let shown = cancel.clone();
+        std::thread::spawn(move || {
+            let _ = done.send(message_box(0, &confirm_spec(), &shown));
+        });
+        std::thread::sleep(Duration::from_millis(500));
+        cancel.cancel();
+        let result = answered
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the cancelled box is still open after 10 s");
+        assert_eq!(
+            result,
+            Ok(MessageBoxResult {
+                response: 1,
+                checkbox_checked: false
+            })
+        );
+    }
+
+    #[test]
+    fn a_box_cancelled_before_it_shows_answers_at_once() {
+        let cancel = DialogCancel::default();
+        cancel.cancel();
+        assert_eq!(
+            message_box(0, &confirm_spec(), &cancel).map(|r| r.response),
+            Ok(1)
+        );
+    }
 }

@@ -28,11 +28,21 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 		return { options: first as T };
 	};
 	const dialog = {
+		/**
+		 * `options.signal` closes the box as if the person backed out: the shell cancels it and still answers, with its
+		 * `cancelId`, which is what this resolves to (Electron's semantics).
+		 */
 		async showMessageBox(
 			first: Owner | Record<string, unknown>,
 			second?: Record<string, unknown>,
 		): Promise<MessageBoxResult> {
-			return client.call<MessageBoxResult>("dialog.messageBox", splitOwner(first, second));
+			const { winId, options } = splitOwner(first, second);
+			const { signal, ...rest } = options;
+			return client.call<MessageBoxResult>(
+				"dialog.messageBox",
+				{ winId, options: rest },
+				signal instanceof AbortSignal ? { signal, answerAfterCancel: true } : {},
+			);
 		},
 		async showOpenDialog(
 			first: Owner | Record<string, unknown>,

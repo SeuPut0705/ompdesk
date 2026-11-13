@@ -259,7 +259,7 @@ accelerator); `role` stays set only for those that need native handling: macOS `
 
 | Method | Asks | Params | Result |
 |---|---|---|---|
-| `dialog.messageBox` | Node | `{winId?, options: {type, buttons, defaultId, cancelId, title, message, detail, checkboxLabel, checkboxChecked, noLink}}` | `{response, checkboxChecked}` — a sheet on macOS when `winId` is given |
+| `dialog.messageBox` | Node | `{winId?, options: {type, buttons, defaultId, cancelId, title, message, detail, checkboxLabel, checkboxChecked, noLink}}` | `{response, checkboxChecked}` — a sheet on macOS when `winId` is given. A `{cancel: id}` (Electron's `signal`) closes the box as the Esc key would and is still answered, with `cancelId`; the shim waits for that answer (`answerAfterCancel`) |
 | `dialog.openDialog` | Node | `{winId?, options: {title, defaultPath, buttonLabel, filters: [{name, extensions}], properties: string[], message}}` | `{canceled, filePaths: string[]}` |
 | `dialog.saveDialog` | Node | `{winId?, options: {title, defaultPath, buttonLabel, filters, message, nameFieldLabel, showsTagField, properties}}` | `{canceled, filePath?: string}` |
 | `clipboard.readText` | Node | `{}` | `{text}` |
@@ -447,7 +447,9 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **Page transport**: `Uint8Array` crosses as `{"$bin": "<base64>"}` in `ipc.invoke`/`ipc.send` args, `wc.send` args and
   `{value}` of an invoke answer; the shim decodes and encodes it.
 - **`dialog.*`**: Windows dialogs run on a thread of their own (their modal loop does not block CEF's UI thread); a
-  macOS `messageBox` is app-modal, not a sheet.
+  macOS `messageBox` is app-modal, not a sheet. A cancelled message box: Windows clicks the TaskDialog's IDCANCEL,
+  macOS `abortModal`s the session (queued on the main thread; a cancel in the instant between `runModal` returning and
+  the box being forgotten aborts the next modal session, if one has started by then). File dialogs are not cancelled.
 - **`notification.*`**: WinRT toasts keyed on the AppUserModelID; without a Start-menu shortcut carrying it a toast may
   not show, though `show` is still reported.
 - **`theme.setSource`** is pushed into every page as CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme`) and reaches

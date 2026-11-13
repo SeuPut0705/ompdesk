@@ -38,6 +38,11 @@ export interface RequestOptions {
 	bin?: Uint8Array;
 	/** Aborting sends `{cancel: id}`; the request then rejects with `code: "cancelled"`. */
 	signal?: AbortSignal;
+	/**
+	 * With `signal`: aborting still sends `{cancel: id}`, but the request waits for the shell's answer instead of
+	 * rejecting (a message box the cancel closes answers as if the person backed out, as Electron's does).
+	 */
+	answerAfterCancel?: boolean;
 }
 
 export interface HandlerContext {
@@ -113,20 +118,28 @@ export class ShellClient {
 	request<T = unknown>(method: string, params?: unknown, options: RequestOptions = {}): Promise<Answer<T>> {
 		if (this.#closed) return Promise.reject(new HostError("gone", "the shell connection is closed"));
 		const { signal } = options;
-		if (signal?.aborted) return Promise.reject(new HostError("cancelled", `${method} was cancelled`));
+		const answerAfterCancel = options.answerAfterCancel === true;
+		if (signal?.aborted && !answerAfterCancel)
+			return Promise.reject(new HostError("cancelled", `${method} was cancelled`));
 		const id = this.#nextId++;
 		const { promise, resolve, reject } = Promise.withResolvers<Answer<T>>();
 		const pending: Pending = { resolve: resolve as Pending["resolve"], reject, signal };
 		if (signal) {
-			pending.onAbort = () => {
-				if (!this.#pending.delete(id)) return;
-				this.#write({ cancel: id });
-				reject(new HostError("cancelled", `${method} was cancelled`));
-			};
-			signal.addEventListener("abort", pending.onAbort, { once: true });
+			pending.onAbort = answerAfterCancel
+				? () => {
+						if (this.#pending.has(id)) this.#write({ cancel: id });
+					}
+				: () => {
+						if (!this.#pending.delete(id)) return;
+						this.#write({ cancel: id });
+						reject(new HostError("cancelled", `${method} was cancelled`));
+					};
+			if (!signal.aborted) signal.addEventListener("abort", pending.onAbort, { once: true });
 		}
 		this.#pending.set(id, pending);
 		this.#write({ id, method, params: params ?? null }, options.bin);
+		// Only `answerAfterCancel` gets here aborted: the shell answers the request it is told is cancelled at once.
+		if (signal?.aborted) pending.onAbort?.();
 		return promise;
 	}
 

@@ -4,11 +4,16 @@
 //! thread must keep running tasks meanwhile (page IPC, the window state mirror, Node's other requests). The owner is
 //! looked up on the UI thread; the system disables it while the dialog is open. On macOS AppKit wants the main thread,
 //! so the dialog runs there.
+//!
+//! A message box Node cancels (`{cancel: id}`, Electron's `signal`) closes as if the person backed out and is still
+//! answered, with its `cancelId`: the shim waits for that answer, as Electron's promise resolves with it.
+
+use std::sync::Arc;
 
 use serde_json::{Value, json};
-use shell_core::dialog_spec::{FileDialogSpec, MessageBoxSpec};
+use shell_core::dialog_spec::{DialogCancel, FileDialogSpec, MessageBoxSpec};
 
-use crate::host::Call;
+use crate::host::{self, Call};
 use crate::log::log;
 use crate::{state, ui};
 
@@ -19,11 +24,20 @@ use shell_core::sys_mac::dialogs as native;
 
 pub fn handle(call: Call) {
     match call.method.as_str() {
-        "dialog.messageBox" => run(call, |owner, options| {
-            let spec = MessageBoxSpec::from_json(options);
-            native::message_box(owner, &spec)
-                .map(|r| json!({ "response": r.response, "checkboxChecked": r.checkbox_checked }))
-        }),
+        "dialog.messageBox" => {
+            let id = call.id();
+            let cancel = Arc::new(DialogCancel::default());
+            let on_cancel = cancel.clone();
+            host::on_cancel(id, move || on_cancel.cancel());
+            run(call, move |owner, options| {
+                let spec = MessageBoxSpec::from_json(options);
+                let shown = native::message_box(owner, &spec, &cancel);
+                host::forget_cancel(id);
+                shown.map(
+                    |r| json!({ "response": r.response, "checkboxChecked": r.checkbox_checked }),
+                )
+            })
+        }
         "dialog.openDialog" => run(call, |owner, options| {
             let spec = FileDialogSpec::from_json(options);
             native::open_dialog(owner, &spec).map(|chosen| match chosen {

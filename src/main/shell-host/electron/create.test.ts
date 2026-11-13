@@ -87,7 +87,10 @@ interface Call {
 function fakeShell(shell: ShellClient) {
 	const calls: Call[] = [];
 	const events: Array<{ name: string; data: Record<string, unknown>; bin?: Buffer }> = [];
-	const answers = new Map<string, (params: Record<string, unknown>, bin?: Buffer) => unknown>();
+	const answers = new Map<
+		string,
+		(params: Record<string, unknown>, bin: Buffer | undefined, signal: AbortSignal) => unknown
+	>();
 	const methods = [
 		"app.init",
 		"app.setAsDefaultProtocolClient",
@@ -120,9 +123,9 @@ function fakeShell(shell: ShellClient) {
 	];
 	answers.set("shortcut.register", () => ({ registered: true }));
 	for (const method of methods) {
-		shell.handle(method, (params: Record<string, unknown>, { bin }) => {
+		shell.handle(method, (params: Record<string, unknown>, { bin, signal }) => {
 			calls.push({ method, params, bin });
-			const answer = answers.get(method)?.(params, bin);
+			const answer = answers.get(method)?.(params, bin, signal);
 			return answer instanceof Answered ? answer : (answer ?? {});
 		});
 	}
@@ -1268,6 +1271,44 @@ describe("menus, dialogs and the small modules", () => {
 		expect(await clipboard.readTextAsync()).toBe("pasted");
 		fake.answers.set("shell.openPath", () => ({ error: "" }));
 		expect(await shellModule.openPath("C:/x")).toBe("");
+	});
+
+	it("a message box whose signal aborts is closed by the shell and resolves to the shell's cancelled answer", async () => {
+		const { dialog, BrowserWindow } = electron;
+		const win = new BrowserWindow({});
+		const closed: unknown[] = [];
+		// The shell's side: the box stays up until Node cancels it, then answers as the Esc key would (cancelId 1).
+		fake.answers.set("dialog.messageBox", (params, _bin, signal) => {
+			const { promise, resolve } = Promise.withResolvers<{ response: number; checkboxChecked: boolean }>();
+			signal.addEventListener("abort", () => {
+				const { options } = params;
+				closed.push(options && typeof options === "object" && "message" in options ? options.message : null);
+				resolve({ response: 1, checkboxChecked: false });
+			});
+			return promise;
+		});
+		// The control socket's confirm card (ipc.ts `confirmOutside`): its timeout is this signal.
+		const timeout = new AbortController();
+		const card = dialog.showMessageBox(win, {
+			type: "question",
+			message: "Allow?",
+			buttons: ["Allow", "Don't allow"],
+			defaultId: 1,
+			cancelId: 1,
+			signal: timeout.signal,
+		});
+		await settle();
+		expect(closed).toEqual([]);
+		timeout.abort();
+		expect(await card).toEqual({ response: 1, checkboxChecked: false });
+		expect(closed).toEqual(["Allow?"]);
+		// The signal is Node's own: the shell gets the options without it.
+		expect(fake.callsOf("dialog.messageBox")[0]?.params.options).not.toHaveProperty("signal");
+
+		// A signal that has already fired still reaches the shell, which answers the cancelled box at once.
+		const late = dialog.showMessageBox(win, { message: "Again?", buttons: ["OK"], signal: AbortSignal.abort() });
+		expect(await late).toEqual({ response: 1, checkboxChecked: false });
+		expect(closed).toEqual(["Allow?", "Again?"]);
 	});
 
 	it("mirrors screen, theme and power state from the facts and the shell's pushes", async () => {
