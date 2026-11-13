@@ -135,9 +135,10 @@ impl Pass {
         };
         match waiting {
             Ok(sender) => {
+                // However the pass ends (done, or dropped: a watch that stopped aborts its timer mid-scan, a request
+                // is cancelled), the next caller runs a new one and whoever waited on this one goes on.
+                let _ended = Ended { pass: self, sender };
                 pass().await;
-                *self.0.lock().unwrap_or_else(|p| p.into_inner()) = None;
-                let _ = sender.send(true);
             }
             Err(mut receiver) => {
                 let _ = receiver.wait_for(|done| *done).await;
@@ -150,6 +151,19 @@ impl Pass {
         if let Some(mut receiver) = waiting {
             let _ = receiver.wait_for(|done| *done).await;
         }
+    }
+}
+
+/// Ends a running pass when dropped: its slot is free again and its waiters are told.
+struct Ended<'a> {
+    pass: &'a Pass,
+    sender: watch::Sender<bool>,
+}
+
+impl Drop for Ended<'_> {
+    fn drop(&mut self) {
+        *self.pass.0.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        let _ = self.sender.send(true);
     }
 }
 
@@ -1539,6 +1553,44 @@ pub fn register(registry: &mut Registry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_pass_dropped_midway_lets_the_next_one_run() {
+        let pass = Arc::new(Pass::default());
+        let (started, began) = tokio::sync::oneshot::channel::<()>();
+        let running = Arc::clone(&pass);
+        let aborted = tokio::spawn(async move {
+            running
+                .run(|| async move {
+                    let _ = started.send(());
+                    std::future::pending::<()>().await;
+                })
+                .await;
+        });
+        began.await.unwrap();
+        let waiter = {
+            let pass = Arc::clone(&pass);
+            tokio::spawn(async move { pass.wait().await })
+        };
+        aborted.abort();
+        let _ = aborted.await;
+        tokio::time::timeout(Duration::from_secs(5), waiter)
+            .await
+            .expect("a waiter on the dropped pass goes on")
+            .unwrap();
+        let mut ran = false;
+        let flag = &mut ran;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            pass.run(move || async move { *flag = true }),
+        )
+        .await
+        .expect("the next pass runs");
+        assert!(
+            ran,
+            "the next pass ran its own work, not the dropped one's wait"
+        );
+    }
 
     #[test]
     fn phones_and_tablets_are_never_probed() {
