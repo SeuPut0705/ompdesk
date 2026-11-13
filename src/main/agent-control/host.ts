@@ -214,6 +214,8 @@ export interface AgentControlHostDeps {
 	mailOutboxFile?: string | null;
 	/** Where the bytes of the attachments an outbox entry still owes are kept, by content; absent: in memory only. */
 	attachmentsDir?: string | null;
+	/** The checks hub `ompdesk_checks` asks; absent: the tool says check control is unavailable. */
+	checks?: { id(): Promise<number> };
 	/** This computer's upload folder (`web/uploads.ts`): where a file sent to a session on this computer lands. */
 	uploads?: Pick<UploadStore, "store">;
 	/** Where sent messages wait for their receiver's journal (`send-outbox`); absent: kept in memory only. */
@@ -339,6 +341,7 @@ export class AgentControlRuntime {
 		this.control = new AgentControl(this.#host(), {
 			tuning: deps.tuning,
 			runtime: deps.runtimeTuning,
+			checks: deps.checks,
 			files: {
 				fates: deps.sessionFatesFile ?? null,
 				cleanups: deps.pendingCleanupsFile ?? null,

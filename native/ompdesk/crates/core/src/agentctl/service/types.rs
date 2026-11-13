@@ -1393,6 +1393,31 @@ pub struct AppArgs {
     pub args: Option<Map<String, Value>>,
 }
 
+/// `ompdesk_checks`: one `op` and the fields that op takes (main's schema refuses the rest).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ChecksArgs {
+    /// `start`, `wait` or `status`.
+    pub op: String,
+    #[serde(default)]
+    pub purpose: Option<crate::checks::contract::Purpose>,
+    /// start: `changed` or `full`. status: `mine`, `repo` or `all`.
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub rerun: Option<crate::checks::contract::Rerun>,
+    #[serde(default)]
+    pub repo: Option<String>,
+    #[serde(default, rename = "ref")]
+    pub git_ref: Option<String>,
+    /// wait: the run a start answered.
+    #[serde(default)]
+    pub run: Option<String>,
+    #[serde(default)]
+    pub until: Option<crate::checks::contract::Until>,
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+}
+
 /// The control tools' names (`AGENT_CONTROL_TOOLS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -1412,10 +1437,11 @@ pub enum Tool {
     AppList,
     App,
     Report,
+    Checks,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 16] = [
+    pub const ALL: [Tool; 17] = [
         Tool::List,
         Tool::Open,
         Tool::Send,
@@ -1432,6 +1458,7 @@ impl Tool {
         Tool::AppList,
         Tool::App,
         Tool::Report,
+        Tool::Checks,
     ];
 
     pub fn name(self) -> &'static str {
@@ -1452,6 +1479,7 @@ impl Tool {
             Tool::AppList => "ompdesk_app_list",
             Tool::App => "ompdesk_app",
             Tool::Report => "ompdesk_report",
+            Tool::Checks => crate::checks::contract::TOOL,
         }
     }
 

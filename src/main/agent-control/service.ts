@@ -570,6 +570,8 @@ export interface AgentControlOptions {
 	files?: AgentControlFiles;
 	tuning?: Tuning;
 	runtime?: RuntimeTuning;
+	/** The checks hub `ompdesk_checks` asks (`src/main/checks/client.ts`); without one the tool says it is unavailable. */
+	checks?: { id(): Promise<number> };
 }
 
 /** The longest a call may wait: a tool can wait on a card, a turn or a link for as long as it takes. */
@@ -891,6 +893,8 @@ export class AgentControl {
 		const files = this.#options.files ?? {};
 		const file = (path: string | null | undefined) => (path === undefined ? undefined : { file: path });
 		const sweepMs = host.runtime?.sweepMs;
+		// A hub that cannot open (not built in this core, a core that refuses it) leaves the tool saying it is unavailable.
+		const checks = await this.#options.checks?.id().catch(() => undefined);
 		await core().call("agentControl.open", {
 			port: this.#port.id,
 			...this.#port.first(),
@@ -911,6 +915,7 @@ export class AgentControl {
 				appPorts: host.appPorts !== undefined,
 			},
 			tuning: this.#options.tuning ?? {},
+			...(checks === undefined ? {} : { checks }),
 			...(host.runtime
 				? { runtime: { ...(sweepMs === undefined ? {} : { sweepMs }), ...this.#options.runtime } }
 				: {}),
