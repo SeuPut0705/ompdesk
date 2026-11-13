@@ -186,6 +186,17 @@
 			],
 			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/stock-lane-verify/SKILL.md"
+		},
+		{
+			"id": "checks-queue",
+			"title": "Merge queue: only a commit tested green lands, in order, never forced, and a red batch is bisected",
+			"kind": "tla",
+			"dir": "checks-queue/tla",
+			"spec": "ChecksQueue.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [],
+			"syncCommit": null
 		}
 	]
 }

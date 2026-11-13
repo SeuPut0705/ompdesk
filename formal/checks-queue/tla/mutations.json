@@ -1,0 +1,119 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 2,
+		"timeoutSec": 900,
+		"deadlock": false
+	},
+	"properties": [
+		"TypeOK",
+		"OnlyTestedLands",
+		"OnlyTestedRedFails",
+		"NoBadOnMain",
+		"LandsOnce",
+		"LandInOrder",
+		"WithdrawnNeverLands",
+		"LandedIsOnMain",
+		"NeverForced",
+		"Drains"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: every behaviour change that breaks it also breaks a property above it (the trial's commit no longer being the tip plus its prefix is no-abort-on-remove)."
+	},
+	"mutations": [
+		{
+			"name": "take-any-run-s-result",
+			"why": "The result of a check run is taken for the trial under way without comparing the commit it ran on: the late green of a trial dropped at a base move stands for a commit never tested.",
+			"search": "IF trial.stage = \"test\" /\\ trial.commit = c",
+			"replace": "IF trial.stage = \"test\"",
+			"breaks": "OnlyTestedLands",
+			"isolate": true
+		},
+		{
+			"name": "memo-not-keyed-by-the-base",
+			"why": "What the queue learned is kept when it reads a new base tip, as if a verdict held for the entries whatever they were built on.",
+			"search": "/\\ tip' = main\n    /\\ memo' = {}",
+			"replace": "/\\ tip' = main\n    /\\ memo' = {<<main, m[2], m[3]>> : m \\in memo}",
+			"breaks": "OnlyTestedLands",
+			"isolate": true
+		},
+		{
+			"name": "no-abort-on-remove",
+			"why": "An entry withdrawn out of the commit under test leaves the trial running: its result is then recorded for the entries that remain, which were never built together.",
+			"search": "IF trial.stage = \"test\" /\\ Index(flight, e) <= trial.len THEN Idle ELSE trial",
+			"replace": "trial",
+			"breaks": [
+				"OnlyTestedLands",
+				"OnlyTestedRedFails"
+			],
+			"isolate": true
+		},
+		{
+			"name": "carry-memo-past-an-outside-push",
+			"why": "After a landing the queue carries what it knew onto the new tip although someone pushed on top of its commit meanwhile: an entry is failed on a tip it was never tested on.",
+			"search": "IF main = trial.commit",
+			"replace": "IF TRUE",
+			"breaks": "OnlyTestedRedFails",
+			"isolate": true
+		},
+		{
+			"name": "land-what-is-not-known-red",
+			"why": "Bisection lands everything before the first prefix known red instead of the longest prefix known green: an untested prefix reaches the base.",
+			"search": "{k \\in 1..n : Known(k, \"green\")}",
+			"replace": "{k \\in 1..n : k < r /\\ r <= n}",
+			"breaks": "NoBadOnMain",
+			"isolate": true
+		},
+		{
+			"name": "base-read-while-landing",
+			"why": "A new base tip is taken while the queue's own push is under way: the queue forgets the push and builds its landed entries again on top of themselves.",
+			"search": "/\\ trial.stage # \"land\"",
+			"replace": "/\\ TRUE",
+			"breaks": "LandsOnce",
+			"isolate": true
+		},
+		{
+			"name": "newest-first-batch",
+			"why": "A batch takes the newest entries of its goal instead of the oldest, so a later branch lands before an earlier one.",
+			"search": "take == Prefix(group, BatchSize)",
+			"replace": "take == SubSeq(group, Len(group) - Least(BatchSize, Len(group)) + 1, Len(group))",
+			"breaks": "LandInOrder",
+			"config": "MC_order.cfg",
+			"isolate": true
+		},
+		{
+			"name": "withdraw-while-landing",
+			"why": "An entry is withdrawn while the commit that holds it is being pushed: the queue calls it removed and it is on the base.",
+			"search": "/\\ ~Landing(e)",
+			"replace": "/\\ TRUE",
+			"breaks": "WithdrawnNeverLands",
+			"isolate": true
+		},
+		{
+			"name": "landed-without-reading-the-base",
+			"why": "The queue calls a prefix landed without the base holding its commit (a push that was refused or never ran).",
+			"search": "trial.stage = \"land\" /\\ IsPrefix(trial.commit, main)",
+			"replace": "trial.stage = \"land\"",
+			"breaks": "LandedIsOnMain",
+			"isolate": true
+		},
+		{
+			"name": "forced-push",
+			"why": "The push no longer has to be a fast-forward: a commit built on an old tip replaces what others pushed since.",
+			"search": "/\\ IsPrefix(main, trial.commit) /\\ main # trial.commit",
+			"replace": "/\\ main # trial.commit",
+			"breaks": "NeverForced",
+			"isolate": true
+		},
+		{
+			"name": "drop-fairness",
+			"why": "Nothing makes the queue take its next step, so entries may wait for ever.",
+			"search": " /\\ WF_vars(QueueNext)",
+			"replace": "",
+			"breaks": "Drains",
+			"config": "MC_live.cfg",
+			"deadlock": false
+		}
+	]
+}
