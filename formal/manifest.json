@@ -207,6 +207,27 @@
 				"resources/gui-bridge/agent-inbox-context.ts:48-84"
 			],
 			"syncCommit": null
+		},
+		{
+			"id": "agent-inbox-native-hop",
+			"title": "Native source and receiver responsibility, ordering and provider custody",
+			"kind": "tla",
+			"dir": "agent-inbox/tla",
+			"spec": "InboxHop.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_source.rs:211-270",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_source.rs:336-487",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_attachments.rs:22-126",
+				"native/ompdesk/crates/core/src/agentctl/journal/inbox_ledger.rs:238-326",
+				"native/ompdesk/crates/core/src/agentctl/journal/inbox_ledger.rs:328-377",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_delivery.rs:178-267",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_delivery.rs:269-400",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox.rs:48-59",
+				"resources/gui-bridge/agent-inbox-engine.ts:500-514"
+			],
+			"syncCommit": null
 		}
 	]
 }
