@@ -28,6 +28,14 @@ describe("layoutsToSave", () => {
 		expect(layoutsToSave({ quitApproved: false, live: [layout("/a")], stored })).toEqual([layout("/a")]);
 	});
 
+	it("forgets the closed session when its live window has an empty committed layout", () => {
+		const stored = [layout("/closed-session")];
+		const saved: PersistedTabLayout[] | null = Reflect.apply(layoutsToSave, undefined, [
+			{ quitApproved: false, live: [], liveWindowCount: 1, stored },
+		]);
+		expect(saved).toEqual([]);
+	});
+
 	it("writes nothing during an approved quit, whatever the teardown leaves of the windows", () => {
 		const stored = [layout("/a", "/remote"), layout("/b")];
 		// Tabs released one by one, then each window closing: every step would otherwise rewrite the session smaller.
