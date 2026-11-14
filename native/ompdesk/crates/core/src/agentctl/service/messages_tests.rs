@@ -229,7 +229,26 @@ async fn a_report_reaches_the_opener_once_and_says_what_to_do_next() {
         "{}",
         again.text
     );
-    assert_eq!(asked_with(&asked, "inbox").len(), 1);
+    let transfers = asked_with(&asked, "inbox");
+    let mut original: Option<&Value> = None;
+    for transfer in &transfers {
+        for candidate in transfer["transfer"]["entries"].as_array().unwrap() {
+            assert_eq!(candidate["entry"]["kind"], "report");
+            assert_eq!(candidate["entry"]["deliveryId"], entry["deliveryId"]);
+            if let Some(first) = original {
+                assert_eq!(candidate["logical"], first["logical"]);
+            } else {
+                original = Some(candidate);
+            }
+        }
+    }
+    let original = original.expect("the report must cross the native receiving hop");
+    for attempt in asked_with(&asked, "deliverInbox") {
+        for provider_entry in attempt["request"]["entries"].as_array().unwrap() {
+            assert_eq!(provider_entry["kind"], "report");
+            assert_eq!(provider_entry["deliveryId"], entry["deliveryId"]);
+        }
+    }
     let receiver = serde_json::from_value(delivery["request"]["receiver"].clone()).unwrap();
     let (_, pending) = control
         .receiving_inbox
@@ -242,6 +261,15 @@ async fn a_report_reaches_the_opener_once_and_says_what_to_do_next() {
     assert_eq!(
         pending[0].entry.delivery_id,
         entry["deliveryId"].as_str().unwrap()
+    );
+    assert_eq!(pending[0].dispatch, original["dispatch"].as_i64());
+    assert_eq!(
+        serde_json::to_value(&pending[0].logical).unwrap(),
+        original["logical"]
+    );
+    assert_eq!(
+        serde_json::to_value(&pending[0].entry.payload).unwrap()["content"],
+        entry["content"]
     );
     // A session nobody opened has no one to report to.
     let alone = control
