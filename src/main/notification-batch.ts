@@ -10,7 +10,7 @@
  */
 import type { IpcNotifyKind } from "../shared/ipc-types";
 import type { UiLanguage } from "../shared/ui-language";
-import { MAIN_TEXT } from "./i18n-text";
+import { type MainTextKey, mainTemplate } from "./shell-host/modules/boot";
 
 export type NoticeKind = IpcNotifyKind;
 
@@ -71,8 +71,8 @@ interface Batch {
 	timer: unknown;
 }
 
-function text(key: keyof typeof MAIN_TEXT, language: UiLanguage, params: Record<string, string | number>): string {
-	return MAIN_TEXT[key][language].replace(/\{(\w+)\}/g, (match, name: string) =>
+function text(key: MainTextKey, language: UiLanguage, params: Record<string, string | number>): string {
+	return mainTemplate(key, language).replace(/\{(\w+)\}/g, (match, name: string) =>
 		name in params ? String(params[name]) : match,
 	);
 }

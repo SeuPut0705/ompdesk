@@ -12,7 +12,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, clipboard, dialog, type Notification, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, Notification, shell } from "electron";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
@@ -45,6 +45,7 @@ import {
 	DEFAULT_BROWSER_PREF,
 	isDefaultBrowserPref,
 } from "../shared/default-browser";
+import { CLOSE_TO_TRAY_PREF, closeToTrayEnabled } from "../shared/desktop-prefs";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -117,7 +118,6 @@ import { LOCAL_ENGINE_DETECT_PREF } from "../shared/local-engines";
 import { isMacPermission } from "../shared/mac-permissions";
 import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-accounts";
 import { type ModelSetupRequest, parseResearchPick } from "../shared/model-setup";
-import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type {
 	AgentMessage,
@@ -140,8 +140,6 @@ import {
 } from "./agent-browsers";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import type { AnswerStep } from "./agent-control/target-answer";
-import { appNotification } from "./app-icon";
-import { quitApproved, requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
 import { routeHostAutopilotNotice } from "./autopilot-notice-route";
 import {
@@ -159,8 +157,6 @@ import { DesktopSlotHost } from "./desktop-slot-host";
 import { savedWorktreesForSpawn } from "./disk/saved-worktrees";
 import { openInExternalEditor } from "./editor";
 import { isOpenableExternalUrl } from "./external-url";
-import { getMainLanguage, mainT } from "./i18n";
-import type { MainTextKey } from "./i18n-text";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { readOriginFacts, readProjectOrigin } from "./local/git/origin";
 import { WORKTREE_PREPARE_BUDGET_MS } from "./local/git/worktree-seed";
@@ -169,16 +165,12 @@ import type { LogWatcher } from "./log-watcher";
 import type { MacPermissions } from "./mac-permissions";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
 import type { MailAccounts } from "./mail-accounts";
-import type { MediaStreams } from "./media-stream";
-import { createMenu } from "./menu";
+
 import { modelsPath } from "./models-config";
 import { type NoticeKind, NotificationBatcher, type ShownNotice } from "./notification-batch";
 import { createNotifyHandler } from "./notify-triage";
 import { systemOmp } from "./omp-runtime";
-import { openLocalPath } from "./open-path";
-import { registerPreviewHost } from "./preview/host";
-import { createTabCheck } from "./preview/preview-check";
-import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
+import { VISUALIZE_TOOL } from "./preview/definition";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
@@ -194,29 +186,33 @@ import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, onSessionDeleted, recordSessionDelete, renameSession } from "./session-mutations";
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
+import { bootModule, deviceLanguage, getMainLanguage, type MainTextKey, mainT } from "./shell-host/modules/boot";
+import { quitApproved, requestQuit } from "./shell-host/modules/chrome-quit";
+import { setTrayState } from "./shell-host/modules/chrome-tray";
+import { type SpawnWindow, setCloseToTray, type WindowManager } from "./shell-host/modules/chrome-window";
+import { registerPreview } from "./shell-host/modules/preview";
+import { desktopServices } from "./shell-host/modules/services";
+import { appVersion } from "./shell-host/modules/updater";
+import { readClipboardText } from "./shell-host/shell-calls";
 import { updateSidebarPrefs } from "./sidebar-prefs";
 import type { SidebarProjects } from "./sidebar-projects";
-import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
 import { markStartupFromRenderer } from "./startup-timing";
 import { stockHelperRequest } from "./stock-helper";
+import { shellEngine } from "./system-version";
 import { closeWindowTab, type TabReleaseDeps } from "./tab-release";
 import { type SessionFolderState, type SpawnTabRemote, sessionFolderState, spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
-import { setTrayState } from "./tray";
 import { aggregateProgress, aggregateTrayStatus } from "./tray-labels";
 import { personsPrompt, type RelaunchContinuation, trackMove } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
-import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 import { type FileEditReports, parseFileEditReport } from "./web/file-edit-reports";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
-import { writeDialogPreload } from "./web/preview-dialog";
 import { attachHere, type UploadStore } from "./web/uploads";
-import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 import {
 	FS_BINARY_LOCAL_MAX_BYTES,
@@ -292,8 +288,12 @@ export interface IpcDeps {
 	worktreeLifecycle: WorktreeLifecycle;
 	/** The questions it asks in the windows. */
 	worktreePrompts: WorktreePrompts;
-	/** `omp-media://` URLs handed to players (registered as a protocol in index.ts). */
-	mediaStreams: MediaStreams;
+	/** `omp-media://` URLs handed to players: the shell serves them (`boot.mediaOpen`, PROTOCOL.md §15.9). */
+	media: {
+		open(path: string, mime: string, owner: number): Promise<string>;
+		release(url: string, owner: number): void;
+		releaseOwner(owner: number): void;
+	};
 	/**
 	 * Where a file attached to a prompt of this computer's own tab lands when it has no path here (pasted, dragged out
 	 * of another app): the phones' upload folder (web/uploads.ts), its limits and its 24-hour lifetime.
@@ -452,7 +452,7 @@ const notifyBatchedWindows = new Set<number>();
 /** One OS notification; one about a tab switches to it on click. */
 function showNotification(windowId: number, notice: ShownNotice): { close: () => void } {
 	const win = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.id === windowId);
-	const notification = appNotification({ title: notice.title, body: notice.body });
+	const notification = new Notification({ title: notice.title, body: notice.body });
 	const { tabId } = notice;
 	if (win && tabId) {
 		// Held until clicked or dismissed: a collected Notification drops its click.
@@ -489,39 +489,30 @@ const progressStates = new Map<number, RunProgressState>();
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const { ipc } = deps;
 	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices);
-	registerSshToolsIpc(ipc);
-	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
-	let dialogPreload: string | null = null;
-	const visualPages = registerPreviewHost(
-		ipc,
-		(senderId, tabId) => {
-			const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
-			const target = win ? deps.sidecarPool.tabTarget(win, tabId) : null;
-			// A named tab this window does not own counts as remote: agent browsing refuses it.
-			return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
+	registerSshToolsIpc(ipc, {
+		userData: app.getPath("userData"),
+		sendToWindows: (channel, data) => {
+			for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(channel, data);
 		},
-		visuals,
-		{
-			// A paired phone's preview (main/web/preview-stream.ts): its tab may be a paired host's, like a window's.
-			isRemote: (win, tabId) => {
-				const target = deps.sidecarPool.tabTarget(win, tabId);
-				return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
-			},
-			hostScale: () => screen.getPrimaryDisplay().scaleFactor,
-			preloadPath: () => (dialogPreload ??= writeDialogPreload(app.getPath("userData"))),
-		},
-		// Agent browsing on a paired host's tab: its relay is on the host's loopback, so the frames cross the link.
-		(win, tabId) => {
-			const target = deps.sidecarPool.tabTarget(win, tabId);
-			return target?.device ? deps.remoteDevices.previewRelay(target.device, target.tabId) : null;
-		},
-	);
+		onQuit: dispose => app.on("will-quit", dispose),
+	});
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();
 	/** The same for a window's model setup research. */
 	const remoteModelSetups = new Map<number, string>();
 	const { sidecarPool, sessionIndex, logWatcher, windowManager, remoteDevices } = deps;
 	const prefsStore = new SafeStore<PrefsSchema>({ name: "prefs" });
+	const preview = registerPreview(ipc, {
+		tabTarget: (win, tabId) => sidecarPool.tabTarget(win, tabId),
+		// Agent browsing on a paired host's tab: its relay is on the host's loopback, so the frames cross the link.
+		tunnel: (win, tabId) => {
+			const target = sidecarPool.tabTarget(win, tabId);
+			return target?.device ? remoteDevices.previewRelay(target.device, target.tabId) : null;
+		},
+		judgeAssist: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
+		activeTab: win => sidecarPool.activeTabForWindow(win),
+		appWindowId: win => (win instanceof BrowserWindow ? win.id : undefined),
+	});
 	const remoteMachine = { request: remoteDevices.request.bind(remoteDevices), statsText: mainT };
 	/**
 	 * Delete a stored session (the sidebar, `/delete`, the control tools): the tab holding it closes. On this computer
@@ -614,25 +605,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				reply("gui_visualize shows visuals only for tabs on the user's own computer.", true);
 				return;
 			}
-			const context = {
-				tabId: tab.tabId,
-				cwd: sidecar.cwd,
-				store: visuals,
-				pages: visualPages,
-				reveal: (visualId: string) => {
-					if (!tab.win.isDestroyed())
-						tab.win.webContents.send(PREVIEW_VISUAL, { tabId: tab.tabId, visualId } satisfies PreviewVisualEvent);
-				},
-				// The Preview check judges the page through this tab's own omp, only while the judgeAssist pref is on.
-				check: createTabCheck({
-					enabled: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
-					// The renderer opens the Preview only for the tab in front (stores/preview-visuals.ts).
-					inFront: () => sidecarPool.activeTabForWindow(tab.win) === tab.tabId,
-					pages: visualPages,
-					rpc: sidecar.rpcClient,
-				}),
-			};
-			void runVisualizeTool(context, request.arguments).then(result => reply(result.text, result.isError));
+			void preview
+				.visualize({ tabId: tab.tabId, cwd: sidecar.cwd, win: tab.win, rpc: sidecar.rpcClient }, request.arguments)
+				.then(
+					result => reply(result.text, result.isError),
+					error => reply(`gui_visualize failed: ${error instanceof Error ? error.message : String(error)}`, true),
+				);
 			return;
 		}
 		if (isAgentControlTool(request.toolName)) {
@@ -650,7 +628,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return;
 		}
 		const result = executeGuiHostTool(request.toolName, request.arguments);
-		reply(result ?? `Host tool "${request.toolName}" is not registered`, result === undefined);
+		const settle = (text: string | undefined) =>
+			reply(text ?? `Host tool "${request.toolName}" is not registered`, text === undefined);
+		// The clipboard is read from the shell's process: that one answers later.
+		if (result instanceof Promise)
+			void result.then(settle, (error: unknown) =>
+				reply(error instanceof Error ? error.message : String(error), true),
+			);
+		else settle(result);
 	};
 	// A paired host took a host tool result: a control call's record may now be forgotten in time (call-journal.ts).
 	sidecarPool.hostReplyDelivered = id => agentControl.acknowledge(id);
@@ -1201,7 +1186,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				webPush: (tabId, event) => deps.webTabNotice.current?.(tabId, event),
 				banner: event => {
 					if (prefsStore.get("notifications") !== false)
-						appNotification({ title: event.title, body: event.body }).show();
+						new Notification({ title: event.title, body: event.body }).show();
 				},
 			},
 			host,
@@ -1468,16 +1453,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const who = ko
 				? `외부 프로세스: ${caller.name} (자체 표기)`
 				: `Outside process: ${caller.name} (self-declared)`;
-			const { response } = await dialog.showMessageBox(native, {
-				type: "question",
-				title,
-				message: title,
-				detail: `${who}\n\n${message}`,
-				buttons: ko ? ["허용", "허용 안 함"] : ["Allow", "Don't allow"],
-				defaultId: 1,
-				cancelId: 1,
-				signal: AbortSignal.timeout(CARD_TIMEOUT_MS),
-			});
+			const response = await desktopServices.confirm(
+				native.id,
+				{
+					type: "question",
+					title,
+					message: title,
+					detail: `${who}\n\n${message}`,
+					buttons: ko ? ["허용", "허용 안 함"] : ["Allow", "Don't allow"],
+					defaultId: 1,
+					cancelId: 1,
+				},
+				CARD_TIMEOUT_MS,
+			);
 			return response === 0;
 		},
 	});
@@ -1635,7 +1623,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// sidecar cannot be created.
 	// F-OWN: when the session is already attached to a tab, focus the owner
 	// window (win.show()+win.focus() — the codebase's focus pattern, see
-	// deep-link.ts/tray.ts) instead of spawning a second sidecar for the same
+	// the shell's chrome module) instead of spawning a second sidecar for the same
 	// file; resolves true because the session ends up foregrounded either way.
 	// The new window's tab starts on the session file itself (spawnWindow passes it to the pool, `--session`).
 	ipc.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (caller, payload: IpcSessionOpenNewWindowPayload) => {
@@ -1680,7 +1668,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				"session_folder_missing",
 				`The folder this session belongs in no longer exists: ${folder.folder}`,
 			);
-		return deps.spawnWindow(folder?.folder ?? cwd, sessionPath, kind, device) !== null;
+		return (await deps.spawnWindow(folder?.folder ?? cwd, sessionPath, kind, device)) !== null;
 	});
 
 	// A desktop window starts its tab on its session (spawnWindow), so it has nothing pending; a paired web page
@@ -1919,7 +1907,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		arch: process.arch,
 		deviceLanguage: deviceLanguage() ?? null,
 		osRelease: os.release(),
-		electron: process.versions.electron ?? "?",
+		electron: shellEngine(),
 		chrome: process.versions.chrome ?? "?",
 		node: process.versions.node ?? "?",
 	}));
@@ -1934,7 +1922,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		async (caller, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
 			const local = await existingLocalPath(deps, caller, target, tabId);
 			if (!("path" in local)) return local;
-			await openLocalPath(local.path, shell);
+			await desktopServices.openOrReveal(local.path);
 			return { ok: true };
 		},
 	);
@@ -1966,23 +1954,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.SYSTEM_SAVE_IMAGE, async (caller, defaultName: string, mimeType: string, data: string) => {
 		const win = caller.browserWindow;
 		if (!win) return { saved: false };
-		const extension =
-			mimeType
-				.split("/")[1]
-				?.split(/[+;]/)[0]
-				?.replace("jpeg", "jpg")
-				.replace(/[^a-z0-9]/gi, "") || "png";
-		const result = await dialog.showSaveDialog(win, {
-			defaultPath: path.basename(defaultName) || `image.${extension}`,
-			filters: [{ name: "Image", extensions: [extension] }],
-		});
-		if (result.canceled || !result.filePath) return { saved: false };
-		try {
-			await fsp.writeFile(result.filePath, Buffer.from(data, "base64"));
-			return { saved: true };
-		} catch (error) {
-			return { saved: false, error: error instanceof Error ? error.message : String(error) };
-		}
+		return desktopServices.saveImage(win.id, defaultName, mimeType, Buffer.from(data, "base64"));
 	});
 
 	ipc.handle(
@@ -2159,11 +2131,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncJudgeAssist();
 			remoteDevices.hostJudgeAssistChanged();
 		}
-		if (payload.key === "language" && isUiLanguage(payload.value)) {
-			createMenu(windowManager, deps.spawnWindow);
+		if (payload.key === "language") {
+			void bootModule()
+				.call("language", { language: isUiLanguage(payload.value) ? payload.value : null })
+				.catch((error: unknown) => console.warn(`[i18n] boot.language: ${String(error)}`));
 		}
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
+		// The shell decides what closing the last window does (chrome window area): it reads the setting from here.
+		if (payload.key === CLOSE_TO_TRAY_PREF) setCloseToTray(closeToTrayEnabled(payload.value));
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});
@@ -2436,9 +2412,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			await fsp.mkdir(path.dirname(file), { recursive: true });
 			await fsp.writeFile(file, "# Custom model providers.\nproviders: {}\n", "utf8");
 		}
-		const openError = await shell.openPath(file);
-		if (openError) shell.showItemInFolder(file);
-		return { path: file, opened: !openError };
+		// models.yml is no launcher: `openOrReveal` opens it, or reveals it when no app takes it.
+		const opened = (await desktopServices.openOrReveal(file)) === "opened";
+		return { path: file, opened };
 	});
 
 	// Workspace filesystem — node:fs against the tab's cwd (src/main/workspace-fs.ts);
@@ -2725,18 +2701,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				streamOwners.add(owner);
 				caller.sender.once("destroyed", () => {
 					streamOwners.delete(owner);
-					deps.mediaStreams.releaseOwner(owner);
+					deps.media.releaseOwner(owner);
 				});
 			}
 			return {
 				ok: true,
-				url: deps.mediaStreams.open(media.abs, media.mime, owner),
+				url: await deps.media.open(media.abs, media.mime, owner),
 				mime: media.mime,
 				size: media.size,
 			};
 		},
 	);
-	ipc.on(IPC_COMMANDS.FS_MEDIA_RELEASE, (caller, url: unknown) => deps.mediaStreams.release(url, caller.sender.id));
+	ipc.on(IPC_COMMANDS.FS_MEDIA_RELEASE, (caller, url: unknown) => {
+		if (typeof url === "string") deps.media.release(url, caller.sender.id);
+	});
 
 	ipc.handle(
 		IPC_COMMANDS.FS_READ_PLAN,
@@ -2840,7 +2818,7 @@ function textToolResult(text: string): { content: Array<{ type: "text"; text: st
 }
 
 /** Execute GUI-registered host tools. Returns undefined for unknown tools. */
-function executeGuiHostTool(name: string, args: Record<string, unknown>): string | undefined {
+function executeGuiHostTool(name: string, args: Record<string, unknown>): string | undefined | Promise<string> {
 	switch (name) {
 		case "gui_open_url": {
 			const url = typeof args.url === "string" ? args.url : "";
@@ -2853,11 +2831,11 @@ function executeGuiHostTool(name: string, args: Record<string, unknown>): string
 		case "gui_notify": {
 			const title = typeof args.title === "string" ? args.title : "Notification";
 			const body = typeof args.body === "string" ? args.body : "";
-			appNotification({ title, body }).show();
+			new Notification({ title, body }).show();
 			return "Notification shown";
 		}
 		case "gui_clipboard_read": {
-			return clipboard.readText();
+			return readClipboardText();
 		}
 		default:
 			return undefined;

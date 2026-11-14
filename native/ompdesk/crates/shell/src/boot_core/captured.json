@@ -1,0 +1,3798 @@
+{
+	"capturedFrom": "127a035d4cc8f93e21c1f0ddd6da3c74f27cfacf",
+	"mediaSize": 1000,
+	"fill": [
+		{
+			"template": "plain",
+			"params": null,
+			"out": "plain"
+		},
+		{
+			"template": "{name} and {name}",
+			"params": {
+				"name": "x"
+			},
+			"out": "x and x"
+		},
+		{
+			"template": "{missing} stays",
+			"params": {
+				"other": 1
+			},
+			"out": "{missing} stays"
+		},
+		{
+			"template": "{count} session{plural}",
+			"params": {
+				"count": 1
+			},
+			"out": "1 session"
+		},
+		{
+			"template": "{count} session{plural}",
+			"params": {
+				"count": 2
+			},
+			"out": "2 sessions"
+		},
+		{
+			"template": "{count} session{plural}",
+			"params": {
+				"count": "1,204"
+			},
+			"out": "1,204 sessions"
+		},
+		{
+			"template": "{count} session{plural}",
+			"params": {
+				"count": "1"
+			},
+			"out": "1 session"
+		},
+		{
+			"template": "{count} session{plural}",
+			"params": {
+				"count": "1+"
+			},
+			"out": "1+ sessions"
+		},
+		{
+			"template": "{count} session{plural}",
+			"params": {
+				"count": 0
+			},
+			"out": "0 sessions"
+		},
+		{
+			"template": "{count} session{plural}",
+			"params": {
+				"count": 2,
+				"plural": "!"
+			},
+			"out": "2 session!"
+		},
+		{
+			"template": "{tools} tool call{toolsPlural}",
+			"params": {
+				"tools": 1
+			},
+			"out": "1 tool call"
+		},
+		{
+			"template": "{tools} tool call{toolsPlural}",
+			"params": {
+				"tools": 3
+			},
+			"out": "3 tool calls"
+		},
+		{
+			"template": "{tools} tool call{toolsPlural}",
+			"params": {
+				"tools": " 1 "
+			},
+			"out": " 1  tool call"
+		},
+		{
+			"template": "{path}",
+			"params": {
+				"path": "C:\\a\\{name}\\$&"
+			},
+			"out": "C:\\a\\{name}\\$&"
+		},
+		{
+			"template": "{name}",
+			"params": {
+				"name": "$1 $& $$"
+			},
+			"out": "$1 $& $$"
+		},
+		{
+			"template": "{a}{b}{a}",
+			"params": {
+				"a": "1",
+				"b": "two"
+			},
+			"out": "1two1"
+		},
+		{
+			"template": "{n}",
+			"params": {
+				"n": "1 000"
+			},
+			"out": "1 000"
+		},
+		{
+			"template": "{n}x{nPlural}",
+			"params": {
+				"n": "1'000"
+			},
+			"out": "1'000xs"
+		},
+		{
+			"template": "{n}x{nPlural}",
+			"params": {
+				"n": "1 "
+			},
+			"out": "1 x"
+		},
+		{
+			"template": "{n}x{nPlural}",
+			"params": {
+				"n": "abc"
+			},
+			"out": "abcx{nPlural}"
+		},
+		{
+			"template": "{ spaced }",
+			"params": {
+				"spaced": "x"
+			},
+			"out": "{ spaced }"
+		},
+		{
+			"template": "{한}",
+			"params": {
+				"한": "x"
+			},
+			"out": "{한}"
+		},
+		{
+			"template": "{under_score}",
+			"params": {
+				"under_score": "ok"
+			},
+			"out": "ok"
+		},
+		{
+			"template": "{}",
+			"params": {
+				"": "empty"
+			},
+			"out": "{}"
+		},
+		{
+			"template": "{n}{nPlural}",
+			"params": {
+				"n": 1.5
+			},
+			"out": "1.5s"
+		},
+		{
+			"template": "{n}{nPlural}",
+			"params": {
+				"n": -1
+			},
+			"out": "-1{nPlural}"
+		}
+	],
+	"powercfg": {
+		"activeScheme": [
+			{
+				"input": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n",
+				"ok": "381b4222-f694-41f0-9685-ff5bb260df2e"
+			},
+			{
+				"input": "Power Scheme GUID: 381B4222-F694-41F0-9685-FF5BB260DF2E  (Balanced)",
+				"ok": "381b4222-f694-41f0-9685-ff5bb260df2e"
+			},
+			{
+				"input": "전원 구성표 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (균형 조정)",
+				"ok": "381b4222-f694-41f0-9685-ff5bb260df2e"
+			},
+			{
+				"input": "no guid here",
+				"error": "powercfg /getactivescheme: no scheme GUID in \"no guid here\""
+			},
+			{
+				"input": "",
+				"error": "powercfg /getactivescheme: no scheme GUID in \"\""
+			},
+			{
+				"input": "x 381b4222-f694-41f0-9685-ff5bb260df2",
+				"error": "powercfg /getactivescheme: no scheme GUID in \"x 381b4222-f694-41f0-9685-ff5bb260df2\""
+			}
+		],
+		"acValue": [
+			{
+				"input": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    Current AC Power Setting Index: 0x00000001\r\n    Current DC Power Setting Index: 0x00000002\r\n",
+				"ok": 1
+			},
+			{
+				"input": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    현재 AC 전원 설정 인덱스: 0x00000003\r\n    현재 DC 전원 설정 인덱스: 0x00000000\r\n",
+				"ok": 3
+			},
+			{
+				"input": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    Current AC Power Setting Index: 0x00000000\r\n    Current DC Power Setting Index: 0x00000001\r\n",
+				"ok": 0
+			},
+			{
+				"input": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    Current AC Power Setting Index: 0x000000ff\r\n    Current DC Power Setting Index: 0x00000000\r\n",
+				"ok": 255
+			},
+			{
+				"input": "nothing here",
+				"error": "powercfg /query: expected AC and DC values, found 0"
+			},
+			{
+				"input": "A: 0x1\r\n",
+				"error": "powercfg /query: expected AC and DC values, found 1"
+			},
+			{
+				"input": "A: 0x1\r\nB: 0x2\r\nC: 0x3\r\n",
+				"error": "powercfg /query: expected AC and DC values, found 3"
+			},
+			{
+				"input": "A: 0X0000000A\nB: 0x2\n",
+				"ok": 10
+			},
+			{
+				"input": "A: 0x1   \nB: 0x2\t\n",
+				"ok": 1
+			}
+		],
+		"restore": [
+			{
+				"marker": {
+					"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+					"ac": 1,
+					"at": 1
+				},
+				"query": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    Current AC Power Setting Index: 0x00000000\r\n    Current DC Power Setting Index: 0x00000001\r\n",
+				"ok": [
+					[
+						"/setacvalueindex",
+						"381b4222-f694-41f0-9685-ff5bb260df2e",
+						"4f971e89-eebd-4455-a8de-9e59040e7347",
+						"5ca83367-6e45-459f-a27b-476b1d01c936",
+						"1"
+					],
+					[
+						"/setactive",
+						"SCHEME_CURRENT"
+					]
+				]
+			},
+			{
+				"marker": {
+					"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+					"ac": 1,
+					"at": 1
+				},
+				"query": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    Current AC Power Setting Index: 0x00000001\r\n    Current DC Power Setting Index: 0x00000001\r\n",
+				"ok": []
+			},
+			{
+				"marker": {
+					"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+					"ac": 1,
+					"at": 1
+				},
+				"query": "bad",
+				"error": "powercfg /query: expected AC and DC values, found 0"
+			},
+			{
+				"marker": {
+					"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+					"ac": 0,
+					"at": 1
+				},
+				"query": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    Current AC Power Setting Index: 0x00000000\r\n    Current DC Power Setting Index: 0x00000001\r\n",
+				"ok": [
+					[
+						"/setacvalueindex",
+						"381b4222-f694-41f0-9685-ff5bb260df2e",
+						"4f971e89-eebd-4455-a8de-9e59040e7347",
+						"5ca83367-6e45-459f-a27b-476b1d01c936",
+						"0"
+					],
+					[
+						"/setactive",
+						"SCHEME_CURRENT"
+					]
+				]
+			},
+			{
+				"marker": {
+					"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+					"ac": 0,
+					"at": 1
+				},
+				"query": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)\r\n  GUID Alias: SCHEME_BALANCED\r\n  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)\r\n    GUID Alias: SUB_BUTTONS\r\n    Power Setting GUID: 5ca83367-6e45-459f-a27b-476b1d01c936  (Lid close action)\r\n      GUID Alias: LIDACTION\r\n      Possible Setting Index: 000\r\n      Possible Setting Friendly Name: Do nothing\r\n      Possible Setting Index: 001\r\n      Possible Setting Friendly Name: Sleep\r\n    Current AC Power Setting Index: 0x00000001\r\n    Current DC Power Setting Index: 0x00000001\r\n",
+				"ok": []
+			},
+			{
+				"marker": {
+					"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+					"ac": 0,
+					"at": 1
+				},
+				"query": "bad",
+				"error": "powercfg /query: expected AC and DC values, found 0"
+			}
+		]
+	},
+	"lid": [
+		{
+			"name": "work on AC",
+			"options": {},
+			"steps": [
+				"work",
+				"stop:1"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"release"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "work",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "work-ended",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				}
+			]
+		},
+		{
+			"name": "work and host together",
+			"options": {},
+			"steps": [
+				"work",
+				"host",
+				"stop:1",
+				"stop:2"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"release"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "work",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "work-ended",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "host",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:1",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:2",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				}
+			]
+		},
+		{
+			"name": "battery then AC then battery",
+			"options": {
+				"onAc": false
+			},
+			"steps": [
+				"work",
+				"ac:on",
+				"ac:off"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"release"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "charging",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "on-battery",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				},
+				{
+					"step": "ac:on",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "ac:off",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				}
+			]
+		},
+		{
+			"name": "no battery",
+			"options": {
+				"laptop": false
+			},
+			"steps": [
+				"work",
+				"stop:1",
+				"work"
+			],
+			"calls": [
+				"recover",
+				"isLaptop"
+			],
+			"logs": [
+				{
+					"message": "skipped",
+					"details": {
+						"reason": "no battery",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": false,
+					"calls": 2,
+					"logs": 1
+				},
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 2,
+					"logs": 1
+				},
+				{
+					"step": "work",
+					"held": false,
+					"calls": 2,
+					"logs": 1
+				}
+			]
+		},
+		{
+			"name": "hold fails twice",
+			"options": {
+				"holdFails": true
+			},
+			"steps": [
+				"work",
+				"stop:1",
+				"work"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"hold"
+			],
+			"logs": [
+				{
+					"message": "failed",
+					"details": {
+						"step": "hold",
+						"reason": "work",
+						"backend": "fake",
+						"error": "hold failed"
+					}
+				},
+				{
+					"message": "failed",
+					"details": {
+						"step": "hold",
+						"reason": "work",
+						"backend": "fake",
+						"error": "hold failed"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": false,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "work",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				}
+			]
+		},
+		{
+			"name": "release fails once",
+			"options": {
+				"releaseFails": 1
+			},
+			"steps": [
+				"work",
+				"stop:1",
+				"ac:off"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"release",
+				"release"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "work",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "failed",
+					"details": {
+						"step": "release",
+						"reason": "work-ended",
+						"backend": "fake",
+						"error": "release failed"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "on-battery",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:1",
+					"held": true,
+					"calls": 4,
+					"logs": 2
+				},
+				{
+					"step": "ac:off",
+					"held": false,
+					"calls": 5,
+					"logs": 3
+				}
+			]
+		},
+		{
+			"name": "quit while held",
+			"options": {},
+			"steps": [
+				"work",
+				"dispose"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"releaseNow"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "work",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "quit",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "dispose",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				}
+			]
+		},
+		{
+			"name": "quit after a failed hold",
+			"options": {
+				"holdFails": true
+			},
+			"steps": [
+				"work",
+				"dispose"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"releaseNow"
+			],
+			"logs": [
+				{
+					"message": "failed",
+					"details": {
+						"step": "hold",
+						"reason": "work",
+						"backend": "fake",
+						"error": "hold failed"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "work",
+					"held": false,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "dispose",
+					"held": false,
+					"calls": 4,
+					"logs": 1
+				}
+			]
+		},
+		{
+			"name": "quit with nothing held",
+			"options": {},
+			"steps": [
+				"dispose"
+			],
+			"calls": [
+				"releaseNow"
+			],
+			"logs": [],
+			"after": [
+				{
+					"step": "dispose",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				}
+			]
+		},
+		{
+			"name": "inputs after quit",
+			"options": {},
+			"steps": [
+				"dispose",
+				"work",
+				"ac:off",
+				"ac:on"
+			],
+			"calls": [
+				"releaseNow"
+			],
+			"logs": [],
+			"after": [
+				{
+					"step": "dispose",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				},
+				{
+					"step": "work",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				},
+				{
+					"step": "ac:off",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				},
+				{
+					"step": "ac:on",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				}
+			]
+		},
+		{
+			"name": "same AC twice",
+			"options": {},
+			"steps": [
+				"ac:on",
+				"work",
+				"ac:on",
+				"stop:1"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"release"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "work",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "work-ended",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "ac:on",
+					"held": false,
+					"calls": 0,
+					"logs": 0
+				},
+				{
+					"step": "work",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "ac:on",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				}
+			]
+		},
+		{
+			"name": "battery without work",
+			"options": {},
+			"steps": [
+				"ac:off",
+				"ac:on",
+				"work",
+				"ac:off",
+				"ac:on",
+				"stop:1"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"release",
+				"hold",
+				"release"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "work",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "on-battery",
+						"backend": "fake"
+					}
+				},
+				{
+					"message": "held",
+					"details": {
+						"reason": "charging",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "work-ended",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "ac:off",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				},
+				{
+					"step": "ac:on",
+					"held": false,
+					"calls": 1,
+					"logs": 0
+				},
+				{
+					"step": "work",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "ac:off",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				},
+				{
+					"step": "ac:on",
+					"held": true,
+					"calls": 5,
+					"logs": 3
+				},
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 6,
+					"logs": 4
+				}
+			]
+		},
+		{
+			"name": "stop unknown",
+			"options": {},
+			"steps": [
+				"stop:1",
+				"work",
+				"stop:2",
+				"stop:1",
+				"stop:1"
+			],
+			"calls": [
+				"recover",
+				"isLaptop",
+				"hold",
+				"release"
+			],
+			"logs": [
+				{
+					"message": "held",
+					"details": {
+						"reason": "work",
+						"backend": "fake",
+						"changed": true,
+						"scheme": "s"
+					}
+				},
+				{
+					"message": "released",
+					"details": {
+						"reason": "work-ended",
+						"backend": "fake"
+					}
+				}
+			],
+			"after": [
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 0,
+					"logs": 0
+				},
+				{
+					"step": "work",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:2",
+					"held": true,
+					"calls": 3,
+					"logs": 1
+				},
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				},
+				{
+					"step": "stop:1",
+					"held": false,
+					"calls": 4,
+					"logs": 2
+				}
+			]
+		}
+	],
+	"windowsLid": [
+		{
+			"name": "hold and release",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 1
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":1,\"at\":1000}"
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "already do nothing",
+			"initial": {
+				"ac": 0,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": false,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 0
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "user changed it while held",
+			"initial": {
+				"ac": 2,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 2
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2,\"at\":1000}"
+				},
+				{
+					"step": "user:1",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2,\"at\":1000}"
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "quit restores",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 1
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":1,\"at\":1000}"
+				},
+				{
+					"step": "releaseNow",
+					"result": null,
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "crash then recover",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 1
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":1,\"at\":1000}"
+				},
+				{
+					"step": "recover",
+					"result": {
+						"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+						"ac": 1,
+						"restored": true
+					},
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "recover",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "recover after user change",
+			"initial": {
+				"ac": 3,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 3
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":3,\"at\":1000}"
+				},
+				{
+					"step": "user:2",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 2,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":3,\"at\":1000}"
+				},
+				{
+					"step": "recover",
+					"result": {
+						"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+						"ac": 3,
+						"restored": false
+					},
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936"
+					],
+					"ac": 2,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "unreadable marker",
+			"initial": {
+				"ac": 0,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "marker:{not json",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{not json"
+				},
+				{
+					"step": "recover",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "marker of another shape",
+			"initial": {
+				"ac": 0,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "marker:{\"scheme\":\"x\",\"ac\":1}",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"x\",\"ac\":1}"
+				},
+				{
+					"step": "recover",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "marker with a negative ac",
+			"initial": {
+				"ac": 0,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "marker:{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":-1}",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":-1}"
+				},
+				{
+					"step": "recover",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "marker without at",
+			"initial": {
+				"ac": 0,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "marker:{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2}",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2}"
+				},
+				{
+					"step": "recover",
+					"result": {
+						"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+						"ac": 2,
+						"restored": true
+					},
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 2",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 2,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "activation fails",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "fail:/setactive#1",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "hold",
+					"result": null,
+					"error": "powercfg /setactive failed",
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "activation and rollback fail",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "fail:/setactive#1",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "fail:/query#2",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "hold",
+					"result": null,
+					"error": "powercfg /setactive failed",
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":1,\"at\":1000}"
+				},
+				{
+					"step": "releaseNow",
+					"result": null,
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "failed release then hold again",
+			"initial": {
+				"ac": 2,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 2
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2,\"at\":1000}"
+				},
+				{
+					"step": "fail:/setacvalueindex#2",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2,\"at\":1000}"
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": "powercfg /setacvalueindex failed",
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 2"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2,\"at\":1000}"
+				},
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 2
+						}
+					},
+					"error": null,
+					"commands": [
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":2,\"at\":1000}"
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 2",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 2,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "query fails on hold",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "fail:/query#1",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "hold",
+					"result": null,
+					"error": "powercfg /query failed",
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 1
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":1,\"at\":1000}"
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "release with nothing held",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				},
+				{
+					"step": "releaseNow",
+					"result": null,
+					"error": null,
+					"commands": [],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		},
+		{
+			"name": "hold twice",
+			"initial": {
+				"ac": 1,
+				"dc": 1
+			},
+			"steps": [
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 1
+						}
+					},
+					"error": null,
+					"commands": [
+						"/getactivescheme",
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":1,\"at\":1000}"
+				},
+				{
+					"step": "hold",
+					"result": {
+						"changed": true,
+						"details": {
+							"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+							"ac": 1
+						}
+					},
+					"error": null,
+					"commands": [
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 0,
+					"dc": 1,
+					"marker": "{\"scheme\":\"381b4222-f694-41f0-9685-ff5bb260df2e\",\"ac\":1,\"at\":1000}"
+				},
+				{
+					"step": "release",
+					"result": null,
+					"error": null,
+					"commands": [
+						"/query 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936",
+						"/setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1",
+						"/setactive SCHEME_CURRENT"
+					],
+					"ac": 1,
+					"dc": 1,
+					"marker": null
+				}
+			]
+		}
+	],
+	"media": [
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": null,
+			"status": 200,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 1000,
+			"bodyFirst": 0
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=0-",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1000"
+				],
+				[
+					"content-range",
+					"bytes 0-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 1000,
+			"bodyFirst": 0
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=0-0",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1"
+				],
+				[
+					"content-range",
+					"bytes 0-0/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 1,
+			"bodyFirst": 0
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=10-19",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"10"
+				],
+				[
+					"content-range",
+					"bytes 10-19/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 10,
+			"bodyFirst": 10
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=990-5000",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"10"
+				],
+				[
+					"content-range",
+					"bytes 990-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 10,
+			"bodyFirst": 237
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=-10",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"10"
+				],
+				[
+					"content-range",
+					"bytes 990-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 10,
+			"bodyFirst": 237
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=-5000",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1000"
+				],
+				[
+					"content-range",
+					"bytes 0-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 1000,
+			"bodyFirst": 0
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=999-",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1"
+				],
+				[
+					"content-range",
+					"bytes 999-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 1,
+			"bodyFirst": 246
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=1000-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=20-10",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=-0",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "items=0-1",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes=0-1,5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": " bytes=5-6 ",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"2"
+				],
+				[
+					"content-range",
+					"bytes 5-6/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": 2,
+			"bodyFirst": 5
+		},
+		{
+			"file": "clip",
+			"method": "GET",
+			"range": "bytes= 5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": null,
+			"status": 200,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=0-",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1000"
+				],
+				[
+					"content-range",
+					"bytes 0-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=0-0",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1"
+				],
+				[
+					"content-range",
+					"bytes 0-0/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=10-19",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"10"
+				],
+				[
+					"content-range",
+					"bytes 10-19/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=990-5000",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"10"
+				],
+				[
+					"content-range",
+					"bytes 990-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=-10",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"10"
+				],
+				[
+					"content-range",
+					"bytes 990-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=-5000",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1000"
+				],
+				[
+					"content-range",
+					"bytes 0-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=999-",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"1"
+				],
+				[
+					"content-range",
+					"bytes 999-999/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=1000-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=20-10",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=-0",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "items=0-1",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes=0-1,5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": " bytes=5-6 ",
+			"status": 206,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"2"
+				],
+				[
+					"content-range",
+					"bytes 5-6/1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "HEAD",
+			"range": "bytes= 5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */1000"
+				],
+				[
+					"content-type",
+					"video/webm"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": null,
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=0-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=0-0",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=10-19",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=990-5000",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=-10",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=-5000",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=999-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=1000-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=20-10",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=-0",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "items=0-1",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes=0-1,5-6",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": " bytes=5-6 ",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "clip",
+			"method": "POST",
+			"range": "bytes= 5-6",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": null,
+			"status": 200,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=0-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=0-0",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=10-19",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=990-5000",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=-10",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=-5000",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=999-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=1000-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=20-10",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=-0",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "items=0-1",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes=0-1,5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": " bytes=5-6 ",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "GET",
+			"range": "bytes= 5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": null,
+			"status": 200,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-length",
+					"0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=0-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=0-0",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=10-19",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=990-5000",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=-10",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=-5000",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=999-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=1000-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=20-10",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=-0",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=-",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "items=0-1",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes=0-1,5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": " bytes=5-6 ",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "HEAD",
+			"range": "bytes= 5-6",
+			"status": 416,
+			"headers": [
+				[
+					"accept-ranges",
+					"bytes"
+				],
+				[
+					"cache-control",
+					"no-store"
+				],
+				[
+					"content-range",
+					"bytes */0"
+				],
+				[
+					"content-type",
+					"audio/ogg"
+				]
+			],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": null,
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=0-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=0-0",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=10-19",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=990-5000",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=-10",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=-5000",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=999-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=1000-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=20-10",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=-0",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=-",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "items=0-1",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes=0-1,5-6",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": " bytes=5-6 ",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "empty",
+			"method": "POST",
+			"range": "bytes= 5-6",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "url",
+			"method": "GET",
+			"range": "omp-media://stream/guess",
+			"status": 404,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "url",
+			"method": "GET",
+			"range": "omp-media://stream/KMoE8j2ziDNcR95BmhnqpRX4kdgy-QTD?t=1",
+			"status": 200,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		},
+		{
+			"file": "url",
+			"method": "GET",
+			"range": "omp-media://stream/KMoE8j2ziDNcR95BmhnqpRX4kdgy-QTD#x",
+			"status": 200,
+			"headers": [],
+			"bodyLength": null,
+			"bodyFirst": null
+		}
+	]
+}

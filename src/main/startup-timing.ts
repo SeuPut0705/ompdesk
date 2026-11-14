@@ -7,8 +7,8 @@
  * written once per launch; e2e/first-run-no-omp.e2e.ts reads them.
  */
 import { isRendererStartupMark, type StartupMark } from "../shared/startup-timing";
-import { markMainStep } from "./hang-watchdog";
 import { writeRuntimeLog } from "./runtime-log";
+import { markMainStep } from "./shell-host/modules/chrome-hang";
 
 const written = new Set<StartupMark>();
 

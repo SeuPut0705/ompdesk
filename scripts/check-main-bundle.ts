@@ -346,18 +346,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // branch merged with main passed `build` under the budget below.
 const WEB_FIRST_SCREEN_JS_BYTES = 2_203_000;
 
-// Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
-// Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
+// Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which the Node that
+// runs main (shipped beside the shell) does not have: a bundle importing `ws` at runtime must fail here, not pass
+// because Bun runs this check. `electron` is not allowed: main bundles the shim (`src/main/shell-host/electron`) in its place.
 const nodeBuiltins = builtinModules.filter(m => !m.startsWith("bun") && m !== "ws" && m !== "undici");
-// `original-fs` is not in `builtinModules` but Electron always resolves it: it is
-// the asar-bypassing alias of `fs`, which is exactly what reads app files.
-const allowed = new Set<string>([
-	"electron",
-	"original-fs",
-	"node:original-fs",
-	...nodeBuiltins,
-	...nodeBuiltins.map(m => `node:${m}`),
-]);
+const allowed = new Set<string>([...nodeBuiltins, ...nodeBuiltins.map(m => `node:${m}`)]);
 
 const external = new Set<string>();
 const source = await fs.readFile(BUNDLE, "utf8");
@@ -371,6 +364,26 @@ if (external.size > 0) {
 		`out/main/index.js still imports ${[...external].join(", ")} at runtime. ` +
 			"Add each to MAIN_BUNDLED_DEPS in electron.vite.config.ts so the packaged app needs no node_modules.",
 	);
+	process.exit(1);
+}
+
+// out/preload/shell.js is a classic script the shell injects into every page before its own scripts: no module syntax
+// (no import, no require, no exports) and wrapped, so none of its names joins the page's global scope.
+const PRELOAD = fileURLToPath(new URL("../out/preload/shell.js", import.meta.url));
+const preload = await fs.readFile(PRELOAD, "utf8");
+const preloadImports = new Bun.Transpiler({ loader: "js" }).scanImports(preload).map(entry => entry.path);
+const preloadProblems = [
+	...(preloadImports.length > 0 ? [`imports ${preloadImports.join(", ")}`] : []),
+	...(/\brequire\s*\(/.test(preload) ? ["calls require()"] : []),
+	...(/\b(?:module\.exports|exports\.[A-Za-z_$]|Object\.defineProperty\(exports)/.test(preload)
+		? ["exports something"]
+		: []),
+	...(/^\(\(\)\s*=>\s*\{/.test(preload.trimStart()) && preload.trimEnd().endsWith("})();")
+		? []
+		: ["is not wrapped in an IIFE"]),
+];
+if (preloadProblems.length > 0) {
+	console.error(`out/preload/shell.js ${preloadProblems.join(", ")}: it must be one self-contained classic script.`);
 	process.exit(1);
 }
 

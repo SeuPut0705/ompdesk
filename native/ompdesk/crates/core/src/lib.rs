@@ -59,4 +59,4 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(windows)]
-pub use sys::end_children_with_this_process;
+pub use sys::{end_children_with_this_process, ensure_console};

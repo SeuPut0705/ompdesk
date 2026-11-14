@@ -1,0 +1,48 @@
+# What `cargo` needs to compile the CEF shell (native/ompdesk/crates/shell, a cargo workspace of its own): the Rust
+# toolchain native/ompdesk/rust-toolchain.toml pins with the shell workspace's own cargo cache, CEF's pinned archive
+# (native/ompdesk/crates/shell/cef-pin.json; about 175 MB on Windows, 135 MB on macOS) from `actions/cache` so a run
+# downloads it from Spotify's CEF builds only on a miss, and cmake and Ninja on macOS (Windows takes them from the
+# runner's Visual Studio, which scripts/build-shell.ts finds with vswhere). Used by the `shell` action on a staged-build
+# cache miss and by the jobs that run clippy and `cargo test` on the shell.
+name: OMPdesk's CEF shell toolchain
+description: Rust toolchain, the shell workspace's cargo cache, CEF's archive cache and cmake/Ninja.
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/native-toolchain
+      with:
+        workspaces: native/ompdesk/crates/shell
+
+    - name: Restore CEF's archive
+      id: cef-archive
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: native/ompdesk/crates/shell/target/cef-dl
+        key: cef-dl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/ompdesk/crates/shell/cef-pin.json') }}
+
+    - name: cmake and Ninja
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v cmake >/dev/null || ! command -v ninja >/dev/null; then
+          brew install cmake ninja
+        fi
+        cmake --version | head -n1
+        ninja --version
+
+    # stage-cef-licenses puts the archive into target/cef-dl when it is not there (checked against its pinned SHA-256,
+    # the folder build:shell reads) and stages its two licence files; saving right after the fetch keeps the archive
+    # for the next job even if a later step fails.
+    - name: Fetch CEF's archive
+      if: steps.cef-archive.outputs.cache-hit != 'true'
+      shell: bash
+      run: bun scripts/stage-cef-licenses.ts
+
+    - name: Save CEF's archive
+      if: steps.cef-archive.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: native/ompdesk/crates/shell/target/cef-dl
+        key: ${{ steps.cef-archive.outputs.cache-primary-key }}

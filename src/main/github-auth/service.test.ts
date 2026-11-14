@@ -349,7 +349,7 @@ describe("GithubAuthService", () => {
 		expect(await auth.productStar(false)).toEqual({ starred: false, error: null });
 		expect(await auth.productStar(true)).toEqual({ starred: true, error: null });
 		const state = JSON.parse(await readFile(env.FAKE_GH_STATE, "utf8"));
-		expect(state.accounts[0].starred).toEqual(["SeuPut0705/ompdesk"]);
+		expect(state.accounts[0].starred).toEqual(["seuput-inc/ompdesk"]);
 		expect(await auth.productStar(false)).toEqual({ starred: true, error: null });
 		const noGh = new GithubAuthService({
 			resolveGh: async () => null,

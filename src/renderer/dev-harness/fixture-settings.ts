@@ -390,6 +390,7 @@ export const MAIL_STATE: MailAccountsState = {
 			mailbox: "INBOX",
 			address: "dev@example.com",
 			hasPassword: true,
+			needsReentry: false,
 		},
 		{
 			id: "mail-2",
@@ -400,6 +401,7 @@ export const MAIL_STATE: MailAccountsState = {
 			mailbox: "Alerts",
 			address: "ci-alerts@example.com",
 			hasPassword: true,
+			needsReentry: false,
 		},
 	],
 };

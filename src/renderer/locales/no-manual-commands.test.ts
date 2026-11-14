@@ -3,7 +3,7 @@
  * command. No locale string (renderer en/ko, main i18n text) may contain a shell command or tell the person to type one.
  */
 import { describe, expect, it } from "vitest";
-import { MAIN_TEXT } from "../../main/i18n-text";
+import MAIN_TEXT from "../../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { en } from "./en";
 import { ko } from "./ko";
 

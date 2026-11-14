@@ -1,3 +1,4 @@
+import { PRODUCT_REPO } from "../../shared/product-repo";
 import { memoryEn } from "./memory";
 export const en: Record<string, string> = {
 	"mcp.rea.title": "REA — reverse engineering (built in)",
@@ -1789,6 +1790,8 @@ export const en: Record<string, string> = {
 	"ipcError.stats_not_ready": "The stats server is still starting. Try again in a moment.",
 	"ipcError.stats_api_error": "The stats server couldn't answer this request.",
 	"ipcError.safe_storage_unavailable": "This system can't encrypt the token, so it can't be saved.",
+	"ipcError.keychain_would_ask":
+		"macOS would ask for your login password to open OMPdesk's keychain item, so no secret can be saved on this computer.",
 	"ipcError.invalid_content": "The agent definition isn't valid.",
 	"ipcError.invalid_scope": "Choose user or project as the location.",
 	"ipcError.not_editable": "An image-only queued message can't be edited or moved.",
@@ -5509,21 +5512,21 @@ export const en: Record<string, string> = {
 	"updates.auth.source.gh": "Using your GitHub CLI (gh) login",
 	"updates.auth.source.stored": "Using the saved token",
 	"updates.auth.source.none": "No token, updating without one",
-	"updates.auth.missing":
-		"GitHub only shows the releases to a signed-in account. Sign in with gh or paste a GitHub token with access to SeuPut0705/ompdesk.",
-	"updates.auth.denied":
-		"This GitHub account can't see SeuPut0705/ompdesk. Accept the repository invite, or use a token from an account that has access.",
+	"updates.auth.missing": `GitHub only shows the releases to a signed-in account. Sign in with gh or paste a GitHub token with access to ${PRODUCT_REPO}.`,
+	"updates.auth.denied": `This GitHub account can't see ${PRODUCT_REPO}. Accept the repository invite, or use a token from an account that has access.`,
 	"updates.auth.invalid":
 		"GitHub rejected the token (expired or revoked). Connect GitHub again in Settings › General, or paste a new token.",
 	"updates.auth.network":
 		"Couldn't reach GitHub, or its hourly request limit was reached. Try again later; a token raises the limit.",
-	"updates.auth.ok": "Access to SeuPut0705/ompdesk confirmed.",
+	"updates.auth.ok": `Access to ${PRODUCT_REPO} confirmed.`,
 	"updates.auth.placeholder": "Paste a GitHub token",
 	"updates.auth.tokenLabel": "GitHub token",
 	"updates.auth.save": "Save token",
 	"updates.auth.test": "Test access",
 	"updates.auth.clear": "Remove saved token",
 	"updates.auth.failed": "Couldn't change GitHub access",
+	"updates.auth.dropped.keychain-would-ask":
+		"The saved token was removed: macOS would ask for your login password to read it. GH_TOKEN, GITHUB_TOKEN and your gh login still work; a new token can't be saved on this computer.",
 	"updates.auth.cannotStore":
 		"This system can't encrypt secrets, so a token can't be saved here. Connect GitHub in Settings › General instead.",
 	"updates.host.name": "OMPdesk on the host computer",
@@ -5936,6 +5939,13 @@ export const en: Record<string, string> = {
 	"mail.loading": "Loading email accounts…",
 	"mail.loadFailed": "Couldn't load email accounts",
 	"mail.actionFailed": "Couldn't update the email accounts",
+	"mail.needsReentry": "Enter the password again: macOS would ask for your login password to read the saved one.",
+	"mail.reentry.one":
+		"The email account {names} needs its password again: macOS would ask for your login password to read it.",
+	"mail.reentry.many":
+		"The email accounts {names} need their passwords again: macOS would ask for your login password to read them.",
+	"mail.reentry.action": "Enter password",
+	"mail.reentry.dismiss": "Dismiss the email password notice",
 	"mail.test": "Test",
 	"mail.test.ok": "Mailbox opened: {count} messages",
 	"mail.test.okOne": "Mailbox opened: 1 message",

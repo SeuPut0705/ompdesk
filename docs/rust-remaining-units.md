@@ -305,8 +305,9 @@ The owner's call: the units above move in batches, one session per batch, checke
 | **H4b Autopilot** | 9m, 9n | H3; built now on the same branch, lands after H3 and H4a as its own batch | W2 |
 | **W2 Remote and web, rest** | R4, R5, R6, R7, R8, 8c, 7e | H2 (8c needs 9a) | H3, H4 |
 | **S Shell swap** | the chosen shell, the handoff release, deletion of what §4 lists | everything above | none |
+| **SX Shell port** | §4's files, in five slices (SX1 chrome, SX2 preview, SX3 services, SX4 updater, SX5 boot; contract in `crates/shell/PROTOCOL.md` §15) | S's branch | each other (stacked on `omp/agent/shell-port-base`) |
 
-Eleven batches. From 12 Nov 2026 23:0x (the owner: "병렬로 작업을 다 해야하는데 왜 놀고있는거야"), every batch whose predecessor is on a pushed branch is built at once on a branch stacked on it (W1 on B2, H2 on H1, H3 and H4a on H2, W2's Rust side on B2); they still land in the order of this table, each after its own batch gate, rebased on what landed before.
+Twelve batches. From 12 Nov 2026 23:0x (the owner: "병렬로 작업을 다 해야하는데 왜 놀고있는거야"), every batch whose predecessor is on a pushed branch is built at once on a branch stacked on it (W1 on B2, H2 on H1, H3 and H4a on H2, W2's Rust side on B2); they still land in the order of this table, each after its own batch gate, rebased on what landed before.
 
 H3 and H4a landed before H2 on 13 Nov 2026 (`e14eb3c3..215c5333`), against this table's order, by the session's mistake; it was safe because they were rebased on `main` without H2 and gated there (run 43360630335 green, web-close-reports and repo-lock-core run with their mutations and stamped on that commit): nothing of theirs uses H2's code. H2 rebases over them; H4b still lands after H2.
 

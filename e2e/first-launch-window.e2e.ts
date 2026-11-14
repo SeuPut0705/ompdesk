@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type TestInfo, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { micaSupported } from "../src/main/window-chrome";
+import { micaSupported } from "./fixture/mica";
 import { exitApp, fixtureOmp } from "./harness";
 import {
 	descendantsIn,

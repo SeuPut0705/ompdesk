@@ -23,6 +23,17 @@ export function scrubUpdateText(text: string, secrets: readonly (string | undefi
 	return out.length <= MAX_REASON_LENGTH ? out : `${out.slice(0, MAX_REASON_LENGTH)}…`;
 }
 
+/**
+ * A line the shell's updater sends for the runtime log (`log.runtime`, source `app-update`), its `reason` made safe as
+ * `scrubUpdateText` makes it (the shell already cut the token out). Lines of any other source pass unchanged.
+ */
+export function scrubUpdateReport<T extends { source?: string; details?: object }>(report: T): T {
+	if (report.source !== "app-update" || !report.details || !("reason" in report.details)) return report;
+	const { reason } = report.details as { reason?: unknown };
+	if (typeof reason !== "string") return report;
+	return { ...report, details: { ...report.details, reason: scrubUpdateText(reason) } };
+}
+
 /** How the install ends once the app exits: macOS's detached swap helper, or Windows' NSIS installer. */
 export type InstallHelperMode = "relaunch" | "nsis";
 

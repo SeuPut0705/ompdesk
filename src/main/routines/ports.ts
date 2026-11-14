@@ -1,11 +1,11 @@
 /**
  * The real ports of the routine triggers (`RoutineTriggerDeps`): the core's reads (GitHub with the person's `gh`, a
- * folder's listing, git), `original-fs`'s watcher and the tab pool. Kept apart from the sources so their tests can
+ * folder's listing, git), `node:fs`'s watcher and the tab pool. Kept apart from the sources so their tests can
  * hand them stand-ins.
  */
 
+import { watch } from "node:fs";
 import { homedir } from "node:os";
-import { watch } from "original-fs";
 import { core } from "../core/process";
 import { coreGh, coreGit } from "../local/git/exec";
 import type { SidecarPool } from "../sidecar-pool";
@@ -39,7 +39,6 @@ export function githubPort(find?: () => Promise<string | null>): GithubPort {
 		);
 }
 
-/** `original-fs`, never `fs`: Electron's patched `fs` opens and keeps every `.asar` it meets in a watched folder. */
 export const watchPath: WatchPath = (path, onChange, onError) => {
 	const watcher = watch(path, { recursive: true }, (_event, filename) => onChange(filename ? String(filename) : null));
 	watcher.on("error", onError);

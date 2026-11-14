@@ -20,6 +20,8 @@ fn main() -> ExitCode {
         return ExitCode::from(code);
     }
     #[cfg(windows)]
+    ompdesk_core::ensure_console();
+    #[cfg(windows)]
     if let Err(error) = ompdesk_core::end_children_with_this_process() {
         eprintln!("ompdesk-core: no job object, so a git it starts may outlive it: {error}");
     }

@@ -9,10 +9,10 @@
 
 **The desktop app for the omp coding agent: parallel sessions, Autopilot, and your phone.**
 
-<a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-mac-arm64.dmg"><img src="resources/brand/download-macos.svg" alt="Download for macOS (Apple Silicon)" width="280" height="64"></a>
-<a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-windows-setup.exe"><img src="resources/brand/download-windows.svg" alt="Download for Windows (x64)" width="280" height="64"></a>
+<a href="https://github.com/seuput-inc/ompdesk/releases/latest/download/ompdesk-mac-arm64.dmg"><img src="resources/brand/download-macos.svg" alt="Download for macOS (Apple Silicon)" width="280" height="64"></a>
+<a href="https://github.com/seuput-inc/ompdesk/releases/latest/download/ompdesk-windows-setup.exe"><img src="resources/brand/download-windows.svg" alt="Download for Windows (x64)" width="280" height="64"></a>
 
-[![Latest release](https://img.shields.io/github/v/release/SeuPut0705/ompdesk?style=flat-square&color=5B5BD6)](https://github.com/SeuPut0705/ompdesk/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/seuput-inc/ompdesk?style=flat-square&color=5B5BD6)](https://github.com/seuput-inc/ompdesk/releases/latest)
 ![macOS and Windows](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square)
 [![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-5B5BD6?style=flat-square)](LICENSE)
 
@@ -85,7 +85,7 @@ OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and
 - **Does it cost anything?** No. It is open source under the Apache License 2.0 and needs no account. Your model providers bill you as they do in the terminal.
 - **Can the agent control my computer?** Computer use is on by default, and only one session drives the desktop at a time. On macOS it needs Screen & System Audio Recording and Accessibility granted to OMPdesk: OMPdesk asks macOS once on its own, and Settings › Agent behavior shows each permission with an **Allow…** button (so does a computer-use step that failed for one). With omp's default tool approval the agent acts without asking: set **Tool approval** to always ask in Settings › Permissions & security, or turn it off with `/computer off`.
 - **I closed the window and the app is still running.** By design: tasks continue until you quit (⌘Q or the tray menu).
-- **Something else broke.** See [Troubleshooting](docs/troubleshooting.md), or open an [issue](https://github.com/SeuPut0705/ompdesk/issues).
+- **Something else broke.** See [Troubleshooting](docs/troubleshooting.md), or open an [issue](https://github.com/seuput-inc/ompdesk/issues).
 
 ## Privacy
 
@@ -108,7 +108,7 @@ OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and
 Needs Bun, Git and omp 18.18.9 or newer.
 
 ```bash
-git clone https://github.com/SeuPut0705/ompdesk.git
+git clone https://github.com/seuput-inc/ompdesk.git
 cd ompdesk
 bun install
 bun run dev

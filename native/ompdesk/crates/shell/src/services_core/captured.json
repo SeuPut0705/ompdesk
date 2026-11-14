@@ -1,0 +1,765 @@
+{
+	"capturedFrom": "938ce8e0a22f9e6b7731778753f0ea55de886076",
+	"launcher": [
+		{
+			"name": "run.command",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "run.command",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "tool.TOOL",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "tool.TOOL",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.terminal",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.terminal",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.workflow",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.workflow",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.pkg",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.pkg",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.dmg",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.dmg",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.scpt",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.scpt",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.webloc",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.webloc",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.inetloc",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.inetloc",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.fileloc",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.fileloc",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "run.sh",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "run.sh",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.jar",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.jar",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.py",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.py",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.pyw",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.pyw",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.pyz",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.pyz",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.pl",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.pl",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.rb",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.rb",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.exe",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.exe",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "X.EXE",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "X.EXE",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.bat",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.bat",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.cmd",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.cmd",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.com",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.com",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.ps1",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.ps1",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.lnk",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.lnk",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.url",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.url",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.msi",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.msi",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.vbs",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.vbs",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.js",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.js",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.hta",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.hta",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.scr",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.scr",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.exe.",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.exe.",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.exe ",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.exe ",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.exe. . ",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.exe. . ",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.chm",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.chm",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.settingcontent-ms",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.settingcontent-ms",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.website",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.website",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.appinstaller",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.appinstaller",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.xll",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.xll",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.wsc",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.wsc",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.sct",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.sct",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.theme",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.theme",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.themepack",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.themepack",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.zsh",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.zsh",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.applescript",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.applescript",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.prefpane",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.prefpane",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "Thing.app",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "Thing.app",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "a.txt",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "a.txt",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "a.md",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "a.md",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "a.ts",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "a.ts",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "a.png",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "a.png",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "a.pdf",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "a.pdf",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "a.json",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "a.json",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "a.html",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "a.html",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "README",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "README",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": ".exe",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": ".exe",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": ".bashrc",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": ".bashrc",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "archive.tar.gz",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "archive.tar.gz",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.EXE.txt",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.EXE.txt",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.txt.exe",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.txt.exe",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "dir.app/inner.txt",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "dir.app/inner.txt",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.app/",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.app/",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x ",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x ",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.cmd.",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.cmd.",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.sh ",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.sh ",
+			"platform": "posix",
+			"launcher": false
+		},
+		{
+			"name": "x.Py",
+			"platform": "win32",
+			"launcher": true
+		},
+		{
+			"name": "x.Py",
+			"platform": "posix",
+			"launcher": true
+		},
+		{
+			"name": "x.ÉXE",
+			"platform": "win32",
+			"launcher": false
+		},
+		{
+			"name": "x.ÉXE",
+			"platform": "posix",
+			"launcher": false
+		}
+	],
+	"imageExtension": [
+		{
+			"mimeType": "image/png",
+			"extension": "png"
+		},
+		{
+			"mimeType": "image/jpeg",
+			"extension": "jpg"
+		},
+		{
+			"mimeType": "image/jpg",
+			"extension": "jpg"
+		},
+		{
+			"mimeType": "image/gif",
+			"extension": "gif"
+		},
+		{
+			"mimeType": "image/webp",
+			"extension": "webp"
+		},
+		{
+			"mimeType": "image/svg+xml",
+			"extension": "svg"
+		},
+		{
+			"mimeType": "image/x-icon",
+			"extension": "xicon"
+		},
+		{
+			"mimeType": "image/vnd.microsoft.icon",
+			"extension": "vndmicrosofticon"
+		},
+		{
+			"mimeType": "image/png; charset=binary",
+			"extension": "png"
+		},
+		{
+			"mimeType": "image/jpeg;q=1",
+			"extension": "jpg"
+		},
+		{
+			"mimeType": "image/",
+			"extension": "png"
+		},
+		{
+			"mimeType": "image",
+			"extension": "png"
+		},
+		{
+			"mimeType": "",
+			"extension": "png"
+		},
+		{
+			"mimeType": "text/plain",
+			"extension": "plain"
+		},
+		{
+			"mimeType": "application/octet-stream",
+			"extension": "octetstream"
+		},
+		{
+			"mimeType": "image/PNG",
+			"extension": "PNG"
+		},
+		{
+			"mimeType": "image/x.y-z_9",
+			"extension": "xyz9"
+		},
+		{
+			"mimeType": "image/heic+jpeg",
+			"extension": "heic"
+		},
+		{
+			"mimeType": "/png",
+			"extension": "png"
+		},
+		{
+			"mimeType": "image/png/extra",
+			"extension": "png"
+		},
+		{
+			"mimeType": "image/jpegjpeg",
+			"extension": "jpgjpeg"
+		},
+		{
+			"mimeType": "image/ü",
+			"extension": "png"
+		}
+	]
+}

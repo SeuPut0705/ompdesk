@@ -304,7 +304,7 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 
 test("software compositing keeps every cue looping, held to ten frames a second (and, measured, the cost stays flat)", async () => {
 	test.setTimeout(120_000);
-	// `--disable-gpu` is the same switch the crash fallback honours (main/gpu-fallback.ts): Chromium composites in software.
+	// `--disable-gpu` is the same switch the crash fallback honours (the shell's chrome gpu area): Chromium composites in software.
 	const { app, page, root } = await launch("en", "light", ["--disable-gpu"]);
 	try {
 		const status = await app.evaluate(({ app: electronApp }) =>

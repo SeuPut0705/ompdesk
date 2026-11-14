@@ -101,28 +101,24 @@ for (const [language, theme] of variants([
 			await composer.fill(`!fixture:host-tool:gui_visualize ${JSON.stringify(args)}`);
 			await composer.press("Enter");
 		};
-		/** Run in the visual's page (its main world), found by its omp-visual address. */
-		const inPage = (code: string) =>
-			app.evaluate(async ({ webContents }, source) => {
-				const contents = webContents.getAllWebContents().find(item => item.getURL().startsWith("omp-visual://"));
-				if (!contents) throw new Error("No visual page");
-				return contents.executeJavaScript(source, true);
-			}, code);
+		/** The visual's page: the shell's preview module owns it, so it is reached as a CDP target by its omp-visual address. */
+		const visualPage = () => {
+			const page = app.windows().find(item => item.url().startsWith("omp-visual://"));
+			if (!page) throw new Error("No visual page");
+			return page;
+		};
+		/** Run in the visual's page (its main world). */
+		const inPage = (code: string) => visualPage().evaluate(code);
 		/** A real mouse click (trusted, through the page's input pipeline) on `selector`. */
-		const realClick = (selector: string) =>
-			app.evaluate(async ({ webContents }, target) => {
-				const contents = webContents.getAllWebContents().find(item => item.getURL().startsWith("omp-visual://"));
-				if (!contents) throw new Error("No visual page");
-				const box = (await contents.executeJavaScript(
-					`(() => { const r = document.querySelector(${JSON.stringify(target)}).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`,
-				)) as { x: number; y: number };
-				const factor = contents.getZoomFactor();
-				const x = Math.round(box.x * factor);
-				const y = Math.round(box.y * factor);
-				contents.sendInputEvent({ type: "mouseMove", x, y });
-				contents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
-				contents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+		const realClick = async (selector: string) => {
+			const page = visualPage();
+			const box = await page.evaluate((target: string) => {
+				const r = document.querySelector(target)?.getBoundingClientRect();
+				if (!r) throw new Error(`No ${target}`);
+				return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 			}, selector);
+			await page.mouse.click(box.x, box.y);
+		};
 		try {
 			await shell.waitForFunction(() => window.omp?.rpc != null);
 			await expect

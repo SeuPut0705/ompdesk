@@ -1,7 +1,7 @@
 /**
  * Internal ompdesk style guide — every token and primitive on one page, in
  * the active theme, for design review. Not part of the product: reachable
- * only with OMP_GUI_STYLEGUIDE=1 (src/main/window.ts) or the #/styleguide
+ * only with OMP_GUI_STYLEGUIDE=1 (the shell's chrome window area) or the #/styleguide
  * hash, so its copy is English-only and bypasses the locale files.
  *
  * The contrast matrix is computed from the live computed styles; the page

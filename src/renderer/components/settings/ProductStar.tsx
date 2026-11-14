@@ -6,8 +6,8 @@
  */
 import { ExternalLink, Star } from "lucide-react";
 import { useEffect, useState } from "react";
-import { FEEDBACK_REPO } from "../../../shared/feedback";
 import type { GithubStarState } from "../../../shared/github-auth";
+import { PRODUCT_REPO_URL } from "../../../shared/product-repo";
 import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
 import { toastError } from "../../stores/toast";
@@ -49,7 +49,7 @@ export function ProductStar({ size = "sm" }: { size?: "sm" | "md" }) {
 			<Button
 				data-product-star="page"
 				icon={<ExternalLink />}
-				onClick={() => openExternal(FEEDBACK_REPO)}
+				onClick={() => openExternal(PRODUCT_REPO_URL)}
 				size={size}
 				variant="secondary"
 			>

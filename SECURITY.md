@@ -8,7 +8,7 @@ Only the latest release of OMPdesk gets security fixes. Please update before you
 
 Report privately through GitHub Security Advisories. Do not open a public issue for a vulnerability.
 
-1. Open the repository's **Security** tab and choose **Report a vulnerability**, or go straight to <https://github.com/SeuPut0705/ompdesk/security/advisories/new>.
+1. Open the repository's **Security** tab and choose **Report a vulnerability**, or go straight to <https://github.com/seuput-inc/ompdesk/security/advisories/new>.
 2. Include:
    - the OMPdesk version, your OS, and the output of `omp --version`;
    - what an attacker can do and what they need first (local access, a paired device, network position);
@@ -34,4 +34,4 @@ Out of scope:
 
 ## Signing
 
-Release builds are signed with OMPdesk's own self-signed certificate. The macOS build is **not notarized by Apple**, which is why Gatekeeper asks you to right-click > Open on first launch. Windows may show a SmartScreen warning for the same reason. Check that you downloaded the file from this repository's [Releases](https://github.com/SeuPut0705/ompdesk/releases) page.
+Release builds are signed with OMPdesk's own self-signed certificate. The macOS build is **not notarized by Apple**, which is why Gatekeeper asks you to right-click > Open on first launch. Windows may show a SmartScreen warning for the same reason. Check that you downloaded the file from this repository's [Releases](https://github.com/seuput-inc/ompdesk/releases) page.

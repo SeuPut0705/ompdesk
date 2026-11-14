@@ -25,6 +25,7 @@ const LOG_TAIL_BYTES = 1024 * 1024;
 export interface DiagnosticsSystem {
 	appVersion: string;
 	packaged: boolean;
+	/** The browser engine's shell (`shellEngine()`); the key keeps the shared shape's name. */
 	electron: string;
 	chrome: string;
 	node: string;
@@ -32,7 +33,7 @@ export interface DiagnosticsSystem {
 	arch: string;
 	/** `os.release()`: the kernel version. */
 	osRelease: string;
-	/** Electron's `process.getSystemVersion()`: the OS marketing version (macOS 15.5.0, Windows 10.0.22631). */
+	/** `systemVersion()`: the OS marketing version (macOS 15.5.0, Windows 10.0.22631). */
 	osVersion: string;
 	language: string | null;
 }
@@ -114,7 +115,7 @@ export function buildDiagnosticsReport(input: DiagnosticsInput): string {
 		"## Versions",
 		`OMPdesk: ${system.appVersion}${system.packaged ? "" : " (dev build)"}`,
 		`omp: ${ompVersion ?? "not detected"}`,
-		`Electron: ${system.electron}, Chrome ${system.chrome}, Node ${system.node}`,
+		`Shell: ${system.electron}, Chrome ${system.chrome}, Node ${system.node}`,
 		`OS: ${system.platform} ${system.osVersion} (kernel ${system.osRelease}), ${system.arch}`,
 		`Language: ${system.language ?? "unknown"}`,
 		...(input.display

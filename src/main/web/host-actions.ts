@@ -5,9 +5,9 @@
  * `workspace` for the disk and blobs, `desktop-control` for what happens on the host's screen.
  */
 import type { Dirent } from "node:fs";
+import { constants, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { constants, promises as fsp } from "original-fs";
 import { z } from "zod";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
@@ -40,7 +40,7 @@ export interface HostActionsDeps {
 	blobs: Pick<BlobStore, "addFile" | "release">;
 	/** The folder a tab works in on this computer, for a relative path; null when unknown. */
 	cwdFor(context: WebCallContext, tabId: string | undefined): string | null;
-	/** The host's own "open" for a file (launcher types are revealed instead: main/open-path.ts). */
+	/** The host's own "open" for a file (launcher types are revealed instead: the shell's `services.openOrReveal`). */
 	openPath(abs: string): Promise<unknown>;
 	reveal(abs: string): void;
 	openExternal(url: string): Promise<void>;

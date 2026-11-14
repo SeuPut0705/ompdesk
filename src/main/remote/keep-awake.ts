@@ -6,7 +6,7 @@
  * after a quiet period, so a device that drops and reconnects does not flap
  * it; turning the option off lets it go immediately. This is its client, which
  * owns what must stay here: the blocker. No Electron imports — the caller
- * injects `powerSaveBlocker.start('prevent-app-suspension')` and `stop`. index.ts
+ * injects the shell's keep-awake blocker (`awakeBlocker`, `boot.awakeStart`). index.ts
  * runs a second instance for "keep awake while working": this computer's own
  * tabs, `connected` always false.
  */

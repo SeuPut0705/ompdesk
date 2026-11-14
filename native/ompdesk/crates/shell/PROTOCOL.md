@@ -1,0 +1,940 @@
+# Host protocol: Node main ⇄ ompdesk-shell
+
+Author of the method table: NodeShim (`src/main/shell-host/`). Implementer of the Rust side: ShellCrate, who records
+deviations in §14. The shim (`src/main/shell-host/electron/`) is the only Node-side speaker of §1–13; every
+Electron call `src/main` makes (found statically, see the inventory in `src/main/shell-host/INVENTORY.md`) maps to
+one entry below. Nothing here is a general Electron emulation: a method the app never calls is not listed, and a
+`win.op`/`wc.op` name the shell does not know answers `{code: "unsupported"}` (never silently ignored). §15 is the
+other kind of namespace: a subsystem of main moved into the shell (batch SX), spoken by its typed client.
+
+## 0. Wire
+
+The core's wire (`crates/core/src/wire.rs`), over the named pipe / unix socket the shell hands Node in
+`OMPDESK_SHELL_SOCKET`:
+
+- one JSON object per line, UTF-8, `\n` (a trailing `\r` is tolerated on read);
+- request `{"id": n, "method": "...", "params": {...}}`, answer `{"id": n, "ok": true, "result": ...}` or
+  `{"id": n, "ok": false, "error": {"code": "...", "message": "..."}}`, event `{"event": "...", "data": {...}}`;
+- `"bin": n` on any frame (request, answer, event): exactly `n` raw bytes follow the newline and belong to that frame;
+- `{"cancel": id}`: the sender no longer waits for request `id` (a `net.fetch` aborted, a `protocol.request` the page
+  dropped); the other side may stop work and need not answer;
+- **both sides send requests**; ids are per direction (the shell's ids and Node's ids are independent counters). One
+  writer per side, so frames never interleave. A malformed line is logged and skipped.
+- Error `code`s: `unsupported`, `invalid`, `gone` (window/page/view destroyed), `denied`, `failed` (message says why),
+  `cdp` (DevTools protocol error, `message` is the protocol's), `timeout`.
+- Names: `winId` = Electron's `BrowserWindow.id`, `wcId` = `webContents.id`. **Node assigns both** (one counter each, from
+  1, never reused in a run) and sends them in
+  `win.create`: Electron's constructors return at once with `win.id` and `win.webContents.id` readable, so they
+  cannot wait for an answer. The shell processes requests in arrival order, so an op sent right after a `create`
+  finds its target; a request about an id the shell does not know answers `gone`.
+  The ids of an app window the shell opens itself (`chrome.open`) start at 2^32 and reach Node with `win.adopted`
+  (§15.4 rule 4).
+- Requests that need CEF (`win.*`, `wc.*`, `view.*`, `session.*`, `dialog.*`, `clipboard.*`,
+  `shell.*`, `notification.*`, `theme.*`, `power.*`, `shortcut.*`, `net.*`, `system.*`) are sent by the shim only
+  **after `app.ready`** (it holds earlier calls, in order); `hello` and `app.*` are never held. The shell therefore
+  never has to queue work for a CEF that is not up.
+- Rects are `{x, y, width, height}` in DIP (device independent pixels, Electron's unit); colours are CSS strings
+  (`#rrggbb`, `#rrggbbaa`, `rgb(…)`).
+
+Node → shell **events** never get an answer. Shell → Node events are listed with their method name in the
+`Event` column.
+
+## 1. Handshake and facts
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `hello` | Node | `{token, pid, protocol: 1}` | `{protocol: 1, facts}` — wrong token: the shell closes the connection |
+
+`hello` is the first frame. Node's main reads many Electron values synchronously at module top level, before it
+could `await` anything, so **the answer to `hello` carries every fact the shim serves synchronously**; the shim's
+entry awaits it (ESM top-level `await`) before any main code runs. Everything not in `facts` is a request or a
+pushed event.
+
+`facts`:
+
+```
+{
+  paths: { userData, appData, sessionData, home, temp, exe, module, desktop, documents, downloads, music,
+           pictures, videos, logs, crashDumps },        // every name app.getPath serves; absolute
+  exe: string,                  // the shell's executable (`app.getPath("exe")`, what a relaunch starts)
+  resourcesPath: string,        // `process.resourcesPath`: packaged <install>/resources, unpackaged: <appDir>/resources
+  appPath: string,              // `app.getAppPath()`: the folder holding out/main/index.js (package.json beside it)
+  isPackaged: boolean,
+  rendererRoot?: string,        // the renderer folder served as app://ompdesk/ (dirname(entry)/../renderer); absent: <appPath>/out/renderer
+  argv: string[],               // the shell's own argv, exe first (what a second launch would send as `argv`)
+  locale: { appLocale, systemLocale, preferredLanguages: string[] },
+  displays: Display[], primaryDisplayId: number,
+  theme: { dark: boolean, highContrast: boolean, inverted: boolean },
+  system: { reducedMotion: boolean, onBattery: boolean, online: boolean },
+  versions: { chrome: string, cef: string, shell: string },
+  safeStorage: { kind: "win-v10", key: base64(32 bytes) }
+             | { kind: "mac-v10-lazy" }                      // macOS: no key at launch, see §11
+             | { unavailable: string }                      // why (logged by the shim, never silent)
+}
+Display = { id, label, bounds: Rect, workArea: Rect, scaleFactor, rotation: 0|90|180|270, internal: boolean,
+            colorDepth, monitorFrequency? }
+```
+
+`versions.shell` is what `process.versions.shell` reports; `versions.chrome` becomes `process.versions.chrome`;
+`process.versions.electron` stays undefined (callers print `?`).
+
+`app.getPath` of a name not in `paths` throws `Failed to get 'name' path`, as Electron does.
+
+## 2. `app.*`
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `app.init` | Node | `{name, switches: [[name, value\|null]], schemes: Scheme[], appUserModelId?: string, activationPolicy?: "regular"\|"accessory"\|"prohibited", aboutPanel?: {applicationName?, iconPath?}}` | `{}` — sent once, on the first macrotask after main's top-level code ran (everything Electron's main does before `whenReady`). The shell then initialises CEF with these switches and schemes and sends `app.ready`. Whether hardware acceleration is off is the shell's own decision before CEF starts (`chrome` gpu area, §15.5), not an init field. |
+| `app.ready` (event) | shell→Node | `{}` | CEF's context is up; windows may be created. `app.whenReady()` resolves here. |
+| `app.exit` (event) | Node | `{code}` | Node finished its quit sequence (`before-quit`, window closes, `will-quit`, `quit`) or `app.exit(code)` was called. The shell closes every window without asking, tears CEF down and exits with `code`; a pending `app.relaunch` is started after teardown. |
+| `app.relaunch` (event) | Node | `{args: string[] \| null}` | After the shell exits, start `exe` again with `args`, or its own launch args when `null` (Electron's default). Last call wins. |
+| `app.focus` | Node | `{steal?: boolean}` | `{}` |
+| `app.hide` / `app.show` | Node | `{}` | macOS `NSApp hide/unhide`; no-op elsewhere. |
+| `app.setBadge` | Node | `{text}` | macOS Dock badge (`app.dock.setBadge`); no-op elsewhere. |
+| `app.setDockIcon` | Node | `{}` + `bin` PNG | macOS `app.dock.setIcon`. |
+| `app.setAppUserModelId` | Node | `{id}` | Windows AppUserModelID (also in `app.init`). |
+| `app.showAboutPanel` | Node | `{}` | macOS standard about panel using the init `aboutPanel` options; Windows: no-op. |
+| `app.getGPUInfo` | Node | `{kind: "basic"\|"complete"}` | `{info: {gpuDevice: [{vendorId, deviceId, active, driverVendor?, driverVersion?, deviceString?}]}, features: Record<string,string>}`. `features` is Electron's `getGPUFeatureStatus()` (`gpu_compositing` is `"enabled"`, `"disabled_software"`, …); the shim serves the sync `getGPUFeatureStatus()` from the last answer. Resolves once the GPU process reported (CEF `GetGPUInfo`/the `chrome://gpu` feature status), never earlier. |
+| `app.childProcessGone` (event) | shell→Node | `{type: "GPU"\|"Utility"\|"Renderer"\|…, reason, exitCode, name?, serviceName?}` | CEF helper process ended abnormally (the GPU one drives the software fallback). Renderer crashes are `wc.event render-process-gone` instead. |
+
+`Scheme = {scheme, privileges: {standard?, secure?, bypassCSP?, allowServiceWorkers?, supportFetchAPI?, corsEnabled?, stream?, codeCache?}}`
+(Electron's `CustomScheme`). `app://ompdesk`, `omp-media://` (standard, secure; §15.9) and `omp-visual://` (standard,
+secure, fetch) are the shell's own and are not registered here; main registers none today.
+
+Not Node's to ask: single-instance (the shell enforces it before Node starts; `requestSingleInstanceLock()`
+answers `true` locally), the userData choice (`app.setPath("userData", dir)` only updates Node's table; the
+shell's own resolution of the same switch/env is authoritative and equal in every case main handles).
+
+## 3. `win.*` (BrowserWindow)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `win.create` | Node | `{winId, wcId, options}` | `{state: WinState}` — see options below. (`webPreferences.offscreen: true`, a windowless browser, was the Preview viewers' page: removed by SX2, §15.6.) |
+| `win.op` | Node | `{winId, op, args}` | `{}` unless noted; the ops below. |
+| `win.closeRequested` | shell→Node | `{winId}` | `{prevent: boolean}` — the person closed the window (caption button, Alt+F4, taskbar, ⌘W, `win.op close` is **not** this). The shim runs `close` listeners with `preventDefault`; the shell closes only when `prevent` is false, then emits `win.event closed`. No answer within 5 s counts as not prevented. |
+| `win.state` (event) | shell→Node | `WinState` + `{winId}` | pushed after every change; the shim answers `getBounds()`, `isMaximized()`, … synchronously from it. |
+| `win.event` (event) | shell→Node | `{winId, name, args?}` | `show`, `hide`, `focus`, `blur`, `minimize`, `maximize`, `unmaximize`, `restore`, `enter-full-screen`, `leave-full-screen`, `resize`, `move`, `ready-to-show`, `unresponsive`, `responsive`, `closed`. `focus`/`blur`/`closed` come *after* the `win.state` that shows their effect. |
+
+`WinState = {bounds: Rect, normalBounds: Rect, contentBounds: Rect, visible, focused, minimized, maximized, fullscreen, title, opacity}`
+(`bounds` is the outer rect, `contentBounds` the web area; `minimized` etc. as Chromium reports them).
+
+`win.create` `options` — the `BrowserWindowConstructorOptions` main uses:
+`x, y, width, height, minWidth, minHeight, show, useContentSize, enableLargerThanScreen, autoHideMenuBar,
+icon` (an absolute file path), `backgroundColor`, `transparent`,
+`titleBarStyle: "hidden"|"hiddenInset"`, `trafficLightPosition {x, y}`,
+`titleBarOverlay {color, symbolColor, height}`, `backgroundMaterial: "mica"`,
+`webPreferences {offscreen, backgroundThrottling, spellcheck, session: <partition name>, sandbox, contextIsolation,
+nodeIntegration, webSecurity, navigateOnDragDrop}` (the sandbox/isolation fields are information: a CEF page never
+has Node). The shim drops `webPreferences.preload`; the shell injects `out/preload/shell.js` itself into every
+page of the **app session** (never into a Preview partition). The window loads nothing until `wc.op loadURL`.
+Chrome as in the contract: frameless; Windows draws the caption buttons (138 × 48 px popup, `titleBarOverlay`
+colours), macOS hidden-inset traffic lights at `trafficLightPosition`.
+
+`win.op` ops (`args` object):
+`show`, `showInactive`, `hide`, `close` (`{force: true}` — Node already ran the `close` listeners and the
+window closes without `win.closeRequested`; the shell then emits `win.event closed`), `destroy`, `focus`, `blur`,
+`minimize`, `maximize`, `unmaximize`, `restore`, `setFullScreen {on}`, `setBounds {bounds}`, `setSize {width,height}`,
+`setContentSize {width,height}`, `setPosition {x,y}`, `center`, `setMinimumSize {width,height}`, `setMaximumSize`,
+`setOpacity {value}`, `setIgnoreMouseEvents {ignore, forward?}`, `setSkipTaskbar {skip}`, `setFocusable {focusable}`,
+`setProgressBar {value, mode?}` (-1 clears), `setTitleBarOverlay {color, symbolColor, height}`, `setTitle {title}`,
+`setBackgroundColor {color}`, `setBackgroundMaterial {material}`, `setAlwaysOnTop {flag}`, `setMenuBarVisibility {visible}`,
+`setAutoHideMenuBar {hide}`, `setIcon {path}`.
+
+## 4. `wc.*` (webContents of a window, a view or an offscreen window)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `wc.op` | Node | `{wcId, op, args}` | the ops below |
+| `wc.send` (event) | Node | `{wcId, channel, args: unknown[]}` | main → page push (the hot path); delivered to the page's `window.omp` listeners in order. Pages that are not app pages (Preview partitions) ignore it. |
+| `wc.state` (event) | shell→Node | `{wcId, url, title, loading, canGoBack, canGoForward, zoomFactor, audioMuted, devtoolsOpened, crashed, userAgent, frameRate?}` | pushed on every change; `getURL()`, `isLoading()`, `getTitle()`, `navigationHistory.canGoBack()`, `getZoomFactor()`, `getUserAgent()` are answered from it. |
+| `wc.event` | shell→Node | `{wcId, name, args}` | Electron's webContents events, in Electron's argument shapes (below). Delivered after the `wc.state` that shows their effect. |
+| `wc.windowOpen` | shell→Node | `{wcId, url, frameName, disposition, features, referrer?}` | `{action: "deny"}` — `setWindowOpenHandler`; the app only ever denies (it opens the Preview tab or the system browser itself), so the shell treats anything but `deny` as deny. The shell waits for the answer (2 s, then denies). |
+| `wc.navigate` | shell→Node | `{wcId, kind: "will-navigate"\|"will-frame-navigate"\|"will-redirect", url, isMainFrame, isSameDocument, isRedirect}` | `{prevent: boolean}` — emitted only for pages whose Node side registered a listener for that kind (`wc.op watchEvents`, below), so a page nobody watches never blocks. The shell holds the navigation (CEF `OnBeforeBrowse`) for the answer (2 s, then **prevents**). |
+| `wc.cdp.attach` | Node | `{wcId}` | `{}` — Electron `debugger.attach`: a DevTools session of the debugger's own on the page; `wc.cdp.message` carries its events. |
+| `wc.cdp.detach` | Node | `{wcId}` | `{}` — its session ends, and with it what it set on the page (emulation, interception, scripts, auto-attach). |
+| `wc.cdp.send` | Node | `{wcId, method, params?, sessionId?, debugger?: true}` | `{result}`; protocol error → `error.code "cdp"`. Without `debugger` it goes to the page's own session and works with or without `attach` (the shell registers its DevTools observer on first use); the shim builds `capturePage`, `printToPDF`, `sendInputEvent`, `insertText` and `executeJavaScriptInIsolatedWorld` on it. With `debugger` (the shim's `debugger.sendCommand`) it goes to the debugger's own session, or to `sessionId`, one under it. |
+| `wc.cdp.message` (event) | shell→Node | `{wcId, method, params, sessionId?}` | the debugger's session's events (no `sessionId`) and those of the sessions under it; only while attached. The page's own session's events never come here. |
+| `wc.cdp.detached` (event) | shell→Node | `{wcId, reason}` | the page went away or DevTools took the page. |
+
+The DevTools commands the shim itself sends through `wc.cdp.send` (so the shell must pass them to the page's DevTools agent
+unchanged): `Page.getFrameTree`, `Page.createIsolatedWorld`, `Runtime.evaluate` (`contextId`, `awaitPromise`,
+`returnByValue`, `userGesture`), `Page.getLayoutMetrics`, `Page.captureScreenshot` (`format: "png"`, `fromSurface`,
+`clip {x, y, width, height, scale}` — a `scale` below 1 must shrink the picture: the app takes a smaller capture this way
+instead of resizing a bitmap), `Page.printToPDF` (`transferMode: "ReturnAsBase64"`), `Input.dispatchMouseEvent`,
+`Input.dispatchKeyEvent`, `Input.insertText`; the agent's browser relay sends any command the agent asks.
+
+`wc.op` ops: `loadURL {url, userAgent?, httpReferrer?, extraHeaders?}` (the shim turns `loadFile` into a
+`loadURL` of `app://ompdesk/…` for files under `out/renderer`, `file://` otherwise), `reload`, `reloadIgnoringCache`,
+`stop`, `goBack`, `goForward`, `executeJavaScript {code, userGesture?}` → `{result}` (JSON value; a throw is
+`error.code "failed"` with the page's message), `setZoomFactor {factor}`, `setUserAgent {userAgent, acceptLanguages?}`,
+`openDevTools {mode?}`, `closeDevTools`, `undo`, `redo`, `cut`, `copy`, `paste`, `pasteAndMatchStyle`, `selectAll`,
+`delete`, `replaceMisspelling {text}`, `copyImageAt {x, y}`, `setWebRTCIPHandlingPolicy {policy}`,
+`setFrameRate {fps}`, `invalidate`, `startPainting`, `stopPainting`, `focus`, `setAudioMuted {muted}`,
+`setBackgroundThrottling {allowed}`, `ignoreBeforeUnload`, `close` (destroys the page), `watchEvents {names}`.
+
+`wc.event` names and `args` (all the page-level events the app listens to):
+
+| name | args |
+|---|---|
+| `did-start-loading`, `did-stop-loading`, `did-finish-load`, `dom-ready`, `unresponsive`, `responsive` | `[]` |
+| `did-start-navigation` | `[{url, isInPlace, isMainFrame, frameProcessId, frameRoutingId, isSameDocument}]` |
+| `did-navigate` | `[url, httpResponseCode, httpStatusText]` |
+| `did-navigate-in-page` | `[url, isMainFrame]` |
+| `did-fail-load` | `[errorCode, errorDescription, validatedURL, isMainFrame, frameProcessId, frameRoutingId]` (a load that is cancelled by a new one is `-3`) |
+| `page-title-updated` | `[title, explicitSet]` |
+| `render-process-gone` | `[{reason, exitCode}]` (`crashed`, `killed`, `oom`, `launch-failed`, `integrity-failure`, `abnormal-exit`, `clean-exit`) |
+| `console-message` | `[{level: "debug"\|"info"\|"warning"\|"error", message, lineNumber, sourceId}]` |
+| `context-menu` | `[{x, y, isEditable, selectionText, misspelledWord, dictionarySuggestions: string[], mediaType: "none"\|"image"\|…, linkURL, srcURL, editFlags: {canUndo, canRedo, canCut, canCopy, canPaste, canSelectAll}}]` — optional (see below). |
+| `input-event` | `[{type: "mouseUp"\|"keyUp"}]` — a trusted pointer or key release on the page: a person's, or browser-process input sent through the DevTools protocol (`sendInputEvent`), as Electron's; never a script's `dispatchEvent` |
+| `preload-error` | `[preloadPath, {message, stack}]` — the shell's injected `shell.js` threw |
+| `destroyed` | `[]` — last event of a page |
+
+Optional events are switched on per page with `wc.op watchEvents {names: string[]}` (Node → shell, sent when the
+first listener of a name is added; `names` is the full set so far): `context-menu`, `input-event`,
+`console-message`, `will-navigate`, `will-frame-navigate`, `will-redirect` (the last
+three are what `wc.navigate` serves). The unconditional ones are the loading, navigation, title,
+`render-process-gone`, `unresponsive`/`responsive`, `destroyed`, `did-fail-load`, `dom-ready` and `preload-error`
+events. `console-message` and `did-start-navigation` carry their details as the event object in Electron 36 (the shim
+spreads `args[0]` into the event).
+
+## 5. `view.*` (WebContentsView: the Preview)
+
+Removed by SX2 (§15.6): the Preview's views are the `preview` module's own pages (§15.4 rule 4), made and placed by the shell; no `view.*` frame exists, and a Preview page's `wc.*` and `session.*` frames are never sent to Node.
+
+## 6. `session.*` and `protocol.*`
+
+A partition is CEF request context: `app` = the app session (`session.defaultSession`; shares `<userData>/shell-webview`
+with the page), a name without `persist:` is in memory only, `persist:<name>` is `<userData>/shell-webview/Partitions/<name>`.
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `session.create` | Node | `{partition, cache?: boolean}` | `{userAgent, acceptLanguages, spellCheckerLanguages: string[], availableSpellCheckerLanguages: string[], cachePath: string \| null}` — idempotent; the shim mirrors these for `getSpellCheckerLanguages()`, `availableSpellCheckerLanguages` and `getCachePath()`. `cachePath` is the folder of the partition's HTTP cache on disk (`app`: the shell's own `<userData>/shell-webview/Default/Cache`; `persist:<n>`: that partition's cache folder; an in-memory partition: `null`); disk care measures it and `session.op clearCache` must empty it, for `app` too |
+| `session.op` | Node | `{partition, op, args}` | `setProxy {mode: "direct"\|"system"\|"fixed_servers"\|"pac_script", proxyRules?, pacScript?, proxyBypassRules?}`, `resolveProxy {url}` → `{result: "PROXY h:p; DIRECT"}`, `clearCache`, `clearStorageData`, `setUserAgent {userAgent, acceptLanguages?}`, `setSpellCheckerLanguages {languages}`, `addWordToSpellCheckerDictionary {word}`, `handleScheme {scheme}`, `unhandleScheme {scheme}` |
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `protocol.request` | shell→Node | `{scheme, partition, url, method, headers: [[k, v]], hasBody}` + `bin` = the request body when `hasBody` | `{status, statusText, headers: [[k, v]], streamId}` — the answer is the head; the body follows as events `protocol.chunk {streamId}` (`bin`) and a final `protocol.end {streamId, error?}`, Node → shell. A `{cancel: id}` frame or `protocol.cancel {streamId}` (shell→Node event) means the page dropped the request. Range semantics are Node's. A scheme registered with `stream` is read incrementally. |
+| `protocol.chunk` / `protocol.end` (events) | Node | as above | |
+| `protocol.cancel` (event) | shell→Node | `{streamId}` | |
+
+`omp-media://` is served by the shell on the app session (`boot`, §15.9). `omp-visual://` is served by the Preview module only on visual partitions (§15.6); neither scheme is served by Node.
+
+## 7. Menus and the tray (moved)
+
+The shim no longer speaks `menu.*` or `tray.*`: the application menu, the text field's context menu and the tray live in
+the shell's `chrome` module (§15.5), which Node reaches through `chrome.menu`, `chrome.menuAction`, `chrome.tray`,
+`chrome.updateAction` and `chrome.menuProbe`. The platform menus the module uses (`menu.rs`, `sys::menu`,
+`sys_mac::menu`) and the tray icon (`tray.rs`) are the shell's own.
+
+## 8. `dialog.*`, `clipboard.*`, `shell.*`, `notification.*`
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `dialog.messageBox` | Node | `{winId?, options: {type, buttons, defaultId, cancelId, title, message, detail, checkboxLabel, checkboxChecked, noLink}}` | `{response, checkboxChecked}` — a sheet on macOS when `winId` is given. A `{cancel: id}` (Electron's `signal`) closes the box as the Esc key would and is still answered, with `cancelId`; the shim waits for that answer (`answerAfterCancel`) |
+| `dialog.openDialog` | Node | `{winId?, options: {title, defaultPath, buttonLabel, filters: [{name, extensions}], properties: string[], message}}` | `{canceled, filePaths: string[]}` |
+| `dialog.saveDialog` | Node | `{winId?, options: {title, defaultPath, buttonLabel, filters, message, nameFieldLabel, showsTagField, properties}}` | `{canceled, filePath?: string}` |
+| `clipboard.readText` | Node | `{}` | `{text}` |
+| `clipboard.writeText` | Node | `{text}` | `{}` |
+| `shell.openExternal` | Node | `{url}` | `{}`; failure → `error.code "failed"` |
+| `shell.openPath` | Node | `{path}` | `{error: string}` ("" on success), as Electron |
+| `shell.showItemInFolder` | Node | `{path}` | `{}` |
+| `shell.trashItem` | Node | `{path}` | `{}`; failure → `error.code "failed"` |
+| `shell.beep` | Node | `{}` | `{}` |
+| `notification.show` | Node | `{id, title, body, icon?, silent?, urgency?, timeoutType?}` | `{}` (Windows toast keyed on the AppUserModelID; macOS `UNUserNotificationCenter`) |
+| `notification.close` | Node | `{id}` | `{}` |
+| `notification.event` (event) | shell→Node | `{id, name: "show"\|"click"\|"close"\|"failed", reason?}` | |
+
+## 9. `screen.*`, `theme.*`, `power.*`
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `screen.changed` (event) | shell→Node | `{displays: Display[], primaryDisplayId, reason: "added"\|"removed"\|"metrics"}` | mirrors `screen.*`; the first value is in `facts` |
+| `screen.cursorPoint` | Node | `{}` | `{x, y}` |
+| `theme.changed` (event) | shell→Node | `{dark, highContrast, inverted, reducedMotion}` | OS change or `boot.themeSource` effect; mirrors `nativeTheme.shouldUseDarkColors`, `systemPreferences.getAnimationSettings()` |
+| `power.event` (event) | shell→Node | `{name: "suspend"\|"resume"\|"lock-screen"\|"unlock-screen"\|"on-ac"\|"on-battery"\|"shutdown", onBattery?: boolean}` | `powerMonitor`'s events (also sent as `boot.power`) |
+| `power.idleTime` | Node | `{}` | `{seconds}` — idle input time (`GetLastInputInfo` / `CGEventSourceSecondsSinceLastEventType`) |
+
+The app's theme source, keep-awake's blockers, the global shortcut, the link state and the resolver are `boot.*`'s
+(§15.9).
+
+The system-permission calls main makes on macOS (`systemPreferences.isTrustedAccessibilityClient(prompt)`,
+`getMediaAccessStatus("screen")`) are `system.accessibilityTrusted {prompt}` → `{trusted}` and
+`system.mediaAccessStatus {mediaType}` → `{status}`; both Node → shell, answered `{trusted: false}` /
+`{status: "not-determined"}` off macOS.
+
+## 10. `net.*` (Electron's `net`)
+
+Chromium's network stack through CEF's `CefURLRequest`, so the system proxy, PAC and certificate store are Electron's.
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `net.fetch` | Node | `{reqId, url, method, headers: [[k, v]], hasBody, redirect: "follow"\|"manual"\|"error", partition?, credentials?: "include"\|"omit"\|"same-origin", bypassCustomProtocolHandlers?: boolean}` + `bin` = the body when `hasBody` | `{status, statusText, url, redirected, headers: [[k, v]]}` once the head arrived; the body follows as events `net.chunk {reqId}` (`bin`) and `net.end {reqId, error?: string}`, shell → Node. `redirect: "manual"` answers the 3xx itself. A `{cancel: id}` frame (or `net.cancel {reqId}` event, Node → shell) aborts. Network failure before the head → `error.code "failed"`, `message` = Chromium's `net::ERR_…`. |
+| `net.chunk` / `net.end` (events) | shell→Node | | |
+| `net.cancel` (event) | Node | `{reqId}` | |
+| `net.login` | shell | `{reqId, isProxy, scheme, host, port, realm}` | `{username, password}` or `{cancel: true}`: an HTTP authentication challenge (server or proxy) of the `net.fetch` `reqId` in flight (CEF `GetAuthCredentials`; answered asynchronously, no timeout on the shell's side beyond the request's own end). The shim raises Electron's `login` on that `net.request` with `authInfo` `{isProxy, scheme, host, port, realm}` and a `callback(username?, password?)`; no listener, or `callback()` with nothing, answers `{cancel: true}` and the challenge's 401/407 is the response, as in Electron. A `net.fetch` made by `net.fetch()` (no `ClientRequest`) always gets `{cancel: true}` |
+
+`net.request` (Electron's streaming `ClientRequest` API) is built by the shim on
+`net.fetch` (`redirect: "manual"` + `net.chunk`), with `response`, `redirect`, `error`, `abort` semantics.
+The updater no longer uses them (its requests are the shell's own, §15.8).
+
+## 11. safeStorage
+
+No requests: the shell hands the key over in `facts.safeStorage` and the shim implements Electron's synchronous
+API with `node:crypto`, byte-identical to Chromium's OSCrypt (Electron 36), so a value written by either app reads
+in the other:
+
+- Windows `{kind: "win-v10", key}`: `key` is the 32-byte AES key from `<userData>/Local State`
+  `os_crypt.encrypted_key` (base64; after the ASCII prefix `DPAPI` the rest is DPAPI-protected; the shell
+  unwraps it with `CryptUnprotectData`). Encrypt: `"v10" ‖ nonce(12 random) ‖ AES-256-GCM(plaintext) ‖ tag(16)`;
+  decrypt reverses it, refusing another prefix.
+- macOS: **never read at launch**: any keychain dialog at launch or in the move is a failure. `facts.safeStorage` is
+  `{kind: "mac-v10-lazy"}` and the shim reads the key on the **first** `isEncryptionAvailable` / `encryptString` /
+  `decryptString` / `getSelectedStorageBackend` call (Electron's own semantics; `mail-accounts.ts`
+  touch safeStorage only when a stored secret exists or one is saved) by a synchronous one-shot of the shell binary
+  itself, so the keychain ACL sees the app's own code identity: `execFileSync(facts.exe, ["--keychain-key", userData])`
+  (stdin closed, stderr ignored, 120 s limit because the keychain may show its prompt). The process answers **one JSON
+  line on stdout** and exits 0: `{"kind":"mac-v10","password":"<base64 of the keychain item's password bytes>"}` or
+  `{"unavailable":"<reason>"}` (item missing and not creatable, access denied, …); any other output, a non-zero exit or
+  a timeout is treated as unavailable with that reason. It must not start CEF, a window, or a second Node, and must
+  not take the single-instance lock. The item is "ompdesk Safe Storage" (account "ompdesk"); key = PBKDF2-HMAC-SHA1(password,
+  salt `"saltysalt"`, 1003 iterations, 16 bytes); encrypt: `"v10" ‖ AES-128-CBC(PKCS7, IV = 16 × 0x20)`.
+  The one-shot reads with keychain user interaction disabled: a read that **would show a dialog** answers exactly
+  `{"unavailable":"keychain-would-ask"}` (`src/shared/keychain.ts` `KEYCHAIN_WOULD_ASK`). The shim then keeps safeStorage
+  unavailable for the rest of the run and never runs the one-shot again; `safeStorage.getUnavailableReason()` (shim-only)
+  returns that string so main can tell it from other failures. A missing item is created (as Chromium does; creation never
+  asks). Other `unavailable` texts: `access to the keychain item "ompdesk Safe Storage" was denied`, or
+  `reading the keychain item … failed: … (OSStatus n)`. On `keychain-would-ask` main drops the stored update token
+  (`update-token.bin` removed, `update-token.dropped` left, Settings › Updates says why), marks each mail account whose
+  password file exists as needing re-entry (`MailAccount.needsReentry`, one in-app notice names them), and refuses to store
+  a new secret (`keychain_would_ask`).
+- Windows `{kind: "win-v10", key}` stays in the `hello` facts (no prompt exists there).
+- `{unavailable: reason}`: `isEncryptionAvailable()` is false, the reason is logged once; `encryptString` and
+  `decryptString` throw.
+- The shell creates the Windows `Local State` key itself when the file lacks one (first run of a clean profile),
+  as Chromium would, so a later Electron install reads it.
+
+## 12. Page ⇄ Node IPC
+
+| Method | Asks | Params | Result |
+|---|---|---|---|
+| `ipc.invoke` | shell→Node | `{wcId, frameUrl, channel, args}` | `{value}`; a handler's rejection is an error answer (`code "failed"`, `message` = the thrown message) and the page's promise rejects with `Error(message)` |
+| `ipc.send` (event) | shell→Node | `{wcId, frameUrl, channel, args}` | fire and forget |
+| `wc.send` | Node | (section 4) | |
+
+Bytes: JSON cannot carry a `Uint8Array`, so the page and the shell write one as `{"$bin": "<base64>"}` anywhere inside `args` of `ipc.invoke` / `ipc.send` / `ipc.sendSync`, inside the `{value}` of an answer and inside `wc.send` `args`; the shell forwards the JSON untouched and the page-side reviver turns it back; the shim decodes incoming `args` to `Buffer` and encodes `Buffer`/`Uint8Array`/`ArrayBuffer` in answers and `wc.send`.
+
+`frameUrl` is the sending frame's URL (`event.senderFrame.url`); Node serves only `app://ompdesk/` for app channels,
+and no frame of a Preview page (§15.6).
+
+## 13. Values the shim mirrors (sync getters)
+
+| Electron | Source |
+|---|---|
+| `app.getPath(name)`, `getLocale`, `getSystemLocale`, `getPreferredSystemLanguages`, `getAppPath`, `isPackaged`, `process.resourcesPath` | `facts` |
+| `app.getGPUFeatureStatus()` | last `app.getGPUInfo` answer (`{}` before) |
+| `screen.getPrimaryDisplay/getAllDisplays/getDisplayMatching/getDisplayNearestPoint` | `facts.displays` + `screen.changed` |
+| `nativeTheme.shouldUseDarkColors`, `…HighContrastColors`, `…InvertedColorScheme` | `facts.theme` + `theme.changed` |
+| `systemPreferences.getAnimationSettings().prefersReducedMotion` | `facts.system.reducedMotion` + `theme.changed` |
+| `BrowserWindow#getBounds/isMaximized/isMinimized/isVisible/isFocused/isFullScreen/getContentSize/getTitle/getOpacity` | `win.state` |
+| `webContents#getURL/isLoading/getTitle/getZoomFactor/getUserAgent/navigationHistory.canGoBack/canGoForward/isCrashed` | `wc.state` |
+| `session#getUserAgent/getSpellCheckerLanguages/availableSpellCheckerLanguages` | `session.create` |
+| `safeStorage.*` | `facts.safeStorage` |
+
+Made asynchronous (cannot be mirrored; each call site changed, see `src/main/shell-host/INVENTORY.md`):
+`clipboard.readText()` → `readClipboardText()` (`clipboard.readText` request), `powerMonitor.getSystemIdleTime()` →
+`systemIdleSeconds()` (`power.idleTime`), `NativeImage#toJPEG/toPNG/resize` of a captured or painted page →
+`capturePage` encode options.
+
+## 14. Shell deviations (ShellCrate records here)
+
+What the Rust shell does differently from this table or from Electron. README.md › Deviations has the user-visible list.
+
+- **Startup**: `hello`'s answer carries `facts` (also `rendererRoot`, the folder served as `app://ompdesk/`:
+  `<dirname(main script)>/../renderer`, where the main script is `OMPDESK_APP_ENTRY` or `<appDir>/out/main/index.js`).
+  `app.init` is answered `{}` after CEF initialised; `app.ready` follows `on_context_initialized`. Node's argv after the
+  executable is the shell's own argv after it. `OMPDESK_APP_ENTRY`, `OMPDESK_APP_DIR`, `OMPDESK_NODE`,
+  `OMP_GUI_TEST_USER_DATA_DIR`, `OMP_GUI_TEST_NODE_INSPECT` are the shell's environment seams.
+- **Ids**: Node's `winId`/`wcId`/`viewId` are used as sent; the shell's own counters only serve a create that omits them.
+- **`app.exit`**: windows close without `win.closeRequested`; browsers that have not closed after 4 s do not hold the quit.
+  Node dying unexpectedly: the shell exits 1 after logging it on stderr.
+- **Second launch** of the same user-data folder (named pipe, unix socket on macOS: `$TMPDIR/ompdesk-<16 hex of SHA-256(userData)>-shell.sock`, `/tmp/…` when TMPDIR is long, 0600; the host socket Node gets is `…-host-<pid>.sock` beside it)
+  hands `argv` over and exits 0; the `chrome` module's deep-link area takes it (`deep_link::second_instance`, §15.5).
+  Open URL, open file and the Dock click on macOS are unverified.
+- **`wc.navigate`**: for main-frame navigations Node did not start itself. A click on a `file:` link is reported by the
+  injected preload (`POST /__shell/will-navigate`) and the request is sent without waiting for the answer: Blink refuses
+  that navigation before the browser process sees it, so it is always blocked.
+  `isSameDocument` is always false. As in Electron, a reload, a back/forward step or a fragment change of the shown
+  document is not asked about (`transition.rs`): the main script prevents every navigation it is asked about that it did
+  not start, which would cancel a DevTools reload.
+- **`wc.event`**: `did-navigate` carries status 200 / "OK" (CEF gives none there); `did-start-navigation` is per frame,
+  with `frameProcessId`/`frameRoutingId` 0; `will-prevent-unload` is
+  not produced (the before-unload dialog is accepted without asking).
+- **`input-event`** comes from the page: once a page watches it, the shell enables `Runtime` and `Page` on the page's
+  DevTools session and registers a script in an isolated world of its own (`ompdesk-input`) that reports each trusted
+  `pointerup`/`keyup` through a binding only that world has (`input_watch.rs`); the binding's calls never reach a
+  debugger, and a debugger's detach arms the page again. A release on an out-of-process frame is not seen.
+- **`wc.windowOpen`** is sent but not waited for: the popup is always cancelled.
+- **`wc.op`**: `setBackgroundThrottling` and `ignoreBeforeUnload` are accepted and do nothing; `copyImageAt` copies through
+  the page's clipboard API; `executeJavaScript` is CDP `Runtime.evaluate` (by value, promises awaited).
+- **`wc.cdp.send`**: every call times out after 60 s with `timeout`. The debugger's session is a flat session the shell
+  attaches to the page's own target (`Target.getTargetInfo`, `Target.attachToTarget {flatten: true}`) on the page's
+  DevTools channel; commands sent before it exists wait for it, and `wc.cdp.detach` is `Target.detachFromTarget`.
+  A detach, the session's end, or a session that could not be opened fails the debugger's waiting and in-flight
+  commands at once (`gone`, "target closed while handling command", as Electron's debugger rejects them) and leaves
+  the page unattached, so a new `wc.cdp.attach` makes a new session. When the page's DevTools agent detaches (CEF
+  delivers none of the pending answers then), every pending command fails the same way, an attached debugger hears
+  `wc.cdp.detached`, and a page that watches `input-event` arms it again.
+- **Edit `wc.op`s** (`undo`, `redo`, `cut`, `copy`, `paste`, `pasteAndMatchStyle`, `selectAll`, `delete`) sent to a
+  window's own page act on the page of that window that last took keyboard focus (it took the OS focus, or a key it
+  left unhandled came from it), as Electron's menu roles act on the focused webContents: a Preview view the person
+  typed in.
+- **`win.op`**: `setMenuBarVisibility`, `setAutoHideMenuBar`, `setBackgroundMaterial` (Mica is set at creation) are
+  accepted and do nothing. `setProgressBar {value, mode?}`: Windows shows it through `ITaskbarList3` (`value` 0..1
+  determinate, below 0 removes the bar, above 1 indeterminate; `mode` none, normal, indeterminate, error or paused
+  overrides), retried for 2 s while the taskbar button does not exist yet; macOS draws it on the Dock tile with an
+  `NSProgressIndicator` (UNVERIFIED); on a window that cannot take focus `show` and `showInactive` do not activate and
+  `win.state.focused` stays false.
+- **macOS focus**: `setFocusable(false)` has no window flag there; the shell keeps it per window (the window never reports
+  `focused`, `show` does not activate it) and `showInactive` shows the window and hands key status back at once (never
+  `NSApp activate`). A created window's size is set again when Views made it 1 px off the requested one (UNVERIFIED on a Mac).
+- **`win.closeRequested`**: no answer within 5 s closes the window.
+- **`session.*`**: `setProxy` writes Chromium's `proxy` preference; `resolveProxy` is answered from the user's WinINET /
+  WinHTTP settings on Windows, not Chromium's resolver; on macOS from CFNetwork's system proxy settings (static
+  HTTP/HTTPS/SOCKS, the exceptions list, exclude-simple-hostnames; a PAC script or auto-discovery is run through
+  `CFNetworkExecuteProxyAutoConfigurationURL` on a run loop for at most 3 s on the calling thread and falls back to the
+  fixed settings; a script answer is read for none/HTTP/HTTPS/SOCKS only and an HTTPS entry is written `PROXY`;
+  UNVERIFIED on macOS). `setSpellCheckerLanguages {languages}` normalises the codes (`en_US` to `en-US`; a language without
+  a dictionary falls back to its bare or first regional one, else is dropped) and writes Chromium's `spellcheck.dictionaries`
+  (and `browser.enable_spellchecking`) on the partition's context; `addWordToSpellCheckerDictionary {word}` adds to the
+  profile's custom dictionary through a page of that partition and answers `failed` when it has none yet. Chromium
+  downloads a language's dictionary on first use (needs network) or uses the OS spellchecker where it has the language.
+  `session.create` reports `spellCheckerLanguages` (what was set; for `app` the preference's value), the fixed
+  `availableSpellCheckerLanguages` list of Chromium's dictionary codes and `cachePath` (`app`:
+  `<userData>/shell-webview/Default/Cache`; `persist:<n>`: `<userData>/shell-webview/Partitions/<n>/Cache`, inferred;
+  in-memory: `null`). `clearCache`/`clearStorageData` on `app` run DevTools `Network.clearBrowserCache` (plus
+  `clearBrowserCookies`) on the first app page, never touching Local Storage, and clear the global context directly only
+  when no page exists. They do nothing for an in-memory partition (clearing a Chrome-style in-memory context ends the
+  process). Creating the Preview's two in-memory contexts logs Chromium's non-fatal `NOTREACHED hit. Observers can only be
+  added once!` on stderr.
+- **Answers that are not ready at `open`** (`ipc.invoke` through `scheme.rs`, `protocol.request`): the pending response is
+  stored before the request leaves, and `shell_core::handshake` orders the reply against `ResourceHandler::Open`: a reply
+  that arrives before `open` returns is handled by `open` itself (`handle_request = true`, no callback), one after it
+  calls `Continue`. (Before this the reply could be overwritten by `open`'s own placeholder: an empty body, seen on macOS as
+  `Unexpected end of JSON input` in the page.) The page script rejects an empty answer as `shell answered nothing for
+  <channel>`.
+- **`enableLargerThanScreen`** (window option): the window delegate's maximum size is lifted to 16384 so Windows' own clamp
+  to the display (`WM_GETMINMAXINFO`) does not apply; macOS is not handled (UNVERIFIED whether Views clamps there).
+- **`protocol.request`**: request headers are one `[name, value]` pair per value; a failed head fails the request with
+  `ERR_FAILED`.
+- **Page transport**: `Uint8Array` crosses as `{"$bin": "<base64>"}` in `ipc.invoke`/`ipc.send` args, `wc.send` args and
+  `{value}` of an invoke answer; the shim decodes and encodes it.
+- **`dialog.*`**: Windows dialogs run on a thread of their own (their modal loop does not block CEF's UI thread); a
+  macOS `messageBox` is app-modal, not a sheet. A cancelled message box: Windows clicks the TaskDialog's IDCANCEL,
+  macOS queues an `abortModal` on the main queue that acts only while that alert's own modal session is live, so a late
+  cancel never ends the next alert. File dialogs are not cancelled.
+- **`notification.*`**: WinRT toasts keyed on the AppUserModelID; without a Start-menu shortcut carrying it a toast may
+  not show, though `show` is still reported.
+- **`boot.themeSource`** is a browser-wide colour scheme: `RequestContext::set_chrome_color_scheme` (SYSTEM/LIGHT/DARK) on the global
+  context and every partition's, in force before a page loads (a page's `<head>` script reads `prefers-color-scheme`
+  synchronously), plus CDP `Emulation.setEmulatedMedia` on each page as a second hold; it reaches
+  native chrome: Windows sets `DWMWA_USE_IMMERSIVE_DARK_MODE` on every window (when the source changes, on window creation
+  and on `theme.changed`), macOS sets `NSApp.appearance` (UNVERIFIED).
+- **`app.childProcessGone`**: CEF has no callback for a helper process ending, so a thread polls the shell's children once
+  a second and reports a gone non-renderer, non-crashpad child. Windows: ToolHelp plus `--type=` from the command line, the
+  exit code from the process handle; reasons come from the NTSTATUS table in `shell_core::childproc::reason` (exit code 1 is
+  `killed`). macOS (UNVERIFIED): children from `proc_listpids(PROC_PPID_ONLY)`, `--type=` read once from `KERN_PROCARGS2`,
+  only for the GPU process and the long-lived utility services (network, audio, storage: other utilities finish
+  normally); each is followed by a kqueue (`EVFILT_PROC`, `NOTE_EXIT | NOTE_EXITSTATUS`) that hands over its wait status
+  without reaping it: exit 0 is `clean-exit`, another code `abnormal-exit`, SIGINT/SIGKILL/SIGTERM `killed`, any other
+  signal `crashed` (`exitCode` the code or the signal), so a GPU process that ends cleanly never triggers the software
+  relaunch. A helper that lives under a second, or ends before it could be watched, is missed, and nothing is reported
+  once the shell
+  is exiting (an app quit).
+- **`win.event`** `unresponsive`/`responsive` is sent for a window's main page in addition to its `wc.event`; views and
+  Preview pages produce only the `wc.event`.
+- **`wc.event preload-error`** `[preloadPath, {message, stack}]` is produced for `shell.js` throwing in an app page, via
+  `POST /__shell/preload-error`; a throw in a Preview partition's preload (`app.rs`) is not reported.
+- **`boot.resolveHost`** with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`).
+- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; an HTTP 401/407 challenge of a `net.fetch` is asked of Node with `net.login` (CEF re-asks after wrong credentials); request headers
+  `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
+- **Application menu accelerators** are matched by a message hook for typed keys; a key sent through the DevTools protocol
+  (the e2e harness) reaches the shell as an unhandled key event and is matched there.
+- **`OMP_GUI_TEST_SHELL_FAIL_START=1`** (test seam): the shell exits 1 right after CEF initialised, before `app.init` is
+  answered, so the installer's swap-back path can be exercised. The "app started" mark (`<userData>/app-started.json`) is
+  written by the app's main script, not by the shell.
+- **macOS helpers**: with the launcher layout the shell runs as `Contents/MacOS/ompdesk-shell`, and CEF names its helpers
+  after the running executable (`ompdesk-shell Helper (GPU).app`). The shell sets `CefSettings.main_bundle_path` to the .app
+  and `browser_subprocess_path` to `Contents/Frameworks/OMPdesk Helper.app/Contents/MacOS/OMPdesk Helper` (only when that
+  file exists; `startup::mac_bundle_paths`, logged as `cef.helper`). Whether CEF 156 then derives the `(GPU)`/`(Renderer)`/
+  `(Plugin)`/`(Alerts)` variants from that path rather than from the executable is not confirmed from its source:
+  UNVERIFIED until a macOS runner starts the GPU process with only the `OMPdesk Helper*` apps in the bundle.
+- **macOS launcher** (`ompdesk-launcher`, `launcher.rs`, `launcher_main.rs`): the bundle's `CFBundleExecutable`
+  (`Contents/MacOS/OMPdesk`); the shell is `Contents/MacOS/ompdesk-shell`, which the launcher `exec`s with the same argv (the
+  app's pid stays the shell's). Armed only when `<userData>/update-install.json` has `to` == the bundle's
+  `CFBundleShortVersionString` and `<userData>/app-started.json` does not hold that version: it then leaves a detached copy
+  of itself (`--ompdesk-launcher-watch`, stdio to `<userData>/updates/swap.log`) that waits up to 120 s (also: the shell's pid
+  gone for 10 s) for the mark. Not seen: `<bundle>.previous` present → the old app's swap script owns the rollback
+  (`start failed; the swap restores`); else the shell and every process under `<bundle>/Contents/` are ended and the last
+  Electron release (`last-electron.json` → compile-time `OMPDESK_LAST_ELECTRON_TAG`) is fetched with `/usr/bin/curl`
+  (`GET <api>/repos/SeuPut0705/ompdesk/releases/tags/<tag>`, its `<!-- ompdesk-update … -->` comment, the `ompdesk-mac-arm64.dmg`
+  asset by its API `url` with `Accept: application/octet-stream`), SHA-512 and size checked, mounted read-only, copied out,
+  `codesign --verify --deep --strict`, bundle id and version checked, swapped in (`<bundle>.failed` aside, the S bundle put
+  back on any failure) and opened with `open -n`. swap.log lines: `swap <date>: start check <bundle> -> <bundle>`, then
+  `started` | `start failed; the swap restores` | `rollback: ending <pids>`, `fetching <tag>`, `download ok <bytes>`,
+  `sha512 ok`, `staged <path>`, `verified`, `swapped`, `opened`, and `start failed; previous app restored` or
+  `start failed; restore failed: <why>`. Test seams (only beside `OMP_GUI_TEST_USER_DATA_DIR`):
+  `OMPDESK_LAUNCHER_RELEASE_URL` (the API base) and `OMPDESK_LAUNCHER_START_WAIT_S`. Compiled on macOS by CI only.
+- **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs every host request (`host.request`); a Rust panic writes
+  `%TEMP%/ompdesk-shell-panic.log`.
+- **Popup menus** (`menu::popup_with`): a popup requested while another is open is a dismissal (Windows).
+- **macOS**: `facts.safeStorage` is `{kind: "mac-v10-lazy"}` (the key is fetched with `--keychain-key <userData>`, never at
+  launch); every CEF process runs with `--use-mock-keychain`; Cmd-Q, `open` events and the Dock click are the `chrome`
+  module's (§15.5). All macOS code is
+  unverified on a Mac.
+
+## 15. Moved subsystems (batch SX: the shell port)
+
+What `docs/rust-remaining-units.md` §4 lists (about 13 300 lines of `src/main` that need Electron) moves out of the
+Node child into the shell, one **module** per subsystem. A module owns one namespace: every method, event and ask of
+it is `<namespace>.<name>`. The ledger line is `.omp/rules/native-rust.md` › Ledger › SX.
+
+### 15.0 The contract every slice keeps
+
+**Rust side** (`crates/shell/src/modules/mod.rs`):
+
+- A module is a unit struct implementing `modules::Module` (`namespace`, `request`, and optionally `event`, `ready`,
+  `shutdown`) and one line of `MODULES`. Its CEF-bound code is `src/modules/<namespace>/` (`mod <namespace>;` in
+  `modules/mod.rs`); its pure rules are `src/<namespace>_core/` in the library (`pub mod <namespace>_core;` in `lib.rs`),
+  where `cargo test` runs them without CEF. State lives in the module's own statics; CEF objects only on the UI thread.
+- Namespaces are one lowercase word, never one of `shell_core::namespaces::SHIM_NAMESPACES` (`app`, `win`, `wc`,
+  `tray`, `menu`, … and `core`), never twice; the registry asserts it when it is built (the core's `Registry` rule).
+  Hence `chrome.*`, not `app.windows.*`: `app.*` is the one namespace Node sends before `app.ready`.
+- `dispatch.rs` keeps the shim's namespaces and hands every other name to `modules::request` / `modules::event`; a
+  name no module owns answers `unsupported` (an event is logged and dropped).
+- `request` and `event` run on the host's reader thread and never block it: CEF work goes to `crate::ui::post`,
+  anything slow to a thread of its own. A module answers each `Call` exactly once (dropping it answers `failed`).
+- `ready` runs on the UI thread in `on_context_initialized`, before `app.ready` goes to Node, in list order; `shutdown`
+  runs on the UI thread when `app.exit` arrives, before the windows close, in reverse order. A Node that died gets no
+  `shutdown` (the shell exits at once).
+- A module reaches CEF through the crate's existing modules (`window`, `wc`, `view`, `session`, `tray`, `menu`,
+  `dialog`, `notification`, `net`, …), never a second copy of them; Node through its `Ctx` (`emit`, `emit_bin`, `ask`,
+  every name prefixed with its namespace); the core through `Ctx::core` (§15.2).
+- Ids a module makes for shim-level objects (a window, a page, a view) come from `state.rs`'s counters, which start at
+  2^32; Node's own ids count from 1, so the two never meet. Which of them Node hears about is §15.4 rule 4.
+
+**Node side** (`src/main/shell-host/modules/`):
+
+- One client file per namespace, `modules/<namespace>.ts`: it declares the namespace's `ModuleSpec` (`calls` Node →
+  shell requests, `posts` Node → shell events, `events` shell → Node, `asks` shell → Node requests, each name without
+  the namespace), makes `shellModule<Spec>("<namespace>")` (`modules/client.ts`) and exports the functions the rest of
+  main calls. Nothing else speaks the namespace. Requests wait for `app.ready` as the shim's do.
+- **Clean cutover**: the commits that add a module delete the TypeScript that did the work and move every caller to
+  the client in the same commits; no flag, no fallback to the TypeScript, no copy left beside it. A synchronous API
+  becomes asynchronous at its call sites (as INVENTORY.md › Made different), or Node keeps a mirror written only from
+  the module's events (9c's mirror pattern) when a caller must read it synchronously.
+- An ask the module makes is served (`client.serve`) before the first call that could cause it; an ask nobody serves
+  answers `unsupported` and the module treats that as a failure it logs.
+- Errors are the wire's codes (§0); a module may add its own `error.code`s, listed in its table.
+
+### 15.1 Slices
+
+Five slices, each on its own branch stacked on `omp/agent/shell-port-base` (this contract), each one session. Every
+file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `index.ts`, the parts named).
+
+| Slice | Namespace | Moves | Rust |
+|---|---|---|---|
+| SX1 chrome | `chrome.*` | `window.ts`, `menu.ts`, `tray.ts`, `app-quit.ts`, `deep-link.ts`, `gpu-fallback.ts`, `hang-watchdog.ts`, `app-icon.ts` | `modules/chrome/`, `chrome_core/` |
+| SX2 preview | `preview.*` | `preview/host.ts`, `agent-relay.ts`, `visuals.ts`, `page-scripts.ts`, `preview-check.ts`, `layout.ts`, `relay-socket.ts`, `visual-navigation.ts`; `web/preview-stream.ts`, `preview-input.ts`, `preview-dialog.ts`, `preview-pacer.ts` | `modules/preview/`, `preview_core/` |
+| SX3 services | `services.*` | the Electron services of `ipc.ts` and `ssh/ipc.ts` (clipboard, dialog, screen, shell, `Notification`, window lookups); their IPC handlers stay registered in Node (§15.4 rule 5) and call the client. `web/ipc-registry.ts` and `runtime-log.ts` stay in Node (rules 5 and 1) | `modules/services/`, `services_core/` |
+| SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `installer-spawn.ts`, `updater-state.ts`, `update-provider.ts`, `update-release.ts` | `modules/updater/`, `updater_core/` |
+| SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `i18n.ts`, `i18n-text.ts` and `tray-labels.ts`'s tables (rule 2), `sidecar-factory.ts`'s paths | `modules/boot/`, `boot_core/` |
+
+- **Where a module lives**: in the shell when it needs CEF or the OS objects the shell holds (windows, tray, menus,
+  Chromium's network stack with its proxy and certificate store, the `safeStorage` key). A slice whose rules need none
+  of that puts them in the core instead (`crates/core/src/<namespace>/`, the core's `register` and `CoreProcess`
+  client), with its row here naming that; the updater's network stays in the shell (§4's reason: Chromium's proxy and
+  certificates).
+- **Files a slice touches**: its moved files and their callers' call sites; its `modules/<namespace>/`,
+  `<namespace>_core/` and `src/main/shell-host/modules/<namespace>.ts`; its row and §15.x tables here; its ledger line.
+  Shared, one line each (a rebase resolves them): `MODULES` and the `mod` lines in `modules/mod.rs`, `lib.rs`,
+  `Cargo.toml`/`Cargo.lock` (a new crate also regenerates `LICENSES/ompdesk-native-dependencies.txt`).
+  `Ctx`'s `#[expect(dead_code)]` goes with the commit that makes its last method live.
+- **Between slices**: a module calls another module's Rust (`pub` functions of `modules/<other>/`), never the wire;
+  until the other slice landed it goes through the shim namespaces as today (chrome owns the windows: preview and
+  services keep using `win.*` ids Node assigns until SX1 lands, then take SX1's functions).
+
+### 15.2 The contract's own frames (`core.*`, `log.*`)
+
+Served by `src/main/shell-host/modules/relay.ts` (`serveShellRelays`, called in `index.ts` before `whenReady`);
+reached from Rust through `Ctx`. No module adds frames to these namespaces. The text modules show is the shell's own
+(`shell_core::labels`, over `boot_core/main-text.json`, §15.9).
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `core.call` | shell→Node | `{method, params, timeoutMs?}` + `bin` | the core's answer to `method` (its `bin` too). A fault keeps the core's `code` and message; `{cancel: id}` cancels the request in the core. Used through `Ctx::core`. When the core moves under the shell only `Ctx::core`'s body changes. |
+| `log.runtime` (event) | shell→Node | `{report: RuntimeLogReport, windowId?, cwd?}` | Transitional Node runtime-log writer; final native runtime replaces this relay with one shell-owned writer. |
+
+### 15.3 Parity proof, per slice
+
+The TypeScript that moves is the specification (native-rust › A port keeps behaviour), and its tests stay: the
+suites that tested the moved code keep their cases and run them against the **real shell** on CI, as the core's
+units run theirs against the real core. Captured tables in Rust are added coverage, never a replacement. Locally a
+slice runs `cargo check` of the shell crate only (the owner's rule); every test, clippy, the e2e and CEF behaviour run
+on GitHub's runners.
+
+1. **The parity suite runs against the shell.** Each moved file's vitest cases move to
+   `src/main/shell-host/modules/<namespace>.test.ts` (or several `<namespace>-<part>.test.ts`), unchanged in what they
+   assert, now calling the module's typed client over a real shell: `startTestShell(testShellExecutable())`
+   (`modules/test-shell.ts`), inside `describe.skipIf(!executable)`. The harness starts the built shell with a relay as
+   its Node, so the test is main's side of the wire (`hello`, `app.init`, `app.ready`), then
+   `shellModule<Spec>(ns, () => shell.client)`; it closes with `app.exit`. A case that needs Node's side served (an
+   ask, `core.call`, `log.runtime`) serves it on `shell.client` in the test. CI runs that folder with
+   `OMPDESK_TEST_SHELL_REQUIRED=1`, where a missing shell fails: on Windows in `ci.yml`'s `shell-parity` job (every
+   batch run), on macOS as a step of `mac-checks.yml`'s `mac-smoke` (the landing run, `-f mac=true`). On Linux and in a
+   checkout without `bun run build:shell` the suites skip.
+2. **Capture before deletion.** In the slice's first commit, while the TypeScript still exists, a capture script
+   (`scripts/shell-port/capture-<namespace>.ts`, run under bun) drives the moved code through its public functions
+   over a fake shell (the `HostClient` fake of `electron/create.test.ts`) and records each step: the input, the shim
+   frames the TypeScript sent (method, params) and what it returned or emitted, into
+   `crates/shell/src/<namespace>_core/captured.json`, headed by the commit it came from. The module's pure part
+   returns its decisions as data equal to those frames; `cargo test` replays the file and fails on the first step that
+   differs.
+3. **Tests of callers** stay where they are and run against the typed client over a fake host
+   (`shellModule(ns, () => fake)`). The e2e specs that cover the surface keep their scenarios and assertions and run
+   against the built shell; a slice adds them to the batch run's selection. A spec helper that reached a moved page
+   through main (`app.evaluate(({webContents}) => …)`, `executeJavaScript`, `sendInputEvent`) is rewritten to reach the
+   same page as a CDP target through the harness's Playwright attach (`ShellApplication.windows()`, which lists views
+   and offscreen pages too; `page.evaluate`, `page.mouse`); a target it cannot reach yet is added to the harness
+   (`e2e/fixture/shell-launch.ts`). No module grows a test-only call and no production frame exists only for a test.
+   `shell-check` (fmt, clippy `-D warnings`, `cargo test`) runs in the same batch run
+   (`gh workflow run ci.yml --ref <branch> -f batch=true`).
+4. **Ledger line** in the format of the others: what moved, kept exactly (the parity suite's cases and the captured
+   step count), differences, what stays TypeScript and why, CI coverage.
+
+### 15.4 Rules across slices (decided 13 Nov 2026)
+
+1. **`gui-runtime.jsonl` has one writer.** The current transitional build still uses Node's
+   `runtime-log.ts`/`runtime-log-core.ts` through `Ctx::runtime_log`. Native-runtime-v1 moves the writer, rotation,
+   normalization and update-report scrubbing together into the shell and deletes that relay in the same cutover.
+   The shell diagnostic log (`log.rs`) remains separate. Two processes must never append to the runtime log.
+2. **One label API for modules; the strings are the shell's.** A module that shows text (a menu, the tray, a dialog it
+   opens) reads it only through `shell_core::labels::label(key, params)`, keyed as `MAIN_TEXT` was and `tray.<key>`;
+   it never holds a Rust literal. The table is `boot_core/main-text.json` (SX5 moved `i18n-text.ts` and
+   `tray-labels.ts`'s tables there), the language the `boot` module's choice (the `language` pref, else the app
+   locale). A new string is added to that file, in English and Korean. Node's `mainT` reads the copy the shell pushes
+   (`boot.labels`, §15.9).
+
+   Text Node already sends in a request (menu templates, dialog options) stays in that request.
+3. **Parity suites reach Rust through the real shell over the wire**, never through a second test binary or an FFI
+   (§15.3 step 1). Pure Rust tests and `captured.json` are added coverage.
+4. **App windows: the shell creates them, and Node adopts them.** The shell's `chrome` module makes
+   every app window with ids from `state.rs` (2^32 up) and sends `win.adopted {winId, wcId, options, state: WinState}`
+   before any other frame about it; the shim then holds a `BrowserWindow` and its `webContents` over those ids exactly
+   as after a `win.create` it sent (`fromWebContents`, `getAllWindows`, `wc.send`, `win.state`, the IPC caller's
+   `win` all work), and never sends `win.create` for them. Node keeps `win.create` for what it still makes until its
+   last caller moves (rule 6). A page a module makes that Node never needs (the Preview's views and offscreen pages
+   once SX2 lands) is the module's alone: the shell sends no `win.*`/`wc.*`/`view.*` frame about it. SX1 added
+   `win.adopted` (shell and shim) with its app windows.
+5. **One authenticated application dispatch table.** The current transitional build still routes page IPC through
+   Node's `IpcRegistry`; it is not the native completion condition. Native-runtime-v1 replaces its implementation,
+   preserves every channel/direction/`IPC_POLICY` permission, and dispatches desktop and paired-page calls through
+   the same native table. A domain receives `NativeCaller` from the CEF/web registry, never deserialized from page
+   arguments. Domains do not install competing page handlers. Shell effects stay on the CEF UI thread; core
+   operations and their callbacks retain their ordered lane and generation semantics.
+6. **The slice that removes a shim method's last Node caller deletes the method in the same commits**: the shim's
+   TypeScript, its `dispatch.rs` arm, its row here and in INVENTORY.md, its tests; the Rust behind it stays when a
+   module calls it. Preview-only paths are SX2's: `view.*`, `wc.frame`, `wc.paint`, `session.op registerPreload`,
+   `setPermissions`, `setDownloads`, `session.download`, `ipc.sendSync`/`__ompdeskSendSync`, offscreen `win.create`,
+   `will-prevent-unload` (SX2 confirms each by `grep` of `src/main` before it deletes). A method another slice still
+   calls (`wc.cdp.*`, `capturePage`) stays until that slice's last caller goes; whichever slice lands last removes it.
+
+### 15.4.1 Native-runtime-v1 integration boundary (14 Nov 2026)
+
+- Base owns `app`/`dispatch`/`main`/`state`, the module registration list, core transport and port callback dispatch,
+  native IPC admission/registration, global build/packaging and final Node/shim removal. Domain owners change only
+  their owned leaf directories; existing shared-file commits are integration input, not permission for concurrent edits.
+- `ompdesk_app_contract::NativeCaller` (`crates/app-contract/src/lib.rs`) is not `Deserialize`: `Desktop {win_id: u64, wc_id: u64}` or
+  `Web {device_id: String, conn_id: String, window_id: i64}`. Connection identity, frame trust, grants, active tab and
+  filesystem context come from the authenticated registry. Payload fields never override them.
+- The same crate defines `NativeApp::{invoke,send,cancel,close_caller,push}`, `AppRequest`, `AppReply` and `AppError`.
+  `AppRequest` carries a runtime-issued `{generation,id}`, the authenticated caller, channel/args and optional moved
+  bytes. An invoke returns `AppFuture` (`Future<Output = Result<AppReply, AppError>>`);
+  sends finish their synchronous step in lane order. `AppReply` is `{value: Value, bin: Option<Vec<u8>>}` and errors
+  retain `{code,message}`. These are in-process contracts, not new page JSON schemas or an implemented runtime.
+  Existing core `ports::Port` remains the shell-effect callback/state protocol; domain `Host`/`Deps` traits describe
+  their typed effect needs and Base supplies real native implementations. A callback must retain its core generation.
+  Within the core, typed `Arc<domain Service>` dependencies are injected directly; internal calls are not wrapped in
+  JSON/Node RPC. `NativeApp` is the shared external page boundary, not a replacement domain service registry.
+- `services_core::path::PathContext {remote: bool, cwd: Option<String>, home: PathBuf}` is also not `Deserialize`.
+  Native dialogs accept only `NativeCaller::desktop_window()`; a web caller uses its existing host sheet.
+- `boot_core::media::Owner` has the same two authority variants. Base maps the authenticated caller, releases its
+  capabilities on navigation/window close/web disconnect, and stops Boot before core drain/CEF shutdown.
+  Only the app request context installs the media factory; Preview partitions do not.
+- Boot starts first after CEF context initialization with `Config` and native log/event callbacks. Labels use the
+  one `boot_core/main-text.json` table and redraw hooks. Resolver completion is
+  `net::ResolveAnswer = Box<dyn FnOnce(Result<Vec<String>, String>) + Send>`; `resolve_host_native` takes a host,
+  `CacheUsage` and this callback, uses the app context, and never blocks the UI thread.
+- Updater receives native launch/login facts and the common atomic writer. Event/timer saves retain the newest
+  bytes on full disk and retry; a failed save must not be hidden by an event callback. Its native scheduler and the
+  legacy Node scheduler never run together.
+- Chrome native quit hooks own finalize/teardown/before-exit/settled/forced-exit/exit. Update teardown is synchronous
+  before installer window closure; normal quit finalizes first. The native watchdog beats the CEF UI thread, not
+  Node. Base supplies `pool.tabInventory`, resume settings and raw background-work facts, including hosted runs.
+- Core remains a supervised child process. Native callback replies retain the originating generation and can be
+  delivered while a command waits for them; queueing a reserve reply behind the command would deadlock.
+- Completion requires all live `src/main` application policy and composition callers migrated, not only §4's five
+  shell slices. Renderer, stock omp bridge/SDK workers and build/test tooling intentionally remain TypeScript.
+  `out/main/index.js`, bundled Node and the Electron shim are removed only after this complete caller cutover.
+
+### 15.5 `chrome.*` (SX1)
+
+The shell owns the app windows' life (geometry, chrome, first show, close to tray, crash recovery, context menu,
+links), the application menu, the tray, the quit's approval, confirmation and watchdog, deep links and launch paths,
+the GPU fallback with the launch history, and the main-thread watchdog. Node keeps what only it has: the windows' tabs
+and sidecars (`spawn`), the run inventory for the quit, its own teardown, the updater (SX4), the runtime log (SX3) and
+the text (SX5). The text reaches the shell through `i18n.labels` (§15.2: `shell_core::labels`, which fills `{name}`
+itself, pinned to `fillText`); a language change rebuilds the menus. The shell writes runtime log lines through
+`log.runtime`. The launch's own argv is parsed in the shell (`chrome_core::launch`, was `parseLaunchArgv`). The
+TypeScript behind this slice was captured before it was deleted (`chrome_core/captured/<area>.json`: window 197, menu
+287, tray 321, quit 441, deeplink 339, gpu 814, hang 40 steps) and the Rust tests replay it; the parity suites
+`src/main/shell-host/modules/chrome-{window,menu,tray,quit,deep-link,gpu,hang}.test.ts` run against the real shell.
+Node's side is `src/main/shell-host/modules/chrome-<area>.ts`, one typed client per area (`Spec`: calls, posts, events,
+asks), joined by `chrome.ts`.
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `chrome.open` | Node | `{cwd, presence: "hidden"\|"minimized"\|"behind"\|null}` | `{winId, wcId, slot, mica}` — makes an app window: geometry from `<userData>/window-state.json`, cascade, chrome, icon, the renderer URL, first show by `presence`. The ids are the shell's (2^32 up); the shell emits `win.adopted` first (§15.4 rule 4). Once a quit is approved it answers `error.code "quitting"` and makes nothing, decided on the UI thread so an approval that overtook a queued open still refuses it; `createWindow` then resolves null. |
+| `chrome.cwd` (post) | Node | `{winId, cwd}` | the window's project changed (deep links and New Window read it). |
+| `chrome.runProgress` (post) | Node | `{state: "idle"\|"working"\|"waiting"}` | Dock badge and every window's progress bar. |
+| `chrome.closeToTray` (post) | Node | `{on: boolean}` | the `closeToTray` pref (Settings › General › Window): the last shown window hides instead of closing while on. |
+| `chrome.spawn` | shell→Node | `{cwd?: string}` | `{winId: number \| null}` — open a window with its tab (menu, tray, deep link, Dock with no window); `null`: none (a quit is underway). |
+| `chrome.hiddenToTray` (event) | shell→Node | `{winId}` | the last shown window hid instead of closing (Node shows the one-time notice). |
+| `chrome.stateSaveFailed` / `chrome.stateSaved` (events) | shell→Node | `{file}` | `window-state.json` could not be written for lack of space / landed again. While it waits the shell keeps the geometry in memory (new windows read it), retries on `DISK_FULL_RETRY_MS` (5 s doubling to 60 s), and a newer save replaces what waits (`shell_core::atomic::KeptFile`, `safe-store.ts`'s rule). `chrome-window.ts` `routeWindowStateSaves` joins the file to the disk-full notice, as `core-saves.ts` does for the core's stores. |
+| `chrome.menu` (post) | Node | `{appName, sessionNew, windowNew, windowClose, sessionExportHtml}` | the app's name and the chords the menu shows, as Electron accelerators. The menu's text comes from the label table (`i18n.labels`); a language change rebuilds it. |
+| `chrome.menuAction` (event) | shell→Node | `{winId, action}` | a menu item for the page: Node sends `MENU_ACTION` to that window (the shell spawned one first when none was open). |
+| `chrome.menuProbe` | Node | `{menu: "application"\|"tray"\|"context", params?, click?}` | `{items}` — test seam: what the menu shows now and, with `click`, what choosing that item id does (`context` is a dry run for `params`). |
+| `chrome.tray` (post) | Node | `{state?: TrayState \| null, update?: UpdateStatus}` | the renderer's tray snapshot (`null`: none) and the updater's status; the tooltip and menu follow (a menu open is never replaced). |
+| `chrome.updateAction` (event) | shell→Node | `{action: "check"\|"download"\|"apply"}` | the tray's update item was clicked. |
+| `chrome.quit` | Node | `{}` | `{approved: boolean}` — a quit nobody approved yet (Node's `before-quit` saw one): the shell asks first when it must. |
+| `chrome.approve` (post) | Node | `{}` | `requestQuit()`: the caller approved the quit. |
+| `chrome.confirmQuit` | Node | `{}` | `{ok}` — `confirmQuit()`. |
+| `chrome.confirmUpdateRestart` | Node | `{}` | `{ok}` — `confirmUpdateRestart()`; the shell asks `chrome.backgroundWork` when it must. |
+| `chrome.activate` | Node | `{}` | the Dock click (test seam for the e2e specs). |
+| `chrome.quitSettings` | shell→application | `{}` | `{resumes: boolean}`. Chrome reads `pool.tabInventory` through the core and computes quit risk itself; malformed facts refuse a quit. |
+| `chrome.backgroundWork` | shell→application | `{}` | `{subagents, jobs, subagentLabels: string[], jobLabels: string[], unknown?: number}`; Chrome formats the localized sentence with the native label table. |
+| `chrome.approved` (event) | shell→Node | `{run: boolean}` | the quit is approved (Node's mirror); `run`: the shell approved it (a confirmation, the menu, the tray, the last window), so Node runs `app.quit()`. |
+| `chrome.committed` (post) | Node | `{reason: "quit"\|"update"}` | the teardown ran: the shell arms the 30 s exit watchdog. |
+| `chrome.disarm` (post) | Node | `{reason?: "quit"\|"update"}` | an install that failed keeps the app: the watchdog stops. |
+| `chrome.forcedExit` | shell→Node | `{reason, timeoutMs}` | `{}` — the watchdog fired: Node runs its forced-exit hooks; the shell then exits 0 whether or not Node answered (2 s). |
+| `chrome.linksReady` (post) | Node | `{register: boolean}` | Node's startup windows exist: the shell registers the `omp://` protocol (when `register`) and replays the links that arrived. |
+| `chrome.deepLink` (event) | shell→Node | `{winId, payload: DeepLinkPayload}` | delivered once the window's page loaded (Node sends `DEEP_LINK`). |
+| `chrome.safeMode` | Node | `{}` | `{safeMode, software}` — this launch's safe mode (the last three launches ended within 20 s) and whether it renders in software, both decided before CEF started. |
+| `chrome.rendering` | Node | `{}` | `{software}` — whether pages composite in software (asked once the GPU process reported). |
+| `chrome.stable` (post) | Node | `{}` | the launch quit cleanly (`will-quit`): it ends no crash loop. |
+| `chrome.heartbeat` (post) | Node | `{pid}` | every 1 s while the watchdog runs (Node's client decides: packaged or `OMP_GUI_HANG_WATCHDOG=1`, never under vitest); the first one starts the watch. `pid` is Node's. |
+| `chrome.step` (post) | Node | `{phase, step}` | `markMainStep`: main is about to run `step` of `phase`. |
+| `chrome.unwatch` (post) | Node | `{}` | `will-quit`: Node stops beating, the watch ends. |
+| `chrome.testGpuGone` (post) | Node | `{}` | test seam, served only with `OMP_GUI_TEST_GPU_GONE=1`: the shell treats the GPU process as gone. |
+
+Deviations:
+
+- **Windows**: the renderer entry's identity on Windows is size, mtime and creation time (`std` has no inode); the
+  `launchInode` of the launch log is the creation time there. `chrome.open` makes the window asynchronously
+  (`spawnWindow` and `createWindow` are async in Node); a quit approved during the round trip closes the new window.
+  A Node `win.close()` of an app window goes through the shell's close rules (close to tray), as Electron's `close`
+  event did; `destroy()` never does.
+- **Deep links** restore a minimized window (`window::show`). Links that arrive before Node's startup windows exist are
+  queued (at most 64) until `chrome.linksReady`, instead of until `setupDeepLinks`. The dialog's owner is the focused
+  app window. Links are read with the `url` crate, as `new URL` read them.
+- **Quit watchdog** fires in the shell: the forced-exit hooks are asked of Node (`chrome.forcedExit`, 2 s), then the shell
+  exits 0. A failed or malformed `chrome.quitFacts`, or `chrome.backgroundWork` when it is asked, refuses the quit or restart (it never approves one blind). Test seams:
+  `OMP_GUI_TEST_QUIT_WATCHDOG_MS` shortens the 30 s watchdog; `OMP_GUI_TEST_QUIT_DIALOG=<button>` answers the quit
+  dialog.
+- **Menu**: the tray's labels follow the label table's language (`i18n.labels`), not `TrayState.language`. The context
+  menu is shown from the UI thread without a Node round trip; role items act on `window::target()`. "Add to
+  dictionary" works (`wc.op addWordToDictionary`), and the context-menu event carries `hasImageContents`. About is a
+  no-op on Windows, as before.
+- **GPU**: the adapter's identity comes from the registry on Windows only (no `driverDate`); macOS lists no adapter, so
+  only the 7-day cool-off brings hardware back there. Software compositing is inferred from the launch decision and the
+  GPU process's command line. A GPU process's end comes from the shell's one child watcher (`childwatch.rs`, polled
+  every second; macOS reads no exit status there, so any GPU process that disappears while the app runs counts as a
+  crash, exit code -1). `upMs` counts from the shell's start. Markers are written atomically (`shell_core::atomic::write`).
+- **Hang watchdog** is a shell thread, not a worker: it keeps watching while Node is blocked, and it detects the resume
+  itself. The `pid` in the marker is Node's, from the heartbeat.
+- **Notifications**: under `OMP_GUI_HEADLESS=1` the shell posts none and emits no `show`; Windows toasts carry the app
+  icon (`resources/brand/app-icon.png`) by default.
+- **Contract additions** this slice made: `log.runtime` takes `cwd?` (`Ctx::runtime_log_in`); `Call::local` and
+  `Call::fire` (`host.rs`); `shell_core::atomic::write`; `startTestShell(exe, {env, args, prepare})` with
+  `shell.userData`; `state::paths()` gained `user_data`, `app_dir`, `resources` and `packaged`; `theme::dark()`;
+  `sys::system::os_release()`.
+### 15.6 `preview.*` (SX2)
+
+The Preview's pages are the module's (`modules/preview/`, rules in `preview_core/`); Node keeps the `PREVIEW_*` IPC
+handlers, the relay's socket, the save dialog and the tab's omp, and calls the client
+(`src/main/shell-host/modules/preview.ts`). An **owner** is the page that asked: `{key, winId?}`, `key` the asking
+page's id (an app window's renderer `webContents.id`, or a paired viewer's virtual window's), `winId` the app window
+for a window's renderer (its Preview pages are views in it) and absent for a viewer (its pages are offscreen and
+streamed). `remote` is whether the owner's active tab runs on a paired host (its loopback addresses stay blocked);
+Node sends it with every call that may navigate and the module keeps the last value per owner. Shapes are those of
+`src/shared/preview.ts`.
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `preview.command` | Node | `{owner, remote, request: PreviewRequest}` | `PreviewState` — every `PreviewRequest` but `agentStart` (below); `dispose` answers `EMPTY_PREVIEW`. Errors `failed` with host.ts's messages (`Too many preview tabs`, `Preview URL unavailable`, `Unknown preview tab`, `Unknown visual`, …). |
+| `preview.agentStart` | Node | `{owner, remote, tabId}` | `PreviewState` — the shown page (a web page, else `failed` "Agent browsing is for web pages, not visuals") gets the relay extension; its state shows `agent {tabId, attached: false}`. Node has already vetted the endpoint and opened the socket. |
+| `preview.agentReady` | Node | `{owner}` | `PreviewState` — the socket is open: the extension's `hello` goes out (`preview.relayOut`) unless the agent was stopped meanwhile. |
+| `preview.relayIn` (event) | Node | `{owner, data: string}` | a frame from the relay |
+| `preview.relayClosed` (event) | Node | `{owner}` | the relay's socket closed: the agent stops |
+| `preview.relayOut` (event) | shell→Node | `{owner, data: string}` | a frame for the relay |
+| `preview.relayEnd` (event) | shell→Node | `{owner}` | the agent stopped (Take over, another tab, the panel closed): Node closes the socket |
+| `preview.ownerGone` (event) | Node | `{owner}` | the owner's window closed, its renderer loaded another document, or the viewer went: its pages close |
+| `preview.state` (event) | shell→Node | `{owner, state: PreviewState}` | Node sends `PREVIEW_STATE` to the owner |
+| `preview.page` | Node | `{owner, request: PreviewPageRequest}` | the page tool's result (`region`: `{image: base64 PNG, elements}`) |
+| `preview.pdfName` | Node | `{owner}` | `{name}` — the shown page's title as a file name; `failed` "No page to save" |
+| `preview.pdf` | Node | `{owner, maxBytes?}` | `{}` + `bin` = the shown page as PDF; past `maxBytes` `failed` "The page's PDF is too large to send over this link" |
+| `preview.visuals` | Node | `{}` | `PreviewVisualRecord[]` |
+| `preview.poll` | Node | `{owner, ack, wait?}` | `PreviewStreamPoll` (a viewer's shown page; before its first layout an empty answer after 500 ms) |
+| `preview.input` (event) | Node | `{owner, events: PreviewStreamInput[]}` | a viewer's gestures and keys |
+| `preview.dialogAnswer` | Node | `{owner, id, accept, text?}` | `{}` |
+| `preview.copy` | Node | `{owner}` | `{text}` — the viewer page's selection (at most 100 000 characters) |
+| `preview.visualize` | Node | `{tabId, cwd, winId, judge: boolean, inFront: boolean, args}` | `{text, isError}` — one `gui_visualize` call of a tab on this computer |
+| `preview.reveal` (event) | shell→Node | `{tabId, visualId}` | Node sends `PREVIEW_VISUAL` to the tab's window |
+| `preview.judgeAvailable` | shell→Node | `{tabId, budgetMs}` | `{available: boolean}` — the tab's omp has a native judge |
+| `preview.judge` | shell→Node | `{tabId, image: {data, mimeType}, budgetMs}` | `{judged: boolean, problem: "error" \| "blank" \| null}` |
+
+Deviations:
+
+- (Node half) `agentStart`'s order: the endpoint is vetted and the socket opened (`preview.agentStart` follows) before the module checks the shown page, so a visual's page is refused after the socket was opened and then closed (the TypeScript refused it before opening anything); nothing reaches the relay.
+- (Node half) A viewer's `preview.input` batch is checked in Node only for being an array of at most 64 events; each event's shape (`PreviewStreamInput`) is the module's to validate (the TypeScript's zod schema was `previewStreamBatchSchema`). `PREVIEW_PAGE`, poll and dialog requests keep their zod checks in Node.
+- (Node half) `PREVIEW_STREAM_PDF` is `preview.pdfName` then `preview.pdf {maxBytes: 5 MiB}` (two calls; the page may change between them), and `PREVIEW_SAVE_PDF` asks `preview.pdfName`, shows the save dialog, then asks `preview.pdf`: the PDF is printed only after the person chose a file.
+- (Node half) `preview.visualize`'s `winId` is the app window's `BrowserWindow.id`; for a tab owned by a paired viewer's virtual window (no native window) Node sends that window's negative `webContents.id`, the owner `key` a viewer's pages have.
+- (Node half) `PREVIEW_COMMAND`'s `dispose` is sent with `remote: false`; any `PreviewRequest` carrying a `tabId` sends `remote` for that tab (a tab the owner's window does not own counts as remote), every other command for the owner's active tab.
+- Removed by SX2 (shim TypeScript only, the Rust behind stays): `webContents.navigationHistory`, `executeJavaScriptInIsolatedWorld`, `printToPDF`, `sendInputEvent` (and `input-events.ts`), `insertText`, `getUserAgent`, `setWebRTCIPHandlingPolicy`; `session.setProxy`, `setUserAgent`/`getUserAgent`, `getAcceptLanguages`, `clearStorageData`. Kept with callers: `getZoomFactor`/`setZoomFactor` (`menu.ts`, `e2e/desktop.e2e.ts`).
+- (Shell half) Removed by SX2 on the shell side: `view.*` (no frame; the module makes and places its views), `wc.frame` (the `dispatch.rs` arm and `wcframe.rs`) and `wc.paint` (a Preview page's paint goes to the module, nothing else watches `paint`), `session.op registerPreload`/`setPermissions`/`setDownloads` and `session.download` (the module's partitions deny permissions, drop a visual's downloads and turn a web page's into the `download` notice itself), `ipc.sendSync` (the `omp-sync:` prompt is answered by the module for a streamed page; any other page's is cancelled), the `will-prevent-unload` event (`beforeunload` never asks: the page leaves). **Left for SX1:** the offscreen branch of `win.create` in `window.rs` has no caller now; the chrome slice deletes it with the rest of that file's shim arms.
+- (Shell half) The shell registers the `omp-visual` scheme itself (standard, secure, fetch; `app.rs`, in every process) and serves it on each visual partition from `VisualStore::serve` (`modules/preview/scheme.rs`, one factory per partition's request context). Node's `registerSchemesAsPrivileged` entry for it is redundant (the shell skips a duplicate), and the scheme is never `handleScheme`d.
+- (Shell half) Partitions are made with their host and let go when it is disposed (`session::forget`: cookies and cache cleared, the request context dropped), not kept for the owner's next host. An in-memory context frees its storage with its last page, so a later host of the same owner starts empty under the same names (`preview-<winId>`, `preview-visual-<winId>`, `preview-web-<|key|>`, `preview-visual-web-<|key|>`: a viewer's key is its virtual window's negative `webContents.id`, the names use its absolute value).
+- (Shell half) `__ompdeskSendSync` had no definition in the shell (PROTOCOL §6 promised it and nothing set it, so the dialog shim returned at once): `session.rs` now gives every registered preload the function, a `prompt()` taken before page scripts run whose message is NUL + `omp-sync:` + the call as JSON; the dialog handler answers it with the value's JSON.
+- (Shell half) A viewer's offscreen browsers paint at device scale 1 (`screen_info`), so the page's window is the frame's size times the profile's `dpr` in DIPs (the TypeScript divided by the host screen's scale: the same pixels). A frame is `dpr` pixels per CSS px whatever the host screen.
+- (Shell half) A viewer's input reaches the page as browser-process events on the offscreen host (`send_mouse_*_event`, `send_key_event`, `ime_commit_text`): key codes are mapped to Windows virtual keys by a table (`preview_core::input::virtual_key`, US layout; a character without one is typed through its `char` event only), a key event carries no native scan code (so `KeyboardEvent.code` is empty), and committed text goes in after a round trip like keys do (`preview_core::input::InputSequence`), then holds what follows for a second one, where the TypeScript awaited `insertText`. The keyboard focus is taken on a page's first input. Not verified without a CEF run: Command shortcuts on macOS, which Chromium takes from an OS key event an offscreen host does not have.
+- (Shell half) The region screenshot (`preview.page region`) is `Page.captureScreenshot` of the picked rectangle (its viewport rectangle moved by the visual viewport's offset) at `clip.scale = min(1, 1600 / (width × zoom))`, and the Preview check's picture the same with the longer viewport side at 1280; the TypeScript resized the captured bitmap. The sizes agree up to what the engine rounds.
+- (Shell half) A main-frame load that fails shows CEF's error text as the tab's `error` (`ERR_<code>` when it gives none): Electron's descriptions are the same `net::` names. The web partition's spellchecker is not seeded (the shell has no spellchecker); its Accept-Language is `accept_languages(PREFERRED_LANGUAGES)` through `session::set_user_agent` as the TypeScript's `applyAcceptLanguages`.
+- (Shell half) `preview.visualize`'s `winId` is not read: the pages that show a visual are found among every owner's, as the TypeScript's `VisualPages` did. A viewer's `preview.poll` before its page exists is answered with an empty poll after 500 ms; an app window's with `failed` "No streamed preview page".
+
+### 15.7 `services.*` (SX3)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `services.openOrReveal` | Node | `{path}` | `{outcome: "opened"\|"revealed"}` — a launcher (`services_core::is_launcher`: launcher extensions per platform, also behind a symlink; on POSIX an executable regular file) is only revealed; any other path is opened in its default app, and revealed when no app takes it. Was `open-path.ts` `openLocalPath`. Callers: `system:open-path`, `models:config-open`, the web host's open. |
+| `services.saveImage` | Node | `{winId?, defaultName, mimeType}` + `bin` (the picture) | `{saved, error?}` — a save panel owned by `winId`, named `basename(defaultName)` or `image.<ext>` with one filter of `<ext>` (`services_core::image_extension`), then the bytes written there. Cancelled: `{saved: false}`; the write failing: `{saved: false, error}`. Was `ipc.ts` `system:save-image`. |
+| `services.confirm` | Node | `{winId?, options: MessageBoxOptions, timeoutMs?}` | `{response}` — a message box (`dialog.messageBox`'s options) that closes as the Esc key would after `timeoutMs` without a choice, and on `{cancel: id}`, answering `cancelId`. Was `confirmOutside`'s `showMessageBox` with `AbortSignal.timeout`. |
+
+What stays on the shim and why: `shell.openExternal`, `shell.showItemInFolder`, `shell.trashItem`,
+`dialog.showOpenDialog`, `dialog.showSaveDialog` hand a request to the shell's own §8 methods unchanged, and the e2e specs
+stub exactly those members in main (`shell.openExternal`, `shell.trashItem`, `dialog.showOpenDialog`,
+`dialog.showSaveDialog`) to keep a run off the person's browser, trash and dialogs; `Notification` stays because
+`autopilot-cycles` and `multi-viewer` count notifications by wrapping `Notification.prototype.show`, and its click raises a
+window (SX1's); `screen.getPrimaryDisplay()` stays as the shim's mirror (a synchronous read for the Preview, SX2's).
+
+Deviations:
+
+- `services.saveImage`: a write error's text is Rust's (`Permission denied (os error 13)`), where Node wrote
+  `EACCES: permission denied, open '<path>'`.
+- `services.openOrReveal`: a symlink's target is read with `canonicalize` (on Windows `\\?\C:\…`, only its name is
+  judged, as before). Test seams: `OMP_GUI_TEST_SERVICES_DRY=1` answers without opening or revealing, and with it
+  `OMP_GUI_TEST_SERVICES_NO_APP=.xyz,…` makes those extensions' open fail as when no app takes the file.
+
+### 15.8 `updater.*` (SX4)
+
+The app's own updater (`.omp/rules/app-updater.md`): the release check, the token, the downloads, the macOS staging
+and swap helper, the Windows installer. It lives in the shell because its network is Chromium's (the system proxy,
+PAC and certificate store, through `net.rs`'s `CefURLRequest`) and its secret is `safeStorage`'s key, which the shell
+holds. Node keeps what needs Node's other state: the windows the status goes to and their words (`mainT`), the
+automatic install's scheduler (`app-auto-update.ts`, reading the tab pool), the restart confirm and the quit path
+(`app-quit.ts`), the window presence an install remembers, and the next launch's report of the last
+install (`update-log-core.ts`, read synchronously before the first window). Client: `src/main/shell-host/modules/updater.ts`.
+
+`RawStatus` is `UpdateStatus` (`src/shared/ipc-types.ts`) with an error spelled as words to translate:
+`{state: "error", key, suffix?, detail?, showInBanner?}` → `message = mainT(key)` plus ` (suffix)` when there is one.
+`key` is one of `updates.checkFailed`, `updates.releaseInvalid`, `updates.installerMissing`, `updates.noResult`,
+`updates.downloadFailed`, `updates.hashMismatch`, `updates.openInstallerFailed`, `updates.unsupportedArchitecture`,
+`updates.failed`. A `downloaded` status never carries `restartAt` or `installing`: those are Node's (the scheduler's
+countdown, the install Node began). `State = {status: RawStatus, installable: boolean, mode: UpdateInstallMode}`;
+`installable` is `restartableUpdate()` (a relaunch with its bundle staged, or a Windows installer downloaded).
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `updater.start` | Node | `{version}` | `State` — once, from `setupUpdater`. `version` is `appVersion()`. Detects the install mode, applies the dev seams (`OMP_DEV_UPDATE_*`, unpackaged only), sweeps macOS Downloads of installer debris, and starts the background check: 3 s later, then every 5 min, skipped while an update downloads or is downloaded. |
+| `updater.check` | Node | `{}` | `State` once the check settled — a person's check: a check under way is joined and settles as asked (its failure or "no result" reaches the banner). A downloaded update or a macOS transfer in flight answers at once, unchanged. |
+| `updater.download` | Node | `{}` | `State` — downloads the update an `available` status names (macOS DMG to Downloads or staging; Windows installer to the updater cache); a failure is an error status with `showInBanner`. |
+| `updater.install` | Node | `{trigger: "auto"\|"user click"\|"quit", presence?: "hidden"\|"minimized"\|"behind"}` | `{then: "quit"\|"quit-for-update"\|"none"}` — Node already began the install (`installing` shown). `quit`: relaunch mode armed to reopen after the swap, or the Windows dev dry install: Node runs `requestQuit()`. `quit-for-update`: the Windows installer (`--updated --force-run`) was started off the reader thread and the answer comes once that attempt ended, started or not; Node then runs electron-updater's quit (`before-quit-for-update`, `app.quit()`). `none`: nothing is staged; an error status went out. |
+| `updater.quit` (event) | Node | `{trigger, presence?}` | An approved quit with a downloaded update (Node's `will-quit`, or the quit watchdog's forced exit). Relaunch mode: the detached swap helper starts once (`SWAP_SCRIPT`, waiting for the shell's pid; on a restart it keeps `<dest>.previous` until Node's start mark `<userData>/app-started.json` names the staged version, else puts the old app back). Windows, when no install was started yet: the installer starts silently (`--updated /S`) on a thread `shutdown` joins. Both write `<userData>/update-install.json` and log `swap helper`. A version held as start-failed (`<userData>/update-start-failed.json`, Node's to write and clear, names the downloaded version and no install started) is not installed by a quit: `swap skipped {reason: "start failed before"}` instead, and only `updater.install` from a click installs it (macOS with relaunch=1). While it is held, `updater.check` and the background check look past it without a `checking`, `not-available` or error status over it; the same version found again is kept, a newer one is fetched and replaces it. |
+| `updater.authInfo` | Node | `{}` | `UpdateAuthInfo` |
+| `updater.authTest` | Node | `{token?}` | `UpdateAuthTestResult` — a given token is tried as is (trimmed); none: the token the next check would use. |
+| `updater.authSave` | Node | `{token}` | `UpdateAuthTestResult` — stored (encrypted with `safeStorage`'s key) only when the repository answers `ok` to it. Errors: `keychain_would_ask`, `safe_storage_unavailable`. |
+| `updater.authClear` | Node | `{}` | `UpdateAuthInfo` — the stored token and the dropped marker removed. |
+| `updater.status` (event) | shell→Node | `State` | after every change; Node mirrors it (`updateStatus()`, `restartableUpdate()` read the mirror synchronously). |
+| `updater.loginEnv` | shell→Node | `{}` | `{token?: string, path: string}` — `GH_TOKEN`/`GITHUB_TOKEN` of Node's launch environment, else the login shell's; `spawnPath()` for `gh`. |
+
+Deviations:
+
+- The token never reaches Node: the shell resolves it (`env` through `updater.loginEnv`, `gh auth token`, the stored
+  `update-token.bin`), decrypts and encrypts it with OSCrypt's `v10` forms itself, and reads the macOS key in its own
+  process (`sys_mac::keychain::key_json`, dialogs off). A read that would ask drops the stored token, as before; the
+  shim's own one-shot (mail accounts) is unaffected and may read the item once more in the same run.
+- The updater's requests are the shell's own (`net.rs` `fetch_in_shell`): an HTTP 401/407 challenge of one is cancelled
+  (no `net.login`), so behind an authenticating proxy the check fails as a network error, as it did when main never
+  answered `login` for electron-updater. Pages, the Preview and Node's `net.request` keep `net.login`.
+- The swap helper waits for the shell's pid (it waited for Node's, which exits before the shell lets go of the bundle).
+- Both platforms download the same way: the API asset endpoint's redirect taken by hand (no `authorization` to the
+  CDN), a `.partial` that resumes with `Range`, 30 s without bytes fails as retryable, SHA-512 checked before the file
+  is used. Windows' installer was electron-updater's (no resume, a `temp-` file removed on failure); it now resumes and
+  keeps electron-updater's cache (`%LOCALAPPDATA%\ompdesk-updater\pending\`, `update-info.json`), reusing a cached
+  installer whose SHA-512 matches.
+- The release metadata's schema errors read in serde's and this module's words (`version must be semver`), not zod's
+  `path: message` list; codes are unchanged.
+- Decision lines are `log.runtime` lines (`Ctx::runtime_log`, source `app-update`, `details.level: "info"`). The shell
+  cuts the token out of each `reason`; Node's relay (`index.ts`, `update-log-core.ts` `scrubUpdateReport`) runs the
+  app-updater rule's `scrubUpdateText` (URLs, the diagnostics redactor) over it before writing.
+- Error statuses carry the `MAIN_TEXT` key, not the text (§15.4 rule 2): the shell shows none of it, Node localizes
+  it as it reaches the windows.
+
+### 15.9 `boot.*` (SX5)
+
+| Method | Asks | Params | Result / notes |
+|---|---|---|---|
+| `boot.mediaOpen` | Node | `{path, mime, owner}` | `{url}` — `omp-media://stream/<32 base64url chars>`, a capability for `path` (Node resolved and sniffed it: `resolveWorkspaceMedia`). `owner` is the page's `wcId` (or a paired page's id). |
+| `boot.mediaRelease` (event) | Node | `{url, owner}` | forgets `url` when `owner` holds it |
+| `boot.mediaReleaseOwner` (event) | Node | `{owner}` | forgets every URL of a page that closed or reloaded |
+| `boot.mediaHead` | Node | `{url, method?: "GET", range?}` | `{status, headers: [[k, v]], start, length}` — what `omp-media://` answers: 404 for an unknown token, a method other than GET/HEAD or a file gone; 416 with `Content-Range: bytes */size` for a range other than `bytes=a-b`, `bytes=a-`, `bytes=-n` (one range, `bytes` unit) or past the end; else 200/206 with `Accept-Ranges`, `Content-Type`, `Cache-Control: no-store`, `Content-Length`, `Content-Range`. The body is `length` bytes from `start` (0: none; HEAD and an empty file have none). |
+| `boot.mediaRead` | Node | `{url, offset, length}` | `{}` + `bin` = up to 1 MiB of the file from `offset`; `gone` once the URL was released. Node's `mediaResponse` builds a paired page's `Response` from `mediaHead` and these reads. |
+| `boot.awakeStart` (event) | Node | `{id, label}` | holds `prevent-app-suspension` for Node's `id` (`label`: `work`, `host`), and counts as work for the lid policy |
+| `boot.awakeStop` (event) | Node | `{id}` | releases it |
+| `boot.awakeState` | Node | `{}` | `{held, lidHeld}` — any blocker held; the lid hold after the policy settled on everything sent before |
+| `boot.themeSource` | Node | `{source: "system"\|"light"\|"dark"}` | `{}` — answered after `theme.changed` went out, so the shim's `nativeTheme` already agrees |
+| `boot.registerShortcut` | Node | `{accelerator}` | `{registered}` — false when it does not parse or another application holds it |
+| `boot.shortcut` (event) | shell→Node | `{accelerator}` | a registered shortcut fired |
+| `boot.power` (event) | shell→Node | `{name}` | `suspend`, `resume`, `lock-screen`, `unlock-screen`, `on-ac`, `on-battery`, `shutdown` |
+| `boot.online` (event) | shell→Node | `{online}` | Chromium's link state: once in `ready` (before `app.ready`), then on every change of the 3 s poll; Node mirrors it (`onlineMirror`) |
+| `boot.resolveHost` | Node | `{host}` | `{endpoints: [{address, family}]}` — the app session's resolver; `invalid` for an empty host, `failed` with `net::ERR_…` |
+| `boot.labels` (event) | shell→Node | `{language: "en"\|"ko", text: {[key]: {en, ko}}, appLocale, preferredLanguages}` | main's whole text table (`boot_core/main-text.json`: `MAIN_TEXT`'s keys, `TRAY_LABELS`'s as `tray.<key>`), the UI language (the `language` pref read from `<userData>/prefs.json`, else the app locale) and the locale facts. Once in `ready` (before `app.ready`), then after every `boot.language`. Node's `mainT`, `getMainLanguage` and `deviceLanguage` read this copy (`mirrorLabels`). |
+| `boot.language` | Node | `{language: "en"\|"ko"\|null}` | `{}` — the person changed the `language` pref (`null`: cleared); answered after the new `boot.labels` went out, and the shell's own `labels::label` answers in it from then on. |
+
+The lid policy (`boot_core::lid`, was `power/lid-awake.ts`) runs on a thread of its own from `ready` to `shutdown`
+(which releases at once and waits up to 5 s for a backend call under way): while any blocker is held and the computer
+is a laptop on AC, macOS runs `/usr/bin/caffeinate -s -w <shell pid>`, Windows sets the active scheme's AC lid action
+to "do nothing" with `powercfg`, its old value in `<userData>/lid-awake.json` until put back (`boot_core::powercfg`).
+Each change is a `gui-runtime.jsonl` line (`log.runtime`, source `keep-awake`). A test launch (`OMP_GUI_HEADLESS=1`)
+holds no lid.
+
+Deviations:
+
+- `omp-media://` and `omp-visual://` are registered by the shell, not by `app.init`; Electron's `stream` privilege has
+  no CEF flag.
+- A paired page's media body is read 256 KiB at a time through `boot.mediaRead`, each read opening the file again; a
+  URL released while its body streams ends the body with an error (the TypeScript kept reading the file it had open).
+- Windows' "is a laptop" is `GetSystemPowerStatus` (`BatteryFlag` not 128 or 255), not PowerShell's `Win32_Battery`
+  count; a failing `powercfg` reports `Command failed: <path> <args>` and its stderr; `powercfg` has no 5 s limit at
+  quit (the shutdown waits 5 s for the policy thread instead).
+- macOS: a `caffeinate` that cannot start fails the hold (logged `failed`); the TypeScript counted it held.
+- The lid log's `details` keys are in alphabetical order.
+- Blockers are always `prevent-app-suspension` (`prevent-display-sleep` had no caller).

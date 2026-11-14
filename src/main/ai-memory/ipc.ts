@@ -12,7 +12,7 @@ export interface AiMemoryIpcDeps {
 	/** http(s) only; main checks the host before calling. */
 	openExternal: (url: string) => Promise<void>;
 	openPath: (path: string) => Promise<string>;
-	readClipboard: () => string;
+	readClipboard: () => string | Promise<string>;
 	writeClipboard: (text: string) => void;
 	/** Memory's own upkeep (care.ts): its Maintenance line and undo; null until created. */
 	care: () => Pick<MemoryCare, "summary" | "undo"> | null;
@@ -110,7 +110,9 @@ export function registerAiMemoryIpc(
 		if (!token) throw new Error("Memory has no token yet");
 		deps.writeClipboard(token);
 		setTimeout(() => {
-			if (deps.readClipboard() === token) deps.writeClipboard("");
+			void (async () => {
+				if ((await deps.readClipboard()) === token) deps.writeClipboard("");
+			})().catch(() => undefined);
 		}, CLIPBOARD_CLEAR_MS).unref();
 	});
 	ipc.handle(IPC_COMMANDS.AI_MEMORY_REVEAL_DATA, async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { acceptLanguages, applyAcceptLanguages, seedSpellchecker, spellcheckerLanguage } from "./system-languages";
+import { seedSpellchecker, spellcheckerLanguage } from "./system-languages";
 
 /** The slice of Electron's `Session` the helpers use. */
 function fakeSession(languages: string[], available = ["de", "de-DE", "en-GB", "en-US", "fr", "fr-FR", "pt-BR"]) {
@@ -7,19 +7,10 @@ function fakeSession(languages: string[], available = ["de", "de-DE", "en-GB", "
 		availableSpellCheckerLanguages: available,
 		getSpellCheckerLanguages: vi.fn(() => languages),
 		setSpellCheckerLanguages: vi.fn(),
-		getUserAgent: vi.fn(() => "Mozilla/5.0 OMPdesk"),
-		setUserAgent: vi.fn(),
 	};
 }
 
 describe("system languages", () => {
-	it("lists each system language, its bare language, then English, as Chromium's own defaults read", () => {
-		expect(acceptLanguages(["de-DE", "en-GB"])).toBe("de-DE,de,en-GB,en,en-US");
-		expect(acceptLanguages(["ko-KR"])).toBe("ko-KR,ko,en-US,en");
-		expect(acceptLanguages(["pt_BR", "pt-PT", "en-US"])).toBe("pt-BR,pt,pt-PT,en-US,en");
-		expect(acceptLanguages([])).toBe("");
-	});
-
 	it("matches the first system language to a spellchecker dictionary the way Chromium does", () => {
 		const available = ["de", "de-DE", "en-GB", "en-US", "fr", "fr-FR", "pt-BR"];
 		expect(spellcheckerLanguage(["de-DE", "en-US"], available)).toBe("de-DE");
@@ -50,14 +41,5 @@ describe("system languages", () => {
 			seedSpellchecker(session as never, preferred, platform);
 			expect(session.setSpellCheckerLanguages).not.toHaveBeenCalled();
 		}
-	});
-
-	it("sends the system languages as Accept-Language and keeps the session's user agent", () => {
-		const session = fakeSession([]);
-		applyAcceptLanguages(session as never, ["de-DE"]);
-		expect(session.setUserAgent).toHaveBeenCalledWith("Mozilla/5.0 OMPdesk", "de-DE,de,en-US,en");
-		const none = fakeSession([]);
-		applyAcceptLanguages(none as never, []);
-		expect(none.setUserAgent).not.toHaveBeenCalled();
 	});
 });

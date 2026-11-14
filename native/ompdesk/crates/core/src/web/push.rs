@@ -41,7 +41,7 @@ use crate::http;
 use crate::server::{Call, Fault, Registry, Reply};
 
 /// The push services' contact for this sender (RFC 8292 §2.1: a `mailto:` or `https:` URL).
-pub const VAPID_SUBJECT: &str = "https://github.com/SeuPut0705/ompdesk";
+pub const VAPID_SUBJECT: &str = "https://github.com/seuput-inc/ompdesk";
 
 /// A token lives 12 hours (`web-push`'s default; the limit is 24).
 const VAPID_EXPIRY_SECONDS: u64 = 12 * 60 * 60;
@@ -703,7 +703,7 @@ mod tests {
         assert_eq!(
             String::from_utf8(b64(claims)).unwrap(),
             format!(
-                r#"{{"aud":"https://push.example.com","exp":{},"sub":"{VAPID_SUBJECT}"}}"#,
+                r#"{{"aud":"https://push.example.com","exp":{},"sub":"https://github.com/seuput-inc/ompdesk"}}"#,
                 1_000 + 12 * 3600
             )
         );

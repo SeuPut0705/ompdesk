@@ -483,6 +483,85 @@ async function openSettingsDiskCare(page: Page, look: Look): Promise<void> {
 	if (!hovered) await info.click();
 }
 
+/**
+ * The notice's and the row's account: saved through the page on whichever computer the view is of (the host's, the
+ * paired computer's own, the phone's host), and read back as "needs its password again" because the parity launch
+ * has `OMP_GUI_TEST_KEYCHAIN_WOULD_ASK=1` (src/main/index.ts). `unseedMailReentry` removes it, so no other surface
+ * carries the notice.
+ */
+async function seedMailReentry(page: Page): Promise<void> {
+	await page.evaluate(async () => {
+		const { accounts } = await window.omp.mailAccounts.command({ action: "list" });
+		if (accounts.some(account => account.label === "Parity mail")) return;
+		await window.omp.mailAccounts.command({
+			action: "save",
+			draft: {
+				label: "Parity mail",
+				host: "imap.example.com",
+				port: 993,
+				username: "parity@example.com",
+				mailbox: "INBOX",
+				password: "parity-secret",
+			},
+		});
+	});
+}
+
+async function unseedMailReentry(page: Page): Promise<void> {
+	// The page's notice holds the list it read: closing it first (a click even where the session view is hidden behind
+	// Settings) keeps it off every later surface of this page; the phone's page loads afresh and finds no account.
+	await page
+		.locator("[data-mail-reentry-notice] button[aria-label]")
+		.last()
+		.evaluate(button => (button as HTMLElement).click(), undefined, { timeout: 2_000 })
+		.catch(() => undefined);
+	await page.evaluate(async () => {
+		const { accounts } = await window.omp.mailAccounts.command({ action: "list" });
+		for (const account of accounts)
+			if (account.label === "Parity mail")
+				await window.omp.mailAccounts.command({ action: "remove", id: account.id });
+	});
+}
+
+/** The session view with the one re-entry notice above it: the account is seeded, and the page loads again to read it. */
+async function openMailReentryNotice(page: Page): Promise<void> {
+	await seedMailReentry(page);
+	await page.reload();
+	await page.locator("[data-mail-reentry-notice]").waitFor({ state: "visible", timeout: 60_000 });
+}
+
+/** Settings › Schedules › Email accounts with the account's "enter the password again" line. */
+async function openSettingsMailReentry(page: Page, look: Look): Promise<void> {
+	await seedMailReentry(page);
+	await openDrawer(page, look);
+	await page.locator('[data-destination="settings"]').first().click();
+	const nav = page.locator('[data-settings-section="schedules"]');
+	await nav.waitFor({ state: "visible", timeout: 15_000 });
+	await nav.click();
+	await page
+		.locator("[data-settings-page] #settings-mail-accounts")
+		.first()
+		.waitFor({ state: "visible", timeout: 30_000 });
+	// A paired computer's view says the accounts are set on that computer itself: only this computer's own has the line.
+	const line = page.locator("[data-settings-page] [data-mail-needs-reentry]").first();
+	if ((await page.locator("[data-settings-page] [data-mail-elsewhere]").count()) === 0) {
+		await line.waitFor({ state: "visible", timeout: 30_000 });
+		await line.scrollIntoViewIfNeeded();
+	}
+}
+
+/** Settings › Updates & about with the token row saying why the saved token was removed. */
+async function openSettingsUpdatesDropped(page: Page, look: Look): Promise<void> {
+	await openDrawer(page, look);
+	await page.locator('[data-destination="settings"]').first().click();
+	const nav = page.locator('[data-settings-section="updates"]');
+	await nav.waitFor({ state: "visible", timeout: 15_000 });
+	await nav.click();
+	const row = page.locator("[data-settings-page] #settings-updates-auth");
+	await row.waitFor({ state: "visible", timeout: 30_000 });
+	await row.scrollIntoViewIfNeeded();
+}
+
 async function openSettingsGeneral(page: Page, look: Look): Promise<void> {
 	await openDrawer(page, look);
 	await page.locator('[data-destination="settings"]').first().click();
@@ -1398,6 +1477,44 @@ export const SURFACES: readonly Surface[] = [
 		// Parity only: the audits' harness page has no disk care to run.
 		when: () => false,
 		parity: { session: "work", after: closeOverlay },
+	},
+	{
+		id: "mail-reentry-notice",
+		area: "B",
+		title: "The one notice above a session naming the email accounts that need their password again (the macOS keychain would ask)",
+		open: openMailReentryNotice,
+		ready: "[data-mail-reentry-notice]",
+		settle: 600,
+		// Parity only: the audits' harness page has no mail account in that state, and the notice would sit over every other surface.
+		when: () => false,
+		parity: { session: "work", after: unseedMailReentry },
+	},
+	{
+		id: "settings-mail-reentry",
+		area: "B",
+		title: "Settings › Schedules › Email accounts, an account marked to enter its password again",
+		open: openSettingsMailReentry,
+		ready: "[data-settings-page] #settings-mail-accounts",
+		settle: 600,
+		when: () => false,
+		parity: {
+			session: "work",
+			after: async page => {
+				await unseedMailReentry(page);
+				await closeOverlay(page);
+			},
+		},
+	},
+	{
+		id: "settings-updates-token-dropped",
+		area: "B",
+		title: "Settings › Updates & about, the GitHub token row saying the saved token was removed (the keychain would ask)",
+		open: openSettingsUpdatesDropped,
+		ready: "[data-settings-page] [data-updates-auth-dropped]",
+		settle: 600,
+		// The marker is in the parity launch's profile only (e2e/parity.e2e.ts).
+		when: () => false,
+		parity: { session: "work" },
 	},
 	{
 		id: "settings-computer-use",

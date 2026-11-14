@@ -31,27 +31,24 @@ async function credentials() {
 }
 
 /**
- * electron-builder `mac.sign`. Signs the bundle with OMPdesk's own
- * self-signed certificate (`mac-signing.json`), so every build has the same
- * designated requirement (`identifier "com.seuput.ompdesk" and certificate
- * root = H"…"`). macOS keys privacy grants (folders, local network,
- * microphone) to that requirement; an ad-hoc signature's requirement is the
- * build's cdhash, so each update looked like a new app and asked again.
+ * Runs `run({ identity, keychain })` with the identity OMPdesk's bundle is signed with (`scripts/package-mac.ts` passes
+ * them to `codesign --sign` and `--keychain`). The identity is OMPdesk's own self-signed certificate
+ * (`mac-signing.json`), so every build has the same designated requirement (`identifier "com.seuput.ompdesk" and
+ * certificate root = H"…"`). macOS keys privacy grants (folders, local network, microphone) to that requirement; an
+ * ad-hoc signature's requirement is the build's cdhash, so each update looked like a new app and asked again.
  *
- * The identity goes into a throwaway keychain that codesign reads through
- * `--keychain`; the user's keychain search list is never touched. Without a
- * certificate the build falls back to ad-hoc, unless
+ * The identity goes into a throwaway keychain that codesign reads through `--keychain`; the user's keychain search
+ * list is never touched. Without a certificate the build falls back to ad-hoc (`identity: "-"`, no keychain), unless
  * `OMPDESK_MAC_SIGNING_REQUIRED=1` (release builds) makes that an error.
  */
-async function sign(opts) {
-	const { signAsync } = await import("@electron/osx-sign");
+async function withSigningIdentity(body) {
 	const identity = await credentials();
 	if (!identity) {
 		if (process.env.OMPDESK_MAC_SIGNING_REQUIRED === "1") {
 			throw new Error("OMPdesk signing certificate missing (OMPDESK_MAC_SIGNING_P12_BASE64 / _PASSWORD)");
 		}
 		console.warn("[mac-sign] no OMPdesk signing certificate; signing ad-hoc");
-		return signAsync(opts);
+		return body({ identity: "-", keychain: null });
 	}
 
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-sign-"));
@@ -93,15 +90,7 @@ async function sign(opts) {
 				.filter(Boolean);
 			await run(SECURITY, ["list-keychains", "-d", "user", "-s", keychain, ...searchList]);
 		}
-		const optionsForFile = opts.optionsForFile;
-		await signAsync({
-			...opts,
-			identity: sha1,
-			identityValidation: false,
-			keychain,
-			// No secure timestamp: nothing notarizes, and Apple's TSA would be a network dependency.
-			optionsForFile: filePath => ({ ...(optionsForFile ? optionsForFile(filePath) : {}), timestamp: "none" }),
-		});
+		return await body({ identity: sha1, keychain });
 	} finally {
 		if (searchList) await run(SECURITY, ["list-keychains", "-d", "user", "-s", ...searchList]).catch(() => undefined);
 		await run(SECURITY, ["delete-keychain", keychain]).catch(() => undefined);
@@ -109,4 +98,4 @@ async function sign(opts) {
 	}
 }
 
-module.exports = { sign };
+module.exports = { withSigningIdentity };

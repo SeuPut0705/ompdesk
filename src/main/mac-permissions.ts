@@ -20,9 +20,9 @@ export interface MacPermissionDeps {
 	/** Runs an executable; resolves its stdout, rejects when it cannot run, exits non-zero or outlasts its bound. */
 	run(executable: string, args: readonly string[]): Promise<string>;
 	/** `systemPreferences.isTrustedAccessibilityClient(prompt)`. */
-	accessibilityTrusted(prompt: boolean): boolean;
+	accessibilityTrusted(prompt: boolean): boolean | Promise<boolean>;
 	/** `systemPreferences.getMediaAccessStatus("screen") === "granted"`. */
-	screenGranted(): boolean;
+	screenGranted(): boolean | Promise<boolean>;
 	openPane(url: string): Promise<void>;
 }
 
@@ -74,13 +74,13 @@ export class MacPermissions {
 			const read = await deps.run(executable, ["permissions"]).then(parseAgentDesktop, () => null);
 			if (read) return read;
 		}
-		return { accessibility: deps.accessibilityTrusted(false), screen: deps.screenGranted() };
+		return { accessibility: await deps.accessibilityTrusted(false), screen: await deps.screenGranted() };
 	}
 
 	async #ask(permission: MacPermission): Promise<boolean> {
 		const deps = this.#deps;
 		if (permission === "accessibility") {
-			deps.accessibilityTrusted(true);
+			await deps.accessibilityTrusted(true);
 			return true;
 		}
 		const executable = await deps.agentDesktop();

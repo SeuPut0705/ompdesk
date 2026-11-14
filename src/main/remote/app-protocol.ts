@@ -72,7 +72,7 @@
  *   conclusions then those it holds from other computers, none the asking device itself sent),
  *   `host.memory.conclusions.push {conclusions}` → MemoryConclusionPushReply (insert-if-absent on the host's
  *   server: `written`, `same`, `skipped`, or `failed`). A host with memory off answers `{memory: false}`.
- * - Agent browsing on a device's own Preview page (preview/host.ts, agent-relay.ts): the host's omp starts stock's browser
+ * - Agent browsing on a device's own Preview page (the shell's preview module, PROTOCOL.md §15.6): the host's omp starts stock's browser
  *   relay on ITS loopback (`browser_relay_start`), so the device cannot dial it; the host remembers what its bridge
  *   answered per tab and tunnels the relay's socket over the link. `host.previewRelay.open {rtab}` → null (the host dials
  *   only the relay it remembered for that tab, never an address the device names; refused `relay_unavailable` without

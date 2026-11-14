@@ -14,8 +14,8 @@ import type { IpcTabRunOutcome } from "../../shared/ipc-types";
 import { notificationSummary } from "../../shared/notification-summary";
 import type { UiLanguage } from "../../shared/ui-language";
 import type { WebPushPayload, WebPushSettings } from "../../shared/web-push";
-import { MAIN_TEXT } from "../i18n-text";
 import { type NoticeKind, NotificationBatcher, type ShownInfo, type ShownNotice } from "../notification-batch";
+import { type MainTextKey, mainTemplate } from "../shell-host/modules/boot";
 import type { TabActivity, TabFacts } from "../sidecar-pool";
 import { pushSettingsOf, type WebDevice } from "./devices-store";
 import type { PushOptions, PushResult } from "./push";
@@ -61,8 +61,8 @@ interface OpenAsk {
 	fedTo: Set<string>;
 }
 
-function text(key: keyof typeof MAIN_TEXT, language: UiLanguage, params?: Record<string, string>): string {
-	return MAIN_TEXT[key][language].replace(/\{(\w+)\}/g, (match, name: string) => params?.[name] ?? match);
+function text(key: MainTextKey, language: UiLanguage, params?: Record<string, string>): string {
+	return mainTemplate(key, language).replace(/\{(\w+)\}/g, (match, name: string) => params?.[name] ?? match);
 }
 
 function clip(value: string, max: number): string {

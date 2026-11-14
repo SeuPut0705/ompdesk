@@ -57,4 +57,4 @@ When one session misbehaves, **Save diagnostic bundle** in that session's menu (
 
 ## Still stuck
 
-Open an [issue](https://github.com/SeuPut0705/ompdesk/issues) with the steps to reproduce, `omp --version` and the **Copy diagnostics** text (or the OMPdesk version, your OS and the relevant lines of the [logs](#logs)).
+Open an [issue](https://github.com/seuput-inc/ompdesk/issues) with the steps to reproduce, `omp --version` and the **Copy diagnostics** text (or the OMPdesk version, your OS and the relevant lines of the [logs](#logs)).

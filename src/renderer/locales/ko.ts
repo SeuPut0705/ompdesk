@@ -1,3 +1,4 @@
+import { PRODUCT_REPO } from "../../shared/product-repo";
 import { memoryKo } from "./memory";
 export const ko: Record<string, string> = {
 	"mcp.rea.title": "REA — 리버스 엔지니어링 (내장)",
@@ -1778,6 +1779,8 @@ export const ko: Record<string, string> = {
 	"ipcError.stats_not_ready": "통계 서버가 아직 시작하는 중이에요. 잠시 후 다시 시도해 보세요.",
 	"ipcError.stats_api_error": "통계 서버가 이 요청에 응답하지 못했어요.",
 	"ipcError.safe_storage_unavailable": "이 시스템에서는 토큰을 암호화할 수 없어서 저장하지 못해요.",
+	"ipcError.keychain_would_ask":
+		"macOS가 OMPdesk의 키체인 항목을 열려면 로그인 암호를 물어봐야 해서, 이 컴퓨터에는 비밀 정보를 저장할 수 없어요.",
 	"ipcError.invalid_content": "에이전트 정의가 올바르지 않아요.",
 	"ipcError.invalid_scope": "위치를 사용자 또는 프로젝트 중에서 골라 주세요.",
 	"ipcError.not_editable": "이미지만 있는 대기 메시지는 수정하거나 옮길 수 없어요.",
@@ -5502,21 +5505,21 @@ export const ko: Record<string, string> = {
 	"updates.auth.source.gh": "GitHub CLI(gh) 로그인을 사용 중이에요",
 	"updates.auth.source.stored": "저장한 토큰을 사용 중이에요",
 	"updates.auth.source.none": "토큰 없이 업데이트하는 중이에요",
-	"updates.auth.missing":
-		"GitHub가 로그인한 계정에만 릴리스를 보여 줘요. gh로 로그인하거나 SeuPut0705/ompdesk에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.",
-	"updates.auth.denied":
-		"이 GitHub 계정으로는 SeuPut0705/ompdesk를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.",
+	"updates.auth.missing": `GitHub가 로그인한 계정에만 릴리스를 보여 줘요. gh로 로그인하거나 ${PRODUCT_REPO}에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.`,
+	"updates.auth.denied": `이 GitHub 계정으로는 ${PRODUCT_REPO}를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.`,
 	"updates.auth.invalid":
 		"GitHub가 토큰을 거부했어요(만료 또는 취소됨). 설정 › 일반에서 GitHub를 다시 연결하거나 새 토큰을 붙여 넣으세요.",
 	"updates.auth.network":
 		"GitHub에 연결하지 못했거나 시간당 요청 한도에 도달했어요. 잠시 뒤 다시 시도하세요. 토큰을 쓰면 한도가 늘어나요.",
-	"updates.auth.ok": "SeuPut0705/ompdesk 접근을 확인했어요.",
+	"updates.auth.ok": `${PRODUCT_REPO} 접근을 확인했어요.`,
 	"updates.auth.placeholder": "GitHub 토큰 붙여 넣기",
 	"updates.auth.tokenLabel": "GitHub 토큰",
 	"updates.auth.save": "토큰 저장",
 	"updates.auth.test": "접근 확인",
 	"updates.auth.clear": "저장한 토큰 삭제",
 	"updates.auth.failed": "GitHub 접근 설정을 바꾸지 못했어요",
+	"updates.auth.dropped.keychain-would-ask":
+		"저장한 토큰을 지웠어요. 읽으려면 macOS가 로그인 암호를 물어봐야 해서예요. GH_TOKEN, GITHUB_TOKEN, gh 로그인은 그대로 쓸 수 있고, 이 컴퓨터에는 새 토큰을 저장할 수 없어요.",
 	"updates.auth.cannotStore":
 		"이 시스템에서는 비밀 정보를 암호화할 수 없어 토큰을 저장할 수 없어요. 설정 › 일반에서 GitHub를 연결하세요.",
 	"updates.host.name": "호스트 컴퓨터의 OMPdesk",
@@ -5926,6 +5929,13 @@ export const ko: Record<string, string> = {
 	"mail.loading": "이메일 계정을 불러오는 중…",
 	"mail.loadFailed": "이메일 계정을 불러오지 못했어요",
 	"mail.actionFailed": "이메일 계정을 바꾸지 못했어요",
+	"mail.needsReentry": "비밀번호를 다시 입력하세요. 저장된 비밀번호를 읽으려면 macOS가 로그인 암호를 물어봐야 해요.",
+	"mail.reentry.one":
+		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해요.",
+	"mail.reentry.many":
+		"이메일 계정 {names}의 비밀번호를 다시 입력해야 해요. 읽으려면 macOS가 로그인 암호를 물어봐야 해요.",
+	"mail.reentry.action": "비밀번호 입력",
+	"mail.reentry.dismiss": "이메일 비밀번호 알림 닫기",
 	"mail.test": "테스트",
 	"mail.test.ok": "메일함을 열었어요: 메시지 {count}개",
 	"mail.test.okOne": "메일함을 열었어요: 메시지 1개",

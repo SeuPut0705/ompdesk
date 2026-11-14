@@ -75,6 +75,7 @@ export function diskCareWorld(): DiskCareWorld {
 				userData: world.userData,
 				saved: world.saved,
 				clearHttpCache: async () => {},
+				httpCachePath: () => path.join(world.userData, "Cache"),
 				cacheTools: world.tools,
 				worktrees: true,
 				log: (message, details) => world.logs.push([message, details]),

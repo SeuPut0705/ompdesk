@@ -22,7 +22,7 @@ mod serve;
 mod service;
 mod status;
 mod text;
-mod version;
+pub(crate) mod version;
 mod whois;
 
 use std::collections::BTreeMap;

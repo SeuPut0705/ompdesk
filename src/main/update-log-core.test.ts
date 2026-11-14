@@ -8,6 +8,7 @@ import {
 	RELAUNCH_PRESENCE_MS,
 	relaunchPresence,
 	START_MARK_FILE,
+	scrubUpdateReport,
 	scrubUpdateText,
 	startFailureOf,
 	startMarkJson,
@@ -200,5 +201,23 @@ describe("a start that failed", () => {
 		expect(parseStartFailure('{"version":"0.39.0"}')).toBeUndefined();
 		expect(parseStartFailure("not json")).toBeUndefined();
 		expect(parseStartFailure("null")).toBeUndefined();
+	});
+});
+
+describe("scrubUpdateReport", () => {
+	it("scrubs the reason of the shell's updater lines and leaves every other line as it came", () => {
+		const line = {
+			source: "app-update",
+			message: "download",
+			details: { level: "info", event: "failed", reason: "GET https://objects.example.com/a?sig=secret failed" },
+		};
+		const scrubbed = scrubUpdateReport(line);
+		expect(scrubbed.details).toMatchObject({ level: "info", event: "failed" });
+		expect(scrubbed.details.reason).toContain("<url>");
+		expect(scrubbed.details.reason).not.toContain("secret");
+		const other = { source: "chrome", message: "x", details: { reason: "https://example.com" } };
+		expect(scrubUpdateReport(other)).toBe(other);
+		const plain = { source: "app-update", message: "The saved update token was removed" };
+		expect(scrubUpdateReport(plain)).toBe(plain);
 	});
 });

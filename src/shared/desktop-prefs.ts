@@ -20,7 +20,7 @@ export const CLOSE_TO_TRAY_NOTICE_PREF = "closeToTrayNoticeShown";
 /**
  * Hold off system sleep while any tab on this computer runs a turn or another device is connected or runs a session
  * here (remote/devices.ts), and on a charging laptop keep the work running through a lid close
- * (src/main/power/lid-awake.ts). Default on; only a stored `false` turns it off.
+ * (the shell's lid policy, `crates/shell/src/boot_core/lid.rs`). Default on; only a stored `false` turns it off.
  */
 export const KEEP_AWAKE_WORKING_PREF = "keepAwakeWhileWorking";
 

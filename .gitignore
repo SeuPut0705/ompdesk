@@ -26,3 +26,9 @@ resources/ai-memory-bin/
 resources/agent-desktop-bin/
 # OMPdesk's own Rust built from native/ompdesk: bun run build:native puts the binaries and their build record here (never committed)
 resources/ompdesk-bin/
+# The Node runtime the shell build starts main with (scripts/node-runtime-pin.json): bun run build:node puts node and its record here (never committed)
+resources/node/
+# The CEF shell built from native/ompdesk/crates/shell: bun run build:shell stages it here (never committed)
+resources/ompdesk-shell/
+# CEF's CREDITS.html and LICENSE.txt out of its archive: bun run stage:cef-licenses (never committed)
+resources/shell-licenses/
