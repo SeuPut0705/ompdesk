@@ -215,6 +215,54 @@
 			],
 			"syncCommit": "75aa87cecb2d904fcbe09d927ede2a9834c3f302",
 			"verifySkill": ".omp/skills/checks-admission-verify/SKILL.md"
+		},
+		{
+			"id": "checks-queue-durability",
+			"title": "Merge queue durability: saved effects before acknowledgements, replayable results and cleanup, one lane owner",
+			"kind": "tla",
+			"dir": "checks-queue-durability/tla",
+			"spec": "ChecksQueueDurability.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"native/ompdesk/crates/core/src/checks/queue_run.rs",
+				"native/ompdesk/crates/core/src/checks/queue.rs",
+				"native/ompdesk/crates/core/src/checks/hub.rs"
+			],
+			"syncCommit": null
+		},
+		{
+			"id": "checks-local-lifecycle",
+			"title": "Local check lifecycle: pause and stop, checkout generation and SHA fences, child cleanup before lock release",
+			"kind": "tla",
+			"dir": "checks-local-lifecycle/tla",
+			"spec": "ChecksLocalLifecycle.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"native/ompdesk/crates/core/src/checks/local_run.rs",
+				"native/ompdesk/crates/core/src/checks/hub_local.rs",
+				"native/ompdesk/crates/checks/src/check.rs",
+				"native/ompdesk/crates/checks/src/cli.rs",
+				"native/ompdesk/crates/checks/src/inputs.rs"
+			],
+			"syncCommit": null
+		},
+		{
+			"id": "checks-result-delivery",
+			"title": "Checks result delivery: durable source responsibility until namespaced phase acceptance on disk",
+			"kind": "tla",
+			"dir": "checks-result-delivery/tla",
+			"spec": "ChecksResultDelivery.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"native/ompdesk/crates/core/src/checks/hub.rs",
+				"native/ompdesk/crates/core/src/checks/mod.rs",
+				"src/main/checks/client.ts",
+				"src/main/checks/result-delivery.ts"
+			],
+			"syncCommit": null
 		}
 	]
 }

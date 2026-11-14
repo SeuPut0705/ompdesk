@@ -21,14 +21,20 @@ fn queued(run: &Run) -> u64 {
 }
 
 fn state(run: &Run, answers: &[RunResult]) -> GateVerdict {
-    // A quarantined failure never passes a release: the answer names the gate it blocks.
-    let blocked = answers
-        .iter()
-        .any(|result| result.run_id == run.id && result.answer.blocks_release.is_some());
+    if let Some(result) = answers.iter().rev().find(|result| result.run_id == run.id) {
+        return match result.answer.verdict {
+            super::contract::AnswerVerdict::Green if result.answer.blocks_release.is_none() => {
+                GateVerdict::Green
+            }
+            super::contract::AnswerVerdict::Green | super::contract::AnswerVerdict::Red => {
+                GateVerdict::Red
+            }
+            super::contract::AnswerVerdict::Unknown => GateVerdict::Waiting,
+        };
+    }
     match run.verdict {
         Some(RunVerdict::Red) => GateVerdict::Red,
-        Some(RunVerdict::Green) if blocked => GateVerdict::Red,
-        Some(RunVerdict::Green) => GateVerdict::Green,
+        Some(RunVerdict::Green) => GateVerdict::Waiting,
         // A cancelled run decided nothing: the gate waits for the next.
         Some(RunVerdict::Cancelled) => GateVerdict::Waiting,
         None if run.jobs.iter().any(|job| job.state == JobState::Running) => GateVerdict::Running,
@@ -180,7 +186,7 @@ mod tests {
             vec![job(JobState::Passed, 1)],
             Some(RunVerdict::Green),
         )];
-        assert_eq!(gates(&runs, &[], ci)[0].state, GateVerdict::Green);
+        assert_eq!(gates(&runs, &[], ci)[0].state, GateVerdict::Waiting);
         let mut blocked = samples::answer();
         blocked.blocks_release = Some(BlocksRelease {
             gate: "release ci.yml".into(),

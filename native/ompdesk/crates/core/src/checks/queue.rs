@@ -104,14 +104,14 @@ pub struct Entry {
 }
 
 /// One branch of a build, merged in this order onto the tip.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Part {
     pub branch: String,
     pub sha: Sha,
 }
 
 /// How an entry's time in the queue ended, for whoever queued it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Told {
     /// The base holds it: `commit` is the tested commit the base was moved to.
     Landed { commit: Sha },
@@ -122,7 +122,7 @@ pub enum Told {
 
 /// What the queue asks of whoever runs it. A candidate is one trial's name; its branch is
 /// `QUEUE_BRANCH_PREFIX` + the name.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Effect {
     /// Merge `parts` in order onto `tip` as one commit on the candidate's branch, then `built`.
     Build {

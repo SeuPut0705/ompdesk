@@ -171,6 +171,8 @@ words! {
         JudgedBeforeRestart = "judged-before-restart",
         /// `{error?}`.
         DispatchFailed = "dispatch-failed",
+        /// `{error}` names the reserved target and why acceptance is unknown.
+        DispatchUnconfirmed = "dispatch-unconfirmed",
         Refused = "refused",
         Replaced = "replaced",
         /// `{seconds}`.
@@ -534,11 +536,12 @@ pub struct TestRecord {
 #[serde(rename_all = "camelCase")]
 pub struct FailedTest {
     pub test: String,
-    pub first_error: String,
+    pub first_error: Option<String>,
     pub known_flaky: bool,
     /// Its record in words, English for agents and logs; a screen shows `record`, never this.
     pub history: String,
-    pub record: TestRecord,
+    /// None when the check runner has no recorded history for this failure.
+    pub record: Option<TestRecord>,
 }
 
 /// One thing an answer says besides its verdict. On the wire a union tagged by `code` (TS `NoteSchema`), each code
@@ -940,6 +943,7 @@ pub mod wire {
     pub const SNAPSHOT: &str = "checks.snapshot";
     /// Event: a run's result arrived (`RunResult`), whoever waits.
     pub const RESULT: &str = "checks.result";
+    pub const ACK_RESULT: &str = "checks.ackResult";
     /// Event `{hub, run}`: a check placed on a paired computer (`RemoteRun`), for main to send over the link.
     pub const REMOTE_RUN: &str = "checks.remoteRun";
 }
@@ -1087,10 +1091,10 @@ pub(crate) mod samples {
             },
             failed: vec![FailedTest {
                 test: "src/main/a.test.ts > saves the file".into(),
-                first_error: "AssertionError: expected 1 to be 2".into(),
+                first_error: Some("AssertionError: expected 1 to be 2".into()),
                 known_flaky: true,
                 history: record.english(),
-                record,
+                record: Some(record),
             }],
             blocks_release: Some(BlocksRelease {
                 gate: "gate-mac".into(),
@@ -1171,6 +1175,7 @@ pub(crate) mod samples {
             Note::new(NoteCode::NoAnswerKept),
             Note::new(NoteCode::JudgedBeforeRestart),
             error(NoteCode::DispatchFailed),
+            error(NoteCode::DispatchUnconfirmed),
             error(NoteCode::Refused),
             Note::new(NoteCode::Replaced),
             Note {
@@ -1401,7 +1406,11 @@ pub(crate) mod samples {
             }]),
         );
         types.insert("TestHistory".into(), of(vec![history()]));
-        types.insert("Answer".into(), of(vec![answer()]));
+        let mut missing_details = answer();
+        missing_details.failed[0].first_error = None;
+        missing_details.failed[0].record = None;
+        missing_details.failed[0].history.clear();
+        types.insert("Answer".into(), of(vec![answer(), missing_details]));
         types.insert("TestRecord".into(), of(vec![record()]));
         types.insert("Note".into(), of(note_samples()));
         types.insert("LocalRunAsk".into(), of(vec![local_ask()]));
@@ -1568,6 +1577,7 @@ pub(crate) mod samples {
                 "remoteRun": wire::REMOTE_RUN,
                 "remoteAnswer": wire::REMOTE_ANSWER,
                 "result": wire::RESULT,
+                "ackResult": wire::ACK_RESULT,
             },
             "enums": enums,
             "types": types,

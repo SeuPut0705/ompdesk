@@ -218,7 +218,7 @@ fn strip_ansi(s: &str) -> String {
 }
 
 /// The first non-empty line of an error message, without colour codes, cut to `MAX_ERROR_CHARS`.
-fn headline(message: &str) -> String {
+pub(crate) fn headline(message: &str) -> String {
     strip_ansi(message)
         .lines()
         .map(str::trim)

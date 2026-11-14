@@ -1020,10 +1020,10 @@ fn red_result(run: &str, session: &str) -> crate::checks::contract::RunResult {
                 };
                 FailedTest {
                     test: "src/a.test.ts > saves once".into(),
-                    first_error: "AssertionError: expected 1 to be 2".into(),
+                    first_error: Some("AssertionError: expected 1 to be 2".into()),
                     known_flaky: false,
                     history: record.english(),
-                    record,
+                    record: Some(record),
                 }
             }],
             blocks_release: Some(BlocksRelease {

@@ -16,6 +16,8 @@
 #      by hand, or by a computer that list does not name, fails here with "start it with ompdesk_checks". Off while
 #      CHECKS_ADMISSION_DEVICES is empty (a notice says so). Pushes, schedules and dispatches that ask for no macOS
 #      need none. Callers pass `secrets: inherit`: the key is read by name from the ticket's device, never all secrets.
+#      A rerun may retain this gate's successful output. Each dispatched macOS job therefore verifies a separate
+#      signed commit-status receipt for its current run ID and attempt before its heavy work.
 #   3. The same commit is checked once. A dispatch whose commit already has a successful run of the same workflow with
 #      the same inputs (the run name, which every caller builds from its inputs) cancels itself, unless `force` or a
 #      re-run (attempt 2 and later). A failed or cancelled run covers nothing, and a run still going is not a twin:

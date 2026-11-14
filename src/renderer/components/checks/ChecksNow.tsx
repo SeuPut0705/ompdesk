@@ -437,7 +437,8 @@ function LaneRuns({ group, frame, current }: { group: LaneGroup; frame: ChecksFr
 const VERDICT_COLOR = { green: "text-(--sc-success)", red: "text-(--sc-danger)", unknown: "text-(--sc-warning)" };
 
 /** A test's record from its numbers (`FailedTest.record`); `history` is the core's English and never shown. */
-function recordText(record: TestRecord, t: Translate): string {
+function recordText(record: TestRecord | null, t: Translate): string {
+	if (!record) return t("checks.answer.unavailable");
 	const parts = [t("checks.record.week", { os: OS_NAME[record.os], fails: record.fails7d, runs: record.runs7d })];
 	if (record.state === "quarantined")
 		parts.push(t("checks.record.quarantined", { clean: record.cleanRuns, of: record.clearAfter }));
@@ -489,6 +490,8 @@ function noteText(note: Note, frame: ChecksFrame, t: Translate): string {
 			});
 		case "results-unreadable":
 			return t("checks.note.results-unreadable", { error: note.error });
+		case "dispatch-unconfirmed":
+			return t("checks.note.dispatch-unconfirmed", { error: note.error });
 		case "dispatch-failed":
 		case "refused":
 			return note.error === undefined
@@ -516,7 +519,7 @@ function AnswerCard({ result, frame }: { result: RunResult; frame: ChecksFrame }
 	const rows: [string, string][] = [];
 	for (const failed of answer.failed) {
 		rows.push([t("checks.answer.failed"), failed.test]);
-		rows.push([t("checks.answer.firstError"), failed.firstError]);
+		rows.push([t("checks.answer.firstError"), failed.firstError ?? t("checks.answer.unavailable")]);
 		rows.push([t("checks.answer.flaky"), `${yesNo(failed.knownFlaky)} — ${recordText(failed.record, t)}`]);
 	}
 	const blocking = answer.blocksRelease;

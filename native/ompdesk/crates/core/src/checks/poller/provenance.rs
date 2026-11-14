@@ -3,19 +3,15 @@
 //! starts a run for it leaves a claim here, and the poller binds the claim to the run GitHub or the journal then
 //! shows. A run nobody claimed was started by a person (a push, a click, a terminal): shown, never governed.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 use crate::checks::contract::{GateId, InputsDigest, Lane, Origin, RunId, Timestamp};
 use crate::checks::sources::{GithubRun, LocalRun};
 
-/// GitHub's clock and this computer's may differ by this much.
-const SKEW_MS: u64 = 120_000;
-/// A dispatch whose run did not show within this long started none: its claim is dropped, so it never takes a
-/// later run that is someone else's.
-const EXPECT_FOR_MS: u64 = 600_000;
-
 /// What the hub knows of a run it started.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Claim {
     /// The hub's id for the run, as `start` answered it.
     pub run_id: RunId,
@@ -25,24 +21,18 @@ pub struct Claim {
     pub digest: InputsDigest,
 }
 
-/// A dispatch just sent: GitHub answers it with no run id, so the run is known by what was dispatched.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Expected {
+/// An authoritative dispatch receipt. Workflow/ref/timing and a run's own words cannot establish ownership.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubBinding {
     pub repo: String,
-    /// The workflow's file name (`ci.yml`).
-    pub workflow: String,
-    pub git_ref: String,
-    /// When the dispatch was sent, on this computer's clock.
-    pub after: Timestamp,
+    pub run: u64,
+    pub attempt: u32,
     pub claim: Claim,
 }
 
 #[derive(Debug, Default)]
 pub struct Claims {
-    github: HashMap<(String, u64), Claim>,
-    /// Runs GitHub showed while nothing was expected of them: a person's, for good.
-    nobodys: HashSet<(String, u64)>,
-    expected: Vec<Expected>,
+    github: HashMap<(String, u64), GithubBinding>,
     /// By the journal's run id.
     local: HashMap<String, Claim>,
     /// A session's process tag (`OMP_GUI_SESSION_TAG`), as main maps it to the session.
@@ -50,11 +40,15 @@ pub struct Claims {
 }
 
 impl Claims {
-    /// A dispatch is about to be sent for `expected.claim` (call this first, then dispatch: a run that shows before
-    /// it is expected is taken for a person's). The first dispatched run of that workflow on that ref GitHub then
-    /// shows is its; two dispatches of one workflow on one ref bind in the order they were sent.
-    pub fn expect(&mut self, expected: Expected) {
-        self.expected.push(expected);
+    pub fn bind(&mut self, binding: GithubBinding) {
+        let key = (binding.repo.clone(), binding.run);
+        if self
+            .github
+            .get(&key)
+            .is_none_or(|known| known.attempt <= binding.attempt)
+        {
+            self.github.insert(key, binding);
+        }
     }
 
     /// A local check the hub started itself, by its journal's id.
@@ -67,44 +61,12 @@ impl Claims {
         self.tags = tags;
     }
 
-    /// The claim on a run GitHub shows. It is decided once, at the run's first sight: a dispatch that waits for
-    /// such a run takes it, and a run nothing waited for stays unclaimed whatever is dispatched later.
-    pub fn of_github(&mut self, repo: &str, run: &GithubRun, now: Timestamp) -> Option<&Claim> {
-        self.expected
-            .retain(|expected| now < expected.after + EXPECT_FOR_MS);
-        let key = (repo.to_owned(), run.id);
-        if !self.github.contains_key(&key) && !self.nobodys.contains(&key) {
-            let waiting = (run.event == "workflow_dispatch")
-                .then(|| {
-                    self.expected.iter().position(|expected| {
-                        expected.repo == repo
-                            && expected.workflow == run.workflow
-                            && expected.git_ref == run.branch
-                            && run.created_at + SKEW_MS >= expected.after
-                    })
-                })
-                .flatten();
-            match waiting {
-                Some(at) => {
-                    let expected = self.expected.remove(at);
-                    self.github.insert(key.clone(), expected.claim);
-                }
-                None => {
-                    self.nobodys.insert(key.clone());
-                }
-            }
-        }
-        self.github.get(&key)
-    }
-
-    /// Decides the claims of the runs of one read of GitHub's list, oldest first: GitHub lists newest first, and two
-    /// dispatches of one workflow on one ref that show in the same read must bind in the order they were sent.
-    pub fn see_github(&mut self, repo: &str, runs: &[GithubRun], now: Timestamp) {
-        let mut order: Vec<&GithubRun> = runs.iter().collect();
-        order.sort_by_key(|run| (run.created_at, run.id));
-        for run in order {
-            self.of_github(repo, run, now);
-        }
+    /// Only an exact run id returned by a write (or its persisted receipt) can establish ownership.
+    pub fn of_github(&self, repo: &str, run: &GithubRun, _now: Timestamp) -> Option<&Claim> {
+        self.github
+            .get(&(repo.to_owned(), run.id))
+            .filter(|binding| binding.attempt == run.attempt)
+            .map(|binding| &binding.claim)
     }
 
     /// The claim on a local check: the hub's own start, else the session whose process tag the journal names.
@@ -122,23 +84,9 @@ impl Claims {
         })
     }
 
-    /// Forgets what was decided of runs no longer known.
-    pub fn keep_github(&mut self, known: impl Fn(&str, u64) -> bool) {
-        self.github.retain(|(repo, run), _| known(repo, *run));
-        self.nobodys.retain(|(repo, run)| known(repo, *run));
-    }
-
-    /// GitHub's run `run` runs again for the hub's new run (a rerun of its failed jobs, admitted as its own entry):
-    /// from now on it is that run's.
-    pub fn rebind(&mut self, repo: &str, run: u64, claim: Claim) {
-        let key = (repo.to_owned(), run);
-        self.nobodys.remove(&key);
-        self.github.insert(key, claim);
-    }
-
-    /// A dispatch to `repo` still waits for its run.
-    pub fn expects(&self, repo: &str) -> bool {
-        self.expected.iter().any(|expected| expected.repo == repo)
+    /// A receipt whose run is not in the list yet keeps its repository followed.
+    pub fn unseen(&self, repo: &str, known: impl Fn(u64) -> bool) -> bool {
+        self.github.keys().any(|(of, id)| of == repo && !known(*id))
     }
 
     /// The hub started GitHub's run `run` of `repo`.
@@ -150,7 +98,7 @@ impl Claims {
     pub fn github_of(&self, run_id: &str) -> Option<(String, u64)> {
         self.github
             .iter()
-            .find(|(_, claim)| claim.run_id == run_id)
+            .find(|(_, binding)| binding.claim.run_id == run_id)
             .map(|(key, _)| key.clone())
     }
 }
@@ -202,59 +150,27 @@ pub(crate) mod tests {
     const T0: Timestamp = 1_794_596_700_000;
     const REPO: &str = "SeuPut0705/ompdesk";
 
-    fn expected(run_id: &str, origin: Origin, after: Timestamp) -> Expected {
-        Expected {
-            repo: REPO.to_owned(),
-            workflow: "ci.yml".to_owned(),
-            git_ref: "omp/agent/checks-poller".to_owned(),
-            after,
-            claim: claim(run_id, origin),
-        }
-    }
-
     #[test]
-    fn a_dispatch_claims_the_first_new_run_of_its_workflow_and_ref_and_keeps_it() {
+    fn only_the_authoritative_receipt_claims_a_run_regardless_of_list_order_or_clock() {
         let mut claims = Claims::default();
-        claims.expect(expected("run-1", session("a"), T0));
-        // Another workflow, another ref, a push, a run from before the dispatch: none of them is it.
-        for other in [
-            dispatched(1, "release.yml", "omp/agent/checks-poller", T0 + 2_000),
-            dispatched(2, "ci.yml", "main", T0 + 2_000),
-            GithubRun {
-                event: "push".to_owned(),
-                ..dispatched(3, "ci.yml", "omp/agent/checks-poller", T0 + 2_000)
-            },
-            dispatched(4, "ci.yml", "omp/agent/checks-poller", T0 - SKEW_MS - 1),
-        ] {
-            assert_eq!(
-                claims.of_github(REPO, &other, T0 + 3_000),
-                None,
-                "{}",
-                other.id
-            );
+        claims.bind(GithubBinding {
+            repo: REPO.into(),
+            run: 5,
+            attempt: 1,
+            claim: claim("run-1", session("a")),
+        });
+        for id in [9, 4, 1, 6] {
+            let foreign = dispatched(id, "ci.yml", "omp/agent/checks-poller", T0);
+            assert_eq!(claims.of_github(REPO, &foreign, T0), None);
         }
-        // GitHub's clock a little behind this computer's is still after the dispatch.
-        let run = dispatched(5, "ci.yml", "omp/agent/checks-poller", T0 - 30_000);
-        assert_eq!(
-            claims
-                .of_github(REPO, &run, T0 + 3_000)
-                .map(|claim| claim.run_id.as_str()),
-            Some("run-1")
-        );
-        // It stays that run's, and no second run takes it.
-        let later = dispatched(6, "ci.yml", "omp/agent/checks-poller", T0 + 4_000);
-        assert_eq!(claims.of_github(REPO, &later, T0 + 5_000), None);
-        assert_eq!(
-            claims
-                .of_github(REPO, &run, T0 + 3_600_000)
-                .map(|claim| &claim.origin),
-            Some(&session("a"))
-        );
+        let ours = dispatched(5, "ci.yml", "omp/agent/checks-poller", T0 - 30_000);
+        assert_eq!(claims.of_github(REPO, &ours, T0).unwrap().run_id, "run-1");
+        assert_eq!(claims.of_github("other/repo", &ours, T0), None);
     }
 
     #[test]
     fn a_runs_own_words_claim_nothing() {
-        let mut claims = Claims::default();
+        let claims = Claims::default();
         // A title and an actor are what a caller writes: nothing is expected, so nothing is bound.
         let run = GithubRun {
             title: "ci [session a] run-1".to_owned(),
@@ -265,28 +181,29 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn two_dispatches_of_one_workflow_bind_in_the_order_sent() {
+    fn two_dispatch_receipts_are_not_swapped_when_newest_run_is_seen_first() {
         let mut claims = Claims::default();
-        claims.expect(expected("run-1", session("a"), T0));
-        claims.expect(expected("run-2", session("b"), T0 + 500));
-        let first = dispatched(8, "ci.yml", "omp/agent/checks-poller", T0 + 1_000);
-        let second = dispatched(9, "ci.yml", "omp/agent/checks-poller", T0 + 1_500);
-        assert_eq!(
-            claims.of_github(REPO, &first, T0 + 2_000).unwrap().run_id,
-            "run-1"
-        );
-        assert_eq!(
-            claims.of_github(REPO, &second, T0 + 2_000).unwrap().run_id,
-            "run-2"
-        );
-    }
-
-    #[test]
-    fn a_dispatch_that_started_nothing_takes_no_later_run() {
-        let mut claims = Claims::default();
-        claims.expect(expected("run-1", session("a"), T0));
-        let late = dispatched(10, "ci.yml", "omp/agent/checks-poller", T0 + EXPECT_FOR_MS);
-        assert_eq!(claims.of_github(REPO, &late, T0 + EXPECT_FOR_MS), None);
+        for (run, id, who) in [(8, "run-1", "a"), (9, "run-2", "b")] {
+            claims.bind(GithubBinding {
+                repo: REPO.into(),
+                run,
+                attempt: 1,
+                claim: claim(id, session(who)),
+            });
+        }
+        for (run, id) in [(9, "run-2"), (8, "run-1")] {
+            assert_eq!(
+                claims
+                    .of_github(
+                        REPO,
+                        &dispatched(run, "ci.yml", "omp/agent/checks-poller", T0),
+                        T0
+                    )
+                    .unwrap()
+                    .run_id,
+                id
+            );
+        }
     }
 
     #[test]
@@ -330,9 +247,39 @@ pub(crate) mod tests {
     #[test]
     fn a_foreign_dispatch_in_the_same_poll_window_never_takes_a_hub_claim() {
         let mut claims = Claims::default();
-        claims.expect(expected("ours", session("a"), T0));
+        claims.bind(GithubBinding {
+            repo: REPO.into(),
+            run: 91,
+            attempt: 1,
+            claim: claim("ours", session("a")),
+        });
         let person = dispatched(90, "ci.yml", "omp/agent/checks-poller", T0 - 1);
         assert_eq!(claims.of_github(REPO, &person, T0 + 1_000), None);
         assert!(!claims.claimed(REPO, person.id));
+    }
+}
+
+#[cfg(test)]
+mod attempt_tests {
+    use super::tests::{claim, dispatched, session};
+    use super::*;
+
+    #[test]
+    fn raw_later_attempts_never_inherit_a_prior_attempts_claim_and_restore_order_cannot_swap_it() {
+        let mut claims = Claims::default();
+        for attempt in [2, 1] {
+            claims.bind(GithubBinding {
+                repo: "o/app".into(),
+                run: 77,
+                attempt,
+                claim: claim(&format!("ours-{attempt}"), session("a")),
+            });
+        }
+        let mut run = dispatched(77, "ci.yml", "feat", 1);
+        assert!(claims.of_github("o/app", &run, 1).is_none());
+        run.attempt = 2;
+        assert_eq!(claims.of_github("o/app", &run, 1).unwrap().run_id, "ours-2");
+        run.attempt = 3;
+        assert!(claims.of_github("o/app", &run, 1).is_none());
     }
 }

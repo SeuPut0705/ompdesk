@@ -135,6 +135,31 @@ pub struct Dispatch {
     pub inputs: BTreeMap<String, String>,
 }
 
+/// A write failed before acceptance, or its response was lost after it may have been accepted. Only the former
+/// returns admission's place; an unconfirmed write must never be retried or assigned by workflow/time proximity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WriteError {
+    Refused(SourceError),
+    Unconfirmed(SourceError),
+}
+
+impl WriteError {
+    pub fn error(&self) -> &SourceError {
+        match self {
+            Self::Refused(error) | Self::Unconfirmed(error) => error,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitStatus {
+    pub repo: RepoId,
+    pub sha: Sha,
+    pub context: String,
+    pub description: String,
+    pub state: String,
+}
+
 pub trait GithubSource: Send + Sync {
     /// The repo's runs that are not completed plus those updated since `since`, newest first.
     fn runs<'a>(
@@ -166,11 +191,14 @@ pub trait GithubSource: Send + Sync {
     /// The repo the folder's checkout pushes to and its current branch; None outside a GitHub checkout.
     fn checkout<'a>(&'a self, cwd: &'a str) -> Fut<'a, Result<Option<Checkout>, SourceError>>;
 
-    fn dispatch<'a>(&'a self, dispatch: &'a Dispatch) -> Fut<'a, Result<(), SourceError>>;
+    /// GitHub's authoritative run id from the dispatch response, never inferred from the runs list.
+    fn dispatch<'a>(&'a self, dispatch: &'a Dispatch) -> Fut<'a, Result<u64, WriteError>>;
 
     fn cancel<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), SourceError>>;
 
-    fn rerun_failed<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), SourceError>>;
+    fn rerun_failed<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), WriteError>>;
+
+    fn authorize_rerun<'a>(&'a self, status: &'a CommitStatus) -> Fut<'a, Result<(), WriteError>>;
 
     /// None before the first answer.
     fn budget(&self) -> Option<Budget>;
@@ -304,6 +332,7 @@ pub enum GithubWrite {
     Dispatch(Dispatch),
     Cancel { repo: RepoId, run: u64 },
     RerunFailed { repo: RepoId, run: u64 },
+    AuthorizeRerun(CommitStatus),
 }
 
 /// What a `FakeGithub` answers; a test sets the fields it needs (`with`).
@@ -334,6 +363,9 @@ pub struct GithubFacts {
     pub subjects: BTreeMap<String, String>,
     /// Every read and write fails with this while it is set.
     pub down: Option<SourceError>,
+    /// Exact dispatch receipts, in order. Unset entries use the fixture's sequence 77, 78, ...
+    pub dispatch_ids: Vec<u64>,
+    pub dispatch_error: Option<WriteError>,
 }
 
 /// GitHub in memory: it answers its facts as they are and records every write and how many reads were made.
@@ -443,8 +475,32 @@ impl GithubSource for FakeGithub {
         Box::pin(async move { self.read(|facts| facts.checkouts.get(cwd).cloned()) })
     }
 
-    fn dispatch<'a>(&'a self, dispatch: &'a Dispatch) -> Fut<'a, Result<(), SourceError>> {
-        Box::pin(async move { self.write(GithubWrite::Dispatch(dispatch.clone())) })
+    fn dispatch<'a>(&'a self, dispatch: &'a Dispatch) -> Fut<'a, Result<u64, WriteError>> {
+        Box::pin(async move {
+            let facts = locked(&self.facts);
+            if let Some(error) = &facts.down {
+                return Err(if error.code == "rejected" || error.code == "missing" {
+                    WriteError::Refused(error.clone())
+                } else {
+                    WriteError::Unconfirmed(error.clone())
+                });
+            }
+            let mut writes = locked(&self.writes);
+            let index = writes
+                .iter()
+                .filter(|write| matches!(write, GithubWrite::Dispatch(_)))
+                .count();
+            let id = facts
+                .dispatch_ids
+                .get(index)
+                .copied()
+                .unwrap_or(77 + index as u64);
+            writes.push(GithubWrite::Dispatch(dispatch.clone()));
+            if let Some(error) = &facts.dispatch_error {
+                return Err(error.clone());
+            }
+            Ok(id)
+        })
     }
 
     fn cancel<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), SourceError>> {
@@ -456,12 +512,26 @@ impl GithubSource for FakeGithub {
         })
     }
 
-    fn rerun_failed<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), SourceError>> {
+    fn rerun_failed<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), WriteError>> {
         Box::pin(async move {
             self.write(GithubWrite::RerunFailed {
                 repo: repo.to_owned(),
                 run,
             })
+            .map_err(|error| {
+                if error.code == "rejected" || error.code == "missing" {
+                    WriteError::Refused(error)
+                } else {
+                    WriteError::Unconfirmed(error)
+                }
+            })
+        })
+    }
+
+    fn authorize_rerun<'a>(&'a self, status: &'a CommitStatus) -> Fut<'a, Result<(), WriteError>> {
+        Box::pin(async move {
+            self.write(GithubWrite::AuthorizeRerun(status.clone()))
+                .map_err(WriteError::Unconfirmed)
         })
     }
 

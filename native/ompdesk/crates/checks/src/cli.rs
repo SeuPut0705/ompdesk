@@ -46,6 +46,7 @@ fn check_command(rest: &[String]) -> i32 {
     match word(0) {
         Some("--spawn") => return word(1).map_or(EXIT_USAGE, crate::check::spawn_runner),
         Some("--runner") => return word(1).map_or(EXIT_USAGE, crate::check::run_runner),
+        Some("--checkout-setup") => return crate::check::guarded_setup(&rest[1..]),
         Some("status") => {
             let mut id = None;
             let (mut all, mut json) = (false, false);

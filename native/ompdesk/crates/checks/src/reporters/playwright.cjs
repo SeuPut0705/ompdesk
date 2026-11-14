@@ -41,6 +41,7 @@ class OmpdeskCheckReporter {
 			titles,
 			status: OUTCOME[test.outcome()] || "failed",
 			ms: result.duration,
+			first_error: result.errors?.[0]?.message ?? result.error?.message,
 		});
 	}
 	onError(error) {

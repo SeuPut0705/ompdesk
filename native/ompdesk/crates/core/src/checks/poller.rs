@@ -34,7 +34,7 @@ use tokio::task::AbortHandle;
 use self::github::{GhCli, GhSource, Tools};
 use self::local::{HeavyCli, HeavyLocal, Journals, PairedPools};
 use self::pools::{Limits, Observed};
-use self::provenance::{Claim, Claims, Expected};
+use self::provenance::{Claim, Claims, GithubBinding};
 use super::contract::{
     Job, JobState, Lane, MainFact, Origin, Os, Pool, PoolState, RepoId, Run, RunVerdict, Snapshot,
     StatusRequest, StatusScope, Timestamp, Trigger,
@@ -334,14 +334,16 @@ impl Engine {
         self.repos.entry(repo.to_owned()).or_default().nudged = true;
     }
 
-    /// The hub asked GitHub to run `run`'s failed jobs again for its run `claim`: the run is the new attempt's from
-    /// now on and reads unfinished until GitHub shows that attempt, so its old end is never taken for the new one.
-    pub fn rerun(&mut self, repo: &str, run: u64, claim: Claim) {
-        self.claims.rebind(repo, run, claim);
-        let watched = self.repos.entry(repo.to_owned()).or_default();
+    /// Apply an exact run/attempt receipt. Never mistake the previous completed attempt for the newly admitted one.
+    pub fn bind(&mut self, binding: GithubBinding) {
+        let (repo, run, attempt) = (binding.repo.clone(), binding.run, binding.attempt);
+        self.claims.bind(binding);
+        let watched = self.repos.entry(repo).or_default();
         watched.nudged = true;
-        if let Some(tracked) = watched.runs.get_mut(&run) {
-            tracked.run.attempt += 1;
+        if let Some(tracked) = watched.runs.get_mut(&run)
+            && tracked.run.attempt < attempt
+        {
+            tracked.run.attempt = attempt;
             tracked.run.status = "queued".to_owned();
             tracked.run.conclusion = None;
             tracked.follow = true;
@@ -360,7 +362,7 @@ impl Engine {
         let claims = &self.claims;
         self.repos.retain(|repo, watched| {
             repos.contains(repo)
-                || claims.expects(repo)
+                || claims.unseen(repo, |id| watched.runs.contains_key(&id))
                 || watched
                     .runs
                     .iter()
@@ -614,17 +616,10 @@ impl Engine {
                 !active(&tracked.run) || value.iter().any(|run| run.id == *id)
             });
             changed |= watched.runs.len() != before;
-            self.claims.see_github(repo, &value, now);
             for run in value {
                 changed |= watched.upsert(run, now);
             }
             watched.forget_old();
-            let repos = &self.repos;
-            self.claims.keep_github(|repo, run| {
-                repos
-                    .get(repo)
-                    .is_some_and(|watched| watched.runs.contains_key(&run))
-            });
         }
         changed
     }
@@ -996,25 +991,15 @@ impl Poller {
         self.wake.notify_one();
     }
 
-    /// A dispatch is about to be sent for `expected.claim` (call this first, then dispatch): its repository is read
-    /// at once and followed until its run ends.
-    pub fn expect(&self, expected: Expected) {
-        let mut engine = locked(&self.engine);
-        engine.nudge(&expected.repo);
-        engine.claims().expect(expected);
-        drop(engine);
+    /// Bind the exact run returned by GitHub, read its repository now and follow until that run ends.
+    pub fn bind(&self, binding: GithubBinding) {
+        locked(&self.engine).bind(binding);
         self.wake.notify_one();
     }
 
     /// A run was started or changed from here (a dispatch went out, a cancel, a rerun): read `repo` now.
     pub fn nudge(&self, repo: &str) {
         locked(&self.engine).nudge(repo);
-        self.wake.notify_one();
-    }
-
-    /// The hub reruns GitHub's run `run` for its run `claim` (`Engine::rerun`): read `repo` now.
-    pub fn rerun(&self, repo: &str, run: u64, claim: Claim) {
-        locked(&self.engine).rerun(repo, run, claim);
         self.wake.notify_one();
     }
 
@@ -1075,6 +1060,15 @@ impl Poller {
     /// GitHub's run behind a run id of the hub's, or behind `gh-<id>`: what a cancel or a rerun names.
     pub fn github_of(&self, run: &str) -> Option<(RepoId, u64)> {
         locked(&self.engine).github_of(run)
+    }
+
+    pub fn attempt(&self, repo: &str, run: u64) -> Option<u32> {
+        locked(&self.engine)
+            .repos
+            .get(repo)?
+            .runs
+            .get(&run)
+            .map(|tracked| tracked.run.attempt)
     }
 
     /// Every computer's pool as last read (this one's and each paired one's): what placement weighs.

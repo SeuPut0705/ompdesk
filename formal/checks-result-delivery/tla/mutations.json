@@ -1,0 +1,33 @@
+{
+  "checker": { "kind": "tlc", "config": "MC.cfg" },
+  "mutations": [
+    {
+      "name": "ack-memory-or-error",
+      "why": "A volatile receiver or failed save cannot take durable source responsibility.",
+      "search": "s.receipt[k] = \"disk\" \\* disk-only-ack",
+      "replace": "s.receipt[k] # \"none\" \\* disk-only-ack",
+      "breaks": "DiskBeforeAck"
+    },
+    {
+      "name": "forget-disk-receiver-on-crash",
+      "why": "After source ACK, receiver restart must retain the accepted journal responsibility.",
+      "search": "!.memory = {}] \\* durable-receiver-survives",
+      "replace": "!.memory = {}, !.receiver = {}] \\* durable-receiver-survives",
+      "breaks": "NoLossAfterPublication"
+    },
+    {
+      "name": "fresh-receiver-entry-on-replay",
+      "why": "A reply lost after durable acceptance cannot create a second receiver effect.",
+      "search": "IF k \\in s.receiver THEN @ ELSE @ + 1, \\* stable-receiver-id",
+      "replace": "@ + 1, \\* stable-receiver-id",
+      "breaks": "NoDuplicateReceiverAcceptance"
+    },
+    {
+      "name": "emit-before-source-persist",
+      "why": "Source publication must not race ahead of its own durable outbox write.",
+      "search": "k \\in s.source \\* persisted-before-send",
+      "replace": "k \\in s.prepared \\* persisted-before-send",
+      "breaks": "NoSendBeforePersistence"
+    }
+  ]
+}

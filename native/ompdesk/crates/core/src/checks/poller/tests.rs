@@ -460,11 +460,10 @@ fn when_the_quota_is_short_every_run_still_gets_its_turn() {
 #[test]
 fn who_started_a_run_is_the_hubs_record_and_nothing_the_run_says() {
     let mut engine = watching();
-    engine.claims().expect(Expected {
+    engine.claims().bind(GithubBinding {
         repo: REPO.to_owned(),
-        workflow: "ci.yml".to_owned(),
-        git_ref: "omp/agent/checks-poller".to_owned(),
-        after: T0 - 61_000,
+        run: 1,
+        attempt: 1,
         claim: claim("run-1", session("a")),
     });
     let ask = runs_ask(&mut engine, T0);
@@ -501,26 +500,24 @@ fn who_started_a_run_is_the_hubs_record_and_nothing_the_run_says() {
         (persons.repo.as_str(), persons.git_ref.as_str()),
         (REPO, "omp/agent/checks-poller")
     );
-    // A dispatch made after the run was first seen never takes it.
-    engine.claims().expect(Expected {
+    // A different exact receipt never claims an already listed foreign run.
+    engine.claims().bind(GithubBinding {
         repo: REPO.to_owned(),
-        workflow: "ci.yml".to_owned(),
-        git_ref: "omp/agent/checks-poller".to_owned(),
-        after: T0 - 61_000,
+        run: 9,
+        attempt: 1,
         claim: claim("run-9", session("b")),
     });
     assert!(engine.runs(T0 + 1).iter().all(|run| run.id != "run-9"));
 }
 
 #[test]
-fn two_dispatches_of_one_workflow_that_show_in_one_read_bind_in_the_order_sent() {
+fn two_dispatches_of_one_workflow_keep_their_exact_run_ids_when_listed_newest_first() {
     let mut engine = watching();
-    for (id, who, after) in [("run-1", "a", T0 - 61_000), ("run-2", "b", T0 - 60_500)] {
-        engine.claims().expect(Expected {
+    for (id, who, run) in [("run-1", "a", 11), ("run-2", "b", 12)] {
+        engine.claims().bind(GithubBinding {
             repo: REPO.to_owned(),
-            workflow: "ci.yml".to_owned(),
-            git_ref: "omp/agent/checks-poller".to_owned(),
-            after,
+            run,
+            attempt: 1,
             claim: claim(id, session(who)),
         });
     }
@@ -911,11 +908,10 @@ async fn an_hour_of_rounds_reads_on_schedule_and_tells_only_changes() {
     let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(T0)));
     let mut seen = snapshot.subscribe();
     let poller = Poller::new(github.clone(), local.clone(), snapshot.clone());
-    poller.expect(Expected {
+    poller.bind(GithubBinding {
         repo: REPO.to_owned(),
-        workflow: "ci.yml".to_owned(),
-        git_ref: "omp/agent/checks-poller".to_owned(),
-        after: T0 - 61_000,
+        run: 1,
+        attempt: 1,
         claim: claim("run-1", session("a")),
     });
     let rounds = poller.start();
@@ -1013,11 +1009,10 @@ async fn an_hour_of_rounds_reads_on_schedule_and_tells_only_changes() {
 fn the_repositories_followed_are_mains_and_those_a_start_still_waits_on() {
     let mut engine = Engine::new(Os::Macos);
     engine.follow(&["o/a".to_owned(), REPO.to_owned()]);
-    engine.claims().expect(Expected {
+    engine.claims().bind(GithubBinding {
         repo: REPO.to_owned(),
-        workflow: "ci.yml".to_owned(),
-        git_ref: "omp/agent/checks-poller".to_owned(),
-        after: T0 - 61_000,
+        run: 1,
+        attempt: 1,
         claim: claim("run-1", session("a")),
     });
     let followed = |engine: &Engine| engine.repos.keys().cloned().collect::<Vec<_>>();
@@ -1054,11 +1049,10 @@ async fn a_wait_for_a_runs_end_ends_on_the_round_that_read_its_final_jobs() {
     });
     let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(T0)));
     let poller = Poller::new(github.clone(), Arc::new(FakeLocal::default()), snapshot);
-    poller.expect(Expected {
+    poller.bind(GithubBinding {
         repo: REPO.to_owned(),
-        workflow: "ci.yml".to_owned(),
-        git_ref: "omp/agent/checks-poller".to_owned(),
-        after: T0 - 61_000,
+        run: 1,
+        attempt: 1,
         claim: claim("run-1", session("a")),
     });
     let changes = poller.changes();

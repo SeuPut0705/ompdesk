@@ -18,6 +18,7 @@ use tokio::process::Command;
 
 use crate::checks::contract::{DeviceId, ForeignLoad, Os, Timestamp};
 use crate::checks::hub::Fut;
+use crate::checks::local_run::{LocalFailure, LocalResult};
 use crate::checks::sources::{
     LocalFlaky, LocalPool, LocalRun, LocalSource, LocalVolume, SourceError,
 };
@@ -417,6 +418,89 @@ pub struct Journals {
 
 impl Journals {
     /// One run's journal by its id, however long ago it ended.
+    pub fn active_in_checkout(&self, checkout: &Path) -> Result<Vec<String>, String> {
+        let entries = match fs::read_dir(self.root.join("runs")) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.to_string()),
+        };
+        let checkout = fs::canonicalize(checkout).unwrap_or_else(|_| checkout.to_path_buf());
+        let mut active = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let path = entry.path();
+            let Ok(text) = fs::read_to_string(path.join("run.json")) else {
+                continue;
+            };
+            let Ok(run) = serde_json::from_str::<RunShape>(&text) else {
+                continue;
+            };
+            let cwd = fs::canonicalize(&run.cwd).unwrap_or_else(|_| PathBuf::from(&run.cwd));
+            if cwd != checkout {
+                continue;
+            }
+            match File::open(path.join("alive")) {
+                Ok(file) => match file.try_lock() {
+                    Ok(()) => {}
+                    Err(fs::TryLockError::WouldBlock) => active.push(run.id),
+                    Err(error) => return Err(error.to_string()),
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        Ok(active)
+    }
+    pub fn result_blocking(&self, id: &str) -> Option<LocalResult> {
+        let run = self.run_blocking(id)?;
+        let path = self.root.join("runs").join(id).join("verdict.json");
+        let failed = fs::read(path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Vec<serde_json::Value>>(&bytes).ok())
+            .and_then(|rows| {
+                rows.iter().try_fold(Vec::new(), |mut failed, row| {
+                    let key = row.get("key")?.as_str()?;
+                    let countable = row
+                        .get("countable")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or_else(|| {
+                            let prefix = key
+                                .strip_prefix("vitest file|")
+                                .map(|rest| format!("vitest|{rest}|"))
+                                .or_else(|| {
+                                    key.strip_prefix("jest file|")
+                                        .map(|rest| format!("jest|{rest}|"))
+                                });
+                            !prefix.is_some_and(|prefix| {
+                                rows.iter().any(|other| {
+                                    other
+                                        .get("key")
+                                        .and_then(|value| value.as_str())
+                                        .is_some_and(|key| key.starts_with(&prefix))
+                                })
+                            })
+                        });
+                    let status = row.get("status")?.as_str()?;
+                    if countable
+                        && !matches!(status, "passed" | "skipped")
+                        && (status != "flaky" || run.state == "failed")
+                    {
+                        failed.push(LocalFailure {
+                            name: row.get("name")?.as_str()?.to_owned(),
+                            first_error: row
+                                .get("first_error")
+                                .and_then(|value| value.as_str())
+                                .map(crate::checks::results::reports::headline)
+                                .filter(|text| !text.is_empty()),
+                            known_flaky: row.get("quarantined")?.as_bool()?,
+                        });
+                    }
+                    Some(failed)
+                })
+            });
+        Some(LocalResult { run, failed })
+    }
+
     pub fn run_blocking(&self, id: &str) -> Option<LocalRun> {
         read_run(&self.root.join("runs").join(id), 0)
     }

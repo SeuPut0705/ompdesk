@@ -193,6 +193,24 @@ describe("Checks page", () => {
 		expect(decisions.join(" ")).toContain("app · omp/agent/search-index is a newer run of the same ref and workflow");
 	});
 
+	it("does not invent an error or history for a local journal that never recorded them", async () => {
+		const frame = busy();
+		const answers = frame.snapshot.answers.map(result => ({
+			...result,
+			answer: {
+				...result.answer,
+				failed: result.answer.failed.map(failed => ({ ...failed, firstError: null, record: null })),
+			},
+		}));
+		const view = await mount(withSnapshot(frame, { answers }));
+		const answer = text(view, "[data-check-answer]");
+		expect(answer).toContain("src/store/save.test.ts > saves the file once");
+		expect(answer).toContain("first errornot recorded");
+		expect(answer).toContain("known flakyyes — not recorded");
+		expect(answer).not.toContain("AssertionError");
+		expect(answer).not.toContain("over 7 days");
+	});
+
 	it("writes one sentence per policy action, and never the hub's English reason", async () => {
 		const frame = busy();
 		const decisions = [

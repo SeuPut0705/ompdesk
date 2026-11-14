@@ -17,12 +17,60 @@
 		"FirstInLineCanStart",
 		"ReleaseEventuallyAdmitted",
 		"LapsedLeaves",
-		"ReleaseKeepsItsAccountPlace"
+		"ReleaseKeepsItsAccountPlace",
+		"UnconfirmedOccupies",
+		"RecoveryKeepsReservation",
+		"GreenIsFinallyJudged"
 	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property below it."
 	},
 	"mutations": [
+		{
+			"name": "unconfirmed-reservation-not-counted",
+			"why": "An ambiguous write retains a reservation, but the capacity ledger ignores it and can admit another job.",
+			"search": "    \\/ state[j] = \"unconfirmed\"",
+			"replace": "    \\/ FALSE",
+			"breaks": "UnconfirmedOccupies",
+			"config": "MC_failure.cfg",
+			"isolate": true
+		},
+		{
+			"name": "retry-an-ambiguous-write",
+			"why": "An ambiguous dispatch is put back in the queue even though the external write may already have taken effect.",
+			"search": "DispatchUnconfirmed(j) ==\n    /\\ j \\in sent /\\ j \\notin launched\n    /\\ state[j] \\in {\"dispatching\", \"cancelling\"}\n    /\\ state' = [state EXCEPT ![j] = \"unconfirmed\"]",
+			"replace": "DispatchUnconfirmed(j) ==\n    /\\ j \\in sent /\\ j \\notin launched\n    /\\ state[j] \\in {\"dispatching\", \"cancelling\"}\n    /\\ state' = [state EXCEPT ![j] = \"held\"]",
+			"breaks": "AdmittedOnce",
+			"config": "MC_failure.cfg",
+			"isolate": true
+		},
+		{
+			"name": "recovery-forgets-durable-intent",
+			"why": "Recovery treats an interrupted durable dispatch intent as a definite failure and releases its place.",
+			"search": "RecoverIntent(j) ==\n    /\\ j \\in sent\n    /\\ state[j] \\in {\"dispatching\", \"cancelling\"}\n    /\\ (state[j] = \"dispatching\" \\/ j \\notin launched)\n    /\\ state' = [state EXCEPT ![j] = \"unconfirmed\"]",
+			"replace": "RecoverIntent(j) ==\n    /\\ j \\in sent\n    /\\ state[j] \\in {\"dispatching\", \"cancelling\"}\n    /\\ (state[j] = \"dispatching\" \\/ j \\notin launched)\n    /\\ state' = [state EXCEPT ![j] = \"failed\"]",
+			"breaks": "RecoveryKeepsReservation",
+			"config": "MC_failure.cfg",
+			"isolate": true
+		},
+		{
+			"name": "reuse-raw-completion",
+			"why": "A raw completion enters the green cache before the final judge has accepted fresh matching facts.",
+			"search": "IF j \\in Outside THEN \"gone\" ELSE facts",
+			"replace": "IF j \\in Outside THEN \"gone\" ELSE \"green\"",
+			"breaks": "GreenIsFinallyJudged",
+			"config": "MC_failure.cfg",
+			"isolate": true
+		},
+		{
+			"name": "reuse-stale-wrong-sha-or-blocked",
+			"why": "The final judge can mark stale, wrong-SHA, or release-blocked facts green.",
+			"search": "ELSE IF state[j] = \"blocked\" THEN {\"red\", \"unknown\"} ELSE {\"unknown\"}",
+			"replace": "ELSE {\"green\", \"red\", \"unknown\"}",
+			"breaks": "GreenIsFinallyJudged",
+			"config": "MC_failure.cfg",
+			"isolate": true
+		},
 		{
 			"name": "count-own-jobs-only",
 			"why": "Admission counts only the places its own jobs hold: a person's run, another repo's or another program's heavy command already fills the pool and the hub admits on top of it.",

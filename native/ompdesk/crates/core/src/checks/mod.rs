@@ -124,9 +124,11 @@ pub fn close_all(events: &Events) {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ResultEvent<'a> {
     hub: u64,
     result: &'a RunResult,
+    delivery_id: String,
 }
 
 #[derive(Serialize)]
@@ -181,6 +183,17 @@ async fn open(call: Call) -> Result<Reply, Fault> {
     };
     let (id, events) = (params.hub, call.events.clone());
     let mut results = hub.results();
+    for (delivery_id, result) in hub.notifications() {
+        events.send(
+            wire::RESULT,
+            &ResultEvent {
+                hub: id,
+                result: &result,
+                delivery_id,
+            },
+        );
+    }
+    let result_hub = Arc::clone(&hub);
     let results = tokio::spawn(async move {
         loop {
             match results.recv().await {
@@ -189,6 +202,7 @@ async fn open(call: Call) -> Result<Reply, Fault> {
                     &ResultEvent {
                         hub: id,
                         result: &result,
+                        delivery_id: result_hub.delivery_id(&result),
                     },
                 ),
                 // A reader that fell behind lost the oldest results; the snapshot still holds each run's answer.
@@ -377,6 +391,21 @@ async fn remote_answer(call: Call) -> Result<Reply, Fault> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AckParams {
+    hub: u64,
+    delivery_id: String,
+}
+
+async fn ack_result(call: Call) -> Result<Reply, Fault> {
+    let params: AckParams = call.params()?;
+    let hub = entry(params.hub)?.hub.clone();
+    hub.acknowledge(&params.delivery_id, call.scope.clone())
+        .await?;
+    Reply::json(&())
+}
+
+#[derive(Deserialize)]
 struct FakeParams {
     hub: u64,
     op: FakeOp,
@@ -407,5 +436,6 @@ pub fn register(registry: &mut Registry) {
     registry.add(wire::LOCAL_POOL, |call| Box::pin(local_pool(call)));
     registry.add(wire::RUN_LOCAL, |call| Box::pin(run_local(call)));
     registry.add(wire::REMOTE_ANSWER, |call| Box::pin(remote_answer(call)));
+    registry.add(wire::ACK_RESULT, |call| Box::pin(ack_result(call)));
     registry.add(wire::FAKE, |call| Box::pin(fake(call)));
 }

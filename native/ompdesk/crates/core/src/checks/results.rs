@@ -95,10 +95,10 @@ fn ended(conclusion: Option<&str>) -> Ended {
 fn failed_test(test: &Failed) -> FailedTest {
     FailedTest {
         test: test.test.clone(),
-        first_error: test.first_error.clone(),
+        first_error: Some(test.first_error.clone()),
         known_flaky: test.known_flaky,
         history: test.record.english(),
-        record: test.record.clone(),
+        record: Some(test.record.clone()),
     }
 }
 
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(verdict.failed.len(), 1);
         assert_eq!(verdict.failed[0].test, "src/a.test.ts › adds");
         assert!(!verdict.failed[0].known_flaky);
-        let record = &verdict.failed[0].record;
+        let record = verdict.failed[0].record.as_ref().unwrap();
         assert_eq!(
             (record.os, record.fails_7d, record.runs_7d),
             (Os::Linux, 1, 1)

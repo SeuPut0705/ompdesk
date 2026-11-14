@@ -65,6 +65,7 @@ export const NOTE_CODES = [
 	"no-answer-kept",
 	"judged-before-restart",
 	"dispatch-failed",
+	"dispatch-unconfirmed",
 	"refused",
 	"replaced",
 	"wait-timed-out",
@@ -146,6 +147,7 @@ export const CHECKS_WIRE = {
 	fake: "checks.fake",
 	snapshot: "checks.snapshot",
 	result: "checks.result",
+	ackResult: "checks.ackResult",
 	/** Event `{hub, run}`: a check placed on a paired computer (`RemoteRun`), for main to send over the link. */
 	remoteRun: "checks.remoteRun",
 } as const;
@@ -393,6 +395,7 @@ export const NoteSchema = z.discriminatedUnion("code", [
 	z.strictObject({ code: z.literal("no-answer-kept") }),
 	z.strictObject({ code: z.literal("judged-before-restart") }),
 	z.strictObject({ code: z.literal("dispatch-failed"), error: z.string().optional() }),
+	z.strictObject({ code: z.literal("dispatch-unconfirmed"), error: z.string() }),
 	z.strictObject({ code: z.literal("refused"), error: z.string().optional() }),
 	z.strictObject({ code: z.literal("replaced") }),
 	z.strictObject({ code: z.literal("wait-timed-out"), seconds: Count }),
@@ -411,11 +414,11 @@ export const AnswerSchema = z.strictObject({
 	failed: z.array(
 		z.strictObject({
 			test: z.string(),
-			firstError: z.string(),
+			firstError: z.string().nullable(),
 			knownFlaky: z.boolean(),
 			/** Its record in English for agents and logs; a screen shows `record`. */
 			history: z.string(),
-			record: TestRecordSchema,
+			record: TestRecordSchema.nullable(),
 		}),
 	),
 	blocksRelease: z.strictObject({ gate: z.string() }).nullable(),

@@ -127,7 +127,11 @@ pub fn answer_text(answer: &Answer) -> String {
             };
             lines.push(format!(
                 "- {}\n  {}\n  ({flaky}{history})",
-                failed.test, failed.first_error
+                failed.test,
+                failed
+                    .first_error
+                    .as_deref()
+                    .unwrap_or("first error was not recorded")
             ));
         }
     }

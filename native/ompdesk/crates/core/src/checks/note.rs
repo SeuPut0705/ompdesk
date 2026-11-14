@@ -90,6 +90,10 @@ impl Note {
                 Some(error) => format!("its dispatch failed: {error}"),
                 None => "its dispatch failed".to_owned(),
             },
+            NoteCode::DispatchUnconfirmed => format!(
+                "dispatch acceptance is unknown; its reserved capacity stays blocked and is not retried: {}",
+                self.error.as_deref().unwrap_or("no authoritative outcome")
+            ),
             NoteCode::Refused => match &self.error {
                 Some(error) => format!("the check could not run: {error}"),
                 None => "it was refused".to_owned(),
@@ -183,7 +187,10 @@ mod tests {
             answer.notes,
             ["reruns of the failed jobs: 1 of 2 used".to_owned()]
         );
-        assert_eq!(answer.failed[0].history, answer.failed[0].record.english());
+        assert_eq!(
+            answer.failed[0].history,
+            answer.failed[0].record.as_ref().unwrap().english()
+        );
     }
 
     #[test]

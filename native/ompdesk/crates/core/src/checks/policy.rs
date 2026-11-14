@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::contract::{Lane, Purpose, WorkflowAsk};
@@ -121,7 +121,7 @@ pub fn local_command(
 }
 
 /// What will be dispatched.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub workflow: String,
     pub inputs: BTreeMap<String, String>,

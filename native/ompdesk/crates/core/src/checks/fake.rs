@@ -87,6 +87,7 @@ struct State {
     replies: VecDeque<StartReply>,
     answers: HashMap<String, Answer>,
     calls: Vec<FakeCall>,
+    notifications: HashMap<String, RunResult>,
     started: u64,
     /// Grows with every `Snapshot` and `Finish`: what `until: any` waits on.
     changes: u64,
@@ -142,6 +143,9 @@ impl FakeHub {
                 {
                     let mut state = self.state();
                     state.changes += 1;
+                    state
+                        .notifications
+                        .insert(super::hub::notification_id(&result), result.clone());
                     state
                         .answers
                         .insert(result.run_id.clone(), result.answer.clone());
@@ -250,6 +254,30 @@ impl ChecksHub for FakeHub {
 
     fn results(&self) -> broadcast::Receiver<RunResult> {
         self.results.subscribe()
+    }
+
+    fn delivery_id(&self, result: &RunResult) -> String {
+        super::hub::notification_id(result)
+    }
+
+    fn notifications(&self) -> Vec<(String, RunResult)> {
+        self.state()
+            .notifications
+            .iter()
+            .map(|(id, result)| (id.clone(), result.clone()))
+            .collect()
+    }
+
+    fn acknowledge<'a>(
+        &'a self,
+        delivery_id: &'a str,
+        _scope: Scope,
+    ) -> Fut<'a, Result<(), Fault>> {
+        Box::pin(async move {
+            self.called("ackResult", None, &delivery_id);
+            self.state().notifications.remove(delivery_id);
+            Ok(())
+        })
     }
 
     fn pause(&self, paused: bool) -> Fut<'_, Result<(), Fault>> {

@@ -202,6 +202,8 @@ pub struct Record {
     pub abs: String,
     pub titles: Vec<String>,
     pub config: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_error: Option<String>,
 }
 
 /// Results in the order written; the last line for a key wins where they are merged. Two Vitest or Jest tests with
@@ -211,6 +213,7 @@ pub fn read_results(path: &Path) -> (Vec<Record>, Option<String>) {
     let mut out = Vec::new();
     let mut end = None;
     let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut errors: HashMap<String, String> = HashMap::new();
     let Ok(text) = fs::read_to_string(path) else {
         return (out, end);
     };
@@ -258,6 +261,12 @@ pub fn read_results(path: &Path) -> (Vec<Record>, Option<String>) {
         } else {
             key
         };
+        if let Some(error) = v.get("first_error").and_then(Value::as_str) {
+            errors
+                .entry(key.clone())
+                .or_insert_with(|| error.to_owned());
+        }
+        let first_error = errors.get(&key).cloned();
         out.push(Record {
             key,
             status: s("status"),
@@ -268,6 +277,7 @@ pub fn read_results(path: &Path) -> (Vec<Record>, Option<String>) {
             file,
             abs: s("abs"),
             titles,
+            first_error,
             config,
         });
     }
@@ -355,6 +365,7 @@ pub fn cargo_results(log: &str) -> (Vec<Record>, bool) {
             abs: String::new(),
             titles: vec![name.to_string()],
             config: String::new(),
+            first_error: None,
         });
     }
     let complete = !announced.is_empty() && announced.iter().all(|(n, seen)| n == seen);
@@ -770,6 +781,7 @@ mod tests {
             abs: format!("/r/{file}"),
             titles: titles.iter().map(|t| t.to_string()).collect(),
             config: "/r/playwright.config.ts".into(),
+            first_error: None,
         }
     }
 
@@ -959,6 +971,19 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_ne!(records[0].key, records[1].key);
         assert_eq!(records[1].status, "failed");
+    }
+
+    #[test]
+    fn retry_records_keep_the_first_error() {
+        let path =
+            std::env::temp_dir().join(format!("ompdesk-retry-error-{}.jsonl", std::process::id()));
+        fs::write(&path, concat!(
+            "{\"runner\":\"playwright\",\"project\":\"node\",\"file\":\"a.spec.ts\",\"titles\":[\"case\"],\"status\":\"failed\",\"first_error\":\"first failure\"}\n",
+            "{\"runner\":\"playwright\",\"project\":\"node\",\"file\":\"a.spec.ts\",\"titles\":[\"case\"],\"status\":\"failed\",\"first_error\":\"later failure\"}\n"
+        )).unwrap();
+        let (records, _) = read_results(&path);
+        let _ = fs::remove_file(path);
+        assert_eq!(records[1].first_error.as_deref(), Some("first failure"));
     }
 
     #[test]

@@ -28,9 +28,15 @@ import type { AdmissionKey } from "./admission-key";
 /** A wait is the core's to end (its own timeout, at most an hour); this only outlasts it. */
 const WAIT_CALL_MS = 2 ** 31 - 1;
 
+/** One durable notification. The delivery id is opaque and identifies its delivery phase. */
+export interface ChecksDelivery {
+	deliveryId: string;
+	result: RunResult;
+}
+
 interface Route {
 	snapshot(snapshot: Snapshot): void;
-	result(result: RunResult): void;
+	result(delivery: ChecksDelivery): void;
 	remoteRun(run: RemoteRun): void;
 	/** The core ended: the hub is gone with it. */
 	lost(): void;
@@ -49,8 +55,8 @@ function listen(): void {
 		routes.get(hub)?.snapshot(snapshot);
 	});
 	core().on(CHECKS_WIRE.result, data => {
-		const { hub, result } = data as { hub: number; result: RunResult };
-		routes.get(hub)?.result(result);
+		const { hub, result, deliveryId } = data as { hub: number } & ChecksDelivery;
+		routes.get(hub)?.result({ result, deliveryId });
 	});
 	core().on(CHECKS_WIRE.remoteRun, data => {
 		const { hub, run } = data as { hub: number; run: RemoteRun };
@@ -70,6 +76,7 @@ export class CoreChecksHub implements FakeChecksHub {
 	#last: Snapshot | null = null;
 	readonly #watchers = new Set<(snapshot: Snapshot) => void>();
 	readonly #resultListeners = new Set<(result: RunResult) => void>();
+	readonly #deliveryListeners = new Set<(delivery: ChecksDelivery) => void>();
 	readonly #remoteListeners = new Set<(run: RemoteRun) => void>();
 
 	/** `admission`: this computer's admission key for the hub's tickets, asked at each open (`admission-key.ts`). */
@@ -114,6 +121,18 @@ export class CoreChecksHub implements FakeChecksHub {
 		// Results are sent from the hub's opening on.
 		this.#open().catch(() => {});
 		return () => this.#resultListeners.delete(listener);
+	}
+
+	/** Results may be redelivered until `ackResult` follows durable acceptance by the consumer. */
+	onDelivery(listener: (delivery: ChecksDelivery) => void): () => void {
+		this.#deliveryListeners.add(listener);
+		this.#open().catch(() => {});
+		return () => this.#deliveryListeners.delete(listener);
+	}
+
+	/** Acknowledge only after the consumer has durably accepted this delivery. */
+	async ackResult(deliveryId: string): Promise<void> {
+		await this.#call(CHECKS_WIRE.ackResult, { deliveryId });
 	}
 
 	/** Every check the hub placed on a paired computer, for main to send over the link (`remoteAnswer` its answer). */
@@ -161,6 +180,7 @@ export class CoreChecksHub implements FakeChecksHub {
 		this.#closed = true;
 		this.#watchers.clear();
 		this.#resultListeners.clear();
+		this.#deliveryListeners.clear();
 		this.#remoteListeners.clear();
 		const opened = this.#opened;
 		this.#opened = null;
@@ -197,8 +217,9 @@ export class CoreChecksHub implements FakeChecksHub {
 		this.#id = id;
 		routes.set(id, {
 			snapshot: snapshot => this.#show(snapshot),
-			result: result => {
-				for (const listener of [...this.#resultListeners]) listener(result);
+			result: delivery => {
+				for (const listener of [...this.#resultListeners]) listener(delivery.result);
+				for (const listener of [...this.#deliveryListeners]) listener(delivery);
 			},
 			remoteRun: run => {
 				for (const listener of [...this.#remoteListeners]) listener(run);
@@ -208,7 +229,12 @@ export class CoreChecksHub implements FakeChecksHub {
 				routes.delete(id);
 				this.#opened = null;
 				if (this.#watchers.size > 0) this.#setWatching(true);
-				else if (this.#resultListeners.size > 0 || this.#remoteListeners.size > 0) this.#open().catch(() => {});
+				else if (
+					this.#resultListeners.size > 0 ||
+					this.#deliveryListeners.size > 0 ||
+					this.#remoteListeners.size > 0
+				)
+					this.#open().catch(() => {});
 			},
 		});
 		// A key that cannot be read leaves this computer's dispatches without a ticket, never the hub unopened.

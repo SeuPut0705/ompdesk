@@ -1,0 +1,6 @@
+{
+  "runs": [
+    { "name": "two-delivery-phases", "config": "MC.cfg", "expect": "pass" },
+    { "name": "two-hubs-two-phases", "config": "MC.cfg", "constants": { "Keys": "{hub1unknown, hub1result, hub2unknown, hub2result}" }, "expect": "pass" }
+  ]
+}

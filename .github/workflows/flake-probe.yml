@@ -78,6 +78,7 @@ jobs:
     permissions:
       contents: read
       actions: read # the failure report reads this run's jobs
+      statuses: read
     strategy:
       fail-fast: false
       matrix:
@@ -91,6 +92,31 @@ jobs:
       REPEAT: ${{ inputs.repeat }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Find rerun admission
+        if: runner.os == 'macOS'
+        id: rerun-admission
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          DEVICES: ${{ vars.CHECKS_ADMISSION_DEVICES }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bash scripts/check-rerun-admission.sh fetch
+      - name: Verify rerun admission
+        if: runner.os == 'macOS'
+        env:
+          NEEDED: ${{ steps.rerun-admission.outputs.needed }}
+          RECEIPT: ${{ steps.rerun-admission.outputs.receipt }}
+          ADMISSION_KEY: ${{ secrets[format('CHECKS_ADMISSION_KEY_{0}', steps.rerun-admission.outputs.device)] }}
+          DEVICES: ${{ vars.CHECKS_ADMISSION_DEVICES }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bash scripts/check-rerun-admission.sh verify
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4

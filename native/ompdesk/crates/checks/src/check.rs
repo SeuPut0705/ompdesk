@@ -39,6 +39,146 @@ use crate::watch::gb;
 
 /// Set for a check's command: a check started inside it runs as its child (no second runner, no second slot).
 pub const RUN_ENV: &str = "OMPDESK_CHECK_RUN";
+pub const CHECKOUT_LOCK_ENV: &str = "OMPDESK_CHECK_CHECKOUT_LOCK";
+pub const CHECKOUT_SHA_ENV: &str = "OMPDESK_CHECK_CHECKOUT_SHA";
+pub const CHECKOUT_GIT_ENV: &str = "OMPDESK_CHECK_CHECKOUT_GIT";
+pub const CHECKOUT_GIT_ARGS_ENV: &str = "OMPDESK_CHECK_CHECKOUT_GIT_ARGS";
+pub const CHECKOUT_GENERATION_ENV: &str = "OMPDESK_CHECK_CHECKOUT_GENERATION";
+
+fn checkout_guard(
+    cwd: &Path,
+    cancel: Option<&Path>,
+    stopped: Option<&std::sync::atomic::AtomicBool>,
+    require_sha: bool,
+) -> Result<Option<fs::File>, String> {
+    let Some(lock) = env(CHECKOUT_LOCK_ENV) else {
+        return Ok(None);
+    };
+    let sha = env(CHECKOUT_SHA_ENV);
+    if require_sha && sha.is_none() {
+        return Err("missing checkout SHA".into());
+    }
+    let generation = env(CHECKOUT_GENERATION_ENV).ok_or("missing checkout generation")?;
+    let generation_path = format!("{lock}.generation");
+    let git = env(CHECKOUT_GIT_ENV).ok_or("missing checkout git")?;
+    let args: Vec<String> =
+        serde_json::from_str(&env(CHECKOUT_GIT_ARGS_ENV).ok_or("missing checkout git arguments")?)
+            .map_err(|error| error.to_string())?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock)
+        .map_err(|error| error.to_string())?;
+    loop {
+        if cancel.is_some_and(Path::exists)
+            || stopped.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Err("cancelled".into());
+        }
+        match file.try_lock() {
+            Ok(()) => break,
+            Err(fs::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(100)),
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    if fs::read_to_string(generation_path).map_err(|error| error.to_string())? != generation {
+        return Err("the checkout belongs to a newer run".into());
+    }
+    if let Some(sha) = sha {
+        let output = Command::new(git)
+            .args(args)
+            .args(["rev-parse", "HEAD"])
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != sha {
+            return Err("the checkout no longer has the requested commit".into());
+        }
+    }
+    Ok(Some(file))
+}
+
+pub fn guarded_setup(command: &[String]) -> i32 {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    if command.is_empty() {
+        return 2;
+    }
+    let stopped = std::sync::Arc::new(AtomicBool::new(false));
+    let on_eof = stopped.clone();
+    std::thread::spawn(move || {
+        let mut input = io::stdin().lock();
+        let mut sink = Vec::new();
+        let _ = input.read_to_end(&mut sink);
+        on_eof.store(true, Ordering::Release);
+    });
+    let cwd = match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(error) => {
+            eprintln!("ompdesk check: {error}");
+            return 1;
+        }
+    };
+    let _guard = match checkout_guard(&cwd, None, Some(&stopped), false) {
+        Ok(Some(guard)) => guard,
+        Ok(None) => {
+            eprintln!("ompdesk check: missing checkout guard");
+            return 1;
+        }
+        Err(error) => {
+            eprintln!("ompdesk check: {error}");
+            return 1;
+        }
+    };
+    if stopped.load(Ordering::Acquire) {
+        return 130;
+    }
+    let mut child = Command::new(&command[0]);
+    child.args(&command[1..]).stdin(Stdio::null());
+    for key in [
+        CHECKOUT_LOCK_ENV,
+        CHECKOUT_SHA_ENV,
+        CHECKOUT_GIT_ENV,
+        CHECKOUT_GIT_ARGS_ENV,
+        CHECKOUT_GENERATION_ENV,
+    ] {
+        child.env_remove(key);
+    }
+    #[cfg(unix)]
+    crate::sys::child_defaults(&mut child, true);
+    let mut child = match child.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            eprintln!("ompdesk check: {error}");
+            return 1;
+        }
+    };
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                #[cfg(unix)]
+                crate::sys::signal_group(child.id(), libc::SIGKILL);
+                return status.code().unwrap_or(1);
+            }
+            Err(error) => {
+                eprintln!("ompdesk check: {error}");
+                stop_tree(child.id());
+                let _ = child.wait();
+                return 1;
+            }
+            Ok(None) => {}
+        }
+        if stopped.load(Ordering::Acquire) {
+            stop_tree(child.id());
+            let _ = child.wait();
+            return 130;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
 
 /// Defaults that keep a check's browsers and reports off the person's screen; a variable already set is kept.
 /// Playwright already starts Chromium and Electron headless with `--use-mock-keychain` unless a config asks for a
@@ -168,6 +308,13 @@ pub fn start(opts: Start) -> i32 {
         }
     };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let guard = match checkout_guard(&cwd, None, None, true) {
+        Ok(guard) => guard,
+        Err(error) => {
+            eprintln!("ompdesk check: {error}");
+            return 1;
+        }
+    };
     let root = inputs::root_of(&cwd);
     let key = key_of(&root, &cwd, &opts.argv);
 
@@ -197,6 +344,7 @@ pub fn start(opts: Start) -> i32 {
                 running.id,
                 store::utc(running.started)
             );
+            drop(guard);
             return attach_id(&store, &running.id);
         }
         eprintln!(
@@ -251,6 +399,7 @@ pub fn start(opts: Start) -> i32 {
         eprintln!("ompdesk check: cannot record the run: {e}");
         return 1;
     }
+    drop(guard);
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
@@ -589,6 +738,15 @@ fn command_env() -> BTreeMap<String, String> {
             )
         })
         .collect();
+    for key in [
+        CHECKOUT_LOCK_ENV,
+        CHECKOUT_SHA_ENV,
+        CHECKOUT_GIT_ENV,
+        CHECKOUT_GIT_ARGS_ENV,
+        CHECKOUT_GENERATION_ENV,
+    ] {
+        env.remove(key);
+    }
     for (k, v) in HEADLESS_ENV {
         env.entry((*k).to_string())
             .or_insert_with(|| (*v).to_string());
@@ -1067,6 +1225,25 @@ pub fn run_runner(id: &str) -> i32 {
         resource_stop: None,
     };
     rt.save();
+    let guard = match checkout_guard(
+        Path::new(&rt.run.cwd),
+        Some(&rt.store.file(id, "cancel")),
+        None,
+        true,
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            rt.say(&format!("checkout: {error}"));
+            rt.run.state = if error == "cancelled" {
+                State::Cancelled
+            } else {
+                State::Error
+            };
+            rt.run.ended = Some(now_ms());
+            rt.save();
+            return if error == "cancelled" { 130 } else { 1 };
+        }
+    };
     #[cfg(unix)]
     if let Some(held) = held {
         let child = store.file(id, "child");
@@ -1084,6 +1261,7 @@ pub fn run_runner(id: &str) -> i32 {
     }
     let code = execute(&mut rt, forced_full);
     drop(alive);
+    drop(guard);
     code
 }
 
@@ -1675,7 +1853,8 @@ fn finish(
         .map(|(r, o)| {
             serde_json::json!({
                 "key": r.key, "name": display_name(r), "status": r.status, "ms": r.ms,
-                "quarantined": book.quarantined(&r.key),
+                "quarantined": book.quarantined(&r.key), "first_error": r.first_error,
+                "countable": counted.iter().any(|(test, _)| test.key == r.key),
                 "origin": if o.run == own { serde_json::Value::Null } else { serde_json::to_value(o).unwrap_or_default() },
             })
         })
@@ -1742,6 +1921,92 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn guarded_setup_child() {
+        let Ok(mode) = std::env::var("OMP_CHECK_GUARD_TEST") else {
+            return;
+        };
+        let script = if mode == "cancel" {
+            "trap 'touch \"$GUARD_CLEAN\"; while [ ! -f \"$GUARD_RELEASE\" ]; do sleep .05; done' TERM; touch \"$GUARD_STARTED\"; while :; do sleep .05; done"
+        } else {
+            "touch \"$GUARD_STARTED\""
+        };
+        let code = guarded_setup(&["sh".into(), "-c".into(), script.into()]);
+        if mode == "cancel" {
+            assert_eq!(code, 130);
+        } else {
+            assert_ne!(code, 0);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn setup_supervisor_holds_checkout_until_cancel_cleanup_and_rejects_old_generations() {
+        let dir = std::env::temp_dir().join(format!("ompdesk-check-guard-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("checkout.lock");
+        fs::write(dir.join("checkout.lock.generation"), "1").unwrap();
+        let started = dir.join("started");
+        let cleanup = dir.join("cleanup");
+        let release = dir.join("release");
+        let spawn = |mode: &str, generation: &str| {
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "check::tests::guarded_setup_child",
+                    "--nocapture",
+                ])
+                .current_dir(&dir)
+                .env("OMP_CHECK_GUARD_TEST", mode)
+                .env("GUARD_STARTED", &started)
+                .env("GUARD_CLEAN", &cleanup)
+                .env("GUARD_RELEASE", &release)
+                .env(CHECKOUT_LOCK_ENV, &lock)
+                .env(CHECKOUT_GENERATION_ENV, generation)
+                .env(CHECKOUT_GIT_ENV, "git")
+                .env(CHECKOUT_GIT_ARGS_ENV, "[]")
+                .env_remove(CHECKOUT_SHA_ENV)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        };
+        let mut old = spawn("cancel", "1");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !started.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(started.exists());
+        drop(old.stdin.take());
+        while !cleanup.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(cleanup.exists());
+        let next = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock)
+            .unwrap();
+        assert!(matches!(next.try_lock(), Err(fs::TryLockError::WouldBlock)));
+        fs::write(&release, "").unwrap();
+        assert!(old.wait().unwrap().success());
+        next.lock().unwrap();
+        fs::write(dir.join("checkout.lock.generation"), "2").unwrap();
+        drop(next);
+        fs::remove_file(&started).unwrap();
+        let mut stale = spawn("stale", "1");
+        let input = stale.stdin.take();
+        assert!(stale.wait().unwrap().success());
+        drop(input);
+        assert!(
+            !started.exists(),
+            "an old setup must not run in a newer checkout"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn test_suffixes_are_the_last_two_extensions() {

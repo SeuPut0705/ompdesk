@@ -39,6 +39,29 @@
 			"expect": "pass"
 		},
 		{
+			"name": "ambiguous-dispatch-restart-and-final-judgment",
+			"config": "MC_failure.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "an-unconfirmed-reservation-is-reachable",
+			"config": "MC_sanity_unconfirmed.cfg",
+			"expect": "invariant",
+			"property": "NeverUnconfirmed"
+		},
+		{
+			"name": "recovery-of-a-durable-intent-is-reachable",
+			"config": "MC_sanity_recovery.cfg",
+			"expect": "action",
+			"property": "NeverRecovers"
+		},
+		{
+			"name": "permanent-unconfirmed-can-block-release",
+			"config": "MC_live_unconfirmed.cfg",
+			"expect": "temporal",
+			"property": "ReleaseEventuallyAdmitted"
+		},
+		{
 			"name": "liveness-one-pool",
 			"config": "MC_live.cfg",
 			"expect": "pass"

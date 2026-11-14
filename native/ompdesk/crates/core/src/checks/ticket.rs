@@ -99,6 +99,103 @@ pub fn mint(key: &AdmissionKey, repo: &str, git_ref: &str, sha: &str, expires_ms
     format!("v1.{device}.{expires_ms}.{}", hex(&mac))
 }
 
+/// A GitHub run attempt that has a reserved admission place.
+#[derive(Clone, Copy)]
+pub struct RerunScope<'a> {
+    pub repo: &'a str,
+    pub git_ref: &'a str,
+    pub sha: &'a str,
+    pub run_id: u64,
+    pub attempt: u32,
+}
+
+/// The public commit status carrying a signed receipt, not the admission key.
+pub struct RerunGrant {
+    pub context: String,
+    pub description: String,
+    pub state: &'static str,
+}
+
+fn rerun_scope_ok(scope: &RerunScope<'_>) -> bool {
+    scope.run_id > 0
+        && scope.attempt >= 2
+        && [scope.repo, scope.git_ref, scope.sha]
+            .iter()
+            .all(|part| !part.is_empty() && !part.contains(['\n', '\r']))
+}
+
+/// Mint only after reserving the place. The source publishes the returned status on `scope.sha`.
+pub fn mint_rerun(
+    key: &AdmissionKey,
+    scope: &RerunScope<'_>,
+    expires_ms: u64,
+) -> Option<RerunGrant> {
+    if !rerun_scope_ok(scope) || expires_ms > 9_999_999_999_999_999 {
+        return None;
+    }
+    let device = key.device();
+    let message = format!(
+        "ompdesk-checks-rerun-v1\n{device}\n{}\n{}\n{}\n{}\n{}\n{expires_ms}",
+        scope.repo, scope.git_ref, scope.sha, scope.run_id, scope.attempt
+    );
+    Some(RerunGrant {
+        context: format!("ompdesk-rerun/{}/{}", scope.run_id, scope.attempt),
+        description: format!(
+            "v1.{device}.{expires_ms}.{}",
+            hex(&hmac(&key.key, message.as_bytes()))
+        ),
+        state: "success",
+    })
+}
+
+/// Verify a receipt against the current GitHub run and attempt.
+pub fn verify_rerun(
+    key: &AdmissionKey,
+    receipt: &str,
+    scope: &RerunScope<'_>,
+    now_ms: u64,
+) -> Result<(), Refused> {
+    if !rerun_scope_ok(scope) {
+        return Err(Refused::Malformed);
+    }
+    let mut parts = receipt.split('.');
+    let (Some("v1"), Some(device), Some(expires), Some(mac), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return Err(Refused::Malformed);
+    };
+    if !device_ok(device)
+        || expires.is_empty()
+        || !expires.bytes().all(|b| b.is_ascii_digit())
+        || mac.len() != 64
+        || !mac
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(Refused::Malformed);
+    }
+    if device != key.device() {
+        return Err(Refused::OtherDevice);
+    }
+    let expires_ms: u64 = expires.parse().map_err(|_| Refused::Malformed)?;
+    if expires != expires_ms.to_string() {
+        return Err(Refused::Malformed);
+    }
+    if now_ms >= expires_ms {
+        return Err(Refused::Expired);
+    }
+    let want = mint_rerun(key, scope, expires_ms).ok_or(Refused::Malformed)?;
+    if bool::from(want.description.as_bytes().ct_eq(receipt.as_bytes())) {
+        Ok(())
+    } else {
+        Err(Refused::Forged)
+    }
+}
+
 /// Why a ticket was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refused {
@@ -250,6 +347,85 @@ mod tests {
                 verify(&key, broken, "o/r", "feat", "abc", 0),
                 Err(Refused::Malformed),
                 "{broken}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rerun_grant_authorizes_only_its_run_and_attempt() {
+        let key = VECTOR.key();
+        let scope = RerunScope {
+            repo: VECTOR.repo,
+            git_ref: VECTOR.git_ref,
+            sha: VECTOR.sha,
+            run_id: 12345,
+            attempt: 2,
+        };
+        let grant = mint_rerun(&key, &scope, 1_800_000_000_000).unwrap();
+        assert_eq!(grant.context, "ompdesk-rerun/12345/2");
+        assert_eq!(grant.state, "success");
+        assert_eq!(
+            grant.description,
+            "v1.MACBOOK.1800000000000.660e759da7934acdc3f3b9c90695cb16c83b64dd13d18c03f618c7533508c32a"
+        );
+        assert_eq!(verify_rerun(&key, &grant.description, &scope, 1), Ok(()));
+        assert_eq!(
+            verify_rerun(&key, &grant.description, &scope, 1_800_000_000_000),
+            Err(Refused::Expired)
+        );
+        for other in [
+            RerunScope {
+                repo: "other/repo",
+                ..scope
+            },
+            RerunScope {
+                git_ref: "main",
+                ..scope
+            },
+            RerunScope {
+                sha: "other",
+                ..scope
+            },
+            RerunScope {
+                run_id: 12346,
+                ..scope
+            },
+            RerunScope {
+                attempt: 3,
+                ..scope
+            },
+        ] {
+            assert_eq!(
+                verify_rerun(&key, &grant.description, &other, 1),
+                Err(Refused::Forged)
+            );
+        }
+        assert!(
+            mint_rerun(
+                &key,
+                &RerunScope {
+                    attempt: 1,
+                    ..scope
+                },
+                10
+            )
+            .is_none()
+        );
+        assert!(mint_rerun(&key, &RerunScope { run_id: 0, ..scope }, 10).is_none());
+        let mini = AdmissionKey::from_hex("MINI", VECTOR.key_hex).unwrap();
+        assert_eq!(
+            verify_rerun(&mini, &grant.description, &scope, 1),
+            Err(Refused::OtherDevice)
+        );
+        for receipt in [
+            "",
+            "v1.MACBOOK.0001.abc",
+            "v1.macbook.1.abc",
+            "v1.MACBOOK.1.abc.extra",
+        ] {
+            assert_eq!(
+                verify_rerun(&key, receipt, &scope, 0),
+                Err(Refused::Malformed)
             );
         }
     }

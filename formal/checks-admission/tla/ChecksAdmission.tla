@@ -13,9 +13,8 @@
  * queue. The pump (`Admit`) gives a free place to the first live entry in line: lane first (release, land, branch,
  * local), then arrival.
  *
- * Design model (workflow W3): the code is not written. Every action that stands for code says which step of the hub
- * it is; the action table is ../CORRESPONDENCE.md, and each action gets its code tag when
- * native/ompdesk/crates/core/src/checks/admission.rs lands.
+ * The action table in ../CORRESPONDENCE.md distinguishes implemented steps from the approved contract where the
+ * integrated source is still changing.
  *)
 EXTENDS Naturals, FiniteSets
 
@@ -79,14 +78,16 @@ VARIABLES
     paused,   \* the owner paused admission
     admits,   \* ghost: job -> how many times the hub took a place and dispatched it
     at,       \* ghost: job -> the arrival number `next` had when the job last took a place (0: never)
-    sent,     \* jobs whose dispatch was sent and whose answer has not come
-    launched  \* jobs whose dispatch GitHub accepted: a run of theirs exists
+    sent,     \* durable dispatch intents whose response is still pending
+    launched, \* jobs bound to an authoritative exact run receipt
+    checked   \* ghost: jobs with a final checked green answer and no release block
 
-vars == <<state, seq, next, lapsed, paused, admits, at, sent, launched>>
+vars == <<state, seq, next, lapsed, paused, admits, at, sent, launched, checked>>
 
 \* A job that ended, one way or another.
-Over == {"refused", "reused", "failed", "green", "red", "cancelled", "expired", "gone"}
-States == {"none", "held", "dispatching", "running", "cancelling"} \cup Over
+Over == {"refused", "reused", "failed", "green", "red", "unknown", "cancelled", "expired", "gone"}
+States == {"none", "held", "dispatching", "running", "cancelling", "unconfirmed",
+           "judging", "stale", "wrongsha", "blocked"} \cup Over
 
 TypeOK ==
     /\ state \in [Jobs -> States]
@@ -98,6 +99,7 @@ TypeOK ==
     /\ at \in [Jobs -> 0 .. Cardinality(Jobs) + 1]
     /\ sent \subseteq Jobs
     /\ launched \subseteq Jobs
+    /\ checked \subseteq Governed
 
 Init ==
     /\ state = [j \in Jobs |-> "none"]
@@ -109,11 +111,12 @@ Init ==
     /\ at = [j \in Jobs |-> 0]
     /\ sent = {}
     /\ launched = {}
+    /\ checked = {}
 
 \* ============================ What is true of the pools ============================
 
-\* A job that holds a place: dispatched and not yet seen at GitHub, running, or cancelled and not yet seen to end.
-Occupies(j) == state[j] \in {"dispatching", "running", "cancelling"}
+\* An ambiguous write occupies its reservation even without an observable run.
+Occupies(j) == state[j] \in {"dispatching", "running", "cancelling", "unconfirmed"}
 In(p) == {j \in Jobs : PoolOf(j) = p /\ Occupies(j)}
 AccountLoad == Cardinality(In("mac")) + Cardinality(In("hosted"))
 
@@ -134,6 +137,7 @@ Ahead(a, b) == Rank(a) < Rank(b) \/ (Rank(a) = Rank(b) /\ seq[a] < seq[b])
 Counted(j) ==
     \/ state[j] = "dispatching"
     \/ state[j] = "running"
+    \/ state[j] = "unconfirmed"
     \/ state[j] = "cancelling"
 Places(p) == {j \in Jobs : PoolOf(j) = p /\ Counted(j)}
 
@@ -170,9 +174,9 @@ ReuseSources(j) == {g \in Jobs : SameDigestAs(g, j) /\ state[g] = "green"}
 \* `start`: one step of the hub, after the caller's input digest is known.
 \* Refused while paused; reused from a green run of the same digest; else held, superseding the older runs of its key.
 \* A superseded entry that only waited is gone at once; one that holds a place keeps it until GitHub shows it ended.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:173-218 Admission::start: refuse, reuse or hold, and supersede, in one step under the lock
-\* @code native/ompdesk/crates/core/src/checks/hub.rs:1268-1374 Core::submit: policy fixes lane, pool, key and digest first (A5)
-\* @code native/ompdesk/crates/core/src/checks/hub.rs:1378-1554 Core::admit_entry: admission.start for a start or a rerun, then the superseded runs' GitHub cancel
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:178-223 Admission::start: refuse, reuse or hold, and supersede, in one step under the lock
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:1655-1762 Core::submit: policy fixes lane, pool, key and digest first (A5)
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:1766-1959 Core::admit_entry: admission.start for a start or a rerun, then the superseded runs' GitHub cancel
 Start(j) ==
     /\ j \in Governed
     /\ state[j] = "none"
@@ -184,15 +188,14 @@ Start(j) ==
                         ELSE IF state[x] = "held" THEN "cancelled" ELSE "cancelling"]
     /\ seq' = [seq EXCEPT ![j] = next]
     /\ next' = next + 1
-    /\ UNCHANGED <<lapsed, paused, admits, at, sent, launched>>
+    /\ UNCHANGED <<lapsed, paused, admits, at, sent, launched, checked>>
 
-\* The pump: the first live entry in line that has a place takes it, and its dispatch is sent. One step: the place
-\* is in the ledger before the dispatch's `await`.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:279-293 Admission::admit: the first live entry in line with room, while not paused
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:259-275 room: the pool below its limit and the account with HeldAhead counted
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:250-256 holds: the model's Holds(r), derived on every pass
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:386-405 pump: admit under the lock, then await the dispatch with the lock released (A1, A2)
-\* @code native/ompdesk/crates/core/src/checks/hub.rs:606-611 Core::pump: one pump pass after another until nothing more is admitted
+\* The pump reserves a place under the lock. PersistIntent records it before any external write.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:284-298 Admission::admit: the first live entry in line with room, while not paused
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:264-280 room: the pool below its limit and the account with HeldAhead counted
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:255-261 holds: the model's Holds(r), derived on every pass
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:454-473 pump: admit under the lock, then await the dispatch with the lock released (A1, A2)
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:730-756 Core::pump: one pump pass after another until nothing more is admitted
 Admit(j) ==
     /\ state[j] = "held"
     /\ j \notin lapsed
@@ -202,75 +205,124 @@ Admit(j) ==
     /\ state' = [state EXCEPT ![j] = "dispatching"]
     /\ admits' = [admits EXCEPT ![j] = @ + 1]
     /\ at' = [at EXCEPT ![j] = next]
-    /\ sent' = sent \cup {j}
-    /\ UNCHANGED <<seq, next, lapsed, paused, launched>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, sent, launched, checked>>
 
-\* The dispatch was accepted: the run exists. An entry a newer start superseded while its dispatch was awaited stays
-\* `cancelling`: its run now exists and frees the place when GitHub shows it ended.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:296-303 Admission::dispatched
-\* @code native/ompdesk/crates/core/src/checks/hub.rs:616-693 Core::dispatch: the branch's tip read again, the poller's claim, then GitHub's dispatch (or its rerun); its answer decides Dispatched or DispatchFails
+\* The journal saves the intent before dispatch can issue an external write.
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:811-916 Core::dispatch: save the reserved intent before the write
+PersistIntent(j) ==
+    /\ state[j] \in {"dispatching", "cancelling"}
+    /\ j \notin sent /\ j \notin launched
+    /\ sent' = sent \cup {j}
+    /\ UNCHANGED <<state, seq, next, lapsed, paused, admits, at, launched, checked>>
+
+\* The accepted response's exact run ID is saved before admission advances.
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:811-916 Core::dispatch: persist the exact receipt
+PersistReceipt(j) ==
+    /\ j \in sent /\ j \notin launched
+    /\ state[j] \in {"dispatching", "cancelling"}
+    /\ launched' = launched \cup {j}
+    /\ UNCHANGED <<state, seq, next, lapsed, paused, admits, at, sent, checked>>
+
+\* An accepted, durably bound run starts, or remains cancelling if superseded.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:301-308 Admission::dispatched
 Dispatched(j) ==
-    /\ j \in sent
+    /\ j \in sent /\ j \in launched
+    /\ state[j] \in {"dispatching", "cancelling"}
     /\ state' = [state EXCEPT ![j] = IF @ = "dispatching" THEN "running" ELSE @]
     /\ sent' = sent \ {j}
-    /\ launched' = launched \cup {j}
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, launched, checked>>
 
-\* The dispatch failed, or its answer never came: the entry ends and its place goes back. It is never queued again,
-\* because a dispatch whose answer was lost may have started the run. An entry superseded while its dispatch was
-\* awaited ends the same way: no run of it exists, so none will end and free its place.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:308-315 Admission::dispatch_failed: never put back in the queue, also from cancelling
+\* A definite refusal proves no external run started, including after supersession.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:312-319 Admission::dispatch_failed
 DispatchFails(j) ==
-    /\ j \in sent
+    /\ state[j] \in {"dispatching", "cancelling"}
+    /\ j \notin launched
     /\ state' = [state EXCEPT ![j] = IF @ \in {"dispatching", "cancelling"} THEN "failed" ELSE @]
     /\ sent' = sent \ {j}
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, launched>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, launched, checked>>
 
-\* The poller shows the run ended (a job the hub governs: green or red; any other: only that it is gone).
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:318-330 Admission::run_ended: a green one may be reused on its digest
-\* @code native/ompdesk/crates/core/src/checks/hub.rs:565-603 Core::settle: the poller's snapshot frees ended runs' places, outside runs counted by set_pools
+\* A lost or ambiguous response does not prove that the external write failed.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:321-328 Admission::dispatch_unconfirmed
+DispatchUnconfirmed(j) ==
+    /\ j \in sent /\ j \notin launched
+    /\ state[j] \in {"dispatching", "cancelling"}
+    /\ state' = [state EXCEPT ![j] = "unconfirmed"]
+    /\ sent' = sent \ {j}
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, launched, checked>>
+
+\* Recovery of a durable in-flight intent cannot infer whether its write took effect.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:331-339 Admission::recovered
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:404-533 Hub::build: restore admission and exact bindings
+RecoverIntent(j) ==
+    /\ j \in sent
+    /\ state[j] \in {"dispatching", "cancelling"}
+    /\ (state[j] = "dispatching" \/ j \notin launched)
+    /\ state' = [state EXCEPT ![j] = "unconfirmed"]
+    /\ sent' = sent \ {j}
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, launched, checked>>
+
+
+\* Only an authoritative exact receipt can bind an unconfirmed intent to its own run.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:341-348 Admission::reconcile_receipt
+ReconcileReceipt(j) ==
+    /\ state[j] = "unconfirmed" /\ j \in launched
+    /\ state' = [state EXCEPT ![j] = "running"]
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched, checked>>
+
+
+\* Raw completion releases the place. It does not establish a reusable verdict.
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:694-727 Core::settle: raw completion releases capacity
 RunEnds(j) ==
     /\ state[j] = "running"
-    /\ \E verdict \in (IF j \in Outside THEN {"gone"} ELSE {"green", "red"}) :
-          state' = [state EXCEPT ![j] = verdict]
+    /\ \E facts \in {"judging", "stale", "wrongsha", "blocked"} :
+          state' = [state EXCEPT ![j] = IF j \in Outside THEN "gone" ELSE facts]
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched, checked>>
+
+\* Green needs fresh facts, the requested SHA and no release block. Unknown is final, unlike unconfirmed.
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:1063-1118 Core::finish_with: only final unblocked Green is reusable
+Judge(j) ==
+    /\ state[j] \in {"judging", "stale", "wrongsha", "blocked"}
+    /\ \E verdict \in (IF state[j] = "judging" THEN {"green", "red", "unknown"}
+                       ELSE IF state[j] = "blocked" THEN {"red", "unknown"} ELSE {"unknown"}) :
+          /\ state' = [state EXCEPT ![j] = verdict]
+          /\ checked' = IF verdict = "green" /\ state[j] = "judging" THEN checked \cup {j} ELSE checked
     /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched>>
 
-\* The poller shows a superseded run ended: only now is its place free. Only a run that exists can be seen to end.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:333-340 Admission::cancel_landed
+\* A superseded run keeps its place until its exact run is seen to end.
 CancelLands(j) ==
     /\ state[j] = "cancelling"
     /\ j \in launched
     /\ state' = [state EXCEPT ![j] = "cancelled"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched, checked>>
 
 \* The lease sweep, or a heartbeat that arrives after its lease lapsed: the entry leaves the queue and its owner is
 \* told `expired`.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:362-371 Admission::reap: the sweep
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:344-358 Admission::heartbeat: a lapsed lease is reaped, never renewed (the guard the Renew mutation removes)
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:417-426 Admission::reap: the sweep
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:399-413 Admission::heartbeat: a lapsed lease is reaped, never renewed (the guard the Renew mutation removes)
 Reap(j) ==
     /\ j \in lapsed /\ state[j] = "held"
     /\ state' = [state EXCEPT ![j] = "expired"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched, checked>>
 
 \* Only under LateHeartbeatRenews: the heartbeat handler renews a lease without reading its deadline.
 Renew(j) ==
     /\ LateHeartbeatRenews
     /\ j \in lapsed /\ state[j] = "held"
     /\ lapsed' = lapsed \ {j}
-    /\ UNCHANGED <<state, seq, next, paused, admits, at, sent, launched>>
+    /\ UNCHANGED <<state, seq, next, paused, admits, at, sent, launched, checked>>
 
 \* The owner's one control.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:374-376 Admission::pause
-\* @code native/ompdesk/crates/core/src/checks/hub.rs:1591-1604 Core::pause: kept with write_kept, read again when the hub opens
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:429-431 Admission::pause
+\* @code native/ompdesk/crates/core/src/checks/hub.rs:1999-2012 Core::pause: kept with write_kept, read again when the hub opens
 Pause ==
     /\ MayPause /\ ~paused
     /\ paused' = TRUE
-    /\ UNCHANGED <<state, seq, next, lapsed, admits, at, sent, launched>>
+    /\ UNCHANGED <<state, seq, next, lapsed, admits, at, sent, launched, checked>>
 
 Resume ==
     /\ MayPause /\ paused
     /\ paused' = FALSE
-    /\ UNCHANGED <<state, seq, next, lapsed, admits, at, sent, launched>>
+    /\ UNCHANGED <<state, seq, next, lapsed, admits, at, sent, launched, checked>>
 
 \* ============================ The environment ============================
 
@@ -281,7 +333,7 @@ OutsideStarts(j) ==
     /\ Free(j)
     /\ state' = [state EXCEPT ![j] = "running"]
     /\ at' = [at EXCEPT ![j] = next]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, sent, launched>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, sent, launched, checked>>
 
 \* A lease's time runs out with no heartbeat (the owner died, slept, or lost its link).
 Lapse(j) ==
@@ -289,31 +341,41 @@ Lapse(j) ==
     /\ state[j] = "held"
     /\ j \notin lapsed
     /\ lapsed' = lapsed \cup {j}
-    /\ UNCHANGED <<state, seq, next, paused, admits, at, sent, launched>>
+    /\ UNCHANGED <<state, seq, next, paused, admits, at, sent, launched, checked>>
 
 \* Every job is over: nothing is left to do.
 Terminated == (\A j \in Jobs : state[j] \in Over) /\ UNCHANGED vars
 
+\* A permanently unconfirmed reservation can leave the hub quiescent without releasing capacity.
+UnconfirmedIdle == (\E j \in Governed : state[j] = "unconfirmed") /\ UNCHANGED vars
+
 Next ==
     \/ \E j \in Jobs :
-          \/ Start(j) \/ Admit(j) \/ Dispatched(j) \/ DispatchFails(j) \/ RunEnds(j) \/ CancelLands(j)
+          \/ Start(j) \/ Admit(j) \/ PersistIntent(j) \/ PersistReceipt(j) \/ Dispatched(j) \/ DispatchFails(j)
+          \/ DispatchUnconfirmed(j) \/ RecoverIntent(j)
+          \/ ReconcileReceipt(j) \/ RunEnds(j) \/ Judge(j) \/ CancelLands(j)
           \/ Reap(j) \/ Renew(j) \/ OutsideStarts(j) \/ Lapse(j)
     \/ Pause \/ Resume
     \/ Terminated
+    \/ UnconfirmedIdle
 
 Spec == Init /\ [][Next]_vars
 
-\* What the liveness properties assume: the hub's pump and its lease sweep run, a dispatch gets its answer, and every
-\* run ends (GitHub's job timeout; the heavy pool's OS lock). Nothing is assumed of starts, lapses or the owner.
+\* Pump and sweep progress are assumptions. Unconfirmed outcomes are not made fair.
 Fairness ==
     /\ WF_vars(\E j \in Jobs : Admit(j))
     /\ WF_vars(\E j \in Jobs : Reap(j))
+    /\ WF_vars(\E j \in Jobs : PersistIntent(j))
     /\ WF_vars(\E j \in Jobs : Dispatched(j) \/ DispatchFails(j))
     /\ WF_vars(\E j \in Jobs : RunEnds(j))
     /\ WF_vars(\E j \in Jobs : CancelLands(j))
 
-FairSpec == Spec /\ Fairness
+\* This separate environment assumption excludes permanently unobserved reservations from P10.
+NoForeverUnconfirmed ==
+    \A j \in Governed : [] (state[j] = "unconfirmed" => <> (state[j] # "unconfirmed"))
 
+FairSpec == Spec /\ Fairness /\ NoForeverUnconfirmed
+FairSpecWithoutResolution == Spec /\ Fairness
 (* ---- BEGIN FROZEN PROPERTIES (formal/checks-admission/Properties.md) ---- *)
 
 \* The step in which the hub admits a job.
@@ -404,6 +466,14 @@ ReleaseKeepsItsAccountPlace ==
         BlockedByLaterAdmit(r) =>
             Cardinality({o \in Outside : PoolOf(o) \in Account /\ at[o] > seq[r]}) >= 2
 
+\* P13: an unconfirmed reservation is counted and a durable in-flight intent survives recovery.
+UnconfirmedOccupies == \A j \in Governed : state[j] = "unconfirmed" => Counted(j)
+RecoveryKeepsReservation ==
+    [][\A j \in Governed : RecoverIntent(j) => state'[j] = "unconfirmed"]_vars
+
+\* P14: every reusable green has passed the final judge on fresh, matching facts without a release block.
+GreenIsFinallyJudged == \A j \in Governed : state[j] = "green" => j \in checked
+
 (* ---- END FROZEN PROPERTIES ---- *)
 
 \* ============================ Sanity (each must be violated) ============================
@@ -417,4 +487,9 @@ NeverRefuses == \A j \in Jobs : state[j] # "refused"
 NeverFillsTheAccount == AccountLoad < HostedCap
 NeverHoldsAnAccountPlace == \A r \in Jobs : ~HoldsPlace(r)
 NeverBlockedByLaterAdmit == \A r \in Jobs : ~BlockedByLaterAdmit(r)
+NeverUnconfirmed == \A j \in Jobs : state[j] # "unconfirmed"
+NeverFinalUnknown == \A j \in Jobs : state[j] # "unknown"
+NeverBadJudgment == \A j \in Jobs : state[j] \notin {"stale", "wrongsha", "blocked"}
+NeverDefiniteFailure == \A j \in Jobs : state[j] # "failed"
+NeverRecovers == [][\A j \in Governed : ~RecoverIntent(j)]_vars
 =============================================================================

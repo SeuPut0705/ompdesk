@@ -5,19 +5,18 @@
 //! - `Build`: read the base's tip first; a tip the queue did not know is told to it (`base_read`) instead of building on
 //!   an old one. Then `Hands::build` merges the parts onto the tip and pushes the commit to the queue's own branch.
 //! - `Test`: one run of that commit on that branch through the hub (`QueueHost::start_batch`, the same admission as
-//!   every run), then its `Answer` (`batch_answer`). `unknown` is not a verdict: it is asked again.
+//!   every run), then its final `Answer` (`batch_answer`). A final `unknown` ends the trial without redispatching it.
 //! - `Land`: `Hands::land` pushes the commit to the base, never forced, and says whether the base took it, moved on or
 //!   refuses the queue's pushes.
 //! - `Drop`: the candidate's work stops (its scope is cancelled) and its branch is deleted.
 //! - `Tell`: the entry's result goes to the hub (`QueueHost::finished`), which ends its waits and wakes its session.
 //!
-//! A git or GitHub that fails for a while (no network, git not handed over yet, the owner paused admission) is tried
-//! again after `RETRY_FIRST_MS`, doubling to `RETRY_MAX_MS`; nothing of it reaches the queue as a result. The queue is
-//! saved after every step and its lanes start again from what was saved (`LandQueue::resume`).
+//! Transient git, hub, and save failures back off from `RETRY_FIRST_MS` to `RETRY_MAX_MS`. Each step and its
+//! outstanding effects are saved together before the effects or an enqueue reply are sent. Reopening replays the
+//! outstanding effects; the host deduplicates batch starts and result delivery.
 //!
-//! The queues end with their owner: dropping `Queues` (the hub closing) cancels `Shared::stop`, every lane returns at
-//! its next turn and cancels the scope of each candidate's work, so no lane or step outlives the hub and a hub opened
-//! again over the same folder is the only one acting on its bases.
+//! A process-wide lane guard prevents a reopened lane from acting until the previous lane's canceled candidate work
+//! has exited. Stopping the queues cancels that work and waits for it before releasing the guard.
 //!
 //! `GitHands` is the real `Hands`: git in a bare clone the queue owns per repository, with `git/land.rs`, the landing
 //! git Autopilot uses too.
@@ -25,9 +24,10 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{Effect, LandQueue, Part, QUEUE_BRANCH_PREFIX, Told, Tuning, Unbuilt};
@@ -90,14 +90,46 @@ pub trait Hands: Send + Sync {
     ) -> Fut<'a, Result<Landing, Failure>>;
 
     /// The candidate's branch deleted, if it was ever pushed.
-    fn drop_branch<'a>(&'a self, repo: &'a str, candidate: &'a str) -> Fut<'a, ()>;
+    fn drop_branch<'a>(
+        &'a self,
+        repo: &'a str,
+        candidate: &'a str,
+        scope: Scope,
+    ) -> Fut<'a, Result<(), Failure>>;
 
     /// This computer's part of every name the queue makes, so two computers' queues never share a branch.
     fn name(&self) -> String;
 
-    fn save(&self, queue: &LandQueue);
+    /// Identifies the storage directory shared by successive owners of the same lane.
+    fn identity(&self) -> PathBuf;
 
-    fn saved(&self) -> Vec<LandQueue>;
+    fn save(
+        &self,
+        queue: &LandQueue,
+        effects: &[Effect],
+        answers: &HashMap<Sha, Answer>,
+        retire_answers: &[String],
+    ) -> Result<(), Fault>;
+
+    fn saved(&self) -> Vec<SavedLane>;
+}
+
+/// One lane and the effects not yet durably accepted by their destinations.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SavedLane {
+    queue: LandQueue,
+    effects: Vec<Effect>,
+    answers: HashMap<Sha, Answer>,
+    #[serde(default)]
+    retire_answers: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct LaneSave<'a> {
+    queue: &'a LandQueue,
+    effects: &'a [Effect],
+    answers: &'a HashMap<Sha, Answer>,
+    retire_answers: &'a [String],
 }
 
 enum Msg {
@@ -111,6 +143,7 @@ enum Msg {
         result: Result<Sha, Unbuilt>,
     },
     Verdict {
+        candidate: String,
         commit: Sha,
         answer: Answer,
     },
@@ -119,11 +152,36 @@ enum Msg {
         landing: Landing,
     },
     BaseRead {
+        candidate: String,
         tip: Sha,
+    },
+    Dropped {
+        candidate: String,
+    },
+    Told {
+        id: String,
+    },
+    AnswerRetired {
+        id: String,
     },
 }
 
 type Key = (RepoId, String);
+
+type LaneOwnerKey = (PathBuf, RepoId, String);
+static LANE_OWNERS: LazyLock<Mutex<HashMap<LaneOwnerKey, Weak<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn lane_owner(key: LaneOwnerKey) -> Arc<tokio::sync::Mutex<()>> {
+    let mut owners = locked(&LANE_OWNERS);
+    if let Some(owner) = owners.get(&key).and_then(Weak::upgrade) {
+        return owner;
+    }
+    owners.retain(|_, owner| owner.strong_count() > 0);
+    let owner = Arc::new(tokio::sync::Mutex::new(()));
+    owners.insert(key, Arc::downgrade(&owner));
+    owner
+}
 
 struct Shared {
     host: Arc<dyn QueueHost>,
@@ -187,9 +245,9 @@ impl Shared {
     async fn load(self: &Arc<Shared>) {
         self.loaded
             .get_or_init(|| async {
-                for queue in self.hands.saved() {
-                    let key = (queue.repo.clone(), queue.base.clone());
-                    let lane = Lane::start(self, queue);
+                for saved in self.hands.saved() {
+                    let key = (saved.queue.repo.clone(), saved.queue.base.clone());
+                    let lane = Lane::start(self, saved);
                     locked(&self.lanes).insert(key, lane);
                 }
             })
@@ -210,7 +268,15 @@ impl Shared {
             String::new(),
             self.tuning,
         );
-        let lane = Lane::start(self, queue);
+        let lane = Lane::start(
+            self,
+            SavedLane {
+                queue,
+                effects: Vec::new(),
+                answers: HashMap::new(),
+                retire_answers: Vec::new(),
+            },
+        );
         lanes.insert(key, lane.clone());
         lane
     }
@@ -274,7 +340,15 @@ fn red_why(answer: &Answer) -> String {
         if !why.is_empty() {
             why.push_str("; ");
         }
-        let _ = write!(why, "{}: {}", failed.test, failed.first_error);
+        let _ = write!(
+            why,
+            "{}: {}",
+            failed.test,
+            failed
+                .first_error
+                .as_deref()
+                .unwrap_or("first error was not recorded")
+        );
     }
     if why.is_empty() {
         why = answer
@@ -286,12 +360,38 @@ fn red_why(answer: &Answer) -> String {
     why
 }
 
+struct CandidateWork {
+    scope: Scope,
+    done: watch::Receiver<bool>,
+}
+
+struct WorkDone(watch::Sender<bool>);
+
+impl Drop for WorkDone {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
+}
+
+async fn previous_done(mut previous: Option<watch::Receiver<bool>>, scope: &Scope) -> bool {
+    if let Some(done) = previous.as_mut()
+        && done.wait_for(|done| *done).await.is_err()
+    {
+        return false;
+    }
+    !scope.cancelled()
+}
+
 struct Lane {
     queue: LandQueue,
+    effects: Vec<Effect>,
+    retire_answers: Vec<String>,
+    retire_ready: Vec<String>,
     shared: Arc<Shared>,
     tx: mpsc::UnboundedSender<Msg>,
     /// The scope of each candidate's work under way, cancelled when the queue drops it.
-    work: HashMap<String, Scope>,
+    work: HashMap<String, CandidateWork>,
+    deliveries: HashMap<String, CandidateWork>,
     /// The answer of each run the queue was given, by commit, for the result of the entries it decided.
     answers: HashMap<Sha, Answer>,
     /// An `enqueue`'s answer, sent once the step that queued the entry is saved: a caller told "queued" never loses
@@ -300,14 +400,18 @@ struct Lane {
 }
 
 impl Lane {
-    fn start(shared: &Arc<Shared>, queue: LandQueue) -> mpsc::UnboundedSender<Msg> {
+    fn start(shared: &Arc<Shared>, saved: SavedLane) -> mpsc::UnboundedSender<Msg> {
         let (tx, rx) = mpsc::unbounded_channel();
         let lane = Lane {
-            queue,
+            queue: saved.queue,
+            effects: saved.effects,
+            retire_answers: saved.retire_answers,
+            retire_ready: Vec::new(),
             shared: Arc::clone(shared),
             tx: tx.clone(),
             work: HashMap::new(),
-            answers: HashMap::new(),
+            deliveries: HashMap::new(),
+            answers: saved.answers,
             reply: None,
         };
         tokio::spawn(lane.run(rx));
@@ -315,9 +419,31 @@ impl Lane {
     }
 
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Msg>) {
-        let resumed = self.queue.resume();
-        self.after(resumed);
         let stop = self.shared.stop.clone();
+        let owner = lane_owner((
+            self.shared.hands.identity(),
+            self.queue.repo.clone(),
+            self.queue.base.clone(),
+        ));
+        let _owner = tokio::select! {
+            () = stop.on_cancel() => return,
+            guard = owner.lock() => guard,
+        };
+        if let Some(saved) = self.shared.hands.saved().into_iter().find(|saved| {
+            saved.queue.repo == self.queue.repo && saved.queue.base == self.queue.base
+        }) {
+            self.queue = saved.queue;
+            self.effects = saved.effects;
+            self.retire_answers = saved.retire_answers;
+            self.answers = saved.answers;
+        }
+        self.retire_ready = self.retire_answers.clone();
+        let resumed = self.effects.clone();
+        if self.queue.is_empty() && resumed.is_empty() && self.retire_ready.is_empty() {
+            self.shared.show(&self.queue);
+        } else if !self.after(resumed, &stop).await {
+            return;
+        }
         loop {
             let wake = self.queue.next_wake();
             let msg = tokio::select! {
@@ -335,10 +461,22 @@ impl Lane {
                 } => None,
             };
             let effects = self.take(msg);
-            self.after(effects);
+            self.record(&effects);
+            if !self.after(effects, &stop).await {
+                break;
+            }
         }
-        for scope in self.work.values() {
-            scope.cancel();
+        for work in self.work.values() {
+            work.scope.cancel();
+        }
+        for work in self.deliveries.values() {
+            work.scope.cancel();
+        }
+        for work in self.work.values_mut() {
+            let _ = work.done.wait_for(|done| *done).await;
+        }
+        for work in self.deliveries.values_mut() {
+            let _ = work.done.wait_for(|done| *done).await;
         }
     }
 
@@ -398,43 +536,172 @@ impl Lane {
                 self.reply = Some((reply, answer));
                 effects
             }
-            Msg::Built { candidate, result } => self.queue.built(&candidate, result, now),
-            Msg::Verdict { commit, answer } => {
+            Msg::Built { candidate, result } => {
+                let pending = self.effects.len();
+                self.effects.retain(|effect| !matches!(effect, Effect::Build { candidate: id, .. } if id == &candidate));
+                if self.effects.len() == pending {
+                    return Vec::new();
+                }
+                self.queue.built(&candidate, result, now)
+            }
+            Msg::Verdict {
+                candidate,
+                commit,
+                answer,
+            } => {
+                let pending = self.effects.len();
+                self.effects.retain(|effect| !matches!(effect, Effect::Test { candidate: id, .. } if id == &candidate));
+                if self.effects.len() == pending {
+                    return Vec::new();
+                }
                 let green = answer.verdict == AnswerVerdict::Green;
                 let why = red_why(&answer);
                 self.answers.insert(commit.clone(), answer);
                 self.queue.verdict(&commit, green, &why, now)
             }
-            Msg::Landing { candidate, landing } => match landing {
-                Landing::Landed { tip } => self.queue.landed(&candidate, tip, now),
-                Landing::Moved { tip } => self.queue.moved(&candidate, tip, now),
-                Landing::Refused { why } => self.queue.refused(&candidate, &why),
-            },
-            Msg::BaseRead { tip } => self.queue.base_read(tip, now),
+            Msg::Landing { candidate, landing } => {
+                let pending = self.effects.len();
+                self.effects.retain(|effect| !matches!(effect, Effect::Land { candidate: id, .. } if id == &candidate));
+                if self.effects.len() == pending {
+                    return Vec::new();
+                }
+                match landing {
+                    Landing::Landed { tip } => self.queue.landed(&candidate, tip, now),
+                    Landing::Moved { tip } => self.queue.moved(&candidate, tip, now),
+                    Landing::Refused { why } => self.queue.refused(&candidate, &why),
+                }
+            }
+            Msg::BaseRead { candidate, tip } => {
+                let pending = self.effects.len();
+                self.effects.retain(|effect| !matches!(effect, Effect::Build { candidate: id, .. } if id == &candidate));
+                if self.effects.len() == pending {
+                    return Vec::new();
+                }
+                self.queue.base_read(tip, now)
+            }
+            Msg::Dropped { candidate } => {
+                self.work.remove(&candidate);
+                self.effects.retain(
+                    |effect| !matches!(effect, Effect::Drop { candidate: id } if id == &candidate),
+                );
+                Vec::new()
+            }
+            Msg::Told { id } => {
+                let pending = self.effects.len();
+                self.effects.retain(
+                    |effect| !matches!(effect, Effect::Tell { entry, .. } if entry.id == id),
+                );
+                if self.effects.len() != pending {
+                    self.retire_answers.push(id.clone());
+                    self.retire_ready.push(id);
+                }
+                if self.queue.is_empty()
+                    && !self
+                        .effects
+                        .iter()
+                        .any(|effect| matches!(effect, Effect::Tell { .. }))
+                {
+                    self.answers.clear();
+                }
+                Vec::new()
+            }
+            Msg::AnswerRetired { id } => {
+                self.deliveries.remove(&id);
+                self.retire_answers.retain(|pending| pending != &id);
+                Vec::new()
+            }
         }
     }
 
-    fn after(&mut self, effects: Vec<Effect>) {
+    fn record(&mut self, effects: &[Effect]) {
+        for effect in effects {
+            if let Effect::Drop { candidate } = effect {
+                self.effects.retain(|pending| {
+                    !matches!(pending,
+                    Effect::Build { candidate: id, .. }
+                    | Effect::Test { candidate: id, .. }
+                    | Effect::Land { candidate: id, .. } if id == candidate)
+                });
+            }
+            self.effects.push(effect.clone());
+        }
+    }
+
+    async fn after(&mut self, effects: Vec<Effect>, stop: &Scope) -> bool {
+        let mut retry = RETRY_FIRST_MS;
+        loop {
+            if stop.cancelled() {
+                return false;
+            }
+            match self.shared.hands.save(
+                &self.queue,
+                &self.effects,
+                &self.answers,
+                &self.retire_answers,
+            ) {
+                Ok(()) => break,
+                Err(_) if pause(stop, &mut retry).await => {}
+                Err(_) => return false,
+            }
+        }
+        if stop.cancelled() {
+            return false;
+        }
+        self.shared.show(&self.queue);
         for effect in effects {
             self.effect(effect);
         }
-        if self.queue.is_empty() {
-            // Every entry a run's answer could still be told to has been told.
-            self.answers.clear();
+        for id in std::mem::take(&mut self.retire_ready) {
+            self.retire_answer(id);
         }
-        self.shared.show(&self.queue);
-        self.shared.hands.save(&self.queue);
         if let Some((reply, answer)) = self.reply.take() {
             let _ = reply.send(answer);
         }
+        true
     }
 
-    fn scope_for(&mut self, candidate: &str) -> Scope {
+    fn scope_for(
+        work: &mut HashMap<String, CandidateWork>,
+        candidate: &str,
+    ) -> (Scope, Option<watch::Receiver<bool>>, watch::Sender<bool>) {
         let scope = Scope::detached();
-        if let Some(old) = self.work.insert(candidate.to_owned(), scope.clone()) {
-            old.cancel();
-        }
-        scope
+        let (done, receiver) = watch::channel(false);
+        let old = work.insert(
+            candidate.to_owned(),
+            CandidateWork {
+                scope: scope.clone(),
+                done: receiver,
+            },
+        );
+        let previous = old.map(|work| {
+            work.scope.cancel();
+            work.done
+        });
+        (scope, previous, done)
+    }
+
+    fn retire_answer(&mut self, id: String) {
+        let (scope, previous, done) = Self::scope_for(&mut self.deliveries, &id);
+        let (shared, tx) = (Arc::clone(&self.shared), self.tx.clone());
+        tokio::spawn(async move {
+            let _done = WorkDone(done);
+            if !previous_done(previous, &scope).await {
+                return;
+            }
+            let mut retry = RETRY_FIRST_MS;
+            loop {
+                match shared.host.forget_answer(&id, scope.clone()).await {
+                    Ok(()) => {
+                        if !scope.cancelled() {
+                            let _ = tx.send(Msg::AnswerRetired { id });
+                        }
+                        return;
+                    }
+                    Err(_) if pause(&scope, &mut retry).await => {}
+                    Err(_) => return,
+                }
+            }
+        });
     }
 
     fn effect(&mut self, effect: Effect) {
@@ -446,8 +713,12 @@ impl Lane {
                 tip,
                 parts,
             } => {
-                let scope = self.scope_for(&candidate);
+                let (scope, previous, done) = Self::scope_for(&mut self.work, &candidate);
                 tokio::spawn(async move {
+                    let _done = WorkDone(done);
+                    if !previous_done(previous, &scope).await {
+                        return;
+                    }
                     let mut retry = RETRY_FIRST_MS;
                     let now = loop {
                         match shared.hands.tip(&repo, &base, scope.clone()).await {
@@ -458,7 +729,10 @@ impl Lane {
                     };
                     let result = match now {
                         Some(now) if now != tip => {
-                            let _ = tx.send(Msg::BaseRead { tip: now });
+                            let _ = tx.send(Msg::BaseRead {
+                                candidate,
+                                tip: now,
+                            });
                             return;
                         }
                         Some(_) => loop {
@@ -483,15 +757,22 @@ impl Lane {
                 });
             }
             Effect::Test { candidate, commit } => {
-                let scope = self.scope_for(&candidate);
+                let (scope, previous, done) = Self::scope_for(&mut self.work, &candidate);
                 let git_ref = format!("{QUEUE_BRANCH_PREFIX}{candidate}");
+                let effect_id = format!("{repo}:{candidate}");
                 tokio::spawn(async move {
-                    // A start that reached admission is never sent again: a refused or failed one may have started a
-                    // run, so it ends the trial as a failed check with the hub's reason. Only a start the owner's
-                    // pause refused (nothing ran) or that never reached the hub is tried again.
+                    let _done = WorkDone(done);
+                    if !previous_done(previous, &scope).await {
+                        return;
+                    }
+                    // The stable effect id lets the host reconcile a retried start without dispatching it twice.
                     let mut retry = RETRY_FIRST_MS;
                     let started = loop {
-                        match shared.host.start_batch(&repo, &git_ref, &commit).await {
+                        let reply = tokio::select! {
+                            () = scope.on_cancel() => return,
+                            reply = shared.host.start_batch(&repo, &git_ref, &commit, &effect_id) => reply,
+                        };
+                        match reply {
                             Ok(StartReply {
                                 run_id: None,
                                 decision: StartDecision::Refused,
@@ -530,13 +811,21 @@ impl Lane {
                         }
                     };
                     if !scope.cancelled() {
-                        let _ = tx.send(Msg::Verdict { commit, answer });
+                        let _ = tx.send(Msg::Verdict {
+                            candidate,
+                            commit,
+                            answer,
+                        });
                     }
                 });
             }
             Effect::Land { candidate, commit } => {
-                let scope = self.scope_for(&candidate);
+                let (scope, previous, done) = Self::scope_for(&mut self.work, &candidate);
                 tokio::spawn(async move {
+                    let _done = WorkDone(done);
+                    if !previous_done(previous, &scope).await {
+                        return;
+                    }
                     let mut retry = RETRY_FIRST_MS;
                     loop {
                         match shared
@@ -555,10 +844,36 @@ impl Lane {
                 });
             }
             Effect::Drop { candidate } => {
-                if let Some(scope) = self.work.remove(&candidate) {
-                    scope.cancel();
-                }
-                tokio::spawn(async move { shared.hands.drop_branch(&repo, &candidate).await });
+                let (scope, previous, done) = Self::scope_for(&mut self.work, &candidate);
+                let effect_id = format!("{repo}:{candidate}");
+                tokio::spawn(async move {
+                    let _done = WorkDone(done);
+                    if !previous_done(previous, &scope).await {
+                        return;
+                    }
+                    let mut retry = RETRY_FIRST_MS;
+                    loop {
+                        let deleted = shared
+                            .hands
+                            .drop_branch(&repo, &candidate, scope.clone())
+                            .await;
+                        if deleted.is_ok()
+                            && shared
+                                .host
+                                .forget_batch(&effect_id, scope.clone())
+                                .await
+                                .is_ok()
+                        {
+                            if !scope.cancelled() {
+                                let _ = tx.send(Msg::Dropped { candidate });
+                            }
+                            return;
+                        }
+                        if !pause(&scope, &mut retry).await {
+                            return;
+                        }
+                    }
+                });
             }
             Effect::Tell { entry, told } => {
                 let answer = match told {
@@ -602,10 +917,30 @@ impl Lane {
                         answer
                     }
                 };
-                shared.host.finished(RunResult {
+                let result = RunResult {
                     run_id: entry.id,
                     origin: entry.origin,
                     answer,
+                };
+                let (scope, previous, done) = Self::scope_for(&mut self.deliveries, &result.run_id);
+                tokio::spawn(async move {
+                    let _done = WorkDone(done);
+                    if !previous_done(previous, &scope).await {
+                        return;
+                    }
+                    let mut retry = RETRY_FIRST_MS;
+                    loop {
+                        match shared.host.finished(result.clone(), scope.clone()).await {
+                            Ok(()) => {
+                                if !scope.cancelled() {
+                                    let _ = tx.send(Msg::Told { id: result.run_id });
+                                }
+                                return;
+                            }
+                            Err(_) if pause(&scope, &mut retry).await => {}
+                            Err(_) => return,
+                        }
+                    }
                 });
             }
         }
@@ -855,23 +1190,41 @@ impl Hands for GitHands {
         })
     }
 
-    fn drop_branch<'a>(&'a self, repo: &'a str, candidate: &'a str) -> Fut<'a, ()> {
+    fn drop_branch<'a>(
+        &'a self,
+        repo: &'a str,
+        candidate: &'a str,
+        scope: Scope,
+    ) -> Fut<'a, Result<(), Failure>> {
         Box::pin(async move {
-            let Ok(git) = self.git(Scope::detached()) else {
-                return;
-            };
-            let Ok(clone) = self.clone_of(&git, repo).await else {
-                return;
-            };
+            let git = self.git(scope)?;
+            let clone = self.clone_of(&git, repo).await?;
             let dest = format!("refs/heads/{QUEUE_BRANCH_PREFIX}{candidate}");
             let opts = Opts {
                 timeout_ms: Some(land::PUSH_TIMEOUT_MS),
                 ..Opts::default()
             };
-            // Never pushed (dropped while it was built): git says so, and that is the end of it.
-            let _ = git
+            let remote = git
+                .run(
+                    &clone,
+                    &["ls-remote", "--exit-code", "--heads", "origin", &dest],
+                    opts,
+                )
+                .await?;
+            if remote.code == 2 {
+                return Ok(());
+            }
+            if remote.code != 0 {
+                return Err(Failure::Remote(remote.stderr));
+            }
+            let deleted = git
                 .run(&clone, &["push", "origin", "--delete", &dest], opts)
-                .await;
+                .await?;
+            if deleted.code == 0 {
+                Ok(())
+            } else {
+                Err(Failure::Remote(deleted.stderr))
+            }
         })
     }
 
@@ -896,16 +1249,34 @@ impl Hands for GitHands {
         name
     }
 
-    fn save(&self, queue: &LandQueue) {
+    fn identity(&self) -> PathBuf {
+        (self.dir)()
+    }
+
+    fn save(
+        &self,
+        queue: &LandQueue,
+        effects: &[Effect],
+        answers: &HashMap<Sha, Answer>,
+        retire_answers: &[String],
+    ) -> Result<(), Fault> {
         let file = self
             .lanes()
             .join(format!("{}__{}.json", slug(&queue.repo), slug(&queue.base)));
-        if let Ok(bytes) = serde_json::to_vec(queue) {
-            let _ = crate::disk::saves::write_kept(&file, &bytes, Some(0o600), 0o700);
+        let bytes = serde_json::to_vec(&LaneSave {
+            queue,
+            effects,
+            answers,
+            retire_answers,
+        })
+        .map_err(|error| Fault::new("queue_save", error.to_string()))?;
+        match crate::disk::saves::write_kept(&file, &bytes, Some(0o600), 0o700)? {
+            true => Ok(()),
+            false => Err(Fault::new("queue_save", "the queue save was not committed")),
         }
     }
 
-    fn saved(&self) -> Vec<LandQueue> {
+    fn saved(&self) -> Vec<SavedLane> {
         let Ok(entries) = std::fs::read_dir(self.lanes()) else {
             return Vec::new();
         };
@@ -918,8 +1289,19 @@ impl Hands for GitHands {
     }
 }
 
-fn read_lane(path: &Path) -> Option<LandQueue> {
-    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+fn read_lane(path: &Path) -> Option<SavedLane> {
+    let bytes = std::fs::read(path).ok()?;
+    if let Ok(saved) = serde_json::from_slice::<SavedLane>(&bytes) {
+        return Some(saved);
+    }
+    let queue: LandQueue = serde_json::from_slice(&bytes).ok()?;
+    let effects = queue.resume();
+    Some(SavedLane {
+        queue,
+        effects,
+        answers: HashMap::new(),
+        retire_answers: Vec::new(),
+    })
 }
 
 #[cfg(test)]

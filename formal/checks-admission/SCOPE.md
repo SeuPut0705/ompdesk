@@ -8,12 +8,14 @@ Broken, the account's 5 macOS runners queue 71 jobs again and main's release wai
 
 ## Modeled (in scope)
 
-Design model (workflow W3): the code is not written yet. The action table in `CORRESPONDENCE.md` names the hub step each action stands for, for `native/ompdesk/crates/core/src/checks/admission.rs` to tag.
+The model describes the approved contract against the evolving implementation. The action table in `CORRESPONDENCE.md` separates implemented steps from contract-only steps.
 
-- `start`: refused while paused, `reused` from a green run of the same digest, else `held`; a held start supersedes the older governed runs of its key that are neither release nor land runs.
-- The pump: the first live entry in line (lane, then arrival) that has a place takes it, counted in the hub's own ledger before the dispatch is sent.
-- The dispatch's answer: accepted, or failed and never retried in place.
-- A run's end as the poller sees it; a superseded run's place is free only once GitHub shows it ended.
+- `start`: refused while paused, `reused` from a finally judged green run of the same digest, else `held`; a held start supersedes older governed runs of its key that are neither release nor land runs.
+- The pump reserves the first live entry with room. The intent is durable before the external dispatch.
+- An exact accepted receipt binds the run. A definite refusal frees the place. An ambiguous answer or recovery of an in-flight durable intent leaves `Unconfirmed` occupying the place.
+- A saved authoritative exact receipt can reconcile an unconfirmed intent on recovery. Without one, no modeled action reconciles it. No retry, elapsed time, or foreign run guess frees it.
+- Raw completion frees capacity. Only a final Green answer on fresh matching facts without a release block enables reuse. Final Unknown and nonterminal Unconfirmed are distinct.
+- A superseded run's place is free only once its exact bound run ends.
 - Leases: a held entry's lease lapses (environment); the sweep removes it; a late heartbeat does not renew it.
 - The owner's pause and resume.
 - Jobs the hub does not govern (a person's run, another repo's on the same account, another program's heavy command) take places whenever one is free and are never touched.
@@ -26,14 +28,16 @@ Design model (workflow W3): the code is not written yet. The action table in `CO
 - **Time**: no clock. A lease lapses at any moment while its entry waits; the sweep runs at some later moment.
 - **The poller's view is exact for the hub's own jobs** (its ledger), and an outside job's place counts from the moment it starts. In the code the poller lags; see Assumption A3 in `CORRESPONDENCE.md`.
 - **Each hub step is atomic** (A1, A2 in `CORRESPONDENCE.md`).
+- **Recovery before the intent save** is not modeled. No external write can occur before that save; restoring the prior journal is a separate persistence concern.
+- **Judgment facts** are abstract choices of fresh matching, stale, wrong SHA, or release blocked. The model checks which choices can become reusable, not the fact-fetching code.
 
 ## Out of scope
 
 - The admission ticket and the workflow's `admit` job (§7 criterion 1): who may start, not when.
-- `wait` and the `Answer`, results, flaky state, the merge queue's batching and bisection (P3, P4).
+- `wait`, the full `Answer`, result delivery, flaky state, and the merge queue's batching and bisection (P3, P4).
 - Placement (local or runner, §5 row 5) and disk care: the model takes a job's pool as given.
 - GitHub's own `concurrency` groups (P0) and GitHub's 24 h queue limit.
-- A poller that is stale or down: no `verdict` is modeled.
+- Poller outages and stale fact propagation. A stale final judgment is represented, but the poller's scheduling and recovery are not.
 - Several hubs (two OMPdesk processes on one computer): one hub per account is assumed.
 
 ## Properties
@@ -54,6 +58,8 @@ The frozen set is `Properties.md`.
 | `ReleaseEventuallyAdmitted` | liveness | brief |
 | `LapsedLeaves` | liveness | brief |
 | `ReleaseKeepsItsAccountPlace` | invariant | Main's F1 decision (d6) |
+| `UnconfirmedOccupies`, `RecoveryKeepsReservation` | invariant, action | Main's approved ambiguous-write contract |
+| `GreenIsFinallyJudged` | invariant | Main's approved final-judge contract |
 
 ## Bounds
 
@@ -66,11 +72,14 @@ The frozen set is `Properties.md`.
 | `MC_account_two_release.cfg` | account limit 2; a release Linux job and a release macOS job, an outside macOS job and an outside Linux job |
 | `MC_supersede.cfg` | hosted pool of 2; release, land, two branch jobs and an outside job, all one repo, ref and workflow; pause on |
 | `MC_reuse.cfg` | hosted pool of 2; three branch jobs, two of one digest and two of one key |
-| `MC_live.cfg`, `MC_live_account.cfg` | as `MC.cfg` (no pause) and `MC_account.cfg`, under `Fairness`: the two liveness properties |
-| `MC_live_supersede.cfg` | one heavy slot; a release job and two branch jobs of one key, under `Fairness`: P10 when a start supersedes a job whose dispatch is still awaited and that dispatch then fails (added 14 Nov 2026 after the review found the place kept for good) |
+| `MC_live.cfg`, `MC_live_account.cfg` | as `MC.cfg` (no pause) and `MC_account.cfg`, under `Fairness` and `NoForeverUnconfirmed`: the two liveness properties |
+| `MC_live_supersede.cfg` | one heavy slot; release and two same-key branch jobs, under the same assumptions: P10 after a definite refusal following supersession |
+| `MC_failure.cfg` | one slot; release and two same-key, same-digest branch entries; dispatch refusal, ambiguity, recovery, exact reconciliation, and final judgment |
+| `MC_sanity_unconfirmed.cfg`, `MC_sanity_recovery.cfg` | one job; unconfirmed reservation and durable-intent recovery are each reachable |
+| `MC_live_unconfirmed.cfg` | one slot; branch then release. Without `NoForeverUnconfirmed`, P10 must fail when the branch reservation is never observed |
 | deep | one heavy pool of 2 slots, two release jobs, two branch jobs, one outside job |
 
-The real limits (5 and 40) are larger. The properties compare counts with limits and order entries by lane and arrival; nothing in them depends on the limit's size beyond "full" and "not full", which a limit of 1 or 2 reaches. States, depth and times are in `evidence/` and in the report.
+The real limits (5 and 40) are larger. The properties compare counts with limits and order entries by lane and arrival. Prior evidence applies to the earlier model only. These changes have not been checked by TLC.
 
 ## Finding F1 (design question, decided 14 Nov 2026): a release macOS job and the account's last places
 
@@ -84,4 +93,4 @@ What no rule of the hub can do: keep outside jobs out. GitHub gives a freed plac
 
 - Tool: TLA+ with TLC: interleavings of starts, pump runs, ends, leases and outside jobs, plus liveness under stated fairness.
 - Files: `tla/ChecksAdmission.tla`, `tla/MC*.cfg`, `tla/matrix.json`, `tla/mutations.json`, `Properties.md`, `CORRESPONDENCE.md`, `evidence/`.
-- Manifest id: `checks-admission` in `formal/manifest.json`; `covers` is empty until `admission.rs` lands, then it names that file and the `@code` tags go on each action.
+- Manifest id: `checks-admission` in `formal/manifest.json`. Root owns the manifest and final source tag retarget.

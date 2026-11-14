@@ -146,6 +146,20 @@ describe.each(HUBS)("a scripted checks hub: %s", (_name, { make, fakeTimers, adv
 });
 
 describe("the core's checks hub", () => {
+	it("delivers the opaque id without acknowledging receipt, and acknowledges only when asked", async () => {
+		const hub = new CoreChecksHub({ fake: true });
+		opened.push(hub);
+		const deliveries: { deliveryId: string; result: RunResult }[] = [];
+		hub.onDelivery(delivery => deliveries.push(delivery));
+		const result: RunResult = { runId: "run-41", origin: SESSION, answer: sampleAnswer() };
+		await hub.apply({ op: "finish", result });
+		await expect.poll(() => deliveries.length).toBe(1);
+		expect(deliveries).toEqual([{ deliveryId: "run-41:result", result }]);
+		expect(await hub.apply({ op: "calls" })).toEqual([]);
+		await hub.ackResult(deliveries[0]!.deliveryId);
+		expect(await hub.apply({ op: "calls" })).toEqual([{ op: "ackResult", origin: null, request: "run-41:result" }]);
+	});
+
 	it("opens the real hub, whose status costs no GitHub request", async () => {
 		const hub = new CoreChecksHub();
 		opened.push(hub);

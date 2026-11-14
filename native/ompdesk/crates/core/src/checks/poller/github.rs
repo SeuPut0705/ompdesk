@@ -20,8 +20,8 @@ use super::wire::{
 use crate::checks::contract::{Sha, Timestamp};
 use crate::checks::hub::{Fut, Runners};
 use crate::checks::sources::{
-    Budget as Quota, Checkout, Dispatch, GithubArtifact, GithubJob, GithubRun, GithubSource, Read,
-    SourceError,
+    Budget as Quota, Checkout, CommitStatus, Dispatch, GithubArtifact, GithubJob, GithubRun,
+    GithubSource, Read, SourceError, WriteError,
 };
 use crate::gh::Gh;
 use crate::routines::github::encode_uri_component;
@@ -465,34 +465,67 @@ impl GhSource {
         Ok(all)
     }
 
-    /// One write: `POST endpoint` with `fields`.
-    async fn post(&self, endpoint: String, fields: Vec<String>) -> Result<(), SourceError> {
+    /// A response-less write is unconfirmed, not a refusal. The versioned dispatch endpoint returns the exact run id.
+    async fn post_receipt(
+        &self,
+        endpoint: String,
+        fields: Vec<String>,
+    ) -> Result<Answer, WriteError> {
         let mut args = vec![
             "api".to_owned(),
             "--include".to_owned(),
             "-X".to_owned(),
             "POST".to_owned(),
+            "-H".to_owned(),
+            "X-GitHub-Api-Version: 2026-03-10".to_owned(),
         ];
         for field in fields {
             args.extend(["-f".to_owned(), field]);
         }
         args.push(endpoint);
-        let answer = self.answer_of(self.api.call(&args, Size::Read).await)?;
-        self.heed(&mut locked(&self.state), &answer)?;
+        let outcome = match self.api.call(&args, Size::Read).await {
+            Err(failure @ (Failure::Missing | Failure::NotTold)) => {
+                return Err(WriteError::Refused(self.failed(failure)));
+            }
+            other => other,
+        };
+        let answer = self.answer_of(outcome).map_err(|error| {
+            if error.code == "unauthenticated" {
+                WriteError::Refused(error)
+            } else {
+                WriteError::Unconfirmed(error)
+            }
+        })?;
+        let quota = self.heed(&mut locked(&self.state), &answer);
         match answer.status {
-            200..=299 => Ok(()),
-            401 => Err(SourceError::new(
-                "unauthenticated",
-                "GitHub refused the GitHub CLI's sign-in",
-            )),
-            status => Err(SourceError::new(
-                "failed",
+            200..=299 => Ok(answer),
+            400..=499 => Err(WriteError::Refused(quota.err().unwrap_or_else(|| {
+                SourceError::new(
+                    "rejected",
+                    format!(
+                        "{} (HTTP {})",
+                        answer.message().unwrap_or_else(|| "refused".into()),
+                        answer.status
+                    ),
+                )
+            }))),
+            status => Err(WriteError::Unconfirmed(SourceError::new(
+                "offline",
                 format!(
                     "{} (HTTP {status})",
-                    answer.message().unwrap_or_else(|| "refused".to_owned())
+                    answer
+                        .message()
+                        .unwrap_or_else(|| "acceptance unknown".into())
                 ),
-            )),
+            ))),
         }
+    }
+
+    async fn post(&self, endpoint: String, fields: Vec<String>) -> Result<(), SourceError> {
+        self.post_receipt(endpoint, fields)
+            .await
+            .map(|_| ())
+            .map_err(|error| error.error().clone())
     }
 
     /// A file GitHub serves through a redirect (a log, an artifact's zip): no head to read, so gh's exit is the
@@ -733,9 +766,9 @@ impl GithubSource for GhSource {
         })
     }
 
-    fn dispatch<'a>(&'a self, dispatch: &'a Dispatch) -> Fut<'a, Result<(), SourceError>> {
+    fn dispatch<'a>(&'a self, dispatch: &'a Dispatch) -> Fut<'a, Result<u64, WriteError>> {
         Box::pin(async move {
-            let repo = repo_name(&dispatch.repo)?;
+            let repo = repo_name(&dispatch.repo).map_err(WriteError::Refused)?;
             let workflow = &dispatch.workflow;
             let named = |text: &str| {
                 !text.is_empty()
@@ -744,10 +777,10 @@ impl GithubSource for GhSource {
                     })
             };
             if !named(workflow) || dispatch.inputs.keys().any(|key| !named(key)) {
-                return Err(SourceError::new(
+                return Err(WriteError::Refused(SourceError::new(
                     "failed",
                     "not a workflow file or input name",
-                ));
+                )));
             }
             let mut fields = vec![format!("ref={}", dispatch.git_ref)];
             fields.extend(
@@ -756,11 +789,29 @@ impl GithubSource for GhSource {
                     .iter()
                     .map(|(key, value)| format!("inputs[{key}]={value}")),
             );
-            self.post(
-                format!("repos/{repo}/actions/workflows/{workflow}/dispatches"),
-                fields,
-            )
-            .await
+            let answer = self
+                .post_receipt(
+                    format!("repos/{repo}/actions/workflows/{workflow}/dispatches"),
+                    fields,
+                )
+                .await?;
+            #[derive(Deserialize)]
+            struct Receipt {
+                workflow_run_id: u64,
+            }
+            let receipt: Receipt = serde_json::from_str(&answer.body).map_err(|_| {
+                WriteError::Unconfirmed(SourceError::new(
+                    "offline",
+                    "GitHub accepted the dispatch but returned no authoritative run id",
+                ))
+            })?;
+            if receipt.workflow_run_id == 0 {
+                return Err(WriteError::Unconfirmed(SourceError::new(
+                    "offline",
+                    "GitHub returned an invalid run id",
+                )));
+            }
+            Ok(receipt.workflow_run_id)
         })
     }
 
@@ -775,14 +826,31 @@ impl GithubSource for GhSource {
         })
     }
 
-    fn rerun_failed<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), SourceError>> {
+    fn rerun_failed<'a>(&'a self, repo: &'a str, run: u64) -> Fut<'a, Result<(), WriteError>> {
         Box::pin(async move {
-            let repo = repo_name(repo)?;
-            self.post(
+            let repo = repo_name(repo).map_err(WriteError::Refused)?;
+            self.post_receipt(
                 format!("repos/{repo}/actions/runs/{run}/rerun-failed-jobs"),
                 Vec::new(),
             )
             .await
+            .map(|_| ())
+        })
+    }
+
+    fn authorize_rerun<'a>(&'a self, status: &'a CommitStatus) -> Fut<'a, Result<(), WriteError>> {
+        Box::pin(async move {
+            let repo = repo_name(&status.repo).map_err(WriteError::Refused)?;
+            self.post_receipt(
+                format!("repos/{repo}/statuses/{}", path_of(&status.sha)),
+                vec![
+                    format!("context={}", status.context),
+                    format!("description={}", status.description),
+                    format!("state={}", status.state),
+                ],
+            )
+            .await
+            .map(|_| ())
         })
     }
 
@@ -1414,7 +1482,7 @@ pub(crate) mod tests {
         let accepted = "HTTP/2.0 204 No Content\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Remaining: 4000\r\n\
             X-Ratelimit-Reset: 1794598857\r\nX-Ratelimit-Resource: core\r\n\r\n";
         let base = format!("repos/{REPO}/actions");
-        replay.say(&format!("{base}/workflows/ci.yml/dispatches"), accepted);
+        replay.say(&format!("{base}/workflows/ci.yml/dispatches"), "HTTP/2.0 200 OK\r\n\r\n{\"workflow_run_id\":7,\"run_url\":\"https://api.github.com/repos/o/app/actions/runs/7\",\"html_url\":\"https://github.com/o/app/actions/runs/7\"}");
         replay.say(&format!("{base}/runs/7/cancel"), accepted);
         replay.say(&format!("{base}/runs/7/rerun-failed-jobs"), accepted);
         let dispatch = Dispatch {
@@ -1423,7 +1491,7 @@ pub(crate) mod tests {
             git_ref: "omp/agent/checks-poller".to_owned(),
             inputs: BTreeMap::from([("batch".to_owned(), "true".to_owned())]),
         };
-        source.dispatch(&dispatch).await.unwrap();
+        assert_eq!(source.dispatch(&dispatch).await.unwrap(), 7);
         source.cancel(REPO, 7).await.unwrap();
         source.rerun_failed(REPO, 7).await.unwrap();
         assert_eq!(
@@ -1434,6 +1502,8 @@ pub(crate) mod tests {
                     "--include",
                     "-X",
                     "POST",
+                    "-H",
+                    "X-GitHub-Api-Version: 2026-03-10",
                     "-f",
                     "ref=omp/agent/checks-poller",
                     "-f",
@@ -1445,6 +1515,8 @@ pub(crate) mod tests {
                     "--include",
                     "-X",
                     "POST",
+                    "-H",
+                    "X-GitHub-Api-Version: 2026-03-10",
                     "repos/SeuPut0705/ompdesk/actions/runs/7/cancel"
                 ],
                 vec![
@@ -1452,6 +1524,8 @@ pub(crate) mod tests {
                     "--include",
                     "-X",
                     "POST",
+                    "-H",
+                    "X-GitHub-Api-Version: 2026-03-10",
                     "repos/SeuPut0705/ompdesk/actions/runs/7/rerun-failed-jobs"
                 ],
             ]
@@ -1476,6 +1550,48 @@ pub(crate) mod tests {
         assert!(source.dispatch(&odd).await.is_err());
         assert!(source.variable(REPO, "MAC REFS").await.is_err());
         assert_eq!(replay.count(), sent);
+    }
+
+    #[tokio::test]
+    async fn dispatch_acceptance_is_never_inferred_from_a_missing_or_broken_receipt() {
+        let replay = Replay::recorded();
+        let (source, _) = source(&replay);
+        let dispatch = Dispatch {
+            repo: REPO.into(),
+            workflow: "ci.yml".into(),
+            git_ref: "feat".into(),
+            inputs: BTreeMap::new(),
+        };
+        let endpoint = format!("repos/{REPO}/actions/workflows/ci.yml/dispatches");
+        for response in [
+            "HTTP/2.0 204 No Content\r\n\r\n",
+            "HTTP/2.0 200 OK\r\n\r\n{\"workflow_run_id\":0}",
+            "HTTP/2.0 502 Bad Gateway\r\n\r\n{\"message\":\"upstream response lost\"}",
+        ] {
+            replay.now_says(&endpoint, response);
+            assert!(matches!(
+                source.dispatch(&dispatch).await,
+                Err(WriteError::Unconfirmed(_))
+            ));
+        }
+        replay.now_says(
+            &endpoint,
+            "HTTP/2.0 422 Unprocessable Entity\r\n\r\n{\"message\":\"bad ref\"}",
+        );
+        assert!(matches!(
+            source.dispatch(&dispatch).await,
+            Err(WriteError::Refused(_))
+        ));
+        replay.fails(Err(Failure::Broken("response lost after send".into())));
+        assert!(matches!(
+            source.dispatch(&dispatch).await,
+            Err(WriteError::Unconfirmed(_))
+        ));
+        replay.fails(Err(Failure::Missing));
+        assert!(matches!(
+            source.dispatch(&dispatch).await,
+            Err(WriteError::Refused(_))
+        ));
     }
 
     #[tokio::test]

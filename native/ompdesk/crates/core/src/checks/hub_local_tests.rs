@@ -36,14 +36,17 @@ mod local_regressions {
             _ask: &'a LocalRunAsk,
             started: Box<dyn FnOnce(&str) + Send + 'a>,
             scope: Scope,
-        ) -> Fut<'a, Result<crate::checks::sources::LocalRun, String>> {
+        ) -> Fut<'a, Result<crate::checks::local_run::LocalResult, String>> {
             Box::pin(async move {
                 *locked(&self.scope) = Some(scope.clone());
                 started("held-journal");
                 self.entered.notify_one();
                 scope.on_cancel().await;
                 self.finished.notify_one();
-                Ok(journal("killed", &[]))
+                Ok(crate::checks::local_run::LocalResult {
+                    run: journal("killed", &[]),
+                    failed: Some(Vec::new()),
+                })
             })
         }
     }
@@ -60,7 +63,10 @@ mod local_regressions {
         });
         let hub = Hub::with_runner(github, local, runner.clone());
         hub.poller.round().await;
-        let reply = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+        let reply = hub
+            .start(samples::session(), start(Purpose::Branch, "feat"))
+            .await
+            .unwrap();
         assert_eq!(reply.decision, StartDecision::Started);
         runner.entered.notified().await;
         let scope = locked(&runner.scope).clone().unwrap();
@@ -68,7 +74,10 @@ mod local_regressions {
         let cancelled_on_close = scope.cancelled();
         scope.cancel();
         runner.finished.notified().await;
-        assert!(cancelled_on_close, "closing the hub must cancel its local run");
+        assert!(
+            cancelled_on_close,
+            "closing the hub must cancel its local run"
+        );
     }
 
     #[tokio::test]
@@ -85,7 +94,10 @@ mod local_regressions {
         let runner = FakeRunner::new(Ok(journal("failed", &["release test"])));
         let hub = Hub::with_runner(github, local, runner);
         hub.poller.round().await;
-        let reply = hub.start(samples::session(), start(Purpose::Release, "feat")).await.unwrap();
+        let reply = hub
+            .start(samples::session(), start(Purpose::Release, "feat"))
+            .await
+            .unwrap();
         assert_eq!(reply.decision, StartDecision::Started, "{}", reply.reason);
         let answer = waited(&hub, reply.run_id.as_deref().unwrap()).await;
         assert_eq!(answer.verdict, AnswerVerdict::Red);

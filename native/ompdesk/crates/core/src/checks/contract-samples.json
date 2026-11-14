@@ -25,7 +25,8 @@
     "runLocal": "checks.runLocal",
     "remoteRun": "checks.remoteRun",
     "remoteAnswer": "checks.remoteAnswer",
-    "result": "checks.result"
+    "result": "checks.result",
+    "ackResult": "checks.ackResult"
   },
   "enums": {
     "Os": [
@@ -126,6 +127,7 @@
       "no-answer-kept",
       "judged-before-restart",
       "dispatch-failed",
+      "dispatch-unconfirmed",
       "refused",
       "replaced",
       "wait-timed-out",
@@ -434,6 +436,43 @@
             "cap": 2
           }
         ]
+      },
+      {
+        "runId": "run-1",
+        "verdict": "red",
+        "asOf": 1794000700000,
+        "counts": {
+          "passed": 1143,
+          "failed": 1
+        },
+        "failed": [
+          {
+            "test": "src/main/a.test.ts > saves the file",
+            "firstError": null,
+            "knownFlaky": true,
+            "history": "",
+            "record": null
+          }
+        ],
+        "blocksRelease": {
+          "gate": "gate-mac"
+        },
+        "expectedWaitMin": 18,
+        "reused": {
+          "from": "run-0",
+          "savedMin": 12
+        },
+        "next": "rerun-failed",
+        "notes": [
+          "reruns of the failed jobs: 1 of 2 used"
+        ],
+        "said": [
+          {
+            "code": "reruns-used",
+            "used": 1,
+            "cap": 2
+          }
+        ]
       }
     ],
     "TestRecord": [
@@ -525,6 +564,10 @@
       },
       {
         "code": "dispatch-failed",
+        "error": "HTTP 502 from gh"
+      },
+      {
+        "code": "dispatch-unconfirmed",
         "error": "HTTP 502 from gh"
       },
       {

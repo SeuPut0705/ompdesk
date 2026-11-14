@@ -12,6 +12,7 @@
  * file keeps the workflows shaped so that side applies, and runs the gate's two shell steps as they run there.
  */
 import { spawnSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -355,6 +356,75 @@ describe("the queue gate's steps, run as the runner runs them", () => {
 			expect(ticketed({ MAC: "false", TICKET: "" })).toEqual({ status: 0, macOk: "mac_ok=true" });
 		},
 	);
+
+	it.skipIf(!openssl || !jq)("requires a fresh receipt for each rerun attempt before macOS work", () => {
+		const dir = fs.mkdtempSync(path.join(scratch, "rerun-"));
+		const output = path.join(dir, "output");
+		const statuses = path.join(dir, "statuses.json");
+		fs.writeFileSync(path.join(dir, "gh"), '#!/bin/sh\ncat "$STATUS_FILE"\n', { mode: 0o755 });
+		fs.writeFileSync(path.join(dir, "date"), "#!/bin/sh\necho 1763100000\n", { mode: 0o755 });
+		const scope = {
+			PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`,
+			GITHUB_OUTPUT: output,
+			STATUS_FILE: statuses,
+			EVENT: "workflow_dispatch",
+			DEVICES: "MACBOOK MINI",
+			REPO: VECTOR.repo,
+			REF_NAME: VECTOR.ref,
+			SHA: VECTOR.sha,
+			RUN_ID: "12345",
+			RUN_ATTEMPT: "2",
+			GH_TOKEN: "test",
+		};
+		const message = [
+			"ompdesk-checks-rerun-v1",
+			VECTOR.device,
+			VECTOR.repo,
+			VECTOR.ref,
+			VECTOR.sha,
+			"12345",
+			"2",
+			"1800000000000",
+		].join("\n");
+		const mac = createHmac("sha256", Buffer.from(VECTOR.key, "hex")).update(message).digest("hex");
+		const receipt = `v1.MACBOOK.1800000000000.${mac}`;
+		const run = (attempt: string, rows: unknown[], overrides: Record<string, string> = {}) => {
+			fs.writeFileSync(statuses, JSON.stringify(rows));
+			fs.writeFileSync(output, "");
+			const env = { ...scope, RUN_ATTEMPT: attempt, ...overrides };
+			const fetch = spawnSync("bash", [path.join(REPO, "scripts/check-rerun-admission.sh"), "fetch"], { env });
+			if (fetch.status !== 0) return fetch.status;
+			const values = Object.fromEntries(
+				fs
+					.readFileSync(output, "utf8")
+					.trim()
+					.split("\n")
+					.map(line => line.split("=")),
+			);
+			return spawnSync("bash", [path.join(REPO, "scripts/check-rerun-admission.sh"), "verify"], {
+				env: {
+					...env,
+					NEEDED: values.needed ?? "",
+					RECEIPT: values.receipt ?? "",
+					ADMISSION_KEY: SECRETS[`CHECKS_ADMISSION_KEY_${values.device}`] ?? "",
+				},
+			}).status;
+		};
+		const row = { id: 1, context: "ompdesk-rerun/12345/2", state: "success", description: receipt };
+		expect(run("1", [])).toBe(0);
+		expect(run("2", [])).not.toBe(0);
+		expect(run("2", [row])).toBe(0);
+		expect(run("3", [row])).not.toBe(0);
+		expect(run("3", [{ ...row, context: "ompdesk-rerun/12345/3" }])).not.toBe(0);
+		expect(run("2", [row], { SHA: "1123456789abcdef0123456789abcdef01234567" })).not.toBe(0);
+		expect(run("2", [row], { DEVICES: "MINI" })).not.toBe(0);
+		expect(run("2", [row], { REF_NAME: "main" })).not.toBe(0);
+		expect(run("2", [row], { REPO: "SeuPut0705/other" })).not.toBe(0);
+		expect(run("2", [{ ...row, description: `${receipt.slice(0, -1)}0` }])).not.toBe(0);
+		expect(run("2", [{ ...row, description: "v1.MACBOOK.1.bad" }])).not.toBe(0);
+		expect(run("2", [row, { ...row, id: 2, state: "failure" }])).not.toBe(0);
+		expect(run("2", [], { DEVICES: "" })).toBe(0);
+	});
 
 	it.skipIf(!openssl)(
 		"refuses a macOS dispatch started by hand, from an unknown computer, or with another dispatch's ticket",

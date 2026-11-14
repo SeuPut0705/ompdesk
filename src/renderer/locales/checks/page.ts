@@ -118,6 +118,7 @@ export const en: Record<string, string> = {
 	"checks.answer.notes": "notes",
 	"checks.answer.yes": "yes",
 	"checks.answer.no": "no",
+	"checks.answer.unavailable": "not recorded",
 	"checks.answer.gate": "gate “{gate}”",
 	"checks.answer.next.fix": "fix",
 	"checks.answer.next.rerun-failed": "rerun the failed ones",
@@ -163,6 +164,8 @@ export const en: Record<string, string> = {
 	"checks.note.judged-before-restart": "This attempt was judged before OMPdesk restarted; its answer was not kept",
 	"checks.note.dispatch-failed": "Its dispatch failed",
 	"checks.note.dispatch-failed-why": "Its dispatch failed: {error}",
+	"checks.note.dispatch-unconfirmed":
+		"Dispatch acceptance is unknown. Its reserved capacity stays blocked; it will not be resent. Action is needed: {error}",
 	"checks.note.refused": "It was refused",
 	"checks.note.refused-why": "The check couldn't run: {error}",
 	"checks.note.replaced": "A newer start of the same branch and workflow replaced it before it ran",
@@ -309,6 +312,7 @@ export const ko: Record<string, string> = {
 	"checks.answer.notes": "참고",
 	"checks.answer.yes": "예",
 	"checks.answer.no": "아니요",
+	"checks.answer.unavailable": "기록 없음",
 	"checks.answer.gate": "게이트 “{gate}”",
 	"checks.answer.next.fix": "고치기",
 	"checks.answer.next.rerun-failed": "실패한 것만 다시 실행",
@@ -355,6 +359,8 @@ export const ko: Record<string, string> = {
 	"checks.note.judged-before-restart": "이 시도는 OMPdesk가 다시 시작되기 전에 판정됐고, 그 답은 남아 있지 않아요",
 	"checks.note.dispatch-failed": "실행 요청에 실패했어요",
 	"checks.note.dispatch-failed-why": "실행 요청에 실패했어요: {error}",
+	"checks.note.dispatch-unconfirmed":
+		"실행 요청의 수락 여부를 몰라 예약 용량을 계속 막고 있어요. 재전송하지 않으며 확인 조치가 필요해요: {error}",
 	"checks.note.refused": "거절됐어요",
 	"checks.note.refused-why": "검사를 실행하지 못했어요: {error}",
 	"checks.note.replaced": "같은 브랜치와 워크플로의 더 새 시작이 실행 전에 이 실행을 대신했어요",

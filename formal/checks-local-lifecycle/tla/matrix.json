@@ -1,0 +1,6 @@
+{
+  "runs": [
+    { "name": "two-checkout-generations", "config": "MC.cfg", "expect": "pass" },
+    { "name": "three-checkout-generations", "config": "MC.cfg", "constants": { "Workers": "{w1, w2, w3}" }, "expect": "pass" }
+  ]
+}

@@ -17,13 +17,15 @@
 //!
 //! Lane, pool, key and digest are fixed at `start` (A5): the caller gives none of them; policy computes them before.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
 
 use super::contract::{Lane, Origin, PoolId, RunId, Timestamp};
 
 /// What makes two runs the same work for superseding: repo, ref and workflow.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Key {
     pub repo: String,
     pub git_ref: String,
@@ -31,7 +33,7 @@ pub struct Key {
 }
 
 /// What policy decided for a run before it asks for a place.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ask {
     pub id: RunId,
     pub origin: Origin,
@@ -45,17 +47,19 @@ pub struct Ask {
 }
 
 /// Where an entry is (the model's `state`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage {
     Held,
     Dispatching,
     Running,
     Cancelling,
+    /// The request may have been accepted but there is no authoritative outcome. Keeps its place across restarts.
+    Unconfirmed,
     Over(Ended),
 }
 
 /// How an entry left (the model's `Over`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ended {
     Refused,
     Reused,
@@ -66,7 +70,7 @@ pub enum Ended {
     Expired,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
     pub ask: Ask,
     pub stage: Stage,
@@ -79,7 +83,7 @@ impl Entry {
     fn occupies(&self) -> bool {
         matches!(
             self.stage,
-            Stage::Dispatching | Stage::Running | Stage::Cancelling
+            Stage::Dispatching | Stage::Running | Stage::Cancelling | Stage::Unconfirmed
         )
     }
 
@@ -99,7 +103,7 @@ fn rank(lane: Lane) -> u8 {
 }
 
 /// A pool's capacity, and whether it counts against the account's limit on all hosted jobs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limit {
     pub places: u32,
     pub hosted: bool,
@@ -116,6 +120,7 @@ pub struct Started {
 }
 
 /// One hub's queue and its ledger of places.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Admission {
     entries: Vec<Entry>,
     limits: BTreeMap<PoolId, Limit>,
@@ -302,15 +307,43 @@ impl Admission {
         }
     }
 
-    /// `DispatchFails`: the dispatch failed or its answer never came. The entry ends and its place goes back; it is
-    /// never queued again, because a dispatch whose answer was lost may have started the run. An entry a newer start
-    /// superseded while its dispatch was awaited (`Cancelling`) ends the same way: no run of it exists to end later.
+    /// A definitive rejection: no run exists. A superseded in-flight dispatch ends the same way only when this
+    /// rejection is authoritative. A lost response instead calls `dispatch_unconfirmed` and retains its place.
     pub fn dispatch_failed(&mut self, id: &str) {
         if let Some(entry) = self
             .entry_mut(id)
             .filter(|entry| matches!(entry.stage, Stage::Dispatching | Stage::Cancelling))
         {
             entry.stage = Stage::Over(Ended::Failed);
+        }
+    }
+
+    pub fn dispatch_unconfirmed(&mut self, id: &str) {
+        if let Some(entry) = self
+            .entry_mut(id)
+            .filter(|entry| matches!(entry.stage, Stage::Dispatching | Stage::Cancelling))
+        {
+            entry.stage = Stage::Unconfirmed;
+        }
+    }
+
+    /// A crash between the durable intent and its receipt is indistinguishable from a lost network response.
+    pub fn recovered(&mut self, known_receipt: impl Fn(&str) -> bool) {
+        for entry in &mut self.entries {
+            if entry.stage == Stage::Dispatching
+                || (entry.stage == Stage::Cancelling && !known_receipt(&entry.ask.id))
+            {
+                entry.stage = Stage::Unconfirmed;
+            }
+        }
+    }
+
+    pub fn reconcile_receipt(&mut self, id: &str, judged: bool) {
+        if let Some(entry) = self.entry_mut(id)
+            && (matches!(entry.stage, Stage::Dispatching | Stage::Unconfirmed)
+                || (entry.stage == Stage::Over(Ended::Red) && !judged))
+        {
+            entry.stage = Stage::Running;
         }
     }
 
@@ -324,6 +357,28 @@ impl Admission {
         };
         entry.stage = Stage::Over(if green { Ended::Green } else { Ended::Red });
         if green {
+            let (digest, id) = (entry.ask.digest.clone(), entry.ask.id.clone());
+            self.greens.insert(digest, id);
+        }
+    }
+
+    /// The kept answer, not GitHub's raw conclusion, decides whether this digest may be reused.
+    pub fn judged(&mut self, id: &str, green: bool) {
+        if self
+            .entry(id)
+            .is_some_and(|entry| entry.stage == Stage::Running)
+        {
+            self.run_ended(id, green);
+            return;
+        }
+        if !green {
+            return;
+        }
+        if let Some(entry) = self
+            .entry_mut(id)
+            .filter(|entry| entry.stage == Stage::Over(Ended::Red))
+        {
+            entry.stage = Stage::Over(Ended::Green);
             let (digest, id) = (entry.ask.digest.clone(), entry.ask.id.clone());
             self.greens.insert(digest, id);
         }
@@ -379,6 +434,19 @@ impl Admission {
     pub fn load(&self, pool: &str) -> (u32, u32) {
         (self.places(pool), self.limit(pool).places)
     }
+
+    pub fn discard_completed(&mut self, ids: &HashSet<RunId>) {
+        self.entries
+            .retain(|entry| !ids.contains(&entry.ask.id) || !matches!(entry.stage, Stage::Over(_)));
+        self.greens.retain(|_, id| !ids.contains(id));
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DispatchState {
+    Accepted,
+    Refused,
+    Unconfirmed,
 }
 
 /// One pump pass: admit under the lock, then send the dispatch with the lock released and record its answer. Returns
@@ -390,16 +458,16 @@ pub async fn pump<F, Fut>(
 ) -> Option<RunId>
 where
     F: FnOnce(Ask) -> Fut,
-    Fut: Future<Output = bool>,
+    Fut: Future<Output = DispatchState>,
 {
     let ask = locked(admission).admit(now)?;
     let id = ask.id.clone();
     let accepted = dispatch(ask).await;
     let mut admission = locked(admission);
-    if accepted {
-        admission.dispatched(&id);
-    } else {
-        admission.dispatch_failed(&id);
+    match accepted {
+        DispatchState::Accepted => admission.dispatched(&id),
+        DispatchState::Refused => admission.dispatch_failed(&id),
+        DispatchState::Unconfirmed => admission.dispatch_unconfirmed(&id),
     }
     Some(id)
 }
@@ -688,7 +756,7 @@ mod tests {
                 locked(&admission).entry("a").unwrap().stage,
                 Stage::Dispatching
             );
-            async { true }
+            async { DispatchState::Accepted }
         })
         .await;
         assert_eq!(admitted.as_deref(), Some("a"));

@@ -1,0 +1,47 @@
+{
+  "checker": { "kind": "tlc", "config": "MC.cfg", "workers": 2, "timeoutSec": 900, "deadlock": false },
+  "properties": ["TypeOK", "AckDurable", "EffectsDurable", "NoLostTell", "NoOverlappingOwners", "ReceiptCoversReplay"],
+  "waive": { "TypeOK": "Type shape only; the mutations target the safety promises." },
+  "mutations": [
+    {
+      "name": "ack-before-save",
+      "why": "An enqueue is acknowledged after a failed save.",
+      "search": "/\\ ~stopped /\\ mem > 0 /\\ mem = disk /\\ ~ack",
+      "replace": "/\\ ~stopped /\\ mem > 0 /\\ ~ack",
+      "breaks": "AckDurable",
+      "isolate": true
+    },
+    {
+      "name": "effect-before-save",
+      "why": "The lane runs an effect after a failed save.",
+      "search": "/\\ ~stopped /\\ mem > 0 /\\ mem = disk /\\ mem \\in memOut /\\ mem \\in diskOut /\\ mem \\notin effects",
+      "replace": "/\\ ~stopped /\\ mem > 0 /\\ mem \\in memOut /\\ mem \\notin effects",
+      "breaks": "EffectsDurable",
+      "isolate": true
+    },
+    {
+      "name": "remove-tell-before-acceptance",
+      "why": "The lane forgets a result before its destination durably accepts it.",
+      "search": "/\\ ~stopped /\\ mem = 2 /\\ 2 \\in memOut /\\ 2 \\in effects",
+      "replace": "/\\ ~stopped /\\ mem = 2 /\\ 2 \\in memOut",
+      "breaks": "NoLostTell",
+      "isolate": true
+    },
+    {
+      "name": "reopen-before-worker-exit",
+      "why": "A new lane starts while its predecessor's canceled worker is still running.",
+      "search": "/\\ stopped /\\ ~draining",
+      "replace": "/\\ stopped",
+      "breaks": "NoOverlappingOwners",
+      "isolate": true
+    },
+    {
+      "name": "forget-receipt-before-outbox-save",
+      "why": "The destination forgets an accepted result while Tell can still replay.",
+      "search": "/\\ ~stopped /\\ diskRetire /\\ 2 \\notin diskOut /\\ receipt",
+      "replace": "/\\ ~stopped /\\ receipt",
+      "breaks": "ReceiptCoversReplay",
+      "isolate": true
+    }
+  ]
+}

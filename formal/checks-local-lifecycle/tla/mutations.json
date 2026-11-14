@@ -1,0 +1,68 @@
+{
+  "checker": { "kind": "tlc", "config": "MC.cfg" },
+  "mutations": [
+    {
+      "name": "admit-while-paused",
+      "why": "A paired destination accepts work after the owner's pause.",
+      "search": "  /\\ ~s.paused  \\* pause-admission",
+      "replace": "  /\\ TRUE  \\* pause-admission",
+      "breaks": "NoPausedDestinationStart"
+    },
+    {
+      "name": "dispatch-after-stop",
+      "why": "The hub can stop after fallback preparation but before its dispatch.",
+      "search": "  /\\ ~s.stopped[w] \\* stop-fallback",
+      "replace": "  /\\ TRUE \\* stop-fallback",
+      "breaks": "NoFallbackAfterStop"
+    },
+    {
+      "name": "worker-enters-busy-checkout",
+      "why": "A new worker enters while an older worker still runs or cleans up.",
+      "search": "  /\\ s.b = None  \\* worker-B",
+      "replace": "  /\\ TRUE  \\* worker-B",
+      "breaks": "NoCheckoutOverlap"
+    },
+    {
+      "name": "late-worker-ignores-epoch",
+      "why": "A starter delayed past a core crash can mutate the next generation's checkout.",
+      "search": "  /\\ s.childEpoch[w] = s.epoch \\* epoch-fence",
+      "replace": "  /\\ TRUE \\* epoch-fence",
+      "breaks": "NoStaleGenerationWork"
+    },
+    {
+      "name": "setup-ignores-checkout-sha",
+      "why": "Setup or a check starts on a different commit than its request.",
+      "search": "  /\\ (s.kind[w] = \"git\" \\/ s.sha = w) \\* sha-fence",
+      "replace": "  /\\ TRUE \\* sha-fence",
+      "breaks": "NoWrongShaWork"
+    },
+    {
+      "name": "cancel-returns-before-cleanup",
+      "why": "A cancelled request returns while a spawned worker or its cleanup remains alive.",
+      "search": "  /\\ s.child[w] \\in {\"none\", \"done\", \"rejected\"} \\* cleanup-joined",
+      "replace": "  /\\ TRUE \\* cleanup-joined",
+      "breaks": "NoReturnBeforeCleanup"
+    },
+    {
+      "name": "worker-ignores-unreadable-epoch",
+      "why": "A delayed worker acts after its epoch has become unreadable.",
+      "search": "  /\\ ~s.broken \\* readable-epoch",
+      "replace": "  /\\ TRUE \\* readable-epoch",
+      "breaks": "NoWorkOnDamagedEpoch"
+    },
+    {
+      "name": "repair-corrupt-epoch-without-evidence",
+      "why": "The hub advances a damaged epoch instead of refusing the checkout.",
+      "search": "  /\\ ~s.broken \\* damaged-epoch",
+      "replace": "  /\\ TRUE \\* damaged-epoch",
+      "breaks": "NoAutomaticEpochRepair"
+    },
+    {
+      "name": "core-group-kills-b-owning-supervisor",
+      "why": "A supervisor killed with the core releases B while its separately grouped setup child survives.",
+      "search": "!.b = IF s.b = w /\\ s.bOwner = \"core\" THEN None ELSE @,",
+      "replace": "!.b = IF s.b = w THEN None ELSE @,",
+      "breaks": "NoCheckoutOverlap"
+    }
+  ]
+}

@@ -32,7 +32,7 @@ export default class OmpdeskCheckReporter {
 			let status = CASE[c.result().state] ?? "unknown";
 			if (status === "passed" && d?.flaky) status = "flaky";
 			if (status !== "passed" && status !== "skipped") failed = true;
-			this.write({ runner: "vitest", project, file, abs: mod.moduleId, titles: c.fullName.split(" > "), status, ms: d?.duration ?? 0 });
+			this.write({ runner: "vitest", project, file, abs: mod.moduleId, titles: c.fullName.split(" > "), status, ms: d?.duration ?? 0, first_error: c.result().errors?.[0]?.message });
 		}
 		const state = mod.state();
 		const errors = typeof mod.errors === "function" ? mod.errors() : [];
@@ -64,7 +64,7 @@ export default class OmpdeskCheckReporter {
 				if (status !== "passed" && status !== "skipped") failed = true;
 				const titles = [];
 				for (let s = t; s && s !== f && s.filepath === undefined; s = s.suite) titles.unshift(s.name);
-				this.write({ runner: "vitest", project, file, abs: f.filepath, titles, status, ms: t.result?.duration ?? 0 });
+				this.write({ runner: "vitest", project, file, abs: f.filepath, titles, status, ms: t.result?.duration ?? 0, first_error: t.result?.errors?.[0]?.message });
 			}
 			this.write({ runner: "vitest", project, file, abs: f.filepath, kind: "file", status: failed ? "failed" : "passed", ms: f.result?.duration ?? 0 });
 		}

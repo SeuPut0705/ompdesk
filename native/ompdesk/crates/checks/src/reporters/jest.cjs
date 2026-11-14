@@ -21,7 +21,7 @@ class OmpdeskCheckReporter {
 		const file = path.relative(this.root, abs).split(path.sep).join("/");
 		for (const a of result.testResults || []) {
 			const status = CASE[a.status] || (a.status === "pending" || a.status === "skipped" || a.status === "todo" ? "skipped" : "unknown");
-			this.write({ runner: "jest", file, abs, titles: [...(a.ancestorTitles || []), a.title], status, ms: a.duration || 0 });
+			this.write({ runner: "jest", file, abs, titles: [...(a.ancestorTitles || []), a.title], status, ms: a.duration || 0, first_error: a.failureMessages?.[0] });
 		}
 		const ok = !result.testExecError && !result.failureMessage && (result.numFailingTests || 0) === 0;
 		const ms = result.perfStats ? result.perfStats.end - result.perfStats.start : 0;

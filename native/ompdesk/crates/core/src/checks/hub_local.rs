@@ -10,7 +10,7 @@
 //!   computer of an older build) goes through admission to a GitHub runner under the same id, so its waits go on, and
 //!   the log says why. Placement that wants a computer for a check no command was named for says so the same way.
 
-use super::super::contract::Os;
+use super::super::contract::{BlocksRelease, Os};
 use super::super::{local_run, place};
 use super::*;
 
@@ -26,6 +26,18 @@ impl Core {
         let macos = pending.plan.macos;
         // An unknown visibility reads as public, which sends the check where it would go anyway.
         let private = !macos && self.github.is_private(&pending.repo).await.unwrap_or(false);
+        if self.stop.cancelled() {
+            return Err(Fault::cancelled());
+        }
+        if locked(&self.admission).paused() {
+            return Ok(StartReply {
+                run_id: None,
+                decision: StartDecision::Refused,
+                placement: None,
+                expected_start_min: None,
+                reason: "paused by the owner".into(),
+            });
+        }
         let placement = place::place(&place::Ask {
             os: if macos { Os::Macos } else { Os::Linux },
             private,
@@ -124,14 +136,14 @@ impl Core {
                     .run(
                         &ask,
                         Box::new(move |journal| poller.claim_local(journal, claim)),
-                        Scope::detached(),
+                        core.stop.clone(),
                     )
                     .await;
                 match ran {
                     Ok(run) => {
-                        if core.back(&id).is_some() {
+                        if let Some((pending, _, _)) = core.back(&id) {
                             let os = super::super::poller::local::this_os();
-                            let answer = local_run::answer_of(
+                            let mut answer = local_run::answer_of(
                                 &id,
                                 &run,
                                 &device,
@@ -139,6 +151,12 @@ impl Core {
                                 os,
                                 clock::now_ms(),
                             );
+                            if answer.verdict != AnswerVerdict::Green
+                                || answer.blocks_release.is_some()
+                            {
+                                answer.blocks_release =
+                                    pending.gate.map(|gate| BlocksRelease { gate });
+                            }
                             core.finish(&id, answer);
                         }
                     }
@@ -169,6 +187,9 @@ impl Core {
 
     /// A run that could not start where it was placed goes to a GitHub runner under the same id.
     async fn fall_back(&self, id: RunId, why: String) {
+        if self.stop.cancelled() {
+            return;
+        }
         let Some((pending, lane, device)) = self.back(&id) else {
             return;
         };
@@ -192,7 +213,7 @@ impl Core {
             Ok(answer) => answer,
             Err(why) => return self.fall_back(id, why).await,
         };
-        let Some((_, _, device)) = self.back(&id) else {
+        let Some((pending, _, device)) = self.back(&id) else {
             return;
         };
         // That computer answered as itself (`local`); here it is the computer the run was placed on.
@@ -203,19 +224,38 @@ impl Core {
         }
         answer.notes = super::super::note::english_of(&answer.said);
         answer.run_id = id.clone();
+        if answer.verdict != AnswerVerdict::Green || answer.blocks_release.is_some() {
+            answer.blocks_release = pending.gate.map(|gate| BlocksRelease { gate });
+        }
         self.finish(&id, answer);
     }
 
     /// `checks.runLocal`: a check another hub placed on this computer.
     pub(super) async fn run_here(&self, ask: LocalRunAsk, scope: Scope) -> Result<Answer, Fault> {
-        let run = self
-            .runner
-            .run(&ask, Box::new(|_| {}), scope)
-            .await
-            .map_err(|why| Fault::new("local_run", why))?;
+        if scope.cancelled() || self.stop.cancelled() {
+            return Err(Fault::cancelled());
+        }
+        if locked(&self.admission).paused() {
+            return Err(Fault::new("local_run", "paused by the owner"));
+        }
+        let run_scope = Scope::detached();
+        let run = self.runner.run(&ask, Box::new(|_| {}), run_scope.clone());
+        tokio::pin!(run);
+        let run = tokio::select! {
+            result = &mut run => result,
+            () = scope.on_cancel() => {
+                run_scope.cancel();
+                run.await
+            }
+            () = self.stop.on_cancel() => {
+                run_scope.cancel();
+                run.await
+            }
+        }
+        .map_err(|why| Fault::new("local_run", why))?;
         let os = super::super::poller::local::this_os();
         Ok(local_run::answer_of(
-            &run.id,
+            &run.run.id,
             &run,
             &"local".to_owned(),
             &ask.argv,

@@ -1,0 +1,7 @@
+{
+  "runs": [
+    { "name": "durability", "config": "MC.cfg", "expect": "pass", "deadlock": false },
+    { "name": "effect-reachable", "config": "MC_effect.cfg", "expect": "invariant", "property": "NeverEffect", "deadlock": false },
+    { "name": "ack-reachable", "config": "MC_ack.cfg", "expect": "invariant", "property": "NeverAck", "deadlock": false }
+  ]
+}

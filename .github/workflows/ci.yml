@@ -342,7 +342,9 @@ jobs:
     permissions:
       contents: read
       actions: read # the failure reports read this run's jobs
+      statuses: read
     uses: ./.github/workflows/mac-checks.yml
+    secrets: inherit
 
   # The manual full suite: the same sharded layout as release.yml's gate
   # (e2e-shards.yml). The shards need the app bundle, so it is built and
@@ -377,7 +379,9 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      statuses: read
     uses: ./.github/workflows/e2e-shards.yml
+    secrets: inherit
 
   # The app's automatic setup (src/main/setup/) for real on a fresh Windows
   # profile: scripts/setup-install-check.ts runs Bun's installer, PortableGit

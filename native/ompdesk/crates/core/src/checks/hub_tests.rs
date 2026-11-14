@@ -187,7 +187,14 @@ async fn a_run_github_started_on_another_commit_than_asked_is_never_reused_as_gr
     rounds(&hub, 3).await;
     hub.settle();
     let id = first.run_id.as_deref().unwrap();
-    let run = hub.snapshot.borrow().runs.iter().find(|run| run.id == id).cloned().unwrap();
+    let run = hub
+        .snapshot
+        .borrow()
+        .runs
+        .iter()
+        .find(|run| run.id == id)
+        .cloned()
+        .unwrap();
     let answer = hub.judge(id, &run).await;
     assert_eq!(answer.verdict, AnswerVerdict::Unknown);
     assert_eq!(answer.next, Next::Fix);
@@ -715,7 +722,10 @@ async fn a_batch_held_longer_than_a_lease_keeps_its_place_while_the_queue_waits_
         BTreeMap::new(),
     );
     let host = hub.queue_host();
-    let batch = host.start_batch(REPO, "feat", SHA).await.unwrap();
+    let batch = host
+        .start_batch(REPO, "feat", SHA, "o/app:batch1")
+        .await
+        .unwrap();
     assert_eq!(batch.decision, StartDecision::Held, "{}", batch.reason);
     let run = batch.run_id.unwrap();
     let waited = host.batch_answer(run.clone(), Scope::detached());
@@ -743,7 +753,10 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
     let github = github(CI);
     let hub = hub(&github);
     let host = hub.queue_host();
-    let batch = host.start_batch(REPO, "feat", SHA).await.unwrap();
+    let batch = host
+        .start_batch(REPO, "feat", SHA, "o/app:batch1")
+        .await
+        .unwrap();
     assert_eq!(batch.decision, StartDecision::Started, "{}", batch.reason);
     assert!(batch.reason.contains("(land lane)"), "{}", batch.reason);
     assert_eq!(dispatches(&github)[0].git_ref, "feat");
@@ -768,11 +781,16 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
             ..Note::new(NoteCode::NotLanded)
         },
     );
-    host.finished(RunResult {
-        run_id: "q-1".into(),
-        origin: samples::session(),
-        answer: entry.clone(),
-    });
+    host.finished(
+        RunResult {
+            run_id: "q-1".into(),
+            origin: samples::session(),
+            answer: entry.clone(),
+        },
+        Scope::detached(),
+    )
+    .await
+    .unwrap();
     let heard = results.recv().await.unwrap();
     assert_eq!(
         (heard.run_id.as_str(), heard.origin),
@@ -793,7 +811,11 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
     assert_eq!(waited, entry);
     let queue = Arc::downgrade(&hub.core.queue);
     drop(hub);
-    assert!(host.start_batch(REPO, "feat", SHA).await.is_err());
+    assert!(
+        host.start_batch(REPO, "feat", SHA, "o/app:batch2")
+            .await
+            .is_err()
+    );
     assert!(!mine.exists());
     // The hub was the queues' owner: they drop with it, which stops their lanes (queue_run.rs).
     assert!(queue.upgrade().is_none());
@@ -937,6 +959,7 @@ async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from
             streak: 1,
         }]
     });
+    github.with(|facts| facts.dispatch_ids = vec![88]);
     let hub = Hub::new(github.clone(), local);
     let board = hub.watch();
     let _loop = hub.run();
@@ -1044,13 +1067,27 @@ impl crate::checks::local_run::LocalRunner for FakeRunner {
         ask: &'a LocalRunAsk,
         started: Box<dyn FnOnce(&str) + Send + 'a>,
         _scope: Scope,
-    ) -> Fut<'a, Result<crate::checks::sources::LocalRun, String>> {
+    ) -> Fut<'a, Result<crate::checks::local_run::LocalResult, String>> {
         Box::pin(async move {
             locked(&self.asks).push(ask.clone());
             if let Ok(run) = &self.answer {
                 started(&run.id);
             }
-            self.answer.clone()
+            self.answer
+                .clone()
+                .map(|run| crate::checks::local_run::LocalResult {
+                    failed: Some(
+                        run.failed
+                            .iter()
+                            .map(|name| crate::checks::local_run::LocalFailure {
+                                name: name.clone(),
+                                first_error: None,
+                                known_flaky: false,
+                            })
+                            .collect(),
+                    ),
+                    run,
+                })
         })
     }
 }
@@ -1199,7 +1236,10 @@ async fn a_check_placed_on_a_paired_computer_goes_to_main_and_its_answer_comes_b
     // That computer answers as itself; here the answer is the hub's run on the computer it was placed on.
     let there = crate::checks::local_run::answer_of(
         "20261114-010203-ab12",
-        &journal("passed", &[]),
+        &crate::checks::local_run::LocalResult {
+            run: journal("passed", &[]),
+            failed: Some(Vec::new()),
+        },
         &"local".to_owned(),
         &run.ask.argv,
         Os::Linux,
@@ -1257,13 +1297,16 @@ async fn a_raw_success_with_a_release_flake_is_never_reused_as_green() {
     github.with(|facts| {
         facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, Some("success")))];
         facts.jobs = vec![gh_job(701, 77, at, Some("success"))];
-        facts.artifacts = vec![(77, crate::checks::sources::GithubArtifact {
-            id: 901,
-            name: "test-report-701".into(),
-            size_bytes: archive.len() as u64,
-            expired: false,
-            created_at: at,
-        })];
+        facts.artifacts = vec![(
+            77,
+            crate::checks::sources::GithubArtifact {
+                id: 901,
+                name: "test-report-701".into(),
+                size_bytes: archive.len() as u64,
+                expired: false,
+                created_at: at,
+            },
+        )];
         facts.archives.insert(901, archive);
     });
     rounds(&hub, 3).await;
@@ -1271,14 +1314,23 @@ async fn a_raw_success_with_a_release_flake_is_never_reused_as_green() {
     let answer = hub.answered(&first).expect("the release run was judged");
     assert_eq!(answer.verdict, AnswerVerdict::Red);
     assert!(answer.blocks_release.is_some());
-    let again = hub.start(samples::session(), start(Purpose::Release, "feat")).await.unwrap();
+    let again = hub
+        .start(samples::session(), start(Purpose::Release, "feat"))
+        .await
+        .unwrap();
     assert_ne!(again.decision, StartDecision::Reused);
     clock::set_real();
 }
 
 fn linux_capacity(hub: &Hub, places: u32) {
     locked(&hub.admission).set_pools(
-        BTreeMap::from([("github-linux".into(), admission::Limit { places, hosted: true })]),
+        BTreeMap::from([(
+            "github-linux".into(),
+            admission::Limit {
+                places,
+                hosted: true,
+            },
+        )]),
         40,
         BTreeMap::new(),
     );
@@ -1291,11 +1343,19 @@ async fn a_superseded_held_run_wakes_its_owner_without_a_status_or_wait_call() {
     let hub = hub(&github);
     linux_capacity(&hub, 0);
     let mut results = hub.results();
-    let first = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    let first = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
     assert_eq!(first.decision, StartDecision::Held);
-    let second = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    let second = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
     assert_eq!(second.decision, StartDecision::Held);
-    let result = results.try_recv().expect("superseded held owner must be woken");
+    let result = results
+        .try_recv()
+        .expect("superseded held owner must be woken");
     assert_eq!(result.run_id, first.run_id.unwrap());
     assert_eq!(result.answer.verdict, AnswerVerdict::Unknown);
     assert!(results.try_recv().is_err());
@@ -1308,12 +1368,21 @@ async fn a_definitely_refused_dispatch_wakes_its_held_owner_without_an_answer_qu
     let hub = hub(&github);
     linux_capacity(&hub, 0);
     let mut results = hub.results();
-    let first = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    let first = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
     assert_eq!(first.decision, StartDecision::Held);
-    github.with(|facts| facts.down = Some(SourceError::new("rejected", "GitHub refused HTTP 422")));
+    github.with(|facts| {
+        facts.dispatch_error = Some(crate::checks::sources::WriteError::Refused(
+            SourceError::new("rejected", "GitHub refused HTTP 422"),
+        ))
+    });
     linux_capacity(&hub, 1);
     hub.pump().await;
-    let result = results.try_recv().expect("dispatch refusal must wake its owner");
+    let result = results
+        .try_recv()
+        .expect("dispatch refusal must wake its owner");
     assert_eq!(result.run_id, first.run_id.unwrap());
     assert_eq!(result.answer.verdict, AnswerVerdict::Unknown);
     assert!(results.try_recv().is_err());
@@ -1325,12 +1394,202 @@ async fn an_unconfirmed_dispatch_never_returns_its_place_to_another_start() {
     let github = github(CI);
     let hub = hub(&github);
     linux_capacity(&hub, 0);
-    let first = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    let first = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
     assert_eq!(first.decision, StartDecision::Held);
-    github.with(|facts| facts.down = Some(SourceError::new("offline", "connection lost after request")));
+    github.with(|facts| {
+        facts.dispatch_error = Some(crate::checks::sources::WriteError::Unconfirmed(
+            SourceError::new("offline", "connection lost after request"),
+        ))
+    });
     linux_capacity(&hub, 1);
     hub.pump().await;
-    github.with(|facts| facts.down = None);
-    let second = hub.start(samples::session(), start(Purpose::Branch, "feat2")).await.unwrap();
+    github.with(|facts| facts.dispatch_error = None);
+    let second = hub
+        .start(samples::session(), start(Purpose::Branch, "feat2"))
+        .await
+        .unwrap();
     assert_eq!(second.decision, StartDecision::Held);
+}
+
+#[tokio::test]
+async fn an_unconfirmed_dispatch_survives_reopen_without_resend_or_capacity_release() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    let dir = crate::fs::disk::make_temp_dir("checks-unconfirmed-").unwrap();
+    let github = github(CI);
+    let open = || {
+        let local = Arc::new(FakeLocal::default());
+        let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(clock::now_ms())));
+        let poller = Poller::new(github.clone(), local.clone(), snapshot.clone());
+        Hub::build(
+            github.clone(),
+            local,
+            poller,
+            snapshot,
+            Some(dir.clone()),
+            Some(Arc::new(crate::checks::local_run::Unavailable)),
+        )
+    };
+    let hub = open();
+    linux_capacity(&hub, 1);
+    github.with(|facts| {
+        facts.dispatch_error = Some(crate::checks::sources::WriteError::Unconfirmed(
+            SourceError::new("offline", "response lost after acceptance"),
+        ))
+    });
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    assert_eq!(reply.decision, StartDecision::Held);
+    let id = reply.run_id.unwrap();
+    let answer = waited(&hub, &id).await;
+    assert_eq!(
+        (answer.verdict, answer.next),
+        (AnswerVerdict::Unknown, Next::AskOwner)
+    );
+    assert!(answer.notes.join(" ").contains("github-linux"));
+    assert_eq!(dispatches(&github).len(), 1);
+    drop(hub);
+    github.with(|facts| facts.dispatch_error = None);
+    let hub = open();
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat2"))
+        .await
+        .unwrap();
+    assert_eq!(reply.decision, StartDecision::Held);
+    assert_eq!(dispatches(&github).len(), 1);
+    assert_eq!(
+        locked(&hub.admission).entry(&id).unwrap().stage,
+        Stage::Unconfirmed
+    );
+    assert_eq!(waited(&hub, &id).await.next, Next::AskOwner);
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn a_batch_receipt_and_unacknowledged_result_survive_reopen_without_redispatch() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    let dir = crate::fs::disk::make_temp_dir("checks-batch-receipt-").unwrap();
+    let github = github(CI);
+    let open = || {
+        let local = Arc::new(FakeLocal::default());
+        let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(clock::now_ms())));
+        let poller = Poller::new(github.clone(), local.clone(), snapshot.clone());
+        Hub::build(
+            github.clone(),
+            local,
+            poller,
+            snapshot,
+            Some(dir.clone()),
+            Some(Arc::new(crate::checks::local_run::Unavailable)),
+        )
+    };
+    let hub = open();
+    let host = hub.queue_host();
+    let reply = host
+        .start_batch(REPO, "feat", SHA, "o/app:c1")
+        .await
+        .unwrap();
+    assert_eq!(reply.decision, StartDecision::Started);
+    let mut answer = samples::answer();
+    answer.run_id = "entry-1".into();
+    host.finished(
+        RunResult {
+            run_id: "entry-1".into(),
+            origin: samples::session(),
+            answer: answer.clone(),
+        },
+        Scope::detached(),
+    )
+    .await
+    .unwrap();
+    let delivery = hub
+        .notifications()
+        .into_iter()
+        .find(|(_, result)| result.run_id == "entry-1")
+        .unwrap();
+    drop(host);
+    drop(hub);
+    let hub = open();
+    let host = hub.queue_host();
+    assert_eq!(
+        host.start_batch(REPO, "feat", SHA, "o/app:c1")
+            .await
+            .unwrap(),
+        reply
+    );
+    assert_eq!(dispatches(&github).len(), 1);
+    assert_eq!(
+        hub.notifications()
+            .into_iter()
+            .find(|(_, result)| result.run_id == "entry-1"),
+        Some(delivery.clone())
+    );
+    let mut results = hub.results();
+    host.finished(
+        RunResult {
+            run_id: "entry-1".into(),
+            origin: samples::session(),
+            answer,
+        },
+        Scope::detached(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        results.try_recv().is_err(),
+        "replaying Tell must not apply the answer twice"
+    );
+    hub.acknowledge(&delivery.0, Scope::detached())
+        .await
+        .unwrap();
+    host.forget_answer("entry-1", Scope::detached())
+        .await
+        .unwrap();
+    host.forget_batch("o/app:c1", Scope::detached())
+        .await
+        .unwrap();
+    drop(host);
+    drop(hub);
+    let hub = open();
+    assert!(hub.notifications().is_empty());
+    assert!(locked(&hub.book).batches.is_empty());
+    assert!(locked(&hub.book).delivered.is_empty());
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn independent_hubs_never_share_a_receiver_delivery_id_for_the_same_local_run_id() {
+    let github = github(CI);
+    let first = hub(&github);
+    let second = hub(&github);
+    let mut live = first.results();
+    let result = RunResult {
+        run_id: "entry-1".into(),
+        origin: samples::session(),
+        answer: samples::answer(),
+    };
+    first
+        .queue_host()
+        .finished(result.clone(), Scope::detached())
+        .await
+        .unwrap();
+    second
+        .queue_host()
+        .finished(result, Scope::detached())
+        .await
+        .unwrap();
+    assert_ne!(first.notifications()[0].0, second.notifications()[0].0);
+    let live_id = first.delivery_id(&live.try_recv().unwrap());
+    assert_eq!(live_id, first.notifications()[0].0);
+    first
+        .acknowledge(&live_id, Scope::detached())
+        .await
+        .unwrap();
+    assert!(first.notifications().is_empty());
 }

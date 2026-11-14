@@ -27,4 +27,5 @@ jobs:
     permissions:
       contents: read
       actions: read # the failure reports read this run's jobs
+      statuses: read
     uses: ./.github/workflows/mac-checks.yml

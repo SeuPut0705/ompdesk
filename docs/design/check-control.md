@@ -73,7 +73,7 @@ type TestHistory = { test: TestId; p50Ms30d: number; state: "active" | "quaranti
 
 /** What an agent receives. Carries the judgment, so it never reads logs. */
 type Answer = { verdict: "green" | "red" | "unknown"; asOf: Timestamp; counts: { passed: number; failed: number };
-                failed: { test: string; firstError: string; knownFlaky: boolean; history: string }[];
+                failed: { test: string; firstError: string | null; knownFlaky: boolean; history: string }[];
                 blocksRelease: { gate: GateId } | null; expectedWaitMin: number | null; reused?: { from: RunId; savedMin: number };
                 next: "fix" | "rerun-failed" | "wait" | "land" | "ask-owner"; notes: string[] };
 ```
@@ -103,6 +103,18 @@ All are product behavior with no setting, like heavy slots. A policy only ever a
 | 3 | Merge queue | Lane `land`. **OMPdesk's own queue.** GitHub's queue is unavailable to user-owned repos and does not combine builds `[O5]`. Release-bound branches batch (goal-grouped, target size from history, default to start from Trunk's 4 and 5 min `[O14]`), build once on a temporary branch OMPdesk owns, and land in order when green. A red batch bisects and skips combinations already known red. Where a repo has GitHub's queue, OMPdesk can enqueue into it instead, without batching | P3 |
 | 4 | Flaky tests | Quarantine a test that passed and failed on one digest. Rerun only failed jobs and tests. Clear after 5 clean runs on different inputs `[O17]`. Release gates still fail while a quarantined test failed in that run. Slowdown alert when a test runs over 1.3× its 30-day median in 3 runs in a row `[proposal]` | P4 |
 | 5 | Local or runner | Private repo goes local first (free minutes), public goes to a runner. macOS-only work goes to a runner only when no local Mac has a slot. No start while a volume is under `min_free` (disk care owns cleanup). Spend past the runner budget the person set is escalated, §8 | P4 |
+
+### Durable admission, queue effects and result delivery
+
+The hub owns only an exact dispatch receipt: repository, run ID and attempt. Workflow/ref/time similarity is not provenance. Admission freezes the requested SHA; a result for another SHA, stale facts or a release-blocking quarantined failure cannot establish reusable green.
+
+A dispatch intent and its capacity reservation are saved before the external write. A definite refusal returns the place. A lost or ambiguous response is **UNCONFIRMED**, not a refusal or a retry opportunity: `unknown`/`ask-owner` names the reservation and cause, and restart retains it. Only authoritative run evidence can reconcile it automatically. With no such evidence, capacity may remain blocked indefinitely; this release has no new owner-reconciliation action and promises no eventual recovery.
+
+Queue acknowledgements and effects follow their durable saved state. Stable batch/result receipts absorb replay after a lost response. An unconfirmed batch remains pending with a lease; a conclusively final unknown verdict fails the trial rather than silently resending the workflow.
+
+Result notifications use a persisted random hub-instance namespace, run ID and phase (`unconfirmed` or `result`). Source replay keeps that opaque key. The canonical recipient resolver checks the original saved session and device; it must not guess a path, invent a caller, or bypass a hidden, deleted, disabled or unreachable target. Only a matching **Disk** receiver receipt permits source ACK. Memory-only acceptance, a save error or a lost response retains source responsibility. Disk acceptance transfers durable outbox responsibility; it is not evidence that a model read the result, and transport is at-least-once, not exactly-once.
+
+Old local journals may lack a first error or per-test history. Those fields are shown as not recorded, never invented as empty errors, zero history or a non-flaky pass.
 
 ## 6. The agent tool
 

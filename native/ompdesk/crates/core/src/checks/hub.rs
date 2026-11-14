@@ -6,7 +6,7 @@
 //! (`Hub::run`) wakes on the poller's changes, frees the places of runs that ended, reaps lapsed leases and admits
 //! what may start. The seams to the merge queue are here too: `LandQueue` and `QueueHost`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,16 +22,16 @@ use super::answer::{self, Judged};
 use super::contract::{
     Answer, AnswerVerdict, Decision, DecisionWhy, DeviceId, JobState, Lane, LocalRunAsk, MainFact,
     Next, Note, NoteCode, Origin, PolicyAction, Purpose, QueueEntry, RemoteRun, RepoId, Rerun,
-    RunId, RunResult, RunVerdict, Sha, Snapshot, StartDecision, StartReply, StartRequest,
-    StartScope, StatusRequest, Until, WaitRequest, Where, WhyCode, WorkflowAsk,
+    RunId, RunResult, Sha, Snapshot, StartDecision, StartReply, StartRequest, StartScope,
+    StatusRequest, Until, WaitRequest, Where, WhyCode, WorkflowAsk,
 };
 use super::local_run::LocalRunner;
 use super::policy::{self, Plan};
 use super::poller::Poller;
-use super::poller::provenance::{Claim, Expected};
+use super::poller::provenance::{Claim, GithubBinding};
 use super::results::ledger::Ledger;
 use super::results::store::Store;
-use super::sources::{Dispatch, GithubSource, LocalPool, LocalSource};
+use super::sources::{Dispatch, GithubSource, LocalPool, LocalSource, WriteError};
 use super::ticket::{self, AdmissionKey};
 use crate::clock;
 use crate::run::Runner;
@@ -73,6 +73,11 @@ pub trait ChecksHub: Send + Sync {
 
     /// Every result as it arrives, whoever waits for it (main wakes the session that started the run).
     fn results(&self) -> broadcast::Receiver<RunResult>;
+    /// The same opaque identity for live events and persisted replay.
+    fn delivery_id(&self, result: &RunResult) -> String;
+
+    fn notifications(&self) -> Vec<(String, RunResult)>;
+    fn acknowledge<'a>(&'a self, delivery_id: &'a str, scope: Scope) -> Fut<'a, Result<(), Fault>>;
 
     /// The owner's switch: while paused every start is refused with "paused by the owner".
     fn pause(&self, paused: bool) -> Fut<'_, Result<(), Fault>>;
@@ -142,6 +147,7 @@ pub(crate) trait QueueHost: Send + Sync {
         repo: &'a str,
         git_ref: &'a str,
         sha: &'a str,
+        effect_id: &'a str,
     ) -> Fut<'a, Result<StartReply, Fault>>;
 
     /// Ends with the batch run's kept answer (no timeout of its own; `scope` cancels it). An `unknown` answer is
@@ -153,7 +159,12 @@ pub(crate) trait QueueHost: Send + Sync {
     fn paused(&self) -> bool;
 
     /// An entry's result (`result.run_id` is the id `enqueue` answered): its waits end and its session is woken.
-    fn finished(&self, result: RunResult);
+    fn finished(&self, result: RunResult, scope: Scope) -> Fut<'_, Result<(), Fault>>;
+
+    /// The durable Drop outbox has removed the branch: this effect can no longer replay Test.
+    fn forget_batch<'a>(&'a self, effect_id: &'a str, scope: Scope) -> Fut<'a, Result<(), Fault>>;
+
+    fn forget_answer<'a>(&'a self, id: &'a str, scope: Scope) -> Fut<'a, Result<(), Fault>>;
 
     /// How git runs now (main's `gitRunner` from `checks.runners`), held to `scope`; None before main sent it or when
     /// git is not installed.
@@ -189,7 +200,7 @@ const JOURNAL_FILE: &str = "journal.json";
 const NOT_GREEN_KEPT: usize = 200;
 
 /// What the hub recorded of a run it started.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Pending {
     origin: Origin,
     repo: RepoId,
@@ -202,6 +213,8 @@ struct Pending {
     gate: Option<String>,
     /// GitHub's run whose failed jobs this entry runs again, instead of a dispatch.
     rerun_of: Option<u64>,
+    #[serde(default)]
+    rerun_attempt: Option<u32>,
 }
 
 /// The hub's memory of its runs, behind one lock (never held across an await).
@@ -221,6 +234,10 @@ struct Book {
     /// Runs placement put on a computer, until that computer answered or the run went to GitHub instead
     /// (`hub_local.rs`): what a fall back admits, and where it was.
     away: HashMap<RunId, (Pending, Lane, DeviceId)>,
+    bindings: HashMap<RunId, GithubBinding>,
+    batches: HashMap<String, BatchReceipt>,
+    delivered: HashMap<RunId, RunResult>,
+    notifications: HashMap<String, RunResult>,
 }
 
 /// One (session, repo, commit) a session was answered not green about.
@@ -231,14 +248,32 @@ struct NotGreen {
     sha: Sha,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+struct BatchReceipt {
+    id: RunId,
+    repo: RepoId,
+    git_ref: String,
+    sha: Sha,
+    reply: Option<StartReply>,
+}
+
 /// What the journal keeps.
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct Journal {
+    delivery_source: String,
     decisions: Vec<Decision>,
     answers: Vec<RunResult>,
     adoption: super::contract::Adoption,
     not_green: Vec<NotGreen>,
+    pending: HashMap<RunId, Pending>,
+    failures: HashMap<RunId, String>,
+    bindings: HashMap<RunId, GithubBinding>,
+    batches: HashMap<String, BatchReceipt>,
+    delivered: HashMap<RunId, RunResult>,
+    notifications: HashMap<String, RunResult>,
+    admission: Option<Admission>,
+    next_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -279,6 +314,14 @@ pub struct Core {
     remote: broadcast::Sender<RemoteRun>,
     /// Itself, for the task a check placed on this computer runs in.
     me: std::sync::Weak<Core>,
+    stop: Scope,
+    /// Serializes journal snapshots and atomic writes; an older snapshot can never overwrite a newer one.
+    journal_write: Mutex<()>,
+    /// Serializes replayable batch creation until its durable receipt exists.
+    batch_start: tokio::sync::Mutex<()>,
+    journal_error: Option<String>,
+    /// Journal-scoped random identity: local entry counters from different hubs cannot deduplicate each other.
+    delivery_source: String,
 }
 
 /// The real hub.
@@ -296,6 +339,7 @@ impl std::ops::Deref for Hub {
 
 impl Drop for Hub {
     fn drop(&mut self) {
+        self.core.stop.cancel();
         self.core.queue.stop();
         for task in locked(&self.tasks).drain(..) {
             task.abort();
@@ -374,18 +418,67 @@ impl Hub {
         let (limits, account, _) = places(&snapshot.borrow(), &HashMap::new());
         let mut admission = Admission::new(limits, account, LEASE_MS);
         admission.pause(saved.paused);
-        let journal: Journal = dir
+        let (journal, journal_error): (Journal, _) = match dir
             .as_ref()
-            .and_then(|dir| std::fs::read(dir.join(JOURNAL_FILE)).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+            .map(|dir| std::fs::read(dir.join(JOURNAL_FILE)))
+        {
+            None => (Journal::default(), None),
+            Some(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                (Journal::default(), None)
+            }
+            Some(Ok(bytes)) => match serde_json::from_slice(&bytes) {
+                Ok(journal) => (journal, None),
+                Err(error) => (
+                    Journal::default(),
+                    Some(format!(
+                        "checks journal is unreadable: {error}; admission is blocked"
+                    )),
+                ),
+            },
+            Some(Err(error)) => (
+                Journal::default(),
+                Some(format!(
+                    "checks journal cannot be read: {error}; admission is blocked"
+                )),
+            ),
+        };
+        let delivery_source = if journal.delivery_source.is_empty() {
+            crate::remote::crypto::random_device_id()
+        } else {
+            journal.delivery_source.clone()
+        };
+        if let Some(restored) = journal.admission.clone() {
+            admission = restored;
+            admission.pause(saved.paused);
+            admission.recovered(|id| journal.bindings.contains_key(id));
+        }
+        if journal_error.is_some() {
+            admission.pause(true);
+        }
+        for binding in journal.bindings.values() {
+            poller.bind(binding.clone());
+            admission.reconcile_receipt(
+                &binding.claim.run_id,
+                journal
+                    .answers
+                    .iter()
+                    .any(|result| result.run_id == binding.claim.run_id),
+            );
+        }
         let book = Book {
             answers: journal
                 .answers
                 .iter()
+                .chain(journal.delivered.values())
                 .map(|result| (result.run_id.clone(), result.answer.clone()))
                 .collect(),
             not_green: journal.not_green,
+            pending: journal.pending,
+            failures: journal.failures,
+            bindings: journal.bindings,
+            batches: journal.batches,
+            delivered: journal.delivered,
+            notifications: journal.notifications,
             ..Book::default()
         };
         snapshot.send_modify(|current| {
@@ -424,11 +517,16 @@ impl Hub {
                 git: Mutex::new(None),
                 kick: Arc::new(Notify::new()),
                 done: Notify::new(),
-                ids: AtomicU64::new(0),
+                ids: AtomicU64::new(journal.next_id),
                 trends_at: AtomicU64::new(0),
                 runner: runner.unwrap_or_else(|| super::local_run::CheckRunner::of(core.clone())),
                 remote: broadcast::Sender::new(RESULTS_KEPT),
                 me: core.clone(),
+                stop: Scope::detached(),
+                journal_write: Mutex::new(()),
+                batch_start: tokio::sync::Mutex::new(()),
+                journal_error,
+                delivery_source,
             }),
             tasks: Mutex::default(),
         }
@@ -528,7 +626,33 @@ fn places(
     (limits, hosted + 1, outside)
 }
 
+pub(crate) fn notification_id(result: &RunResult) -> String {
+    format!("{}:{}", result.run_id, notification_phase(result))
+}
+
+fn notification_phase(result: &RunResult) -> &'static str {
+    if result
+        .answer
+        .said
+        .iter()
+        .any(|note| note.code == NoteCode::DispatchUnconfirmed)
+    {
+        "unconfirmed"
+    } else {
+        "result"
+    }
+}
+
 impl Core {
+    fn delivery_id(&self, result: &RunResult) -> String {
+        format!(
+            "checks:{}:{}:{}",
+            self.delivery_source,
+            result.run_id,
+            notification_phase(result)
+        )
+    }
+
     /// One pass of the hub's loop: settle what the poller saw, answer the runs that ended, admit what may start, and
     /// bring the board's queue, gates and trends up to date. A run whose answer could not be read is judged again next
     /// pass, and after `JUDGE_TRIES` it is answered unknown with the last reason, so the session that waits for it is
@@ -553,6 +677,11 @@ impl Core {
         }
         self.pump().await;
         self.board().await;
+        if self.save_journal().is_ok() {
+            for result in locked(&self.book).notifications.values() {
+                let _ = self.results.send(result.clone());
+            }
+        }
     }
 
     fn next_id(&self) -> RunId {
@@ -572,18 +701,13 @@ impl Core {
             let mut admission = locked(&self.admission);
             admission.set_pools(limits, account, outside);
             for run in &snapshot.runs {
-                let Some(verdict) = run.verdict else {
+                if run.verdict.is_none() {
                     continue;
-                };
+                }
                 match admission.entry(&run.id).map(|entry| entry.stage) {
                     Some(Stage::Running) => {
-                        // A green run counts for reuse only on the commit the hub asked for: a push between the hub's
-                        // read and GitHub resolving the ref runs another commit under this run's digest.
-                        let asked = book
-                            .pending
-                            .get(&run.id)
-                            .is_some_and(|pending| pending.sha == run.sha);
-                        admission.run_ended(&run.id, verdict == RunVerdict::Green && asked);
+                        // Completion frees capacity; only the final judged Answer may make this digest reusable.
+                        admission.run_ended(&run.id, false);
                         ended.push((run.id.clone(), run.clone()));
                     }
                     Some(Stage::Cancelling) => admission.cancel_landed(&run.id),
@@ -604,19 +728,94 @@ impl Core {
 
     /// Admits what may start, one dispatch at a time.
     async fn pump(&self) {
-        while admission::pump(&self.admission, clock::now_ms(), |ask| self.dispatch(ask))
-            .await
-            .is_some()
-        {}
+        while !self.stop.cancelled() {
+            let admitted =
+                admission::pump(&self.admission, clock::now_ms(), |ask| self.dispatch(ask)).await;
+            if admitted.is_none() {
+                break;
+            }
+            if self.durable(&self.stop).await.is_err() {
+                return;
+            }
+        }
+        self.publish_unconfirmed();
+        // Held supersedes and definite dispatch refusals notify their owners without another status/wait call.
+        let pending: Vec<_> = {
+            let book = locked(&self.book);
+            book.pending
+                .keys()
+                .filter(|id| !book.answers.contains_key(*id))
+                .cloned()
+                .collect()
+        };
+        for id in pending {
+            if let Some(note) = self.over_before_github(&id) {
+                self.finish(&id, answer::unknown(&id, clock::now_ms(), Next::Fix, note));
+            }
+        }
     }
 
-    /// Sends one admitted run's dispatch; its place is already in the ledger (A2). Its claim goes to the poller first,
-    /// so the run GitHub then shows is known as this one. GitHub's dispatch names a branch, never a commit: a branch
-    /// that moved while the run waited is not dispatched (its digest, its ticket and its answer are the old commit's).
-    async fn dispatch(&self, ask: Ask) -> bool {
+    async fn authorize_rerun(&self, pending: &Pending, run: u64) -> Result<bool, WriteError> {
+        let refused =
+            |why: &str| WriteError::Refused(super::sources::SourceError::new("rejected", why));
+        if !pending.plan.macos {
+            return Ok(false);
+        }
+        let devices = self
+            .github
+            .variable(&pending.repo, "CHECKS_ADMISSION_DEVICES")
+            .await
+            .map_err(WriteError::Refused)?
+            .unwrap_or_default();
+        if devices.trim().is_empty() {
+            return Ok(false);
+        }
+        let key = locked(&self.key)
+            .clone()
+            .ok_or_else(|| refused("rerun requires this computer's admission key"))?;
+        if !policy::listed(key.device(), &devices) {
+            return Err(refused("this computer is not in CHECKS_ADMISSION_DEVICES"));
+        }
+        let attempt = pending
+            .rerun_attempt
+            .ok_or_else(|| refused("the target rerun attempt is not known"))?;
+        let grant = ticket::mint_rerun(
+            &key,
+            &ticket::RerunScope {
+                repo: &pending.repo,
+                git_ref: &pending.git_ref,
+                sha: &pending.sha,
+                run_id: run,
+                attempt,
+            },
+            clock::now_ms().saturating_add(ticket::TICKET_TTL_MS),
+        )
+        .ok_or_else(|| refused("the rerun receipt scope is invalid"))?;
+        if self.stop.cancelled() {
+            return Err(refused("the checks hub closed before granting a rerun"));
+        }
+        self.github
+            .authorize_rerun(&super::sources::CommitStatus {
+                repo: pending.repo.clone(),
+                sha: pending.sha.clone(),
+                context: grant.context,
+                description: grant.description,
+                state: grant.state.into(),
+            })
+            .await
+            .map(|()| true)
+    }
+
+    /// The reserved intent lands on disk before the first possible external write. A missing response is never a
+    /// retryable refusal and never establishes ownership of a nearby run.
+    async fn dispatch(&self, ask: Ask) -> admission::DispatchState {
+        use admission::DispatchState::{Accepted, Refused, Unconfirmed};
         let Some(pending) = locked(&self.book).pending.get(&ask.id).cloned() else {
-            return false;
+            return Refused;
         };
+        if self.durable(&self.stop).await.is_err() {
+            return Unconfirmed;
+        }
         let claim = Claim {
             run_id: ask.id.clone(),
             origin: pending.origin.clone(),
@@ -624,70 +823,94 @@ impl Core {
             gate: pending.gate.clone(),
             digest: pending.digest.clone(),
         };
-        if let Some(run) = pending.rerun_of {
-            // The same commit runs again: GitHub's run is this entry's from now on.
-            return match self.github.rerun_failed(&pending.repo, run).await {
-                Ok(()) => {
-                    self.poller.rerun(&pending.repo, run, claim);
-                    true
+        let sent = if let Some(run) = pending.rerun_of {
+            match self.authorize_rerun(&pending, run).await {
+                Ok(published) if !self.stop.cancelled() => self
+                    .github
+                    .rerun_failed(&pending.repo, run)
+                    .await
+                    .map(|()| run)
+                    .map_err(|error| {
+                        if published {
+                            WriteError::Unconfirmed(error.error().clone())
+                        } else {
+                            error
+                        }
+                    }),
+                Ok(_) => return Unconfirmed,
+                Err(error) => Err(error),
+            }
+        } else {
+            let tip = self.github.head(&pending.repo, &pending.git_ref).await;
+            match tip {
+                Ok(Some(tip)) if tip == pending.sha => {}
+                other => {
+                    let reason = match other {
+                        Ok(Some(tip)) => format!(
+                            "{} moved from {} to {}; start again to check the new tip",
+                            pending.git_ref,
+                            short(&pending.sha),
+                            short(&tip)
+                        ),
+                        Ok(None) => format!("{} is no longer pushed", pending.git_ref),
+                        Err(error) => format!("no dispatch was sent: {}", error.message),
+                    };
+                    locked(&self.book).failures.insert(ask.id, reason);
+                    return Refused;
                 }
-                Err(error) => {
-                    locked(&self.book).failures.insert(ask.id, error.message);
-                    false
-                }
-            };
-        }
-        if let Ok(Some(tip)) = self.github.head(&pending.repo, &pending.git_ref).await
-            && tip != pending.sha
-        {
-            locked(&self.book).failures.insert(
-                ask.id,
-                format!(
-                    "{} moved from {} to {} while it waited in OMPdesk's queue: start it again to check {}",
-                    pending.git_ref,
-                    short(&pending.sha),
-                    short(&tip),
-                    short(&tip)
-                ),
-            );
-            return false;
-        }
-        let now = clock::now_ms();
-        self.poller.expect(Expected {
-            repo: pending.repo.clone(),
-            workflow: pending.plan.workflow.clone(),
-            git_ref: pending.git_ref.clone(),
-            after: now,
-            claim,
-        });
-        let mut inputs = pending.plan.inputs.clone();
-        if pending.ticketed
-            && pending.plan.macos
-            && let Some(key) = locked(&self.key).clone()
-        {
-            let expires = now.saturating_add(ticket::TICKET_TTL_MS);
-            inputs.insert(
-                "ticket".into(),
-                ticket::mint(&key, &pending.repo, &pending.git_ref, &pending.sha, expires),
-            );
-        }
-        let sent = self
-            .github
-            .dispatch(&Dispatch {
-                repo: pending.repo.clone(),
-                workflow: pending.plan.workflow.clone(),
-                git_ref: pending.git_ref.clone(),
-                inputs,
-            })
-            .await;
+            }
+            if self.stop.cancelled() {
+                return Refused;
+            }
+            let mut inputs = pending.plan.inputs.clone();
+            if pending.ticketed
+                && pending.plan.macos
+                && let Some(key) = locked(&self.key).clone()
+            {
+                inputs.insert(
+                    "ticket".into(),
+                    ticket::mint(
+                        &key,
+                        &pending.repo,
+                        &pending.git_ref,
+                        &pending.sha,
+                        clock::now_ms().saturating_add(ticket::TICKET_TTL_MS),
+                    ),
+                );
+            }
+            self.github
+                .dispatch(&Dispatch {
+                    repo: pending.repo.clone(),
+                    workflow: pending.plan.workflow.clone(),
+                    git_ref: pending.git_ref.clone(),
+                    inputs,
+                })
+                .await
+        };
         match sent {
-            Ok(()) => {
-                self.poller.nudge(&pending.repo);
-                true
+            Ok(run) => {
+                let binding = GithubBinding {
+                    repo: pending.repo.clone(),
+                    run,
+                    attempt: pending.rerun_attempt.unwrap_or(1),
+                    claim,
+                };
+                locked(&self.book).bindings.insert(ask.id, binding.clone());
+                // If this write is interrupted, the prior durable intent stays Unconfirmed on recovery.
+                if self.durable(&self.stop).await.is_err() {
+                    return Unconfirmed;
+                }
+                self.poller.bind(binding);
+                Accepted
             }
             Err(error) => {
-                locked(&self.book).failures.insert(ask.id, error.message);
-                false
+                locked(&self.book)
+                    .failures
+                    .insert(ask.id, error.error().message.clone());
+                match error {
+                    WriteError::Refused(_) => Refused,
+                    WriteError::Unconfirmed(_) => Unconfirmed,
+                }
             }
         }
     }
@@ -716,25 +939,97 @@ impl Core {
             next.decisions.drain(..over);
             *current = Arc::new(next);
         });
-        self.save_journal();
+        let _ = self.save_journal();
     }
 
     /// Writes the journal (`JOURNAL_FILE`) as the snapshot and the book hold it now; a hub without a folder keeps it
     /// in memory. A write that fails (a full disk) is retried by `write_kept`.
-    fn save_journal(&self) {
+    fn save_journal(&self) -> Result<(), Fault> {
+        let _write = locked(&self.journal_write);
+        if let Some(error) = &self.journal_error {
+            return Err(Fault::new("checks_journal", error));
+        }
         let Some(dir) = &self.dir else {
-            return;
+            return Ok(());
         };
         let snapshot = Arc::clone(&self.snapshot.borrow());
+        let book = locked(&self.book);
+        let keep: HashSet<_> = snapshot
+            .answers
+            .iter()
+            .map(|result| &result.run_id)
+            .chain(book.notifications.values().map(|result| &result.run_id))
+            .chain(book.delivered.keys())
+            .chain(book.batches.values().map(|receipt| &receipt.id))
+            .chain(book.away.keys())
+            .chain(book.unjudged.keys())
+            .collect();
+        let discarded: HashSet<_> = book
+            .answers
+            .keys()
+            .filter(|id| !keep.contains(id))
+            .cloned()
+            .collect();
+        let mut admission = locked(&self.admission).clone();
+        admission.discard_completed(&discarded);
         let journal = Journal {
+            delivery_source: self.delivery_source.clone(),
             decisions: snapshot.decisions.clone(),
-            answers: snapshot.answers.clone(),
+            answers: snapshot
+                .answers
+                .iter()
+                .filter(|result| book.answers.contains_key(&result.run_id))
+                .cloned()
+                .collect(),
             adoption: snapshot.adoption.clone(),
-            not_green: locked(&self.book).not_green.clone(),
+            not_green: book.not_green.clone(),
+            pending: book
+                .pending
+                .iter()
+                .filter(|(id, _)| !discarded.contains(*id))
+                .map(|(id, pending)| (id.clone(), pending.clone()))
+                .collect(),
+            failures: book
+                .failures
+                .iter()
+                .filter(|(id, _)| !discarded.contains(*id))
+                .map(|(id, error)| (id.clone(), error.clone()))
+                .collect(),
+            bindings: book
+                .bindings
+                .iter()
+                .filter(|(id, _)| !discarded.contains(*id))
+                .map(|(id, binding)| (id.clone(), binding.clone()))
+                .collect(),
+            batches: book.batches.clone(),
+            delivered: book.delivered.clone(),
+            notifications: book.notifications.clone(),
+            admission: Some(admission),
+            next_id: self.ids.load(Ordering::Relaxed),
         };
-        if let Ok(bytes) = serde_json::to_vec(&journal) {
-            let _ =
-                crate::disk::saves::write_kept(&dir.join(JOURNAL_FILE), &bytes, Some(0o600), 0o700);
+        let bytes = serde_json::to_vec(&journal)
+            .map_err(|error| Fault::new("checks_journal", error.to_string()))?;
+        crate::disk::saves::write_kept(&dir.join(JOURNAL_FILE), &bytes, Some(0o600), 0o700)?;
+        Ok(())
+    }
+
+    /// An effect or durable acknowledgement cannot pass a failed save. A restart replays the previous envelope.
+    async fn durable(&self, scope: &Scope) -> Result<(), Fault> {
+        loop {
+            if scope.cancelled() || self.stop.cancelled() {
+                return Err(Fault::cancelled());
+            }
+            if let Some(error) = &self.journal_error {
+                return Err(Fault::new("checks_journal", error));
+            }
+            if self.save_journal().is_ok() {
+                return Ok(());
+            }
+            tokio::select! {
+                () = scope.on_cancel() => return Err(Fault::cancelled()),
+                () = self.stop.on_cancel() => return Err(Fault::cancelled()),
+                () = clock::sleep(Duration::from_secs(1)) => {},
+            }
         }
     }
 
@@ -745,7 +1040,7 @@ impl Core {
             change(&mut next.adoption);
             *current = Arc::new(next);
         });
-        self.save_journal();
+        let _ = self.save_journal();
     }
 
     /// A start's answer, counted: runs started through the tool (started now or held for a place) and refusals.
@@ -772,6 +1067,10 @@ impl Core {
                 return;
             }
             book.answers.insert(id.to_owned(), answer.clone());
+            locked(&self.admission).judged(
+                id,
+                answer.verdict == AnswerVerdict::Green && answer.blocks_release.is_none(),
+            );
             // What a session was told about a commit: not green until a green answer of the same commit.
             if let Some(pending) = book.pending.get(id).cloned()
                 && let Origin::Session { session, .. } = &pending.origin
@@ -799,16 +1098,20 @@ impl Core {
             origin,
             answer,
         };
-        let _ = self.results.send(result.clone());
+        locked(&self.book)
+            .notifications
+            .insert(self.delivery_id(&result), result.clone());
         self.snapshot.send_modify(|current| {
             let mut next = Snapshot::clone(current);
             next.answers.retain(|kept| kept.run_id != result.run_id);
-            next.answers.push(result);
+            next.answers.push(result.clone());
             let over = next.answers.len().saturating_sub(ANSWERS_SHOWN);
             next.answers.drain(..over);
             *current = Arc::new(next);
         });
-        self.save_journal();
+        if self.save_journal().is_ok() {
+            let _ = self.results.send(result);
+        }
         self.done.notify_waiters();
         // The board's gates read the answers.
         self.kick.notify_one();
@@ -1019,6 +1322,12 @@ impl Core {
             )
             .map(|mut answer| {
                 if let Some(asked) = moved {
+                    answer.verdict = AnswerVerdict::Unknown;
+                    answer.next = Next::Fix;
+                    answer.blocks_release = pending
+                        .as_ref()
+                        .and_then(|pending| pending.gate.clone())
+                        .map(|gate| super::contract::BlocksRelease { gate });
                     answer.say(Note {
                         commit: Some(run.sha.clone()),
                         branch: Some(run.git_ref.clone()),
@@ -1051,6 +1360,67 @@ impl Core {
                     Note::new(NoteCode::JudgedBeforeRestart),
                 )
             }),
+        }
+    }
+
+    fn unconfirmed_answer(&self, id: &str) -> Option<Answer> {
+        if !locked(&self.admission)
+            .entry(id)
+            .is_some_and(|entry| entry.stage == Stage::Unconfirmed)
+        {
+            return None;
+        }
+        let book = locked(&self.book);
+        let pending = book.pending.get(id)?;
+        Some(answer::unknown(
+            id,
+            clock::now_ms(),
+            Next::AskOwner,
+            Note {
+                error: Some(format!(
+                    "{id}: {} {} at {} ({}) — {}",
+                    pending.repo,
+                    pending.git_ref,
+                    pending.sha,
+                    policy::pool(pending.plan.macos),
+                    book.failures
+                        .get(id)
+                        .map(String::as_str)
+                        .unwrap_or("the core restarted before an authoritative receipt was saved"),
+                )),
+                ..Note::new(NoteCode::DispatchUnconfirmed)
+            },
+        ))
+    }
+
+    fn publish_unconfirmed(&self) {
+        let ids: Vec<_> = locked(&self.book).pending.keys().cloned().collect();
+        for id in ids {
+            let Some(answer) = self.unconfirmed_answer(&id) else {
+                continue;
+            };
+            self.snapshot.send_if_modified(|current| {
+                if current.answers.iter().any(|result| result.run_id == id) {
+                    return false;
+                }
+                let mut next = Snapshot::clone(current);
+                let origin = locked(&self.book)
+                    .pending
+                    .get(&id)
+                    .map(|pending| pending.origin.clone())
+                    .unwrap_or(Origin::Person);
+                let result = RunResult {
+                    run_id: id.clone(),
+                    origin,
+                    answer,
+                };
+                locked(&self.book)
+                    .notifications
+                    .insert(self.delivery_id(&result), result.clone());
+                next.answers.push(result);
+                *current = Arc::new(next);
+                true
+            });
         }
     }
 
@@ -1144,6 +1514,15 @@ impl Core {
         let Some((_, run)) = self.poller.github_of(&id) else {
             return Ok(refused(format!("GitHub's run for {id} is not known")));
         };
+        let Some(attempt) = self
+            .poller
+            .attempt(repo, run)
+            .and_then(|attempt| attempt.checked_add(1))
+        else {
+            return Ok(refused(format!(
+                "the current attempt of GitHub's run for {id} is not known"
+            )));
+        };
         let Some(lane) = locked(&self.admission)
             .entry(&id)
             .map(|entry| entry.ask.lane)
@@ -1160,6 +1539,7 @@ impl Core {
                 self.next_id(),
                 Pending {
                     rerun_of: Some(run),
+                    rerun_attempt: Some(attempt),
                     ..pending
                 },
                 lane,
@@ -1181,6 +1561,12 @@ impl Core {
                 reason,
             })
         };
+        if self.stop.cancelled() {
+            return Err(Fault::cancelled());
+        }
+        if let Some(error) = &self.journal_error {
+            return refuse(error.clone());
+        }
         if locked(&self.admission).paused() {
             return refuse("paused by the owner".into());
         }
@@ -1251,6 +1637,7 @@ impl Core {
                 .await;
         }
         self.submit(
+            self.next_id(),
             origin,
             request.purpose,
             request.workflow,
@@ -1267,6 +1654,7 @@ impl Core {
     #[allow(clippy::too_many_arguments)]
     async fn submit(
         &self,
+        id: RunId,
         origin: Origin,
         purpose: Purpose,
         named: Option<WorkflowAsk>,
@@ -1368,9 +1756,9 @@ impl Core {
             digest,
             gate: (lane == Lane::Release).then(|| format!("release {workflow}")),
             rerun_of: None,
+            rerun_attempt: None,
         };
-        self.place_and_admit(self.next_id(), pending, lane, local)
-            .await
+        self.place_and_admit(id, pending, lane, local).await
     }
 
     /// One entry into admission: a start's, or a rerun's of a red run's failed jobs. It supersedes older runs of its
@@ -1390,6 +1778,12 @@ impl Core {
                 reason,
             })
         };
+        if self.stop.cancelled() {
+            return Err(Fault::cancelled());
+        }
+        if let Some(error) = &self.journal_error {
+            return refuse(error.clone());
+        }
         let (origin, repo, git_ref) = (
             pending.origin.clone(),
             pending.repo.clone(),
@@ -1505,6 +1899,17 @@ impl Core {
                     lane = lane.word()
                 ),
             ),
+            Some(Stage::Unconfirmed) => {
+                let answer = self.unconfirmed_answer(&id);
+                reply(
+                    StartDecision::Held,
+                    answer
+                        .map(|answer| answer.notes.join("; "))
+                        .unwrap_or_else(|| {
+                            "dispatch acceptance is unknown; its capacity remains reserved".into()
+                        }),
+                )
+            }
             Some(Stage::Held) => {
                 let (running, limit) = locked(&self.admission).load(pool);
                 let full = running >= limit;
@@ -1555,6 +1960,9 @@ impl Core {
 
     async fn wait(&self, request: WaitRequest, scope: Scope) -> Result<Answer, Fault> {
         let id = request.run_id;
+        if let Some(answer) = self.unconfirmed_answer(&id) {
+            return Ok(answer);
+        }
         let seconds = request
             .timeout_seconds
             .unwrap_or(super::contract::WAIT_DEFAULT_SECONDS)
@@ -1639,6 +2047,25 @@ impl ChecksHub for Hub {
         self.results.subscribe()
     }
 
+    fn delivery_id(&self, result: &RunResult) -> String {
+        self.core.delivery_id(result)
+    }
+
+    fn notifications(&self) -> Vec<(String, RunResult)> {
+        locked(&self.book)
+            .notifications
+            .iter()
+            .map(|(id, result)| (id.clone(), result.clone()))
+            .collect()
+    }
+
+    fn acknowledge<'a>(&'a self, delivery_id: &'a str, scope: Scope) -> Fut<'a, Result<(), Fault>> {
+        Box::pin(async move {
+            locked(&self.book).notifications.remove(delivery_id);
+            self.durable(&scope).await
+        })
+    }
+
     fn pause(&self, paused: bool) -> Fut<'_, Result<(), Fault>> {
         let done = self.core.pause(paused);
         Box::pin(async move { done })
@@ -1708,21 +2135,68 @@ impl QueueHost for Host {
         repo: &'a str,
         git_ref: &'a str,
         sha: &'a str,
+        effect_id: &'a str,
     ) -> Fut<'a, Result<StartReply, Fault>> {
         Box::pin(async move {
             let core = self.core()?;
-            core.submit(
-                Origin::Outside {
-                    claimed_name: "OMPdesk merge queue".into(),
-                },
-                Purpose::Branch,
-                None,
-                true,
-                repo.to_owned(),
-                git_ref.to_owned(),
-                sha.to_owned(),
-            )
-            .await
+            let _start = core.batch_start.lock().await;
+            let receipt = locked(&core.book).batches.get(effect_id).cloned();
+            let receipt = match receipt {
+                Some(receipt) => {
+                    if receipt.repo != repo || receipt.git_ref != git_ref || receipt.sha != sha {
+                        return Err(Fault::new(
+                            "checks_batch",
+                            "a batch effect id was reused with different inputs",
+                        ));
+                    }
+                    if let Some(reply) = receipt.reply.clone() {
+                        core.durable(&core.stop).await?;
+                        return Ok(reply);
+                    }
+                    receipt
+                }
+                None => {
+                    let receipt = BatchReceipt {
+                        id: core.next_id(),
+                        repo: repo.into(),
+                        git_ref: git_ref.into(),
+                        sha: sha.into(),
+                        reply: None,
+                    };
+                    locked(&core.book)
+                        .batches
+                        .insert(effect_id.into(), receipt.clone());
+                    receipt
+                }
+            };
+            core.durable(&core.stop).await?;
+            let exists = locked(&core.book).pending.contains_key(&receipt.id);
+            let reply = if exists {
+                StartReply {
+                    run_id: Some(receipt.id.clone()), decision: StartDecision::Held,
+                    placement: Some(Where::GithubHosted), expected_start_min: None,
+                    reason: "the batch's durable check intent is already reserved; waiting for its authoritative outcome".into(),
+                }
+            } else {
+                core.submit(
+                    receipt.id,
+                    Origin::Outside {
+                        claimed_name: "OMPdesk merge queue".into(),
+                    },
+                    Purpose::Branch,
+                    None,
+                    true,
+                    repo.into(),
+                    git_ref.into(),
+                    sha.into(),
+                )
+                .await?
+            };
+            if let Some(receipt) = locked(&core.book).batches.get_mut(effect_id) {
+                receipt.reply = Some(reply.clone());
+            }
+            core.durable(&core.stop).await?;
+            Ok(reply)
         })
     }
 
@@ -1742,10 +2216,31 @@ impl QueueHost for Host {
             .is_some_and(|core| locked(&core.admission).paused())
     }
 
-    fn finished(&self, result: RunResult) {
-        if let Some(core) = self.0.upgrade() {
+    fn finished(&self, result: RunResult, scope: Scope) -> Fut<'_, Result<(), Fault>> {
+        Box::pin(async move {
+            let core = self.core()?;
+            locked(&core.book)
+                .delivered
+                .insert(result.run_id.clone(), result.clone());
             core.finish_with(&result.run_id, Some(result.origin), result.answer);
-        }
+            core.durable(&scope).await
+        })
+    }
+
+    fn forget_batch<'a>(&'a self, effect_id: &'a str, scope: Scope) -> Fut<'a, Result<(), Fault>> {
+        Box::pin(async move {
+            let core = self.core()?;
+            locked(&core.book).batches.remove(effect_id);
+            core.durable(&scope).await
+        })
+    }
+
+    fn forget_answer<'a>(&'a self, id: &'a str, scope: Scope) -> Fut<'a, Result<(), Fault>> {
+        Box::pin(async move {
+            let core = self.core()?;
+            locked(&core.book).delivered.remove(id);
+            core.durable(&scope).await
+        })
     }
 
     fn git(&self, scope: Scope) -> Option<crate::git::run::Git> {
