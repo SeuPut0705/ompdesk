@@ -1,0 +1,111 @@
+{
+  "checker": {
+    "kind": "tlc",
+    "config": "MC.cfg",
+    "workers": 1,
+    "timeoutSec": 180
+  },
+  "properties": [
+    "NoAcceptedLoss",
+    "DiskOnlyAck",
+    "ImmutableLogicalPayload",
+    "OneStockCommit",
+    "NativeOrder",
+    "NoFalseContextReceipt",
+    "ProviderRequiresDurableInput",
+    "CurrentReceiverFence",
+    "BlobCustody",
+    "ProtectedLegacy",
+    "FirstDispatchStable"
+  ],
+  "mutations": [
+    {
+      "name": "drop-unacknowledged-source",
+      "why": "NoAcceptedLoss consumer contract can fail.",
+      "search": "source' = source \\ taken",
+      "replace": "source' = {}",
+      "breaks": "NoAcceptedLoss",
+      "isolate": true
+    },
+    {
+      "name": "memory-ack",
+      "why": "DiskOnlyAck consumer contract can fail.",
+      "search": "IF AckMemory THEN",
+      "replace": "IF TRUE THEN",
+      "breaks": "DiskOnlyAck",
+      "isolate": true
+    },
+    {
+      "name": "overwrite-logical",
+      "why": "ImmutableLogicalPayload consumer contract can fail.",
+      "search": "IF Overwrite THEN",
+      "replace": "IF TRUE THEN",
+      "breaks": "ImmutableLogicalPayload",
+      "isolate": true
+    },
+    {
+      "name": "duplicate-native-root",
+      "why": "OneStockCommit consumer contract can fail.",
+      "search": "(DuplicateQueue \\/ id \\notin Elems(queued))",
+      "replace": "TRUE",
+      "breaks": "OneStockCommit",
+      "isolate": true
+    },
+    {
+      "name": "reverse-source-order",
+      "why": "NativeOrder consumer contract can fail.",
+      "search": "IF Reorder THEN",
+      "replace": "IF TRUE THEN",
+      "breaks": "NativeOrder",
+      "isolate": true
+    },
+    {
+      "name": "receipt-before-output",
+      "why": "NoFalseContextReceipt consumer contract can fail.",
+      "search": "IF ReceiptEarly THEN",
+      "replace": "IF TRUE THEN",
+      "breaks": "NoFalseContextReceipt",
+      "isolate": true
+    },
+    {
+      "name": "provider-before-flush",
+      "why": "ProviderRequiresDurableInput consumer contract can fail.",
+      "search": "\\/ ProviderEarly)",
+      "replace": "\\/ TRUE)",
+      "breaks": "ProviderRequiresDurableInput",
+      "isolate": true
+    },
+    {
+      "name": "stale-target",
+      "why": "CurrentReceiverFence consumer contract can fail.",
+      "search": "(Fence \\/ StaleFence) /\\ source # {}",
+      "replace": "TRUE /\\ source # {}",
+      "breaks": "CurrentReceiverFence",
+      "isolate": true
+    },
+    {
+      "name": "gc-unconsumed-blob",
+      "why": "BlobCustody consumer contract can fail.",
+      "search": "IF EvictPending THEN",
+      "replace": "IF TRUE THEN",
+      "breaks": "BlobCustody",
+      "isolate": true
+    },
+    {
+      "name": "promote-legacy",
+      "why": "ProtectedLegacy consumer contract can fail.",
+      "search": "legacyOwned \\/ ClaimLegacy",
+      "replace": "TRUE",
+      "breaks": "ProtectedLegacy",
+      "isolate": true
+    },
+    {
+      "name": "replace-first-dispatch",
+      "why": "FirstDispatchStable consumer contract can fail.",
+      "search": "dispatch[id] = 0 \\/ ReplaceDispatch",
+      "replace": "TRUE",
+      "breaks": "FirstDispatchStable",
+      "isolate": true
+    }
+  ]
+}

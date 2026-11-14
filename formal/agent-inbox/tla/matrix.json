@@ -1,0 +1,85 @@
+{
+  "runs": [
+    {
+      "name": "prompt-report-crash",
+      "config": "MC.cfg",
+      "expect": "pass"
+    },
+    {
+      "name": "two-per-kind-two-crashes",
+      "config": "MC.cfg",
+      "constants": {
+        "MaxIds": "2",
+        "MaxCrashes": "2"
+      },
+      "expect": "pass",
+      "tier": "deep"
+    },
+    {
+      "name": "AckMemory",
+      "config": "MC_bug_AckMemory.cfg",
+      "expect": "invariant",
+      "property": "DiskOnlyAck"
+    },
+    {
+      "name": "SkipBlob",
+      "config": "MC_bug_SkipBlob.cfg",
+      "expect": "invariant",
+      "property": "BlobCustody"
+    },
+    {
+      "name": "Overwrite",
+      "config": "MC_bug_Overwrite.cfg",
+      "expect": "invariant",
+      "property": "ImmutableLogicalPayload"
+    },
+    {
+      "name": "DuplicateQueue",
+      "config": "MC_bug_DuplicateQueue.cfg",
+      "expect": "invariant",
+      "property": "OneStockCommit"
+    },
+    {
+      "name": "Reorder",
+      "config": "MC_bug_Reorder.cfg",
+      "expect": "invariant",
+      "property": "NativeOrder"
+    },
+    {
+      "name": "ReceiptEarly",
+      "config": "MC_bug_ReceiptEarly.cfg",
+      "expect": "invariant",
+      "property": "NoFalseContextReceipt"
+    },
+    {
+      "name": "ProviderEarly",
+      "config": "MC_bug_ProviderEarly.cfg",
+      "expect": "invariant",
+      "property": "ProviderRequiresDurableInput"
+    },
+    {
+      "name": "StaleFence",
+      "config": "MC_bug_StaleFence.cfg",
+      "expect": "invariant",
+      "property": "CurrentReceiverFence"
+    },
+    {
+      "name": "EvictPending",
+      "config": "MC_bug_EvictPending.cfg",
+      "expect": "invariant",
+      "property": "BlobCustody"
+    },
+    {
+      "name": "ClaimLegacy",
+      "config": "MC_bug_ClaimLegacy.cfg",
+      "expect": "invariant",
+      "property": "ProtectedLegacy"
+    },
+    {
+      "name": "ReplaceDispatch",
+      "config": "MC_bug_ReplaceDispatch.cfg",
+      "expect": "invariant",
+      "property": "FirstDispatchStable"
+    }
+  ]
+}

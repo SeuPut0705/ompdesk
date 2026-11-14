@@ -1,0 +1,9 @@
+# Native inbox hop candidate
+
+Status: local syntax/semantic parsing only; no native compile, hosted matrix, mutation result, or stamp. Source packet `14e7d0747561ee16bb5664ef935e5bb999164c44`, native guard-test follow-up `382de060e`, and Relay's not-yet-integrated typed Host/authenticated receiving route are distinct inputs.
+
+The frozen properties are in Properties.md. Baseline bounds are one prompt and one report, one crash, and two receiver-generation changes; the deep case has two per kind and two crashes. Model inputs cover persisted source responsibility, native memory versus Disk, uploaded blob custody, ACK loss/replay, immutable logical identity, stock input commit/flush, provider output proof, context-receipt save failure, and normal attachment expiry. Ambiguous legacy originals cannot gain authority. The model checks safety only; it makes no fairness, liveness, SYMMETRY, or arbitrary external-tool exactly-once claim.
+
+A failed save stutters without returning Disk. Source replay can survive a failed cleanup save after destination ACK. Terminal native IDs remain; payload retirement does not remove identity responsibility. The additive d16 FirstDispatchStable property covers changed proposed dN versus first durable dispatch; the original ten properties are unchanged. Precise producer-authentication codec and actual wrapper text remain native regression obligations, not model-proven facts. Hosted-only receiver projection must use current authenticated HostTab data and fail closed; a stale UI snapshot is insufficient.
+
+The prepared matrix has two positive bounds and eleven negative configurations. Eleven mutation candidates cover the eleven frozen properties. Run the standard hosted formal runner only after authorized integrated source publication. No local TLC, even depth one, is authorized. Preserve traces and independent source correspondence before claiming verification.
