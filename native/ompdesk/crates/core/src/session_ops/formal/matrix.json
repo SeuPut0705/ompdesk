@@ -1,0 +1,9 @@
+{
+  "runs": [
+    { "name": "local-and-hosted-runtime", "config": "MC.cfg", "expect": "pass" },
+    { "name": "busy-keeps-every-holder", "config": "MC.cfg", "constants": { "InitiallyBusy": "TRUE" }, "expect": "pass" },
+    { "name": "storage-before-exit", "config": "MC.cfg", "constants": { "RequireExit": "FALSE" }, "expect": "invariant", "property": "DeleteAfterConfirmedExit" },
+    { "name": "busy-close", "config": "MC.cfg", "constants": { "InitiallyBusy": "TRUE", "RefuseBusy": "FALSE" }, "expect": "invariant", "property": "BusyKeepsHolders" },
+    { "name": "false-tombstone", "config": "MC.cfg", "constants": { "CommitAfterStorage": "FALSE" }, "expect": "invariant", "property": "NoFalseDeletion" }
+  ]
+}
