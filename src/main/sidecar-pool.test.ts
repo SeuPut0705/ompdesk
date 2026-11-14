@@ -5231,6 +5231,31 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 });
 
 describe("SidecarPool and a lost core", () => {
+	it("uses the rebuilt view token for the next full stream after core loss", () => {
+		const { pool, sidecars } = fakePool();
+		const window = fakeWindow(8711);
+		pool.acquire("/a", window.win, "reseed-stream", "/sessions/reseed-stream.jsonl");
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		const originalViewId = pool.tabsForWindow(window.win)[0]?.viewId;
+		expect(originalViewId).toEqual(expect.any(String));
+		window.sent.length = 0;
+		sidecar.emitAgentEvents(["message_start"]);
+		expect(window.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+			{ tabId: "reseed-stream", viewId: originalViewId, payload: [{ type: "message_start" }] },
+		]);
+
+		core().abandon("test full stream after core loss");
+		const rebuiltViewId = pool.tabsForWindow(window.win)[0]?.viewId;
+		expect(rebuiltViewId).toEqual(expect.any(String));
+		expect(rebuiltViewId).not.toBe(originalViewId);
+		window.sent.length = 0;
+		sidecar.emitAgentEvents(["message_end"]);
+		expect(window.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+			{ tabId: "reseed-stream", viewId: rebuiltViewId, payload: [{ type: "message_end" }] },
+		]);
+	});
+
 	it("seeds the next core with the tabs main holds, and its windows keep their tabs", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);
