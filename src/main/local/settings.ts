@@ -9,12 +9,14 @@ import { z } from "zod";
 import type {
 	AccountCredits,
 	AccountUsageState,
+	AvailableModelsResult,
 	ProviderAccount,
 	ProviderAccountsResult,
 	ResetPasses,
 	ResetPassRedeemResult,
 	UsageLimit,
 } from "../../shared/rpc-types";
+import { enrichModelReleaseDates } from "../model-release-dates";
 import { loopbackCallback } from "../sign-in-callback";
 import { stockHelperRequest } from "../stock-helper";
 import { LocalCommandError, type LocalHandler } from "./types";
@@ -123,8 +125,12 @@ export const handlers: Record<string, LocalHandler> = {
 	get_settings_schema: (_command, ctx) => ctx.bridge.request("settings_schema"),
 	get_settings: (command, ctx) => ctx.bridge.request("settings_get", { paths: command.paths }),
 	set_setting: (command, ctx) => ctx.bridge.request("settings_set", { path: command.path, value: command.value }),
-	get_available_models: (command, ctx) =>
-		ctx.bridge.request("models_catalog", { forceRefresh: command.forceRefresh === true }),
+	get_available_models: async (command, ctx) => {
+		const catalog = await ctx.bridge.request<AvailableModelsResult>("models_catalog", {
+			forceRefresh: command.forceRefresh === true,
+		});
+		return { ...catalog, models: await enrichModelReleaseDates(catalog.models) };
+	},
 	get_providers: (command, ctx) => ctx.bridge.request("providers", { forceRefresh: command.forceRefresh === true }),
 	login_cancel: async command => cancelBrowserLogin(z.string().url().parse(command.url)),
 	// One account goes through stock `logout`; the whole provider only when asked for explicitly.

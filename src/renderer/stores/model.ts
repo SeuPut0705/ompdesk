@@ -123,6 +123,22 @@ interface CatalogSnapshot {
 	refreshPending?: boolean;
 	generation: number;
 }
+function retainReleaseDates(models: ModelInfo[], previous: ModelInfo[]): ModelInfo[] {
+	const dates = new Map<string, Map<string, number>>();
+	for (const model of previous) {
+		if (model.releasedAt === undefined) continue;
+		let provider = dates.get(model.provider);
+		if (!provider) {
+			provider = new Map();
+			dates.set(model.provider, provider);
+		}
+		provider.set(model.id, model.releasedAt);
+	}
+	return models.map(model => {
+		const releasedAt = dates.get(model.provider)?.get(model.id);
+		return model.releasedAt === undefined && releasedAt !== undefined ? { ...model, releasedAt } : model;
+	});
+}
 
 const initialState = {
 	model: null as ModelInfo | null,
@@ -148,21 +164,24 @@ const initialState = {
 
 export const createModelStore = (command: TabCommand = activeTabCommand) =>
 	createStore<ModelStore>()((set, get) => {
-		/** Commit one catalog read, dropping anything older than what is already applied. */
+		/** Catalog membership and ordering follow the newest generation; dates can arrive later. */
 		const applyCatalog = (snapshot: CatalogSnapshot): void => {
-			set(state =>
-				snapshot.generation < state.catalogGeneration
-					? {}
-					: {
-							...(snapshot.models ? { availableModels: snapshot.models } : {}),
-							...(snapshot.providers ? { providers: snapshot.providers } : {}),
-							...(snapshot.discoveryStates ? { discoveryStates: snapshot.discoveryStates } : {}),
-							...(snapshot.refreshPending !== undefined
-								? { catalogRefreshPending: snapshot.refreshPending }
-								: {}),
-							catalogGeneration: snapshot.generation,
-						},
-			);
+			set(state => {
+				if (snapshot.generation < state.catalogGeneration) {
+					return snapshot.models
+						? { availableModels: retainReleaseDates(state.availableModels, snapshot.models) }
+						: {};
+				}
+				return {
+					...(snapshot.models
+						? { availableModels: retainReleaseDates(snapshot.models, state.availableModels) }
+						: {}),
+					...(snapshot.providers ? { providers: snapshot.providers } : {}),
+					...(snapshot.discoveryStates ? { discoveryStates: snapshot.discoveryStates } : {}),
+					...(snapshot.refreshPending !== undefined ? { catalogRefreshPending: snapshot.refreshPending } : {}),
+					catalogGeneration: snapshot.generation,
+				};
+			});
 		};
 		const readCatalog = async (
 			type: "get_available_models" | "get_providers",

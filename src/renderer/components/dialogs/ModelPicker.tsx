@@ -35,6 +35,8 @@ import { useUiStore } from "../../stores/ui";
 import {
 	Badge,
 	Button,
+	Collapse,
+	DisclosureButton,
 	EmptyState,
 	InlineNotice,
 	KeyHints,
@@ -55,12 +57,14 @@ import { compactModelLabels, groupModelsByProvider } from "../settings/providers
 /** Rows in the Recent group (stock's `/models` hub keeps 15; a dialog wants a glance). */
 const RECENT_LIMIT = 5;
 const RECENT_GROUP = "recent";
+const CURRENT_GROUP = "current";
 
 interface PickerGroup {
 	id: string;
-	/** The provider every row belongs to; null for the Recent group. */
+	/** The provider every row belongs to; null for the Current and Recent groups. */
 	provider: string | null;
 	models: ModelInfo[];
+	collapsed: boolean;
 }
 
 export function ModelPicker() {
@@ -84,6 +88,7 @@ export function ModelPicker() {
 	const compactionPoints = useCompactionPoints(open);
 
 	const [query, setQuery] = useState("");
+	const [openRouterExpanded, setOpenRouterExpanded] = useState(false);
 	const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
 	const [switching, setSwitching] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -136,6 +141,7 @@ export function ModelPicker() {
 	useEffect(() => {
 		if (!open) return undefined;
 		setQuery("");
+		setOpenRouterExpanded(false);
 		setActiveIndex(0);
 		requestAnimationFrame(() => inputRef.current?.focus());
 		void load(false);
@@ -204,22 +210,40 @@ export function ModelPicker() {
 				model.description?.toLowerCase().includes(q),
 		);
 		const byProvider = groupModelsByProvider(filtered, namedProviders).map(
-			({ provider, models }): PickerGroup => ({ id: provider, provider, models }),
+			({ provider, models }): PickerGroup => ({
+				id: provider,
+				provider,
+				models:
+					provider === "openrouter"
+						? [...models].sort((a, b) => {
+								const aDate =
+									typeof a.releasedAt === "number" && Number.isFinite(a.releasedAt) ? a.releasedAt : -Infinity;
+								const bDate =
+									typeof b.releasedAt === "number" && Number.isFinite(b.releasedAt) ? b.releasedAt : -Infinity;
+								return bDate === aDate ? 0 : bDate > aDate ? 1 : -1;
+							})
+						: models,
+				collapsed: provider === "openrouter" && !q && !openRouterExpanded,
+			}),
 		);
-		// Stock's most-recently-used models on top while nothing is typed (the
-		// `/models` hub's Recent block); a pool pick has no "recent" meaning.
 		if (q.length > 0) return byProvider;
 		const bySelector = new Map(filtered.map(model => [`${model.provider}/${model.id}`, model]));
 		const recent = recentSelectors.flatMap(selector => bySelector.get(selector) ?? []).slice(0, RECENT_LIMIT);
-		return recent.length > 0 ? [{ id: RECENT_GROUP, provider: null, models: recent }, ...byProvider] : byProvider;
-	}, [availableModels, nameByProvider, namedProviders, query, recentSelectors]);
+		const currentModel =
+			current?.provider === "openrouter" ? bySelector.get(`${current.provider}/${current.id}`) : undefined;
+		return [
+			...(currentModel ? [{ id: CURRENT_GROUP, provider: null, models: [currentModel], collapsed: false }] : []),
+			...(recent.length > 0 ? [{ id: RECENT_GROUP, provider: null, models: recent, collapsed: false }] : []),
+			...byProvider,
+		];
+	}, [availableModels, current, nameByProvider, namedProviders, openRouterExpanded, query, recentSelectors]);
 
 	// Flat row order (group order → in-group order) for keyboard navigation; a
 	// recent model also listed under its provider is a separate row.
 	const flatOptions = useMemo(
 		() =>
 			groups.flatMap(group =>
-				group.models.map(model => ({
+				(group.collapsed ? [] : group.models).map(model => ({
 					provider: model.provider,
 					modelId: model.id,
 					model,
@@ -432,115 +456,139 @@ export function ModelPicker() {
 							{!sidecarReady && (
 								<InlineNotice className="px-2" title={t("modelPicker.notConnected")} tone="warning" />
 							)}
-							{groups.map(({ id: groupId, provider, models }) => {
+							{groups.map(({ id: groupId, provider, models, collapsed }) => {
 								const auth = provider === null ? undefined : authByProvider.get(provider);
 								const groupName =
-									provider === null ? t("modelPicker.recent") : (nameByProvider.get(provider) ?? provider);
+									provider === null
+										? t(groupId === CURRENT_GROUP ? "modelPicker.current" : "modelPicker.recent")
+										: (nameByProvider.get(provider) ?? provider);
 								return (
 									<OptionGroup
 										action={
-											auth &&
-											!auth.authenticated && (
-												<>
-													<Badge variant={auth.available ? "warning" : "muted"}>
-														{auth.available
-															? t("modelPicker.auth.notSignedIn")
-															: t("modelPicker.auth.unavailable")}
-													</Badge>
-													{auth.available && (
-														<Button
-															className="ml-auto"
-															onClick={manageProviders}
-															size="sm"
-															variant="ghost"
-														>
-															{t("providerList.connect")}
-														</Button>
-													)}
-												</>
-											)
+											<>
+												{provider === "openrouter" && !query.trim() && (
+													<DisclosureButton
+														aria-label={groupName}
+														inline
+														onToggle={() => setOpenRouterExpanded(value => !value)}
+														open={!collapsed}
+													>
+														{models.length}
+													</DisclosureButton>
+												)}
+												{auth && !auth.authenticated && (
+													<>
+														<Badge variant={auth.available ? "warning" : "muted"}>
+															{auth.available
+																? t("modelPicker.auth.notSignedIn")
+																: t("modelPicker.auth.unavailable")}
+														</Badge>
+														{auth.available && (
+															<Button
+																className="ml-auto"
+																onClick={manageProviders}
+																size="sm"
+																variant="ghost"
+															>
+																{t("providerList.connect")}
+															</Button>
+														)}
+													</>
+												)}
+											</>
 										}
 										data-model-group={groupId}
 										key={groupId}
 										label={groupName}
 									>
-										{models.map(model => {
-											const key = `${model.provider}/${model.id}`;
-											const isCurrent = current?.provider === model.provider && current.id === model.id;
-											const optionIndex = indexByKey.get(`${groupId}:${key}`) ?? 0;
-											const isActive = optionIndex === activeIndex;
-											const over = !isCurrent && isOverContext(model);
-											const small = model.contextWindow != null && model.contextWindow < MIN_SERVING_CONTEXT;
-											const label = labels.get(key) ?? { name: modelDisplayName(model) };
-											return (
-												<OptionRow
-													active={isActive}
-													data-model-option
-													data-option-index={optionIndex}
-													disabled={switching !== null || !sidecarReady}
-													key={key}
-													id={`${listboxId}-option-${optionIndex}`}
-													onClick={() => void select(model.provider, model.id)}
-													onMouseEnter={() => setActiveIndex(optionIndex)}
-													pointerMoves
-													selected={isCurrent}
-													size="xs"
-												>
-													<ProviderMark
-														className="size-4"
-														provider={{
-															id: model.provider,
-															name: nameByProvider.get(model.provider) ?? model.provider,
+										<Collapse open={!collapsed}>
+											{models.map(model => {
+												const key = `${model.provider}/${model.id}`;
+												const isCurrent = current?.provider === model.provider && current.id === model.id;
+												const optionIndex = indexByKey.get(`${groupId}:${key}`);
+												const isActive = optionIndex !== undefined && optionIndex === activeIndex;
+												const over = !isCurrent && isOverContext(model);
+												const small =
+													model.contextWindow != null && model.contextWindow < MIN_SERVING_CONTEXT;
+												const label = labels.get(key) ?? { name: modelDisplayName(model) };
+												return (
+													<OptionRow
+														active={isActive}
+														data-model-option
+														data-option-index={optionIndex}
+														disabled={switching !== null || !sidecarReady}
+														key={key}
+														id={
+															optionIndex === undefined
+																? undefined
+																: `${listboxId}-option-${optionIndex}`
+														}
+														onClick={() => void select(model.provider, model.id)}
+														onMouseEnter={() => {
+															if (optionIndex !== undefined) setActiveIndex(optionIndex);
 														}}
-													/>
-													<span
-														className={cx(
-															"flex min-w-0 flex-1 items-baseline gap-1.5 text-sc-sm",
-															isCurrent ? "font-medium text-(--sc-text)" : "text-(--sc-text)",
-															over && "text-(--sc-text-muted)",
-														)}
+														pointerMoves
+														selected={isCurrent}
+														size="xs"
 													>
-														<span className="min-w-0 truncate">{label.name}</span>
-														{label.suffix && (
-															<span className="shrink-0 text-sc-2xs font-normal text-(--sc-text-muted) tabular-nums">
-																{label.suffix}
-															</span>
-														)}
-													</span>
-													{model.isRecommended && (
-														<Badge variant="accent">{t("modelPicker.badge.recommended")}</Badge>
-													)}
-													{model.isNew && <Badge variant="info">{t("modelPicker.badge.new")}</Badge>}
-													{model.isBeta && <Badge variant="warning">{t("modelPicker.badge.beta")}</Badge>}
-													{model.contextWindow != null && (
+														<ProviderMark
+															className="size-4"
+															provider={{
+																id: model.provider,
+																name: nameByProvider.get(model.provider) ?? model.provider,
+															}}
+														/>
 														<span
 															className={cx(
-																"shrink-0 text-sc-2xs tabular-nums",
-																small ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
+																"flex min-w-0 flex-1 items-baseline gap-1.5 text-sc-sm",
+																isCurrent ? "font-medium text-(--sc-text)" : "text-(--sc-text)",
+																over && "text-(--sc-text-muted)",
 															)}
 														>
-															{formatTokens(model.contextWindow, { trimZero: true })}
+															<span className="min-w-0 truncate">{label.name}</span>
+															{label.suffix && (
+																<span className="shrink-0 text-sc-2xs font-normal text-(--sc-text-muted) tabular-nums">
+																	{label.suffix}
+																</span>
+															)}
 														</span>
-													)}
-													{over && (
-														<span
-															aria-label={t("modelPicker.overContext")}
-															className="flex shrink-0 text-(--sc-warning)"
-															role="img"
-														>
-															<TriangleAlert aria-hidden className="size-(--sc-icon-sm)" />
-														</span>
-													)}
-													{switching === key && <Spinner size="sm" spin />}
-													{isCurrent && (
-														<Check
-															aria-label={t("modelPicker.current")}
-															className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)"
-														/>
-													)}
-												</OptionRow>
-											);
-										})}
+														{model.isRecommended && (
+															<Badge variant="accent">{t("modelPicker.badge.recommended")}</Badge>
+														)}
+														{model.isNew && <Badge variant="info">{t("modelPicker.badge.new")}</Badge>}
+														{model.isBeta && (
+															<Badge variant="warning">{t("modelPicker.badge.beta")}</Badge>
+														)}
+														{model.contextWindow != null && (
+															<span
+																className={cx(
+																	"shrink-0 text-sc-2xs tabular-nums",
+																	small ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
+																)}
+															>
+																{formatTokens(model.contextWindow, { trimZero: true })}
+															</span>
+														)}
+														{over && (
+															<span
+																aria-label={t("modelPicker.overContext")}
+																className="flex shrink-0 text-(--sc-warning)"
+																role="img"
+															>
+																<TriangleAlert aria-hidden className="size-(--sc-icon-sm)" />
+															</span>
+														)}
+														{switching === key && <Spinner size="sm" spin />}
+														{isCurrent && (
+															<Check
+																aria-label={t("modelPicker.current")}
+																className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)"
+															/>
+														)}
+													</OptionRow>
+												);
+											})}
+										</Collapse>
 									</OptionGroup>
 								);
 							})}

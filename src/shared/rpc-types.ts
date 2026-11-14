@@ -1626,6 +1626,8 @@ export interface ModelInfo {
 	provider: string;
 	id: string;
 	name?: string;
+	/** First public release of the explicitly mapped models.dev canonical model, as UTC epoch milliseconds. */
+	releasedAt?: number;
 	description?: string;
 	isNew?: boolean;
 	isBeta?: boolean;

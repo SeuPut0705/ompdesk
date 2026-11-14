@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stockHelperRequest as stockHelperRequestImport } from "../stock-helper";
 import { type BridgeProviderAccounts, handlers, mergeProviderAccounts, type StockLogoutAccount } from "./settings";
 import type { LocalCommandContext } from "./types";
@@ -8,6 +8,7 @@ import type { LocalCommandContext } from "./types";
 vi.mock("../stock-helper", () => ({ stockHelperRequest: vi.fn() }));
 const stockHelperRequest = vi.mocked(stockHelperRequestImport);
 beforeEach(() => stockHelperRequest.mockReset());
+afterEach(() => vi.unstubAllGlobals());
 
 const work: StockLogoutAccount = {
 	credentialId: 7,
@@ -39,6 +40,25 @@ function fakeCtx(send: Fake, request: Fake): LocalCommandContext {
 		},
 	};
 }
+
+describe("get_available_models handler", () => {
+	it("returns the catalog when release metadata cannot be fetched", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+		const catalog = {
+			models: [{ provider: "openrouter", id: "lab/model", name: "Model" }],
+			discoveryStates: [],
+			refreshPending: false,
+			generation: 4,
+		};
+		const request = vi.fn(async () => catalog);
+		const result = await handlers.get_available_models(
+			{ type: "get_available_models", forceRefresh: true },
+			fakeCtx(vi.fn(), request),
+		);
+		expect(result).toEqual(catalog);
+		expect(request).toHaveBeenCalledWith("models_catalog", { forceRefresh: true });
+	});
+});
 
 describe("mergeProviderAccounts", () => {
 	it("joins stock accounts with per-account quota by credentialId", () => {

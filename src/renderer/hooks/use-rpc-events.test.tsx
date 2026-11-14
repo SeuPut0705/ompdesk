@@ -33,7 +33,7 @@ import { I18nProvider, translate } from "../lib/i18n";
 import { useAutopilotStore } from "../stores/autopilot";
 import type { ExtensionUiStore } from "../stores/extension-ui";
 import { type MessagesStore, useMessagesStore } from "../stores/messages";
-import { type ModelStore, useModelStore } from "../stores/model";
+import { createModelStore, type ModelStore, useModelStore } from "../stores/model";
 import type { PlanApprovalStore } from "../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "../stores/session-runtime-context";
@@ -1476,6 +1476,56 @@ describe("useRpcEvents non-transcript frames", () => {
 			catalogRefreshPending: false,
 			catalogGeneration: 2,
 		});
+	});
+
+	it("keeps dates across catalog pushes and a late older enriched response", async () => {
+		const response = Promise.withResolvers<RpcResponse>();
+		const store = createModelStore(() => response.promise);
+		const pending = store.getState().refreshAvailableModels();
+		store.getState().applyCatalogUpdate({
+			type: "model_catalog_update",
+			models: [
+				{ provider: "openrouter", id: "b" },
+				{ provider: "openrouter", id: "a", name: "new" },
+			],
+			providers: [],
+			discoveryStates: [],
+			refreshPending: false,
+			generation: 2,
+		});
+		response.resolve(
+			success({
+				models: [
+					{ provider: "openrouter", id: "a", releasedAt: 123 },
+					{ provider: "openrouter", id: "removed", releasedAt: 456 },
+				],
+				discoveryStates: [],
+				refreshPending: true,
+				generation: 1,
+			}),
+		);
+		await pending;
+		expect(store.getState().availableModels).toEqual([
+			{ provider: "openrouter", id: "b" },
+			{ provider: "openrouter", id: "a", name: "new", releasedAt: 123 },
+		]);
+		expect(store.getState().catalogGeneration).toBe(2);
+		expect(store.getState().catalogRefreshPending).toBe(false);
+		store.getState().applyCatalogUpdate({
+			type: "model_catalog_update",
+			models: [
+				{ provider: "openrouter", id: "a" },
+				{ provider: "other", id: "a" },
+			],
+			providers: [],
+			discoveryStates: [],
+			refreshPending: false,
+			generation: 3,
+		});
+		expect(store.getState().availableModels).toEqual([
+			{ provider: "openrouter", id: "a", releasedAt: 123 },
+			{ provider: "other", id: "a" },
+		]);
 	});
 
 	it("reads the catalog again when OMPdesk changed models.yml itself, so a found engine's models appear", async () => {

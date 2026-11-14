@@ -51,12 +51,12 @@ const MODELS = [
 let container: HTMLElement;
 let root: Root;
 
-async function mount(): Promise<void> {
+async function mount(models: ModelInfo[] = MODELS): Promise<void> {
 	useSessionStore.setState({ status: "ready" });
 	useModelStore.setState({
-		availableModels: MODELS,
+		availableModels: models,
 		refreshAvailableModels: async () => ({
-			models: MODELS,
+			models,
 			discoveryStates: [],
 			refreshPending: false,
 			generation: 1,
@@ -219,5 +219,142 @@ describe("ModelPicker thinking row", () => {
 		useModelStore.setState({ availableThinkingLevels: [] });
 		await mount();
 		expect(document.querySelector("[data-model-picker-thinking]")).toBeNull();
+	});
+});
+
+describe("ModelPicker OpenRouter group", () => {
+	const routerModels: ModelInfo[] = [
+		{ provider: "openrouter", id: "unknown-a", name: "Unknown A" },
+		{ provider: "openrouter", id: "old", name: "Old", releasedAt: 100 },
+		{ provider: "openrouter", id: "new-a", name: "New A", releasedAt: 200 },
+		{ provider: "openrouter", id: "unknown-b", name: "Unknown B", releasedAt: NaN },
+		{ provider: "openrouter", id: "new-b", name: "New B", releasedAt: 200 },
+	];
+	const disclosure = () =>
+		document.querySelector('[data-model-group="openrouter"] button[aria-expanded]') as unknown as HTMLElement;
+	const inputProps = () => {
+		const input = document.querySelector("input") as unknown as HTMLInputElement;
+		const record = input as unknown as Record<string, unknown>;
+		const key = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$")) ?? "";
+		return { input, props: record[key] as { onChange(event: object): void; onKeyDown(event: object): void } };
+	};
+	const key = async (name: string) => {
+		await act(async () =>
+			inputProps().props.onKeyDown({
+				key: name,
+				preventDefault() {},
+				nativeEvent: { isComposing: false, keyCode: name === "Enter" ? 13 : 40 },
+			}),
+		);
+	};
+
+	it("folds initially, sorts only OpenRouter, and resets on reopening", async () => {
+		recent = { selectors: [] };
+		await mount([...MODELS, ...routerModels]);
+		expect(disclosure().getAttribute("aria-expanded")).toBe("false");
+		expect(disclosure().textContent).toContain("5");
+		expect(rows("openrouter")).toEqual([]);
+		await act(async () => disclosure().click());
+		expect(disclosure().getAttribute("aria-expanded")).toBe("true");
+		expect(rows("openrouter")).toEqual(["New A", "New B", "Old", "Unknown A", "Unknown B"]);
+		expect(rows("openai")).toEqual(["GPT-5", "GPT mini"]);
+		await act(async () => disclosure().click());
+		expect(rows("openrouter")).toEqual([]);
+		await act(async () => disclosure().click());
+		await act(async () => useUiStore.setState({ modelPickerOpen: false }));
+		await act(async () => useUiStore.setState({ modelPickerOpen: true }));
+		expect(disclosure().getAttribute("aria-expanded")).toBe("false");
+		expect(rows("openrouter")).toEqual([]);
+	});
+
+	it("reveals search results and Enter switches only this session", async () => {
+		await mount([...MODELS, ...routerModels]);
+		const { input, props } = inputProps();
+		input.value = "new b";
+		await act(async () => props.onChange({ target: input, currentTarget: input }));
+		expect(disclosure()).toBeNull();
+		expect(rows("openrouter")).toEqual(["New B"]);
+		await key("Enter");
+		expect(setModel).toHaveBeenCalledWith("openrouter", "new-b");
+		expect(setModelRole).not.toHaveBeenCalled();
+	});
+
+	it("restores the previous fold state when search is cleared", async () => {
+		await mount([...MODELS, ...routerModels]);
+		const search = async (value: string) => {
+			const { input, props } = inputProps();
+			input.value = value;
+			await act(async () => props.onChange({ target: input, currentTarget: input }));
+		};
+		await search("new");
+		expect(rows("openrouter")).toEqual(["New A", "New B"]);
+		await search("");
+		expect(disclosure().getAttribute("aria-expanded")).toBe("false");
+		expect(rows("openrouter")).toEqual([]);
+		await act(async () => disclosure().click());
+		await search("new");
+		await search("");
+		expect(disclosure().getAttribute("aria-expanded")).toBe("true");
+		expect(rows("openrouter")).toHaveLength(5);
+	});
+
+	it("leaves Enter and arrows to an active IME composition", async () => {
+		await mount([...MODELS, ...routerModels]);
+		const { input, props } = inputProps();
+		input.value = "new b";
+		await act(async () => props.onChange({ target: input, currentTarget: input }));
+		const active = input.getAttribute("aria-activedescendant");
+		for (const name of ["ArrowDown", "Enter"]) {
+			await act(async () =>
+				inputProps().props.onKeyDown({
+					key: name,
+					preventDefault() {
+						throw new Error("IME key was intercepted");
+					},
+					nativeEvent: { isComposing: true },
+				}),
+			);
+		}
+		expect(input.getAttribute("aria-activedescendant")).toBe(active);
+		expect(setModel).not.toHaveBeenCalled();
+		expect(setModelRole).not.toHaveBeenCalled();
+	});
+
+	it("keeps current and recent rows selectable while arrows skip folded rows", async () => {
+		recent = { selectors: ["openrouter/old"] };
+		useModelStore.setState({ chosenModel: routerModels[2], model: routerModels[2] });
+		await mount([...MODELS, ...routerModels]);
+		expect(groupNames()[0]).toBe(translate("modelPicker.current"));
+		expect(rows("current")).toEqual(["New A"]);
+		expect(rows("recent")).toEqual(["Old"]);
+		expect(rows("openrouter")).toEqual([]);
+		await key("ArrowDown");
+		await key("Enter");
+		expect(setModel).toHaveBeenCalledWith("openrouter", "old");
+		expect(setModelRole).not.toHaveBeenCalled();
+	});
+
+	it("keeps arrow navigation within visible rows when the provider is folded", async () => {
+		recent = { selectors: [] };
+		await mount([...MODELS, ...routerModels]);
+		const visible = Array.from(document.querySelectorAll('[role="option"]'));
+		for (let i = 0; i < 10; i++) await key("ArrowDown");
+		expect(inputProps().input.getAttribute("aria-activedescendant")).toBe(visible.at(-1)?.getAttribute("id"));
+		expect(visible).toHaveLength(MODELS.length);
+	});
+
+	it("allows picking the current OpenRouter model while folded", async () => {
+		useModelStore.setState({ chosenModel: routerModels[2], model: routerModels[2] });
+		await mount([...MODELS, ...routerModels]);
+		const option = document.querySelector('[data-model-group="current"] [role="option"]') as unknown as HTMLElement;
+		await act(async () => option.click());
+		expect(setModel).toHaveBeenCalledWith("openrouter", "new-a");
+		expect(setModelRole).not.toHaveBeenCalled();
+	});
+
+	it("does not add Current for an unavailable OpenRouter model", async () => {
+		useModelStore.setState({ chosenModel: routerModels[2], model: routerModels[2] });
+		await mount(MODELS);
+		expect(groupNames()).not.toContain(translate("modelPicker.current"));
 	});
 });
