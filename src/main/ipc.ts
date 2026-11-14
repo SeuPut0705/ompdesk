@@ -1497,6 +1497,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	deps.hostedTabs.attachAgentInbox({
 		allowsPeer: peer => remoteDevices.allowsPeer(peer),
 		status: target => agentControl.hostedInboxStatus(target),
+		lookup: (target, query, producerDeviceId) => agentControl.lookupHostedInbox(target, query, producerDeviceId),
 		accept: (target, transfer, producerDeviceId) =>
 			agentControl.acceptHostedInbox(target, transfer, producerDeviceId),
 	});

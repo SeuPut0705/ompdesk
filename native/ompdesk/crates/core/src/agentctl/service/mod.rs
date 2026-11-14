@@ -305,18 +305,19 @@ impl AgentControl {
                     .native_source
                     .as_ref()
                     .map(|_| mail_logical_text(&mail));
-                host.mail_attached(
-                    &mail.to,
-                    &mail_text(&mail),
-                    &mail_details(&mail),
-                    delivery_for(mail.kind),
-                    mail.attachments.as_ref(),
-                    mail.native_source.as_ref().zip(native_content.as_deref()),
-                )
-                .await
-                .map_err(|error| error.message())?;
+                let receipt = host
+                    .mail_attached(
+                        &mail.to,
+                        &mail_text(&mail),
+                        &mail_details(&mail),
+                        delivery_for(mail.kind),
+                        mail.attachments.as_ref(),
+                        mail.native_source.as_ref().zip(native_content.as_deref()),
+                    )
+                    .await
+                    .map_err(|error| error.message())?;
                 host.review_changed(&mail.to);
-                Ok(())
+                Ok(receipt)
             })
         });
         let mailbox =

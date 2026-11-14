@@ -183,6 +183,29 @@ export class NativeInboxNetwork {
 			if (reply.receiver.sessionPath !== path) throw new Error("Inbox receiver changed");
 			return reply;
 		};
+		source.lookupInbox ??= async (tabId, query) => {
+			const target = this.#target(tabId);
+			if (!target.sessionPath || target.sessionPath !== query.receiver.sessionPath || !target.runtimeInstance)
+				throw new Error("Inbox target changed");
+			if (!target.device) {
+				if (!this.#control) throw new Error("Source control is not bound");
+				return this.#control.runtime.lookupInbox({
+					tabId,
+					query,
+					uploadDeviceId: LOCAL_UPLOAD_DEVICE,
+					expectedProducerDeviceId: source.deviceId,
+					expectedRuntimeInstance: target.runtimeInstance,
+				});
+			}
+			return this.#receiver(target.device).runtime.lookupInbox({
+				tabId,
+				query,
+				uploadDeviceId: source.deviceId,
+				expectedProducerDeviceId: source.deviceId,
+				expectedRuntimeInstance: target.runtimeInstance,
+				expectedRoute: this.#route(target),
+			});
+		};
 		source.deliverInbox ??= async (tabId, request) => this.#stock(tabId).accept(request);
 		source.inbox ??= async (tabId, transfer) => {
 			const target = this.#target(tabId);
