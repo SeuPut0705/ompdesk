@@ -20,15 +20,15 @@ pub struct Reservation {
 }
 
 #[derive(Clone, Copy)]
-enum Life {
+pub(super) enum Life {
     Provisional(NonZeroUsize),
     Bound { pending: usize },
     Retiring,
 }
 
 pub(super) struct Record {
-    facts: Execution,
-    life: Life,
+    pub(super) facts: Execution,
+    pub(super) life: Life,
     pub(super) window: Option<crate::worktree_lifecycle::Window>,
 }
 

@@ -15,6 +15,7 @@ pub enum Principal {
     Page(NativeCaller),
     Peer { device: String, connection: u64 },
 }
+mod peers;
 
 #[derive(Clone)]
 pub struct Admitted {
@@ -31,6 +32,7 @@ struct Request {
 struct State {
     owners: HashMap<Owner, Principal>,
     pages: HashMap<NativeCaller, Owner>,
+    peer_links: HashMap<Owner, crate::remote::requests::RemoteRequests>,
     requests: HashMap<RequestId, Request>,
     executions: HashMap<Owner, executions::Record>,
     active_tabs: HashMap<String, Owner>,
@@ -226,6 +228,7 @@ impl Callers {
 
     fn revoke_locked(state: &mut State, owner: &Owner) -> Option<Principal> {
         let principal = state.owners.remove(owner)?;
+        state.peer_links.remove(owner);
         for request in state
             .requests
             .values()
@@ -241,6 +244,7 @@ impl Callers {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.stopped = true;
         state.pages.clear();
+        state.peer_links.clear();
         for request in state.requests.values() {
             request.cancel.cancel();
         }
