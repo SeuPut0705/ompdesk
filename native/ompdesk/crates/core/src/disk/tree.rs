@@ -7,6 +7,7 @@
 
 use std::fs;
 use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -287,7 +288,13 @@ pub fn write_atomic_if(
         next_temp()
     ));
     let written = (|| {
-        fs::write(&temp, bytes).map_err(|error| fault(&error, "open", &temp))?;
+        let mut staged = fs::File::create(&temp).map_err(|error| fault(&error, "open", &temp))?;
+        #[cfg(all(test, unix))]
+        test_support::created(file, &staged);
+        staged
+            .write_all(bytes)
+            .map_err(|error| fault(&error, "open", &temp))?;
+        drop(staged);
         if let Some(mode) = mode {
             chmod(&temp, mode)?;
         }
@@ -336,6 +343,44 @@ fn rename_blocked(error: &io::Error) -> bool {
         )
 }
 
+#[cfg(all(test, unix))]
+pub(crate) mod test_support {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, LazyLock, Mutex};
+
+    type Observer = Arc<dyn Fn(&fs::File) + Send + Sync>;
+    static OBSERVERS: LazyLock<Mutex<HashMap<PathBuf, Observer>>> = LazyLock::new(Default::default);
+
+    pub(crate) struct Creation(PathBuf);
+
+    pub(crate) fn observe_creation(
+        target: &Path,
+        observer: impl Fn(&fs::File) + Send + Sync + 'static,
+    ) -> Creation {
+        assert!(
+            OBSERVERS
+                .lock()
+                .unwrap()
+                .insert(target.to_owned(), Arc::new(observer))
+                .is_none()
+        );
+        Creation(target.to_owned())
+    }
+
+    pub(super) fn created(target: &Path, file: &fs::File) {
+        let observer = OBSERVERS.lock().unwrap().get(target).cloned();
+        if let Some(observer) = observer {
+            observer(file);
+        }
+    }
+
+    impl Drop for Creation {
+        fn drop(&mut self) {
+            OBSERVERS.lock().unwrap().remove(&self.0);
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,6 +391,48 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_secret_temp_is_private_before_payload_is_written() {
+        let dir = temp("mode-at-create");
+        let output = std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                "umask 022; exec \"$1\" --ignored --exact disk::tree::tests::atomic_creation_mode_fixture --nocapture",
+                "atomic-mode-fixture",
+            ])
+            .arg(std::env::current_exe().unwrap())
+            .env("OMPDESK_ATOMIC_MODE_FIXTURE", dir.join("settings.json"))
+            .output()
+            .unwrap();
+        let result = output.status.success();
+        fs::remove_dir_all(dir).unwrap();
+        assert!(result, "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "isolated child fixture with its own umask"]
+    fn atomic_creation_mode_fixture() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let file = PathBuf::from(std::env::var_os("OMPDESK_ATOMIC_MODE_FIXTURE").unwrap());
+        let observed = Arc::new(AtomicBool::new(false));
+        let seen = Arc::clone(&observed);
+        let _observer = test_support::observe_creation(&file, move |created| {
+            let metadata = created.metadata().unwrap();
+            assert_eq!(metadata.len(), 0, "observe before any payload is written");
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+            seen.store(true, Ordering::SeqCst);
+        });
+        assert!(write_atomic_if(&file, b"sample-secret", Some(0o600), 0o700, &|| true).unwrap());
+        assert!(observed.load(Ordering::SeqCst));
+        assert_eq!(fs::read(&file).unwrap(), b"sample-secret");
     }
 
     #[cfg(unix)]
