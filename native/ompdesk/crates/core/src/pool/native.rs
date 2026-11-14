@@ -44,6 +44,7 @@ pub struct Acquire {
 
 pub struct Selected<S: Sidecar + ?Sized> {
     pub tab: String,
+    pub cwd: String,
     pub device: Option<String>,
     pub window: i64,
     pub session_file: Option<String>,
@@ -745,8 +746,19 @@ impl<H: Host> Service<H> {
                     return Ok(None);
                 };
                 app.host.authorize_tab(&owner, &selected.tab)?;
-                Ok(app.sidecar(&selected.tab).map(|sidecar| Selected {
+                let Some(sidecar) = app.sidecar(&selected.tab) else {
+                    return Ok(None);
+                };
+                let facts = sidecar.facts();
+                let cwd = facts["cwd"]
+                    .as_str()
+                    .ok_or_else(|| {
+                        Fault::new("tab_state", "The selected tab has no working directory")
+                    })?
+                    .to_owned();
+                Ok(Some(Selected {
                     tab: selected.tab,
+                    cwd,
                     device: selected.device,
                     window: selected.window,
                     session_file: selected.session_file,
