@@ -1,6 +1,5 @@
-//! Routine triggers' reads and rules (unit 4e). Main keeps each trigger's live part: the schedule service's state, the
-//! poll and burst timers, the file watcher, the tab pool's activity, the marks file and the email trigger with its
-//! IMAP client; this module answers what a trigger reads and says.
+//! Native routine source drivers, reads and rules. The application owns source generations and marks;
+//! `runtime` owns polling, watches, debounce and pool subscriptions, and `imap` performs read-only mail reads.
 //!
 //! - `routines.github`: one read of one kind of a GitHub trigger (`github.rs`), gh run as main's `ghRunner` says.
 //! - `routines.filesScan`, `routines.filesChanged`: a files trigger's listing and what changed while OMPdesk was
@@ -14,6 +13,8 @@
 mod files;
 pub(crate) mod github;
 pub(crate) mod text;
+pub mod imap;
+pub mod runtime;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

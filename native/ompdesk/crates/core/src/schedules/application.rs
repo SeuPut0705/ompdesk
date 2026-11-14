@@ -119,19 +119,10 @@ impl LaunchCommand {
     }
 }
 
-pub struct SourceRequest {
-    pub schedule: Value,
-    pub event: Value,
-    pub mark: Option<Value>,
-}
-
-pub struct SourceProcess {
-    pub stop: Stop,
-    pub run_ended: Option<Stop>,
-}
+use crate::routines::runtime::{self, SourceProcess};
 
 /// Implemented by the native application's typed Machine/Remote/pool/inbox services. No Node port.
-pub trait Host: Send + Sync + 'static {
+pub trait Host: runtime::Services {
     fn now(&self) -> i64 {
         system_now()
     }
@@ -143,13 +134,6 @@ pub trait Host: Send + Sync + 'static {
     fn reserve(&self, device: &str) -> Result<Charge, Fault>;
     /// Commit the authenticated native wake synchronously; `done` follows its actual turn.
     fn wake(&self, schedule: &Value, run: &str) -> Result<RunProcess, Fault>;
-    fn source_start(
-        &self,
-        request: SourceRequest,
-        context: SourceContext<Self>,
-    ) -> Result<SourceProcess, Fault>
-    where
-        Self: Sized;
     fn changed(&self, state: Value);
     fn log(&self, message: &str);
 }
@@ -162,6 +146,7 @@ pub struct Options {
     pub tick_ms: u64,
     pub minute_ms: i64,
     pub quiet_ms: i64,
+    pub sources: runtime::Config,
     /// Tests own the clock and call `tick`; production keeps its wall-clock timer.
     pub manual: bool,
 }
@@ -176,6 +161,7 @@ impl Options {
             tick_ms: 30_000,
             minute_ms: 60_000,
             quiet_ms: triggers::QUIET_MS,
+            sources: runtime::Config::default(),
             manual: false,
         }
     }
@@ -191,6 +177,7 @@ struct Inner {
     charges: HashMap<u64, Charge>,
     runs: HashMap<String, Slot>,
     sources: HashMap<Token, SourceProcess>,
+    source_tasks: usize,
     triggers: Triggers,
     warnings: HashMap<(Token, String), String>,
     ready: bool,
@@ -293,6 +280,24 @@ impl<H: Host> SourceContext<H> {
     }
 }
 
+impl<H: Host> runtime::Sink for SourceContext<H> {
+    fn current(&self) -> bool {
+        SourceContext::current(self)
+    }
+    fn running(&self) -> bool {
+        SourceContext::running(self)
+    }
+    fn quiet(&self) -> bool {
+        SourceContext::quiet(self)
+    }
+    fn publish(&self, mark: Option<Value>, lines: &[String]) -> bool {
+        SourceContext::publish(self, mark, lines)
+    }
+    fn failure(&self, key: &str, error: Option<&str>) {
+        SourceContext::failure(self, key, error);
+    }
+}
+
 impl<H: Host> Application<H> {
     pub fn open(host: Arc<H>, options: Options) -> Arc<Self> {
         let stored = std::fs::read_to_string(&options.file).ok();
@@ -324,6 +329,7 @@ impl<H: Host> Application<H> {
                 charges: HashMap::new(),
                 runs: HashMap::new(),
                 sources: HashMap::new(),
+                source_tasks: 0,
                 triggers: Triggers::new(marks.as_deref(), options.quiet_ms),
                 warnings: HashMap::new(),
                 ready: false,
@@ -465,7 +471,10 @@ impl<H: Host> Application<H> {
         }
         loop {
             let ended = self.ended.notified();
-            if locked(&self.inner).runs.is_empty() {
+            if {
+                let inner = locked(&self.inner);
+                inner.runs.is_empty() && inner.source_tasks == 0
+            } {
                 break;
             }
             ended.await;
@@ -748,26 +757,37 @@ impl<H: Host> Application<H> {
                     app: Arc::downgrade(self),
                     token: token.clone(),
                 };
-                if !context.current() {
-                    return;
-                }
-                let event = schedule["frequency"]["event"].clone();
-                match self.host.source_start(
-                    SourceRequest {
-                        schedule,
-                        event,
+                let result = {
+                    let mut inner = locked(&self.inner);
+                    if !inner.triggers.current(&token) {
+                        return;
+                    }
+                    match runtime::start(
+                        Arc::clone(&self.host),
+                        &schedule,
                         mark,
-                    },
-                    context.clone(),
-                ) {
-                    Ok(process) => {
-                        let mut inner = locked(&self.inner);
-                        if inner.triggers.current(&token) {
+                        context.clone(),
+                        self.options.sources,
+                    ) {
+                        Ok(mut process) => {
+                            let done = process.take_done().expect("new source owns completion");
+                            inner.source_tasks += 1;
                             inner.sources.insert(token, process);
-                        } else {
-                            drop(inner);
-                            (process.stop)();
+                            Ok(done)
                         }
+                        Err(error) => Err(error),
+                    }
+                };
+                match result {
+                    Ok(done) => {
+                        let weak = Arc::downgrade(self);
+                        tokio::spawn(async move {
+                            done.await;
+                            if let Some(app) = weak.upgrade() {
+                                locked(&app.inner).source_tasks -= 1;
+                                app.ended.notify_waiters();
+                            }
+                        });
                     }
                     Err(error) => {
                         context.failure("could not start its trigger", Some(&error.message))

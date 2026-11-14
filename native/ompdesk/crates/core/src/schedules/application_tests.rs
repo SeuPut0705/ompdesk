@@ -10,7 +10,7 @@ struct TestHost {
     resolution_error: bool,
     quota_refused: AtomicBool,
     state: watch::Sender<Value>,
-    contexts: Mutex<Vec<SourceContext<Self>>>,
+    session_senders: Mutex<Vec<tokio::sync::mpsc::UnboundedSender<runtime::SessionNotice>>>,
     source_stops: Arc<AtomicUsize>,
     wakes: AtomicUsize,
     wake_end: watch::Sender<Option<i64>>,
@@ -27,7 +27,7 @@ impl TestHost {
             resolution_error,
             quota_refused: AtomicBool::new(false),
             state: watch::channel(Value::Null).0,
-            contexts: Mutex::new(Vec::new()),
+            session_senders: Mutex::new(Vec::new()),
             source_stops: Arc::new(AtomicUsize::new(0)),
             wakes: AtomicUsize::new(0),
             wake_end: watch::channel(None).0,
@@ -90,24 +90,33 @@ impl Host for TestHost {
             }),
         })
     }
-    fn source_start(
-        &self,
-        _: SourceRequest,
-        context: SourceContext<Self>,
-    ) -> Result<SourceProcess, Fault> {
-        locked(&self.contexts).push(context);
-        let stops = Arc::clone(&self.source_stops);
-        Ok(SourceProcess {
-            stop: Arc::new(move || {
-                stops.fetch_add(1, Ordering::SeqCst);
-            }),
-            run_ended: None,
-        })
-    }
     fn changed(&self, state: Value) {
         self.state.send_replace(state);
     }
     fn log(&self, _: &str) {}
+}
+
+impl runtime::Services for TestHost {
+    async fn git(&self) -> Result<runtime::ToolRunner, Fault> {
+        Err(Fault::new("fixture", "no git source"))
+    }
+    async fn github(&self) -> Result<runtime::GithubTool, Fault> {
+        Err(Fault::new("fixture", "no GitHub source"))
+    }
+    fn sessions(&self) -> Result<runtime::SessionSubscription, Fault> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        locked(&self.session_senders).push(tx);
+        let stops = Arc::clone(&self.source_stops);
+        Ok(runtime::SessionSubscription::new(
+            rx,
+            Arc::new(move || {
+                stops.fetch_add(1, Ordering::SeqCst);
+            }),
+        ))
+    }
+    async fn mailbox(&self, _: &str) -> Result<Option<runtime::Mailbox>, Fault> {
+        Err(Fault::new("fixture", "no email source"))
+    }
 }
 
 struct Rig {
@@ -140,7 +149,8 @@ impl Rig {
             draft["wakeSession"] = "/session.jsonl".into();
         }
         if event {
-            draft["frequency"] = json!({"kind":"event","event":{"source":"files","path":self.dir.to_string_lossy()}});
+            draft["frequency"] =
+                json!({"kind":"event","event":{"source":"session","events":["done"]}});
         }
         draft
     }
@@ -283,9 +293,17 @@ async fn a_committed_wake_is_charged_once_and_close_waits_for_its_turn() {
 async fn retired_source_cannot_save_fire_or_report_failure_even_after_same_key_resume() {
     let rig = Rig::new(false);
     let id = rig.create(true, true);
-    assert!(locked(&rig.host.contexts).is_empty());
+    assert!(locked(&rig.app.inner).sources.is_empty());
     rig.app.ready();
-    let old = locked(&rig.host.contexts)[0].clone();
+    let old = SourceContext {
+        app: Arc::downgrade(&rig.app),
+        token: locked(&rig.app.inner)
+            .sources
+            .keys()
+            .next()
+            .unwrap()
+            .clone(),
+    };
     assert!(old.publish(Some(json!({"listing":"before"})), &[]));
     rig.app
         .command(&json!({"action":"setPaused","paused":true}), None)
@@ -296,8 +314,15 @@ async fn retired_source_cannot_save_fire_or_report_failure_even_after_same_key_r
         .command(&json!({"action":"setPaused","paused":false}), None)
         .unwrap();
     assert!(!old.current());
-    assert_eq!(rig.host.source_stops.load(Ordering::SeqCst), 1);
-    let current = locked(&rig.host.contexts)[1].clone();
+    let current = SourceContext {
+        app: Arc::downgrade(&rig.app),
+        token: locked(&rig.app.inner)
+            .sources
+            .keys()
+            .next()
+            .unwrap()
+            .clone(),
+    };
     assert!(current.publish(Some(json!({"listing":"fresh"})), &[]));
     let marks: Value =
         serde_json::from_slice(&std::fs::read(rig.dir.join("routine-marks.json")).unwrap())
