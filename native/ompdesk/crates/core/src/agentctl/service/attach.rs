@@ -483,89 +483,13 @@ impl AgentControl {
         remember: bool,
     ) -> R<Carried> {
         let (images, to_land) = plan(resolved, inline);
-        self.carry_planned(tab_id, device, images, to_land, remember)
-            .await
-    }
-
-    pub(super) async fn carry_planned(
-        &self,
-        tab_id: &str,
-        device: Option<&str>,
-        images: Vec<Resolved>,
-        to_land: Vec<Resolved>,
-        remember: bool,
-    ) -> R<Carried> {
-        let mut files = Vec::with_capacity(to_land.len());
-        for file in &to_land {
-            if let Some((path, at)) = self.host.landed.get(device, &file.file.sha256, self.now()) {
-                files.push(LandedFile {
-                    file: file.file.clone(),
-                    path,
-                    landed_at: at,
-                });
-                continue;
-            }
-            let path = self.land_one(tab_id, file).await?;
-            let now = self.now();
-            self.host.landed.set(device, &file.file.sha256, &path, now);
-            files.push(LandedFile {
-                file: file.file.clone(),
-                path,
-                landed_at: now,
-            });
-        }
-        if remember {
-            for item in images.iter().chain(to_land.iter()) {
-                if let Err(error) = self.host.attachments.put(item.bytes.clone()).await {
-                    return fail(format!(
-                        "Not sent: {} could not be kept by OMPdesk ({}). Nothing was delivered.",
-                        item.file.name,
-                        one_line(&error, 200)
-                    ));
-                }
-            }
-        }
-        let set = AttachedSet {
-            images: images.iter().map(|item| item.file.clone()).collect(),
-            files,
-        };
+        let set = carry_planned(&self.host, tab_id, device, &images, &to_land, remember).await?;
         let count = set.count();
         Ok(Carried {
             inline: images,
             set,
             count,
         })
-    }
-
-    async fn land_one(&self, tab_id: &str, file: &Resolved) -> R<String> {
-        match self.host.land(tab_id, &file.file.name, &file.bytes).await {
-            Landing::Landed(path) => Ok(path),
-            Landing::Failed { error, code } => {
-                let why = match code.as_deref() {
-                    Some("file_too_large") => {
-                        "it is more than that computer takes as one file".to_owned()
-                    }
-                    Some("upload_refused") => {
-                        "that computer refused it: its upload limit for today is used up".to_owned()
-                    }
-                    Some("unsupported") => {
-                        "OMPdesk on that computer is too old to take attached files".to_owned()
-                    }
-                    _ => one_line(
-                        if error.is_empty() {
-                            "no reason given"
-                        } else {
-                            &error
-                        },
-                        200,
-                    ),
-                };
-                fail(format!(
-                    "Not sent: {} could not be put on that session's computer ({why}). Nothing was delivered.",
-                    file.file.name
-                ))
-            }
-        }
     }
 
     /// The prompt an owed message is handed over as, with its pictures: `Err` when it cannot go with what it
@@ -738,6 +662,143 @@ impl AgentControl {
         }
         self.host.attachments.sweep(&keep)
     }
+}
+
+pub(super) async fn carry_planned(
+    host: &Host,
+    tab_id: &str,
+    device: Option<&str>,
+    images: &[Resolved],
+    to_land: &[Resolved],
+    remember: bool,
+) -> R<AttachedSet> {
+    let mut files = Vec::with_capacity(to_land.len());
+    for file in to_land {
+        if let Some((path, at)) = host.landed.get(device, &file.file.sha256, (host.clock)()) {
+            files.push(LandedFile {
+                file: file.file.clone(),
+                path,
+                landed_at: at,
+            });
+            continue;
+        }
+        let path = land_one(host, tab_id, file).await?;
+        let now = (host.clock)();
+        host.landed.set(device, &file.file.sha256, &path, now);
+        files.push(LandedFile {
+            file: file.file.clone(),
+            path,
+            landed_at: now,
+        });
+    }
+    if remember {
+        for item in images.iter().chain(to_land.iter()) {
+            if let Err(error) = host.attachments.put(item.bytes.clone()).await {
+                return fail(format!(
+                    "Not sent: {} could not be kept by OMPdesk ({}). Nothing was delivered.",
+                    item.file.name,
+                    one_line(&error, 200)
+                ));
+            }
+        }
+    }
+    Ok(AttachedSet {
+        images: images.iter().map(|item| item.file.clone()).collect(),
+        files,
+    })
+}
+
+async fn land_one(host: &Host, tab_id: &str, file: &Resolved) -> R<String> {
+    match host.land(tab_id, &file.file.name, &file.bytes).await {
+        Landing::Landed(path) => Ok(path),
+        Landing::Failed { error, code } => {
+            let why = match code.as_deref() {
+                Some("file_too_large") => {
+                    "it is more than that computer takes as one file".to_owned()
+                }
+                Some("upload_refused") => {
+                    "that computer refused it: its upload limit for today is used up".to_owned()
+                }
+                Some("unsupported") => {
+                    "OMPdesk on that computer is too old to take attached files".to_owned()
+                }
+                _ => one_line(
+                    if error.is_empty() {
+                        "no reason given"
+                    } else {
+                        &error
+                    },
+                    200,
+                ),
+            };
+            fail(format!(
+                "Not sent: {} could not be put on that session's computer ({why}). Nothing was delivered.",
+                file.file.name
+            ))
+        }
+    }
+}
+
+pub(super) async fn prepare_native_report(
+    host: &Host,
+    mail: &mut crate::agentctl::rules::mail::Mail,
+) -> R<Option<crate::agentctl::rules::mail::DeliveryReceipt>> {
+    use crate::agentctl::inbox::{
+        InboxKind, InboxLogicalAttachments, NativeInboxKey, NativeInboxLookupEntry,
+        NativeInboxLookupResult,
+    };
+    let Some(plan) = mail.native_attachment_plan.take() else {
+        return Ok(None);
+    };
+    let admission = mail.native_source.as_ref().ok_or_else(|| {
+        Fail::other("An attachment plan requires authenticated native source metadata")
+    })?;
+    let key = NativeInboxKey {
+        kind: InboxKind::Report,
+        delivery_id: admission.logical.delivery_id().map_err(Fail::other)?,
+    };
+    let query = NativeInboxLookupEntry {
+        key,
+        logical: admission.logical.clone(),
+        attachments: Some(InboxLogicalAttachments {
+            images: plan.images.iter().map(|image| image.file.clone()).collect(),
+            files: plan.files.iter().map(|file| file.file.clone()).collect(),
+        }),
+    };
+    let (_, reply) = crate::agentctl::runtime::inbox_source::lookup(
+        host.port().id(),
+        &mail.to,
+        vec![query],
+        &admission.execution,
+    )
+    .await?;
+    if !matches!(
+        reply.entries.as_slice(),
+        [NativeInboxLookupResult::Missing { .. }]
+    ) {
+        return Ok(Some(
+            crate::agentctl::rules::mail::DeliveryReceipt::Existing,
+        ));
+    }
+    let state = host.state();
+    let target = state
+        .tabs
+        .iter()
+        .chain(state.mail_targets.iter())
+        .find(|target| target.tab_id == mail.to)
+        .ok_or_else(|| Fail::other("The attachment recipient is no longer current"))?;
+    let set = carry_planned(
+        host,
+        &mail.to,
+        target.device.as_deref(),
+        &plan.images,
+        &plan.files,
+        true,
+    )
+    .await?;
+    plan.record_materialized(&set);
+    mail.attachments = Some(set);
+    Ok(None)
 }
 
 #[cfg(test)]

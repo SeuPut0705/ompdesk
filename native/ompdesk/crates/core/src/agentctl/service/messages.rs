@@ -393,8 +393,8 @@ impl AgentControl {
             return Ok(receipt);
         }
         self.until_draft_sent(caller, target).await?;
-        let carried = self.carry_planned(
-            &target.tab_id, target.device.as_deref(), images, to_land, true,
+        let carried = super::attach::carry_planned(
+            &self.host, &target.tab_id, target.device.as_deref(), &images, &to_land, true,
         ).await?;
         self.host.fresh().await?;
         let (producer, recipient) = inbox_source::addresses(&self.host.state(), caller, target)?;
@@ -470,9 +470,9 @@ impl AgentControl {
         entry.logical_message = Some(message);
         entry.native_source = InboxLogicalSource::Bound(logical);
         entry.from_device = Some(producer.device_id);
-        let attachment_summary = carried.set.summary();
-        if carried.count > 0 {
-            entry.attachments = Some(carried.set);
+        let attachment_summary = carried.summary();
+        if carried.count() > 0 {
+            entry.attachments = Some(carried);
         }
         let port = self.host.port().id();
         let execution = crate::agentctl::inbox::InboxSourceExecution {
@@ -709,21 +709,6 @@ impl AgentControl {
             .resolve_attachments(caller, args.attachments.as_deref())
             .await?;
         let to_tab = tabs.iter().find(|tab| tab.tab_id == to);
-        // A caller outside OMPdesk has no omp to show a picture to: everything lands as a file on this computer.
-        let attached = if resolved.is_empty() {
-            None
-        } else {
-            Some(
-                self.carry(
-                    &to,
-                    to_tab.and_then(|tab| tab.device.as_deref()),
-                    resolved.clone(),
-                    to_tab.is_some(),
-                    true,
-                )
-                .await?,
-            )
-        };
         let id = match &args.id {
             Some(id) => id.clone(),
             None => {
@@ -758,6 +743,34 @@ impl AgentControl {
                 crate::hex(&digest.finalize()[..12])
             }
         };
+        let outside = self.host.state().outside_callers.contains_key(&to);
+        let (images, files) =
+            crate::agentctl::journal::attachments::plan(resolved, to_tab.is_some());
+        let (native_plan, attached) = if outside {
+            let attached = if images.is_empty() && files.is_empty() {
+                None
+            } else {
+                Some(
+                    super::attach::carry_planned(
+                        &self.host,
+                        &to,
+                        to_tab.and_then(|tab| tab.device.as_deref()),
+                        &images,
+                        &files,
+                        true,
+                    )
+                    .await?,
+                )
+            };
+            (None, attached)
+        } else {
+            let plan = (!images.is_empty() || !files.is_empty()).then(|| {
+                std::sync::Arc::new(crate::agentctl::rules::mail::NativeAttachmentPlan::new(
+                    images, files,
+                ))
+            });
+            (plan, None)
+        };
         let text = [
             Some(args.text.clone()),
             custody.as_ref().map(|c| c.line.clone()),
@@ -778,10 +791,8 @@ impl AgentControl {
             self.now(),
         );
         mail.files = args.files.clone();
-        mail.attachments = attached
-            .as_ref()
-            .filter(|carried| carried.count > 0)
-            .map(|carried| carried.set.clone());
+        mail.attachments = attached.clone();
+        mail.native_attachment_plan = native_plan.clone();
         mail.checks = args.checks.as_ref().map(|checks| {
             checks
                 .iter()
@@ -822,13 +833,10 @@ impl AgentControl {
             let query = NativeInboxLookupEntry {
                 key,
                 logical: admission.logical.clone(),
-                attachments: mail
-                    .attachments
-                    .as_ref()
-                    .map(|set| InboxLogicalAttachments {
-                        images: set.images.clone(),
-                        files: set.files.iter().map(|landed| landed.file.clone()).collect(),
-                    }),
+                attachments: native_plan.as_ref().map(|plan| InboxLogicalAttachments {
+                    images: plan.images.iter().map(|image| image.file.clone()).collect(),
+                    files: plan.files.iter().map(|file| file.file.clone()).collect(),
+                }),
             };
             let (_, reply) = crate::agentctl::runtime::inbox_source::lookup(
                 self.host.port().id(),
@@ -876,9 +884,13 @@ impl AgentControl {
                 .reported_in
                 .insert(format!("{}\n{to}", caller.tab_id), caller.busy_since);
         }
-        let mut waiting = match &attached {
-            Some(carried) if outcome != Posted::Duplicate && outcome != Posted::Stale => {
-                format!(" {}.", carried.set.summary())
+        let summary = attached
+            .as_ref()
+            .map(|set| set.summary())
+            .or_else(|| native_plan.as_ref().and_then(|plan| plan.summary()));
+        let mut waiting = match summary {
+            Some(summary) if outcome != Posted::Duplicate && outcome != Posted::Stale => {
+                format!(" {summary}.")
             }
             _ => String::new(),
         };

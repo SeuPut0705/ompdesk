@@ -823,9 +823,13 @@ async fn two_revisions_of_a_plan_with_the_same_title_and_files_are_two_steps_wit
 async fn a_report_retry_or_conflict_does_not_land_or_restore_source_bytes_after_receiver_disk_acceptance()
  {
     let dir = temp("report-lookup-before-landing");
+    let mut parent = tab("a");
+    parent["device"] = json!("dev-1");
+    let mut host_state = native_state(vec![parent, tab("b")]);
+    host_state["devices"] = json!([{ "id": "dev-1", "name": "paired", "state": "online" }]);
     let (control, asked, mut deliveries, _fixture) = native_rig(
         9_419,
-        native_state(vec![tab("a"), tab("b")]),
+        host_state,
         Caps::default(),
         &files_in(&dir),
         Tuning::default(),
@@ -848,11 +852,46 @@ async fn a_report_retry_or_conflict_does_not_land_or_restore_source_bytes_after_
     control
         .host
         .landed
-        .set(None, &sha, "/expired/source-landing", 0.0);
+        .set(Some("dev-1"), &sha, "/expired/source-landing", 0.0);
     let landed_before_retry = asked_with(&asked, "land").len();
-    let receiver = serde_json::from_value(delivery["request"]["receiver"].clone()).unwrap();
-    let ledger = &control.receiving_inbox.as_ref().unwrap().ledger;
-    let original_pending = ledger.pending(&receiver).unwrap().1;
+    use crate::agentctl::inbox::{
+        InboxLogicalAttachments, InboxSourceExecution, NativeInboxLookupEntry,
+        NativeInboxTransferEntry,
+    };
+    let original: NativeInboxTransferEntry =
+        serde_json::from_value(asked_with(&asked, "inbox")[0]["transfer"]["entries"][0].clone())
+            .unwrap();
+    let query = NativeInboxLookupEntry {
+        key: original.entry.key(),
+        logical: original.logical,
+        attachments: original
+            .attachments
+            .as_ref()
+            .map(|set| InboxLogicalAttachments {
+                images: set.images.clone(),
+                files: set.files.iter().map(|landed| landed.file.clone()).collect(),
+            }),
+    };
+    let execution = InboxSourceExecution {
+        tab_id: "b".into(),
+        runtime_instance: control
+            .host
+            .state()
+            .tabs
+            .iter()
+            .find(|tab| tab.tab_id == "b")
+            .unwrap()
+            .runtime_instance
+            .clone(),
+    };
+    let (query, first_ownership) = crate::agentctl::runtime::inbox_source::lookup(
+        control.host.port().id(),
+        "a",
+        vec![query],
+        &execution,
+    )
+    .await
+    .unwrap();
     let repeated = control.run("b", "ompdesk_report", args.clone(), None).await;
     assert!(!repeated.is_error, "{}", repeated.text);
     assert_eq!(asked_with(&asked, "land").len(), landed_before_retry);
@@ -864,7 +903,15 @@ async fn a_report_retry_or_conflict_does_not_land_or_restore_source_bytes_after_
     assert!(conflict.is_error, "{}", conflict.text);
     assert_eq!(asked_with(&asked, "land").len(), landed_before_retry);
     assert!(source_blob.is_dir());
-    assert_eq!(ledger.pending(&receiver).unwrap().1, original_pending);
+    let (_, retained_ownership) = crate::agentctl::runtime::inbox_source::lookup(
+        control.host.port().id(),
+        "a",
+        query.entries,
+        &execution,
+    )
+    .await
+    .unwrap();
+    assert_eq!(retained_ownership.entries, first_ownership.entries);
     assert_eq!(std::fs::read(receiver_path).unwrap(), PDF);
     control.host.port().close();
 }

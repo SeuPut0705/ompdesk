@@ -227,7 +227,7 @@ fn fingerprint(entry: &NativeInboxTransferEntry) -> Result<String, String> {
     fingerprint_payload(entry.logical_payload().map_err(|error| error.to_string())?)
 }
 
-fn fingerprint_payload(mut value: serde_json::Value) -> Result<String, String> {
+pub(crate) fn fingerprint_payload(mut value: serde_json::Value) -> Result<String, String> {
     value.sort_all_objects();
     let bytes = serde_json::to_vec(&value).map_err(|error| error.to_string())?;
     Ok(sha256_hex(&bytes))

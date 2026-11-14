@@ -48,7 +48,7 @@ struct LookupParams {
 }
 
 impl Runtime {
-    pub(super) fn redeliver_inbox(self: &Arc<Self>) {
+    pub(crate) fn redeliver_inbox(self: &Arc<Self>) {
         if self.control.receiving_inbox.is_none() {
             return;
         }
