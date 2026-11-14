@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { checkRepoAccess } from "./update-auth";
 import { lastSwapEntry } from "./update-log-core";
 import {
 	classifyRepoAccess,
@@ -27,6 +28,22 @@ import {
 	TransferStalledError,
 	withinIdle,
 } from "./updater-state";
+
+const updateFetch = vi.hoisted(() => vi.fn());
+vi.mock("electron", () => ({ app: {}, net: { fetch: updateFetch }, safeStorage: {} }));
+
+describe("update repository access", () => {
+	it("requests the canonical repository without a token", async () => {
+		updateFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+		expect(await checkRepoAccess(undefined)).toBe("ok");
+		expect(updateFetch).toHaveBeenCalledWith(
+			"https://api.github.com/repos/seuput-inc/ompdesk",
+			expect.objectContaining({
+				headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" },
+			}),
+		);
+	});
+});
 
 describe("installer transfer concurrency", () => {
 	it("never runs a second transfer while one is in flight", async () => {

@@ -130,7 +130,7 @@ nsis:
 
 publish:
   provider: github
-  owner: SeuPut0705
+  owner: seuput-inc
   repo: ompdesk
 
 # Electron's locale files: only en-US (Chromium's hard fallback; a build without

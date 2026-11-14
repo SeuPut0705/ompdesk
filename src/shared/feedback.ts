@@ -11,7 +11,7 @@
 import type { RuntimeErrorReport } from "./ipc-types";
 
 /** OMPdesk's own repository (`owner/name`): issues, the About page's star. */
-export const PRODUCT_REPO = "SeuPut0705/ompdesk";
+export const PRODUCT_REPO = "seuput-inc/ompdesk";
 export const FEEDBACK_REPO = `https://github.com/${PRODUCT_REPO}`;
 
 export type FeedbackKind = "bug" | "feature" | "question";

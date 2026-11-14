@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadVapid } from "./vapid-store";
 
-const VAPID_SUBJECT = "https://github.com/SeuPut0705/ompdesk";
+const VAPID_SUBJECT = "https://github.com/seuput-inc/ompdesk";
 
 let dir: string;
 let file: string;
