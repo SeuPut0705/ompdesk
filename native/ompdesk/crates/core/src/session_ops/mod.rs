@@ -1,6 +1,6 @@
 //! Session mutation ordering. Base supplies the one application authority and concrete native effects.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,6 +9,7 @@ pub(crate) mod stored_rename;
 
 use ompdesk_app_contract::Owner;
 
+use crate::application::session_authority::{Persistence, SessionAuthority};
 use crate::fs::order::js_trim;
 use crate::server::{Fault, Scope};
 
@@ -85,10 +86,8 @@ pub struct Release {
 pub trait Host: Send + Sync + 'static {
     type Runtime: Send + Sync + 'static;
     type Notices: Send + 'static;
-    type DeleteGuard: Send + 'static;
 
     fn authorize(&self, owner: &Owner, target: Target) -> Result<Target, Fault>;
-    fn begin_delete(&self, target: &Target) -> Self::DeleteGuard;
     fn capture(&self, target: &Target) -> Effect<Captured<Self::Runtime, Self::Notices>>;
     /// Rechecks the captured holder's incarnation and busy/compaction under its pool's atomic release operation.
     fn release(&self, holder: &Holder<Self::Runtime>) -> Effect<Release>;
@@ -99,20 +98,30 @@ pub trait Host: Send + Sync + 'static {
     fn note_name(&self, holder: &Holder<Self::Runtime>, name: &str) -> Effect<()>;
     fn delete_stored(&self, target: &Target, scope: Scope) -> Effect<()>;
     fn move_stored(&self, target: &Target, cwd: PathBuf, scope: Scope) -> Effect<String>;
-    /// The tombstone's in-memory commit is authoritative. A retained-save error is reported separately, not returned
-    /// as a failed storage delete or allowed to skip invalidation and notices.
-    fn remember_deleted(&self, target: &Target);
     fn invalidate(&self, target: &Target) -> Effect<()>;
     fn notify_deleted(&self, target: &Target, notices: Self::Notices) -> Effect<()>;
 }
 
+pub struct Config<H: Host> {
+    pub host: Arc<H>,
+    /// The exact Base-owned Arc also used for acquire, restore, the index and hosted opens.
+    pub authority: Arc<SessionAuthority>,
+    pub now_ms: fn() -> f64,
+}
+
 pub struct Coordinator<H: Host> {
     host: Arc<H>,
+    authority: Arc<SessionAuthority>,
+    now_ms: fn() -> f64,
 }
 
 impl<H: Host> Coordinator<H> {
-    pub fn new(host: Arc<H>) -> Self {
-        Self { host }
+    pub fn new(config: Config<H>) -> Self {
+        Self {
+            host: config.host,
+            authority: config.authority,
+            now_ms: config.now_ms,
+        }
     }
 
     pub async fn execute(
@@ -135,7 +144,7 @@ impl<H: Host> Coordinator<H> {
     }
 
     async fn delete(&self, target: Target, scope: Scope) -> Result<Output, Error> {
-        let _guard = self.host.begin_delete(&target);
+        let guard = self.authority.begin_delete(Path::new(&target.path), target.device.as_deref());
         let captured = self.host.capture(&target).await?;
         if captured.holders.iter().any(|holder| holder.activity != Activity::Idle) {
             return Err(running());
@@ -169,7 +178,12 @@ impl<H: Host> Coordinator<H> {
             return Err(Fault::cancelled().into());
         }
         self.host.delete_stored(&target, scope).await?;
-        self.host.remember_deleted(&target);
+        match guard.commit((self.now_ms)()) {
+            Persistence::MemoryOnly | Persistence::Durable => {}
+            Persistence::Queued(error) | Persistence::Failed(error) => {
+                eprintln!("ompdesk-core: [deleted-sessions] not saved: {}", error.message);
+            }
+        }
         // Both effects are owed once storage and the in-memory tombstone committed. Failure of either is reported,
         // but does not prevent the other from learning that this session is gone.
         let invalidated = self.host.invalidate(&target).await;
@@ -213,6 +227,7 @@ impl<H: Host> Coordinator<H> {
         let live = captured.holders.iter()
             .filter(|holder| holder.state != RuntimeState::Dormant)
             .min_by_key(|holder| !holder.hosted);
+        let mut notification_failure = None;
         if let Some(holder) = live {
             if holder.state != RuntimeState::Ready {
                 return Err(Error::Rejected {
@@ -224,10 +239,16 @@ impl<H: Host> Coordinator<H> {
         } else {
             self.host.rename_stored(&target, name, scope).await?;
             for holder in &captured.holders {
-                self.host.note_name(holder, name).await?;
+                if let Err(error) = self.host.note_name(holder, name).await {
+                    notification_failure.get_or_insert(error);
+                }
             }
         }
-        self.host.invalidate(&target).await?;
+        let invalidated = self.host.invalidate(&target).await;
+        if let Some(error) = notification_failure {
+            return Err(error.into());
+        }
+        invalidated?;
         Ok(Output::Done)
     }
 

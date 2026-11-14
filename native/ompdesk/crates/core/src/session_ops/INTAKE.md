@@ -11,8 +11,10 @@ Main AUTHORITY-v2 assigns canonical SessionAuthority state, tombstones, retained
 - Base source reference `6d02dc1c8b2f19e5b60086641fc9242ded3b2b01`, exact a973 parent, read with `git show` only. The whole source tree was not imported.
 - Exact four-file app-contract input `604f75ec087c5e2cb064147e3b63ff632f8e1f99`, locally cherry-picked as `26ad30d91`.
 - Relay counted-fence two-file patch `2e0b7a34cf87c8a08013ef5652abd9642440a1fd` as an attached policy reference, not TS code intake.
+- Exact native stock service input `3bf8e72469cb1a6d63296d19196cd4f67f286941`, locally cherry-picked as `091fb61dc`, three stock files only.
+- Exact canonical SessionAuthority input `75307aa0dc9f1cbe9f9ac80fa9edd0d6ec84dbcb`, locally cherry-picked as `f9140dd36`, four application/export files only.
 
-The published Base source has a concrete stock::native::Service and application::sessions::SessionIndex. Its published sidecar.when_exited, Released.exited and when_released still return void futures and swallow channel closure. Those are not successful exact-exit proof. Base's tiny upgraded source/API was requested and is not available in this checkpoint.
+The direct stock service and canonical SessionAuthority are now present as exact source units. Coordinator Config receives Base's actual shared authority Arc and directly holds its DeletionGuard through storage, commit and notices. The published 6d02 sidecar.when_exited, Released.exited and when_released still return void futures and swallow channel closure. Those are not successful exact-exit proof. The upgraded Result receipt and native pool facade remain pending.
 
 ## Ordering implementation
 
@@ -22,15 +24,17 @@ Stop dispatches all captured abort effects and retains every idle waiter. Rename
 
 ## Required actual adapter input
 
-Base must supply the actual typed SessionAuthority, canonical guard and stored-mutation admission lease. Pool primitives must capture immutable runtime/incarnation handles, atomically recheck busy/compaction when releasing saved-file holders, and return Result exit receipts captured before disposal. A partial release error must preserve the receipts of anything already released. Saved-file delete must not be confused with closing only one protected view.
+The actual SessionAuthority and canonical guard are consumed directly. Base must still supply the shared stored-mutation admission lease. Pool primitives must capture immutable runtime/incarnation handles, atomically recheck busy/compaction when releasing saved-file holders, and return Result exit receipts captured before disposal. A partial release error must preserve the receipts of anything already released. Saved-file delete must not be confused with closing only one protected view.
 
-The concrete NativeHost still needs Base's tiny pool/authority/stock exports, current Owner/scope checks, authenticated local/remote target resolution, hosted notice tickets, direct index invalidation and direct stock storage wiring. The stored-rename helper and closed-only move must use the same admission authority so an open cannot race their preconditions. No substitute mutex or count belongs here.
+The concrete NativeHost still needs Base's tiny native pool/receipt facade, current Owner/scope checks, authenticated local/remote target resolution, hosted notice tickets, direct index invalidation and direct stock storage wiring. The stored-rename helper and closed-only move must use the same admission authority so an open cannot race their preconditions. No substitute mutex or count belongs here.
 
 Base owns core module exports, Cargo/global files and NativeApp registration. Final native graph intake must instantiate the shared authority once and remove or route every obsolete TS authority consumer in that same wave. No dual writes or simultaneously authoritative TS/native stores are permitted.
 
 ## Verification limits
 
 No Rust compile, unit test, formatter, SANY parse, TLC matrix, mutation run or actual stock/child integration run has been executed for this checkpoint. Main explicitly requested source preservation before Base's actual hook is available and prohibited mid-flight checks. Normal branch publication hooks are not a Rust proof.
+
+The final Rust proof must prepend the installed 1.95 bin directory to PATH and set RUSTC and RUSTDOC explicitly. Record the actual cargo, rustc, rustdoc and Clippy driver paths and versions; a `rustup run 1.95` label is not provenance when Homebrew binaries remain selected. Do not install or mutate a toolchain.
 
 The ordering model under formal/ is unexecuted source. It abstracts two captured runtimes and one delete. It does not prove Base admission, remote authorization, persistence retries, reconnect/restore, same-saved-ID late writes, rename, move or the concrete native adapter. Its code correspondence must be updated after the real adapter is connected. Formal manifest publication and hosted proof coordination stay with Base/Main.
 

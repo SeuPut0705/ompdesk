@@ -21,8 +21,10 @@ pub(crate) async fn rename(
     if session.extension().is_none_or(|extension| extension != "jsonl") {
         return Err(Fault::new("session_rename", "Invalid session path"));
     }
-    tokio::fs::metadata(session)
+    let metadata_path = session.to_owned();
+    tokio::task::spawn_blocking(move || std::fs::metadata(metadata_path))
         .await
+        .map_err(|_| Fault::new("session_rename", "Session file check failed"))?
         .map_err(|_| Fault::new("session_rename", "Session file not found"))?;
     let mut input = serde_json::to_vec(&json!({"id":REQUEST_ID,"type":"set_session_name","name":name}))
         .map_err(|error| Fault::new("json", error.to_string()))?;
