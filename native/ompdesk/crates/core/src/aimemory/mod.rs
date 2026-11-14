@@ -19,8 +19,13 @@
 
 pub(crate) mod client;
 pub(crate) mod ops;
+pub mod prompt_policy;
+#[cfg(test)]
+mod prompt_policy_tests;
 pub(crate) mod service;
 pub(crate) mod value;
+
+pub use service::application;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;

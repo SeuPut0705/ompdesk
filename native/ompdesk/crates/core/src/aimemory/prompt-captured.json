@@ -1,0 +1,5537 @@
+[
+  {
+    "text": "",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": null,
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "hello",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "hello",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "hello",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nhello",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nhello",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nhello",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nhello\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nhello\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nhello\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nhello\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nhello\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nhello\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "hello",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nhello\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nhello\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nhello\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hello",
+      "explicit": null,
+      "body": "hello",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Title: 한 줄 제목\n\nbody",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: 한 줄 제목\n\nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: 한 줄 제목\n\nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 한 줄 제목\n\nbody",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 한 줄 제목\n\nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 한 줄 제목\n\nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 한 줄 제목\n\nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 한 줄 제목\n\nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 한 줄 제목\n\nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 한 줄 제목\n\nbody\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 한 줄 제목\n\nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 한 줄 제목\n\nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "한 줄 제목",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 한 줄 제목\n\nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 한 줄 제목\n\nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 한 줄 제목\n\nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "한 줄 제목",
+      "explicit": "한 줄 제목",
+      "body": "Title: 한 줄 제목\n\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Title:    spaced   \nrest",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title:    spaced   \nrest",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title:    spaced   \nrest",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle:    spaced   \nrest",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle:    spaced   \nrest",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle:    spaced   \nrest",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle:    spaced   \nrest\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle:    spaced   \nrest\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle:    spaced   \nrest\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle:    spaced   \nrest\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle:    spaced   \nrest\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle:    spaced   \nrest\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "spaced",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle:    spaced   \nrest\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle:    spaced   \nrest\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle:    spaced   \nrest\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "spaced",
+      "explicit": "spaced",
+      "body": "Title:    spaced   \nrest",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "title: lower",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "title: lower",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "title: lower",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\ntitle: lower",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\ntitle: lower",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\ntitle: lower",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\ntitle: lower\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\ntitle: lower\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\ntitle: lower\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\ntitle: lower\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\ntitle: lower\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\ntitle: lower\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "lower",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\ntitle: lower\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\ntitle: lower\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\ntitle: lower\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "lower",
+      "explicit": null,
+      "body": "title: lower",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가…",
+      "explicit": null,
+      "body": "Title: 가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "explicit": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "body": "Title: 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d…",
+      "explicit": null,
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀more",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "# Target\nFix sidebar overflow.",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Target\nFix sidebar overflow.",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Target\nFix sidebar overflow.",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target\nFix sidebar overflow.",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target\nFix sidebar overflow.",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target\nFix sidebar overflow.",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target\nFix sidebar overflow.\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target\nFix sidebar overflow.\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target\nFix sidebar overflow.\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target\nFix sidebar overflow.\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target\nFix sidebar overflow.\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target\nFix sidebar overflow.\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Fix sidebar overflow.",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target\nFix sidebar overflow.\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target\nFix sidebar overflow.\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target\nFix sidebar overflow.\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix sidebar overflow.",
+      "explicit": null,
+      "body": "# Target\nFix sidebar overflow.",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "## 목표:\n사이드바 줄 높이",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "## 목표:\n사이드바 줄 높이",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "## 목표:\n사이드바 줄 높이",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n## 목표:\n사이드바 줄 높이",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n## 목표:\n사이드바 줄 높이",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n## 목표:\n사이드바 줄 높이",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n## 목표:\n사이드바 줄 높이\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n## 목표:\n사이드바 줄 높이\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n## 목표:\n사이드바 줄 높이\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n## 목표:\n사이드바 줄 높이\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n## 목표:\n사이드바 줄 높이\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n## 목표:\n사이드바 줄 높이\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "사이드바 줄 높이",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n## 목표:\n사이드바 줄 높이\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n## 목표:\n사이드바 줄 높이\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n## 목표:\n사이드바 줄 높이\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "사이드바 줄 높이",
+      "explicit": null,
+      "body": "## 목표:\n사이드바 줄 높이",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "# Target",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Target",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Target",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Target",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Target",
+      "explicit": null,
+      "body": "# Target",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "# Fix 1: duplicate\nbody",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Fix 1: duplicate\nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Fix 1: duplicate\nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Fix 1: duplicate\nbody",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Fix 1: duplicate\nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Fix 1: duplicate\nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Fix 1: duplicate\nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Fix 1: duplicate\nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Fix 1: duplicate\nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Fix 1: duplicate\nbody\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Fix 1: duplicate\nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Fix 1: duplicate\nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Fix 1: duplicate",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Fix 1: duplicate\nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Fix 1: duplicate\nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Fix 1: duplicate\nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Fix 1: duplicate",
+      "explicit": null,
+      "body": "# Fix 1: duplicate\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<a>\n***\n```ts\nreal line",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<a>\n***\n```ts\nreal line",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<a>\n***\n```ts\nreal line",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n<a>\n***\n```ts\nreal line",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n<a>\n***\n```ts\nreal line",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n<a>\n***\n```ts\nreal line",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n<a>\n***\n```ts\nreal line\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n<a>\n***\n```ts\nreal line\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n<a>\n***\n```ts\nreal line\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n<a>\n***\n```ts\nreal line\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n<a>\n***\n```ts\nreal line\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n<a>\n***\n```ts\nreal line\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "real line",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n<a>\n***\n```ts\nreal line\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n<a>\n***\n```ts\nreal line\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n<a>\n***\n```ts\nreal line\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "real line",
+      "explicit": null,
+      "body": "<a>\n***\n```ts\nreal line",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nComplete assignment thoroughly:",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nComplete assignment thoroughly:",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nComplete assignment thoroughly:",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nComplete assignment thoroughly:\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nComplete assignment thoroughly:\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nComplete assignment thoroughly:\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nComplete assignment thoroughly:\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nComplete assignment thoroughly:\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nComplete assignment thoroughly:\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nComplete assignment thoroughly:\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nComplete assignment thoroughly:\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nComplete assignment thoroughly:\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "You are a subagent spawned by another session.",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "You are a subagent spawned by another session.",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "You are a subagent spawned by another session.",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nYou are a subagent spawned by another session.",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nYou are a subagent spawned by another session.",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nYou are a subagent spawned by another session.",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nYou are a subagent spawned by another session.\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nYou are a subagent spawned by another session.\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nYou are a subagent spawned by another session.\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nYou are a subagent spawned by another session.\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nYou are a subagent spawned by another session.\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nYou are a subagent spawned by another session.\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "You are a subagent spawned by another session.",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nYou are a subagent spawned by another session.\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nYou are a subagent spawned by another session.\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nYou are a subagent spawned by another session.\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": null,
+      "explicit": null,
+      "body": "",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nSession 01a14f97-00cf-70df-bcbf-50d074b4b6ca\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "explicit": null,
+      "body": "Session 01a14f97-00cf-70df-bcbf-50d074b4b6ca",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "session",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "session",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "session",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": true,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nsession",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nsession",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nsession",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nsession\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nsession\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nsession\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nsession\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nsession\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nsession\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "session",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nsession\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nsession\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nsession\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "session",
+      "explicit": null,
+      "body": "session",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "SESSION",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "SESSION",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "SESSION",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nSESSION",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nSESSION",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nSESSION",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nSESSION\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nSESSION\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nSESSION\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nSESSION\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nSESSION\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nSESSION\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "SESSION",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nSESSION\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nSESSION\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nSESSION\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "SESSION",
+      "explicit": null,
+      "body": "SESSION",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "﻿hithere",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "﻿hithere",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "﻿hithere",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n﻿hithere",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n﻿hithere",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n﻿hithere",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n﻿hithere\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n﻿hithere\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n﻿hithere\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n﻿hithere\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n﻿hithere\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n﻿hithere\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "hithere",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n﻿hithere\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n﻿hithere\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n﻿hithere\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hithere",
+      "explicit": null,
+      "body": "hithere",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Title: title",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: title",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: title",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: title",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: title",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: title",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: title\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: title\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: title\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: title\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: title\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: title\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "title",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: title\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: title\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: title\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "title",
+      "explicit": null,
+      "body": "Title: title",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<a x=\"y>z\">\nnext",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<a x=\"y>z\">\nnext",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<a x=\"y>z\">\nnext",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n<a x=\"y>z\">\nnext",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n<a x=\"y>z\">\nnext",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n<a x=\"y>z\">\nnext",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n<a x=\"y>z\">\nnext\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n<a x=\"y>z\">\nnext\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n<a x=\"y>z\">\nnext\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n<a x=\"y>z\">\nnext\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n<a x=\"y>z\">\nnext\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n<a x=\"y>z\">\nnext\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "<a x=\"y>z\">",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n<a x=\"y>z\">\nnext\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n<a x=\"y>z\">\nnext\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n<a x=\"y>z\">\nnext\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "<a x=\"y>z\">",
+      "explicit": null,
+      "body": "<a x=\"y>z\">\nnext",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "- item",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "- item",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "- item",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n- item",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n- item",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n- item",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n- item\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n- item\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n- item\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n- item\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n- item\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n- item\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "item",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n- item\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n- item\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n- item\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "item",
+      "explicit": null,
+      "body": "- item",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "> quoted",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "> quoted",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "> quoted",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n> quoted",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n> quoted",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n> quoted",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n> quoted\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n> quoted\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n> quoted\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n> quoted\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n> quoted\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n> quoted\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "quoted",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n> quoted\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n> quoted\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n> quoted\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "quoted",
+      "explicit": null,
+      "body": "> quoted",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Title: \nbody",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: \nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: \nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: \nbody",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: \nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: \nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: \nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: \nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: \nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: \nbody\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: \nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: \nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: \nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: \nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: \nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "Title: \nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "####### heading",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "####### heading",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "####### heading",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n####### heading",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n####### heading",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n####### heading",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n####### heading\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n####### heading\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n####### heading\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n####### heading\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n####### heading\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n####### heading\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "####### heading",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n####### heading\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n####### heading\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n####### heading\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "####### heading",
+      "explicit": null,
+      "body": "####### heading",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "# Target :\nbody",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Target :\nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "# Target :\nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target :\nbody",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target :\nbody",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\n# Target :\nbody",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target :\nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target :\nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\n# Target :\nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target :\nbody\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target :\nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\n# Target :\nbody\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "body",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target :\nbody\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target :\nbody\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\n# Target :\nbody\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "body",
+      "explicit": null,
+      "body": "# Target :\nbody",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Title: hi\rnot-newline",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: hi\rnot-newline",
+    "sessionName": "named session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Title: hi\rnot-newline",
+    "sessionName": "session",
+    "expected": {
+      "agent": false,
+      "junk": false,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": false,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: hi\rnot-newline",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: hi\rnot-newline",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n\nTitle: hi\rnot-newline",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": false,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: hi\rnot-newline\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: hi\rnot-newline\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"부모\">\nTitle: hi\rnot-newline\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: hi\rnot-newline\r\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: hi\rnot-newline\r\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "<ompdesk-agent-message from=\"a &amp; b\" session=\"id\">\r\nTitle: hi\rnot-newline\r\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": true,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "hi not-newline",
+      "agentMessage": true,
+      "subagentAssignment": false
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: hi\rnot-newline\n</ompdesk-agent-message>",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: hi\rnot-newline\n</ompdesk-agent-message>",
+    "sessionName": "named session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "named session",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  },
+  {
+    "text": "Complete assignment thoroughly:\n<ompdesk-agent-message from=\"parent\">\nTitle: hi\rnot-newline\n</ompdesk-agent-message>",
+    "sessionName": "session",
+    "expected": {
+      "agent": true,
+      "junk": false,
+      "title": "hi not-newline",
+      "explicit": null,
+      "body": "Title: hi\rnot-newline",
+      "firstLine": "Complete assignment thoroughly:",
+      "agentMessage": true,
+      "subagentAssignment": true
+    }
+  }
+]

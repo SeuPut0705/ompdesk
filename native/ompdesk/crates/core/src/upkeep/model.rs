@@ -328,6 +328,11 @@ async fn run_smol_within(
 pub enum Model {
     /// Ask main where omp is (`omp` `{}` → `{bin, env}`) and run it in `cwd`.
     Omp(Asker, PathBuf),
+    /// The native app's canonical Machine selector; no main-process ask or deserialized launch authority.
+    Native(
+        std::sync::Arc<dyn crate::aimemory::application::Host>,
+        PathBuf,
+    ),
     /// Ask main for the answer (`model` `{message}` → `ModelResult`): a test's fake model.
     Main(Asker),
 }
@@ -344,6 +349,13 @@ impl Model {
 
     pub async fn call(&self, message: &Message) -> Result<ModelResult, Fault> {
         match self {
+            Model::Native(host, cwd) => {
+                let launch = host
+                    .omp_launch()
+                    .await
+                    .map_err(|failure| Fault::new("memory_omp", failure.message()))?;
+                run_smol(&launch, message, cwd).await
+            }
             Model::Omp(asker, cwd) => {
                 let launch = asker.ask("omp", json!({})).await?;
                 let launch: OmpLaunch = serde_json::from_value(launch).map_err(|error| {
@@ -395,7 +407,139 @@ pub fn register(registry: &mut Registry) {
 mod tests {
     use super::super::asks::rig::{Rig, Said};
     use super::*;
+    use crate::aimemory::application::{Boxed, Environment, Failure, Host, RunCommand, RunOutput};
     use crate::fs::disk::make_temp_dir;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    struct NativeSelector {
+        launch: Mutex<OmpLaunch>,
+        refused: AtomicBool,
+        calls: AtomicUsize,
+    }
+
+    impl Host for NativeSelector {
+        fn agent_dir(&self) -> PathBuf {
+            unreachable!("model only selects omp")
+        }
+        fn terminal_pref(&self) -> Option<bool> {
+            unreachable!("model only selects omp")
+        }
+        fn persist_terminal(&self, _: bool) -> Result<(), Failure> {
+            unreachable!("model only selects omp")
+        }
+        fn before_start(&self) -> Boxed<'_, Result<(), Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn spawn_env(&self) -> Boxed<'_, Result<Environment, Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn bun_present(&self) -> Boxed<'_, Result<bool, Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn run(
+            &self,
+            _: RunCommand,
+            _: crate::server::Scope,
+        ) -> Boxed<'_, Result<RunOutput, Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn omp_launch(&self) -> Boxed<'_, Result<OmpLaunch, Failure>> {
+            Box::pin(async move {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                if self.refused.load(Ordering::SeqCst) {
+                    return Err(Failure::step("omp selection refused"));
+                }
+                Ok(self.launch.lock().unwrap().clone())
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_model_resolves_each_call_and_preserves_failures() {
+        let root = temp("native");
+        let rec = root.join("rec");
+        std::fs::create_dir_all(&rec).unwrap();
+        let bin = recorder(&root);
+        put(&rec, "out", &assistant("native reply"));
+        put(&rec, "err", "");
+        put(&rec, "code", "0");
+        let host = Arc::new(NativeSelector {
+            launch: Mutex::new(launch(&bin, &rec, 0)),
+            refused: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+        });
+        let model = Model::Native(host.clone(), root.join("empty"));
+        let message = Message {
+            system: "system".into(),
+            user: "digest".into(),
+        };
+        assert_eq!(model.call(&message).await.unwrap().text, "native reply");
+        put(&rec, "out", "");
+        put(&rec, "err", "provider refused\n");
+        put(&rec, "code", "3");
+        host.launch
+            .lock()
+            .unwrap()
+            .env
+            .insert("CODE".into(), "3".into());
+        assert_eq!(
+            model.call(&message).await.unwrap_err().message,
+            "omp exited 3: provider refused"
+        );
+        host.refused.store(true, Ordering::SeqCst);
+        assert_eq!(
+            model.call(&message).await.unwrap_err().message,
+            "omp selection refused"
+        );
+        assert_eq!(host.calls.load(Ordering::SeqCst), 3);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelling_a_native_model_ends_its_direct_child() {
+        use tokio::io::AsyncReadExt;
+        let root = temp("native-cancel");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let bin = stand_in(
+            &root,
+            "exec /bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/$MODEL_PORT; printf ready >&3; read -r <&3'",
+            "",
+        );
+        let mut env: BTreeMap<String, String> = std::env::vars().collect();
+        env.insert("MODEL_PORT".into(), port.to_string());
+        let host = Arc::new(NativeSelector {
+            launch: Mutex::new(OmpLaunch { bin, env }),
+            refused: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+        });
+        let model = Model::Native(host, root.join("empty"));
+        let running = tokio::spawn(async move {
+            model
+                .call(&Message {
+                    system: "s".into(),
+                    user: "u".into(),
+                })
+                .await
+        });
+        let (mut connection, _) = listener.accept().await.unwrap();
+        let mut ready = [0; 5];
+        connection.read_exact(&mut ready).await.unwrap();
+        assert_eq!(&ready, b"ready");
+        running.abort();
+        assert!(running.await.unwrap_err().is_cancelled());
+        let mut next = [0; 1];
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), connection.read(&mut next))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     /// `distill-model.test.ts`'s two `parseOmpJson` cases and the rows captured from the TypeScript before it was
     /// deleted (the same cases, then edge rows: usage fields missing or of another type, numbers JavaScript reads

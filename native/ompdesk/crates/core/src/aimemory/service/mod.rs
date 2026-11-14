@@ -33,6 +33,9 @@
 //! is main's (`aimemory.service.timer` `{timer, ms, repeat}`, `clearTimer`, fired by `aimemory.service.fire`), so
 //! vitest's fake timers drive the real core.
 
+#[path = "../application.rs"]
+pub mod application;
+
 mod binary;
 mod pass;
 mod root;
@@ -218,6 +221,7 @@ pub struct Service {
     name: String,
     events: Events,
     deps: Deps,
+    native: Option<application::Native>,
     unit: Option<unit::Unit>,
     inner: Mutex<Inner>,
     jobs: mpsc::UnboundedSender<Job>,
@@ -393,6 +397,11 @@ impl Service {
 
     /// Asks main for what only it has; `cancels`: dropping the wait cancels it (a command).
     async fn ask(&self, what: &str, cancels: bool, params: Value) -> Result<Value, Failure> {
+        if self.native.is_some() {
+            return Err(Failure::step(format!(
+                "Unported native memory effect: {what}"
+            )));
+        }
         let ask = self.next_ask.fetch_add(1, Ordering::Relaxed);
         let (answer, answered) = oneshot::channel();
         locked(&self.asks).insert(ask, answer);
@@ -420,6 +429,9 @@ impl Service {
     }
 
     fn log(&self, message: &str, details: Value) {
+        if self.native.is_some() && self.inner().disposed {
+            return;
+        }
         self.tell(
             "aimemory.service.log",
             json!({ "message": message, "details": details }),
@@ -454,8 +466,15 @@ impl Service {
 
     /// Changes the state, logs a change of phase, step or detail, and tells main the whole state.
     fn patch(&self, change: impl FnOnce(&mut State)) {
+        let _publishing = self
+            .native
+            .as_ref()
+            .map(|native| locked(&native.publishing));
         let (state, before) = {
             let mut inner = self.inner();
+            if self.native.is_some() && inner.disposed {
+                return;
+            }
             let before = (
                 inner.state.phase,
                 inner.state.step,
@@ -502,14 +521,23 @@ impl Service {
     }
 
     fn close(&self) {
+        let native = self.native.as_ref();
+        let _publishing = native.map(|native| locked(&native.publishing));
         let (retry, poll) = {
             let mut inner = self.inner();
             inner.disposed = true;
             (inner.retry.take(), inner.poll.take())
         };
-        let worker = locked(&self.worker).take();
-        for task in [retry, poll, worker].into_iter().flatten() {
+        if let Some(native) = native {
+            native.cancel();
+        }
+        for task in [retry, poll].into_iter().flatten() {
             task.abort();
+        }
+        if self.native.is_some() {
+            self.enqueue(Op::Enable, None);
+        } else if let Some(worker) = locked(&self.worker).take() {
+            worker.abort();
         }
         // Whatever a check still waits for will not come.
         locked(&self.asks).clear();
@@ -525,17 +553,35 @@ async fn work(service: Arc<Service>, mut jobs: mpsc::UnboundedReceiver<Job>) {
             if let Some(done) = done {
                 let _ = done.send(Ok(()));
             }
-            continue;
+            break;
         }
         let bound = service.deps.step_max_ms;
-        let ran = tokio::select! {
-            ran = service.step(op) => ran,
-            () = service.sleep(bound) => {
-                service.tell("aimemory.service.stalled", json!({ "ms": bound }));
-                Err(Fault::new("step_stalled", format!(
-                    "step did not finish in {} and was stopped so the next one can run (ai-memory).",
-                    span(bound)
-                )))
+        let ran = if let Some(native) = &service.native {
+            native.begin_step();
+            let mut step = Box::pin(service.step(op));
+            let ran = tokio::select! {
+                ran = &mut step => ran,
+                () = service.sleep(bound) => {
+                    native.cancel();
+                    // A command still owns its scratch files. Join the cancelled step before the next begins.
+                    let _ = step.await;
+                    service.tell("aimemory.service.stalled", json!({ "ms": bound }));
+                    Err(Fault::new("step_stalled", format!(
+                        "step did not finish in {} and was stopped so the next one can run (ai-memory).", span(bound)
+                    )))
+                }
+            };
+            native.end_step();
+            ran
+        } else {
+            tokio::select! {
+                ran = service.step(op) => ran,
+                () = service.sleep(bound) => {
+                    service.tell("aimemory.service.stalled", json!({ "ms": bound }));
+                    Err(Fault::new("step_stalled", format!(
+                        "step did not finish in {} and was stopped so the next one can run (ai-memory).", span(bound)
+                    )))
+                }
             }
         };
         if let Some(done) = done {
@@ -607,63 +653,11 @@ fn open(call: &Call) -> Result<Reply, Fault> {
         service: name,
         deps,
     } = call.params()?;
-    let unit = (!deps.unit_asks).then(|| {
-        if deps.platform == "win32" {
-            unit::Unit::logon(unit::system())
-        } else {
-            unit::Unit::launchd(std::path::Path::new(&deps.home), deps.uid, unit::system())
-        }
-    });
-    let (jobs, queued) = mpsc::unbounded_channel();
-    let now = deps.now.map_or_else(system_now, |now| now as i64);
-    let service = Arc::new(Service {
-        name: name.clone(),
-        events: call.events.clone(),
-        recall: deps
-            .recall_file
-            .as_ref()
-            .map(|file| RecallFile::open(PathBuf::from(file))),
-        unit,
-        inner: Mutex::new(Inner {
-            state: State {
-                phase: "starting",
-                step: Some("stage"),
-                version: None,
-                binary: None,
-                data_dir: None,
-                server_url: None,
-                web_url: None,
-                wiring: Wiring::default(),
-                stats: None,
-                detail: None,
-                unsupported: None,
-            },
-            disposed: false,
-            resolved: None,
-            down_polls: 0,
-            last_rewire: 0,
-            stats_at: 0,
-            awaiting_bun: false,
-            retries: 0,
-            retry: None,
-            poll: None,
-            checking: None,
-        }),
-        deps,
-        jobs,
-        outcomes: Mutex::default(),
-        next_step: AtomicU64::new(1),
-        asks: Mutex::default(),
-        next_ask: AtomicU64::new(1),
-        now: Mutex::new(now),
-        timers: Mutex::default(),
-        next_timer: AtomicU64::new(1),
-        worker: Mutex::default(),
-        closed: watch::channel(false).0,
-    });
+    let service = Service::create(name.clone(), deps, call.events.clone(), None);
     {
         let mut services = locked(&SERVICES);
         if services.contains_key(&name) {
+            service.close();
             return Err(Fault::new(
                 "invalid_params",
                 "Memory's service is open already",
@@ -671,8 +665,74 @@ fn open(call: &Call) -> Result<Reply, Fault> {
         }
         services.insert(name, Arc::clone(&service));
     }
-    *locked(&service.worker) = Some(tokio::spawn(work(Arc::clone(&service), queued)));
     Reply::json(&service.state())
+}
+
+impl Service {
+    fn create(
+        name: String,
+        deps: Deps,
+        events: Events,
+        native: Option<application::Native>,
+    ) -> Arc<Self> {
+        let unit = (!deps.unit_asks).then(|| {
+            if deps.platform == "win32" {
+                unit::Unit::logon(unit::system())
+            } else {
+                unit::Unit::launchd(std::path::Path::new(&deps.home), deps.uid, unit::system())
+            }
+        });
+        let (jobs, queued) = mpsc::unbounded_channel();
+        let now = deps.now.map_or_else(system_now, |now| now as i64);
+        let service = Arc::new(Service {
+            name: name.clone(),
+            events,
+            native,
+            recall: deps
+                .recall_file
+                .as_ref()
+                .map(|file| RecallFile::open(PathBuf::from(file))),
+            unit,
+            inner: Mutex::new(Inner {
+                state: State {
+                    phase: "starting",
+                    step: Some("stage"),
+                    version: None,
+                    binary: None,
+                    data_dir: None,
+                    server_url: None,
+                    web_url: None,
+                    wiring: Wiring::default(),
+                    stats: None,
+                    detail: None,
+                    unsupported: None,
+                },
+                disposed: false,
+                resolved: None,
+                down_polls: 0,
+                last_rewire: 0,
+                stats_at: 0,
+                awaiting_bun: false,
+                retries: 0,
+                retry: None,
+                poll: None,
+                checking: None,
+            }),
+            deps,
+            jobs,
+            outcomes: Mutex::default(),
+            next_step: AtomicU64::new(1),
+            asks: Mutex::default(),
+            next_ask: AtomicU64::new(1),
+            now: Mutex::new(now),
+            timers: Mutex::default(),
+            next_timer: AtomicU64::new(1),
+            worker: Mutex::default(),
+            closed: watch::channel(false).0,
+        });
+        *locked(&service.worker) = Some(tokio::spawn(work(Arc::clone(&service), queued)));
+        service
+    }
 }
 
 #[derive(Deserialize)]

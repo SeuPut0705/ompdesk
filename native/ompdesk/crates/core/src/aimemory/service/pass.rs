@@ -119,6 +119,9 @@ impl Service {
     }
 
     async fn agent_dir(&self) -> Result<PathBuf, Failure> {
+        if let Some(native) = &self.native {
+            return Ok(native.host.agent_dir());
+        }
         match self.ask("agentDir", false, Value::Null).await? {
             Value::String(dir) => Ok(PathBuf::from(dir)),
             _ => Err(Failure::step("omp's agent dir is not known")),
@@ -127,10 +130,38 @@ impl Service {
 
     /// `AI_MEMORY_TERMINAL_PREF`: none until the person (or the one-time migration) decided.
     async fn terminal_pref(&self) -> Result<Option<bool>, Failure> {
+        if let Some(native) = &self.native {
+            return Ok(native.host.terminal_pref());
+        }
         Ok(self
             .ask("terminalPref", false, Value::Null)
             .await?
             .as_bool())
+    }
+
+    async fn persist_terminal(&self, enabled: bool) -> Result<(), Failure> {
+        if let Some(native) = &self.native {
+            return native.host.persist_terminal(enabled);
+        }
+        self.ask("persistTerminal", false, json!({ "enabled": enabled }))
+            .await
+            .map(|_| ())
+    }
+
+    async fn spawn_env(&self) -> Result<Map<String, Value>, Failure> {
+        if let Some(native) = &self.native {
+            return Ok(native
+                .host
+                .spawn_env()
+                .await?
+                .into_iter()
+                .map(|(key, value)| (key, Value::String(value)))
+                .collect());
+        }
+        Ok(match self.ask("spawnEnv", false, Value::Null).await? {
+            Value::Object(env) => env,
+            _ => Map::new(),
+        })
     }
 
     /// What is on disk now: OMPdesk's own root, and the terminal omp's wiring when the person connected it.
@@ -172,7 +203,16 @@ impl Service {
                 return Ok(());
             }
             self.step_to("stage");
-            if deps.before_start {
+            if let Some(native) = &self.native {
+                let mut closed = self.closed.subscribe();
+                tokio::select! {
+                    answer = native.host.before_start() => answer?,
+                    _ = closed.wait_for(|closed| *closed) => return Err(Failure::Cancelled),
+                };
+                if self.inner().disposed {
+                    return Err(Failure::Cancelled);
+                }
+            } else if deps.before_start {
                 self.ask("beforeStart", false, Value::Null).await?;
             }
             match self.run_step(Op::Enable).await {
@@ -252,14 +292,12 @@ impl Service {
                 };
                 self.inner().resolved = Some(resolved.clone());
                 self.setup(&resolved.bin, true).await?;
-                self.ask("persistTerminal", false, json!({ "enabled": true }))
-                    .await?;
+                self.persist_terminal(true).await?;
             } else {
                 let agent_dir = self.agent_dir().await?;
                 terminal::remove_wiring(&agent_dir)
                     .map_err(|error| io_failure(&error, "open", &agent_dir))?;
-                self.ask("persistTerminal", false, json!({ "enabled": false }))
-                    .await?;
+                self.persist_terminal(false).await?;
             }
             Ok::<(), Failure>(())
         }
@@ -364,15 +402,21 @@ impl Service {
         if let Some(cwd) = cwd {
             files.extend(PROJECT_CONFIGS.iter().map(|name| Path::new(cwd).join(name)));
         }
-        let files: Vec<String> = files
-            .iter()
-            .map(|file| file.to_string_lossy().into_owned())
-            .collect();
-        let answered = self
-            .ask("disabledLists", false, json!({ "files": files }))
-            .await?;
-        let lists: Vec<Option<Vec<String>>> =
-            serde_json::from_value(answered).map_err(|error| Failure::step(error.to_string()))?;
+        let lists: Vec<Option<Vec<String>>> = if self.native.is_some() {
+            files
+                .iter()
+                .map(|file| super::application::disabled_in(file))
+                .collect()
+        } else {
+            let files: Vec<String> = files
+                .iter()
+                .map(|file| file.to_string_lossy().into_owned())
+                .collect();
+            let answered = self
+                .ask("disabledLists", false, json!({ "files": files }))
+                .await?;
+            serde_json::from_value(answered).map_err(|error| Failure::step(error.to_string()))?
+        };
         let (text, name) = text::overlay(&lists, AGENT_CONFIGS.len(), ids);
         let dir = Path::new(&self.deps.root_dir)
             .parent()
@@ -432,10 +476,7 @@ impl Service {
     async fn resolve(&self) -> Result<Resolved, Failure> {
         let deps = &self.deps;
         if let Some(bin) = &deps.binary_override {
-            let env = match self.ask("spawnEnv", false, Value::Null).await? {
-                Value::Object(env) => env,
-                _ => Map::new(),
-            };
+            let env = self.spawn_env().await?;
             return Ok(Resolved {
                 bin: bin.clone(),
                 version: binary::probe_version(bin, &env).await,
@@ -506,6 +547,36 @@ impl Service {
         env: Option<Value>,
         isolated: bool,
     ) -> Result<Ran, Failure> {
+        if let Some(native) = &self.native {
+            let scope = native.command_scope()?;
+            let mut environment = native.host.spawn_env().await?;
+            if let Some(extra) = env {
+                let extra: super::application::Environment = serde_json::from_value(extra)
+                    .map_err(|error| Failure::step(error.to_string()))?;
+                environment.extend(extra);
+            }
+            if self.inner().disposed || scope.cancelled() {
+                return Err(Failure::Cancelled);
+            }
+            let output = native
+                .host
+                .run(
+                    super::application::RunCommand {
+                        bin: bin.to_owned(),
+                        args: args.to_vec(),
+                        env: environment,
+                        isolated,
+                        cwd: PathBuf::from(&self.deps.home),
+                    },
+                    scope,
+                )
+                .await?;
+            return Ok(Ran {
+                ok: output.ok,
+                cancelled: output.cancelled,
+                output: output.output,
+            });
+        }
         let mut params = json!({ "bin": bin, "args": args, "isolated": isolated });
         if let Some(env) = env {
             params["env"] = env;
@@ -646,7 +717,9 @@ impl Service {
 
     async fn wire(self: &Arc<Self>) -> Result<(), Failure> {
         self.inner().awaiting_bun = false;
-        let bun_present = if self.deps.bun_check {
+        let bun_present = if let Some(native) = &self.native {
+            native.host.bun_present().await?
+        } else if self.deps.bun_check {
             self.ask("bunPresent", false, Value::Null).await?.as_bool() == Some(true)
         } else {
             true
@@ -727,8 +800,7 @@ impl Service {
                     .map_err(|error| io_failure(&error, "open", &agent_dir))?;
                 wired = terminal::read_wiring(&agent_dir);
             }
-            self.ask("persistTerminal", false, json!({ "enabled": false }))
-                .await?;
+            self.persist_terminal(false).await?;
         }
         // Keep a connected terminal omp pointed at the binary in use (an app update stages a new version).
         let terminal_wired =
