@@ -43,7 +43,7 @@ import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import type { InboxSelection } from "../agent-control/host";
 import { localInboxRuntimeInstance } from "../agent-control/inbox-runtime-instance";
-import type { ControlTab } from "../agent-control/service";
+import type { ControlTab, NativeInboxLookup } from "../agent-control/service";
 import type { MemoryPageCopy } from "../ai-memory/client";
 import { serveMemoryStore } from "../ai-memory/memory-store-test-rig";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
@@ -523,6 +523,13 @@ describe("authenticated inbox forwarding", () => {
 		],
 		uploads: [],
 	};
+	const query: NativeInboxLookup = {
+		receiver,
+		entries: transfer.entries.map(({ entry, logical }) => ({
+			key: { kind: entry.kind, deliveryId: entry.deliveryId },
+			logical,
+		})),
+	};
 	const acceptance: NativeInboxAcceptance = {
 		persistence: "memory",
 		receiver,
@@ -619,12 +626,7 @@ describe("authenticated inbox forwarding", () => {
 			.catch((e: unknown) => e);
 		expect(ipcErrorCode(foreignStatus)).toBe("unknown_tab");
 		const foreignLookup = await services
-			.call(
-				foreign.peer,
-				INBOX_METHODS.lookup,
-				{ rtab: "receiver", query: { receiver, entries: transfer.entries } },
-				foreign,
-			)
+			.call(foreign.peer, INBOX_METHODS.lookup, { rtab: "receiver", query }, foreign)
 			.catch((e: unknown) => e);
 		expect(ipcErrorCode(foreignLookup)).toBe("unknown_tab");
 		for (const field of ["caller", "person", "expectedProducer"]) {
@@ -648,7 +650,7 @@ describe("authenticated inbox forwarding", () => {
 				services.call(
 					connection.peer,
 					INBOX_METHODS.lookup,
-					{ rtab: "receiver", query: { receiver, entries: transfer.entries }, [field]: "forged" },
+					{ rtab: "receiver", query, [field]: "forged" },
 					connection,
 				),
 			).rejects.toThrow();
@@ -656,6 +658,53 @@ describe("authenticated inbox forwarding", () => {
 		expect(status).not.toHaveBeenCalled();
 		expect(accept).not.toHaveBeenCalled();
 		expect(lookup).not.toHaveBeenCalled();
+	});
+
+	it.each(["entry", "dispatch", "uploads"] as const)(
+		"rejects transfer-only %s in a lookup before callbacks",
+		async field => {
+			const { services, connection, lookup, sidecar } = await fixture();
+			const entries = query.entries.map(entry => ({ ...entry, [field]: "transfer-only" }));
+			await expect(
+				services.call(
+					connection.peer,
+					INBOX_METHODS.lookup,
+					{ rtab: "receiver", query: { receiver, entries } },
+					connection,
+				),
+			).rejects.toThrow();
+			expect(lookup).not.toHaveBeenCalled();
+			expect(sidecar.commands).toEqual([]);
+		},
+	);
+
+	it.each(["path", "landedAt"] as const)("rejects landed file %s in a lookup before callbacks", async field => {
+		const { services, connection, lookup, sidecar } = await fixture();
+		const entries = query.entries.map(entry => ({
+			...entry,
+			attachments: {
+				images: [],
+				files: [
+					{
+						sha256: "a".repeat(64),
+						name: "report.txt",
+						mimeType: "text/plain",
+						size: 1,
+						[field]: field === "landedAt" ? 1 : "/landed/report.txt",
+					},
+				],
+			},
+		}));
+		await expect(
+			services.call(
+				connection.peer,
+				INBOX_METHODS.lookup,
+				{ rtab: "receiver", query: { receiver, entries } },
+				connection,
+			),
+		).rejects.toThrow();
+		expect(lookup).not.toHaveBeenCalled();
+		expect(sidecar.commands).toEqual([]);
 	});
 
 	it.each(["revoked", "rebound"] as const)("rejects a %s lookup route without reaching the ledger", async mode => {
@@ -672,12 +721,7 @@ describe("authenticated inbox forwarding", () => {
 			);
 		}
 		const error = await services
-			.call(
-				connection.peer,
-				INBOX_METHODS.lookup,
-				{ rtab: "receiver", query: { receiver, entries: transfer.entries } },
-				connection,
-			)
+			.call(connection.peer, INBOX_METHODS.lookup, { rtab: "receiver", query }, connection)
 			.catch((e: unknown) => e);
 		expect(ipcErrorCode(error)).toBe("remote_protocol");
 		expect(lookup).not.toHaveBeenCalled();
