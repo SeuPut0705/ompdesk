@@ -9,7 +9,7 @@ use crate::git::session_lifecycle::{Service as SessionGit, test_support};
 use crate::server::{Events, Scope};
 use crate::pool::application::Sidecar;
 use crate::sidecar::application::{Answer, Ask, Command as LaunchCommand, EffectFuture};
-use crate::sidecar::application::native::{Config as SourceConfig, DirectSpawn, Service, Sink};
+use crate::sidecar::native::{Config as SourceConfig, DirectSpawn, Service, Sink};
 use tokio::sync::mpsc;
 
 const CHILD: &str = "OMPDESK_WORKTREE_CONSUMER_CHILD";
@@ -77,13 +77,14 @@ struct Hooks {
     owner: Owner,
     live: AtomicBool,
     binding: Mutex<Option<Value>>,
+    notices: Mutex<Vec<Notice>>,
 }
 
 impl native::Hooks for Hooks {
     type Source = Service;
     fn windows(&self) -> Vec<Window> { vec![WIN] }
     fn send(&self, _: Window, event: UiEvent) {
-        if let UiEvent::Notice(notice) = event { panic!("unexpected lifecycle notice: {notice:?}"); }
+        if let UiEvent::Notice(notice) = event { lock(&self.notices).push(notice); }
     }
     fn branch_prefix(&self) -> Option<String> { None }
     fn create(&self, spawn: &Spawn, captured: &native::Captured<Service>, params: Option<Value>) -> Work<Value> {
@@ -135,7 +136,8 @@ async fn native_gate_creates_binds_restarts_and_removes_only_after_its_owned_chi
         fresh:true, event_filter:Vec::new(), bridge:true, ledger_file:None, start_slow_ms:None,
         entry_id_timeout_ms:None, tuning:None, session_path:None, is_new:Some(true),
     }, events, Arc::new(Recorder(record)), Arc::new(DirectSpawn)).unwrap();
-    let hooks = Arc::new(Hooks { source:source.clone(), owner:owner.clone(), live:AtomicBool::new(true), binding:Mutex::new(None) });
+    let hooks = Arc::new(Hooks { source:source.clone(), owner:owner.clone(), live:AtomicBool::new(true),
+        binding:Mutex::new(None), notices:Mutex::new(Vec::new()) });
     let host = native::NativeHost::new(hooks.clone(), Arc::new(SessionGit::new(test_support::runner(), Scope::detached())));
     let lifecycle = Lifecycle::new(host, Config::default());
     let spawn = Spawn { owner, tab:source.tab().into(), window:WIN, cwd:repo.to_string_lossy().into_owned(),
@@ -175,6 +177,9 @@ async fn native_gate_creates_binds_restarts_and_removes_only_after_its_owned_chi
                 gated = true;
             }
             "sidecar.status" if event.data["payload"]["status"] == "ready" => break,
+            "sidecar.status" if event.data["payload"]["status"] == "error" => {
+                panic!("native child failed before ready: {}", event.data["payload"]);
+            }
             _ => {}
         }
     }
@@ -195,6 +200,10 @@ async fn native_gate_creates_binds_restarts_and_removes_only_after_its_owned_chi
     lifecycle.released(&spawn.owner, &spawn.tab, captured.as_ref().unwrap(), exited);
     lifecycle.settle().await;
     held.await.unwrap();
+    {
+        let notices = lock(&hooks.notices);
+        assert!(notices.is_empty(), "clean native exit emitted {notices:?}");
+    }
     assert!(!root.join("wt").exists());
     assert!(test_support::sh(&repo, &["branch", "--list", "wt/native-consumer"]).trim().is_empty());
     for address in addresses { assert!(!Path::new(&address).exists()); }
