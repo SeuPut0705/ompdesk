@@ -344,7 +344,7 @@ impl Host for TestHost {
     fn origin(&self) -> Option<Value> {
         None
     }
-    fn processes(&self, _: &str) -> Result<ProcessIdentity, String> {
+    fn processes(&self, _: &str, _: Option<&str>) -> Result<ProcessIdentity, String> {
         Ok(ProcessIdentity::default())
     }
     fn host_tools(&self) -> Value {
@@ -384,7 +384,13 @@ async fn a_resolve_superseded_by_stop_does_not_install_launch_facts() {
     host.resume.notify_one();
     task.await.unwrap();
     assert!(lock(&host.answers).is_empty());
-    app.launch(Ask { ask: 2, cmd: 1 }, &Open::New, Some("/socket"), None);
+    app.launch(
+        Ask { ask: 2, cmd: 1 },
+        &Open::New,
+        Some("/socket"),
+        None,
+        None,
+    );
     assert!(
         matches!(lock(&host.answers).as_slice(), [Answer::LaunchFailed(message)] if message == "omp is not resolved")
     );
@@ -442,9 +448,21 @@ async fn a_later_spawn_reads_new_settings_without_reresolving_the_runtime() {
     let app = Application::new(Arc::clone(&host));
     app.resolve(Ask { ask: 1, cmd: 0 }, None).await;
     lock(&host.settings).reply_language = Some("Korean".into());
-    app.launch(Ask { ask: 2, cmd: 0 }, &Open::New, Some("/socket"), None);
+    app.launch(
+        Ask { ask: 2, cmd: 0 },
+        &Open::New,
+        Some("/socket"),
+        None,
+        None,
+    );
     lock(&host.settings).reply_language = Some("English".into());
-    app.launch(Ask { ask: 3, cmd: 0 }, &Open::New, Some("/socket"), None);
+    app.launch(
+        Ask { ask: 3, cmd: 0 },
+        &Open::New,
+        Some("/socket"),
+        None,
+        None,
+    );
     let answers = lock(&host.answers);
     let commands = answers
         .iter()

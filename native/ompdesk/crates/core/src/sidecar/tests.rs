@@ -890,14 +890,32 @@ async fn a_new_session_and_get_state_move_the_tab_s_session_and_tell_main() {
         .await;
     assert_eq!(fresh.data["sessionPath"], Value::Null);
     assert_eq!(fresh.data["isNew"], true);
+    let unwritten = rig
+        .dir
+        .join("not-written.jsonl")
+        .to_string_lossy()
+        .into_owned();
+    rig.tab_call("sidecar.restart", json!({ "resumeSessionPath": unwritten }))
+        .await
+        .unwrap();
+    let launch = rig
+        .until("the unwritten session launch", |event| {
+            event.name == "sidecar.launch"
+        })
+        .await;
+    assert_eq!(launch.data["open"], "new");
+    assert_eq!(launch.data["sessionPath"], unwritten);
+    rig.status("ready").await;
     // A restart that names no session reopens none: the launch asks `new`; naming one reopens it (the file exists).
     rig.tab_call("sidecar.restart", json!({ "resumeSessionPath": exe }))
         .await
         .unwrap();
-    rig.until("the relaunch", |e| {
-        e.name == "sidecar.launch" && e.data["open"] == json!({ "session": exe })
-    })
-    .await;
+    let launch = rig
+        .until("the relaunch", |e| {
+            e.name == "sidecar.launch" && e.data["open"] == json!({ "session": exe })
+        })
+        .await;
+    assert_eq!(launch.data["sessionPath"], exe);
     finish(rig).await;
 }
 

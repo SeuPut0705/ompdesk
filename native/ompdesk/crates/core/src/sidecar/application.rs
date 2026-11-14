@@ -519,7 +519,7 @@ pub trait Host: Send + Sync {
     fn user_flags(&self) -> Vec<String>;
     fn launch_profile(&self, cwd: &str) -> Option<Value>;
     fn origin(&self) -> Option<Value>;
-    fn processes(&self, cwd: &str) -> Result<ProcessIdentity, String>;
+    fn processes(&self, cwd: &str, session_path: Option<&str>) -> Result<ProcessIdentity, String>;
     fn host_tools(&self) -> Value;
     fn bridge_connected(&self) -> bool;
     fn arm_gate(&self);
@@ -631,7 +631,14 @@ impl<H: Host> Application<H> {
         );
     }
 
-    pub fn launch(&self, ask: Ask, open: &Open, address: Option<&str>, model: Option<&str>) {
+    pub fn launch(
+        &self,
+        ask: Ask,
+        open: &Open,
+        address: Option<&str>,
+        model: Option<&str>,
+        session_path: Option<&str>,
+    ) {
         if !self.host.current(ask) {
             return;
         }
@@ -641,7 +648,7 @@ impl<H: Host> Application<H> {
             return;
         };
         let cwd = self.host.cwd();
-        let process = match self.host.processes(&cwd) {
+        let process = match self.host.processes(&cwd, session_path) {
             Ok(process) => process,
             Err(error) => {
                 self.host.answer(ask, Answer::LaunchFailed(error));

@@ -1143,7 +1143,8 @@ impl Lane {
         let open: &Open = &open;
         self.emit(
             "sidecar.launch",
-            json!({ "ask": ask, "open": open, "model": model, "bridgeAddress": bridge_address }),
+            json!({ "ask": ask, "open": open, "model": model, "bridgeAddress": bridge_address,
+                "sessionPath": self.session_path }),
         );
     }
 
