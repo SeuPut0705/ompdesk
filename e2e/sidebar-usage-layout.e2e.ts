@@ -67,18 +67,24 @@ test("the narrow sidebar keeps its accounts reachable and its blocked notice cle
 				geometry.settingsTop ?? 0,
 			);
 			expect(geometry.noteTop).toBeGreaterThanOrEqual(0);
-			// Every window's label and percentage fit inside the bar, even a missing first-column window.
-			const cut = await block
-				.locator(".omp-usage-gauge-text")
-				.evaluateAll(
-					elements =>
-						elements.filter(
-							element =>
-								element.scrollWidth > element.clientWidth + 1 ||
-								element.scrollHeight > element.clientHeight + 1,
-						).length,
-				);
-			expect(cut, "no window label or percentage is cut").toBe(0);
+			// Every window's label, percentage and reset remain readable at this width.
+			const cut = await block.locator(".omp-usage-gauge-text, .omp-usage-gauge-reset").evaluateAll(
+				elements =>
+					elements.filter(element => {
+						const range = document.createRange();
+						range.selectNodeContents(element);
+						const text = range.getBoundingClientRect();
+						const box = element.getBoundingClientRect();
+						const style = getComputedStyle(element);
+						return (
+							text.left < box.left + Number.parseFloat(style.paddingLeft) - 0.5 ||
+							text.right > box.right - Number.parseFloat(style.paddingRight) + 0.5 ||
+							text.top < box.top + Number.parseFloat(style.paddingTop) - 0.5 ||
+							text.bottom > box.bottom - Number.parseFloat(style.paddingBottom) + 0.5
+						);
+					}).length,
+			);
+			expect(cut, "no window label, percentage or reset is cut").toBe(0);
 			await scroller.evaluate(element => {
 				element.scrollTop = element.scrollHeight;
 			});

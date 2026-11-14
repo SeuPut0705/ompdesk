@@ -208,4 +208,7 @@ html[data-input="touch"] .omp-sidebar-usage [data-provider-head] {
 
 .omp-sidebar-usage .omp-usage-gauge-reset {
 	font-size: var(--sc-font-2xs);
+	padding-inline: 0;
+	overflow: visible;
+	white-space: normal;
 }
