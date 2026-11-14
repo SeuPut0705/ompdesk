@@ -337,7 +337,10 @@ async fn parent_change_while_reading_journal(id: u64, remove_parent: bool) {
             method != "inbox" && method != "deliverInbox"
         }));
         assert!(recorded[boundary..].iter().all(|(method, _)| {
-            method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
+            method != "inbox"
+                && method != "inboxStatus"
+                && method != "lookupInbox"
+                && method != "deliverInbox"
         }));
         lookup_before_journal(
             &recorded[..boundary],
@@ -455,7 +458,10 @@ async fn draft_started_during_journal_read_waits_for_the_real_guard_and_state_ch
             method != "inbox" && method != "deliverInbox"
         }));
         assert!(recorded[boundary..].iter().all(|(method, _)| {
-            method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
+            method != "inbox"
+                && method != "inboxStatus"
+                && method != "lookupInbox"
+                && method != "deliverInbox"
         }));
         lookup_before_journal(
             &recorded[..boundary],
