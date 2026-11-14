@@ -71,7 +71,7 @@ async fn missing_editor_and_raw_credentials_comments_roundtrip_without_masking()
 async fn normalized_nodes_keep_provider_model_and_credential_comments() {
     let dir = Scratch::new();
     let service = service(&dir.0, true);
-    let text = "# document header\nproviders: # provider map\n  custom: # custom provider\n    apiKey: fixture-key # credential note\n    models:\n      - id: fixture-model # model note\n        maxTokens: 1 # limit note\n# document trailer\n";
+    let text = "# document header\nproviders: # provider map\n  custom: # custom provider\n    apiKey: fixture-key # credential note\n    models:\n      - id: fixture-model # model note\n        maxTokens: 1 # limit note\n# document trailer\n# second trailer\n\n# separated trailer\n";
     service.write_text(text, "missing").await.unwrap();
     let read = service.read_text().await.unwrap();
     for comment in [
@@ -82,8 +82,15 @@ async fn normalized_nodes_keep_provider_model_and_credential_comments() {
         "model note",
         "limit note",
         "document trailer",
+        "second trailer",
+        "separated trailer",
     ] {
-        assert!(read.text.contains(comment), "lost {comment}: {}", read.text);
+        assert_eq!(
+            read.text.matches(comment).count(),
+            1,
+            "lost or duplicated {comment}: {}",
+            read.text
+        );
     }
     let config: Value = serde_saphyr::from_str(&read.text).unwrap();
     assert_eq!(config["providers"]["custom"]["apiKey"], "fixture-key");

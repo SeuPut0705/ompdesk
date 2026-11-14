@@ -183,8 +183,16 @@ pub trait Devices: Send + Sync {
     fn authenticate(&self, cookie: &str, now: i64) -> AuthResult;
     /// Pair a device; the cookie is the only time its secret exists in the clear.
     fn create(&self, device: NewDevice, now: i64) -> (Device, String);
-    fn create_checked(&self, device: NewDevice, now: i64, blocks: &dyn Blocks) -> Option<(Device, String)> {
-        if blocks.check(device.node_id.as_deref(), device.tailscale_login.as_deref()).is_some() {
+    fn create_checked(
+        &self,
+        device: NewDevice,
+        now: i64,
+        blocks: &dyn Blocks,
+    ) -> Option<(Device, String)> {
+        if blocks
+            .check(device.node_id.as_deref(), device.tailscale_login.as_deref())
+            .is_some()
+        {
             None
         } else {
             Some(self.create(device, now))

@@ -103,13 +103,21 @@ impl Service {
             text.to_owned()
         } else {
             doc.0.apply(normalized);
-            serde_saphyr::to_string_with_options(
+            let mut output = serde_saphyr::to_string_with_options(
                 &doc,
                 serde_saphyr::ser_options! {
                     comment_position: serde_saphyr::CommentPosition::Above,
                 },
             )
-            .map_err(|_| invalid("models.yml could not be formatted"))?
+            .map_err(|_| invalid("models.yml could not be formatted"))?;
+            let trailer = document_trailer(text)?;
+            if !trailer.is_empty() {
+                if !output.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str(&trailer);
+            }
+            output
         };
         let dir = self.agent_dir.clone();
         tokio::task::spawn_blocking(move || commit(&dir, &file, before.as_ref(), output.as_bytes()))
@@ -124,6 +132,31 @@ impl Models for Service {
     fn write<'a>(&'a self, text: &'a str, stamp: &'a str) -> BoxFuture<'a, Result<String, Fault>> {
         Box::pin(self.write_text(text, stamp))
     }
+}
+
+// Document-end comments are outside serde's node wrappers; the same parser owns their syntax.
+fn document_trailer(text: &str) -> Result<String, Fault> {
+    use serde_saphyr::granit_parser::{Event, Parser, Placement};
+    let mut seen_node = false;
+    let mut trailer = String::new();
+    for event in Parser::new_from_str(text) {
+        match event.map_err(|_| invalid("models.yml: invalid YAML"))?.0 {
+            Event::Alias(_)
+            | Event::Scalar(..)
+            | Event::SequenceStart(..)
+            | Event::MappingStart(..) => {
+                seen_node = true;
+                trailer.clear();
+            }
+            Event::Comment(comment, placement) if seen_node && placement != Placement::Right => {
+                trailer.push('#');
+                trailer.push_str(&comment);
+                trailer.push('\n');
+            }
+            _ => {}
+        }
+    }
+    Ok(trailer)
 }
 fn invalid(message: impl Into<String>) -> Fault {
     Fault::new("invalid_content", message)
@@ -322,7 +355,11 @@ impl Serialize for Node {
             Self::Map(values) => {
                 let mut map = serializer.serialize_map(Some(values.len()))?;
                 for (key, value) in values {
-                    map.serialize_entry(key, value)?;
+                    if key.1.is_empty() {
+                        map.serialize_entry(&key.0, value)?;
+                    } else {
+                        map.serialize_entry(key, value)?;
+                    }
                 }
                 map.end()
             }

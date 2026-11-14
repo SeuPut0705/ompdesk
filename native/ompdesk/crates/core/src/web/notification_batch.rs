@@ -550,14 +550,7 @@ mod tests {
     struct Labels;
     impl Text for Labels {
         fn text(&self, key: &str, params: &[(&str, String)]) -> String {
-            let labels: serde_json::Value =
-                serde_json::from_str(include_str!("../../../shell/src/boot_core/main-text.json"))
-                    .unwrap();
-            let mut text = labels[key]["en"].as_str().unwrap().to_owned();
-            for (key, value) in params {
-                text = text.replace(&format!("{{{key}}}"), value);
-            }
-            text
+            super::super::notification_fixture::text(key, "en", params)
         }
     }
     fn notice(tab: &str, kind: Kind) -> Notice {

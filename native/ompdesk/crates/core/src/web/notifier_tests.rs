@@ -1,10 +1,6 @@
 use super::super::devices::{DEFAULT_GRANTS, Devices, MemoryDevices, NewDevice, PushSettings};
 use super::*;
-use std::sync::{LazyLock, Mutex};
-
-static LABELS: LazyLock<Value> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../../../shell/src/boot_core/main-text.json")).unwrap()
-});
+use std::sync::Mutex;
 
 struct World {
     devices: Mutex<Vec<Device>>,
@@ -14,11 +10,7 @@ struct World {
 }
 impl Text for World {
     fn text(&self, key: &str, params: &[(&str, String)]) -> String {
-        let mut text = LABELS[key][self.language].as_str().unwrap().to_owned();
-        for (key, value) in params {
-            text = text.replace(&format!("{{{key}}}"), value);
-        }
-        text
+        super::super::notification_fixture::text(key, self.language, params)
     }
 }
 impl Context for World {

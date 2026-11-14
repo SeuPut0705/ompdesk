@@ -129,7 +129,6 @@ fn now_ms() -> i64 {
         .map_or(0, |since| since.as_millis() as i64)
 }
 
-
 /// `path.join(base, tail)` for a name from outside: its own separators and `..` count, a leading `/` does not
 /// replace the base.
 fn join(base: &Path, tail: &str) -> PathBuf {

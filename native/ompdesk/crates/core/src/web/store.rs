@@ -301,9 +301,17 @@ impl Devices for FileDevices {
         self.apply(None, |book| book.create(device, now))
     }
 
-    fn create_checked(&self, device: NewDevice, now: i64, blocks: &dyn Blocks) -> Option<(Device, String)> {
+    fn create_checked(
+        &self,
+        device: NewDevice,
+        now: i64,
+        blocks: &dyn Blocks,
+    ) -> Option<(Device, String)> {
         self.apply(None, |book| {
-            if blocks.check(device.node_id.as_deref(), device.tailscale_login.as_deref()).is_some() {
+            if blocks
+                .check(device.node_id.as_deref(), device.tailscale_login.as_deref())
+                .is_some()
+            {
                 (None, Effect::default())
             } else {
                 let (created, effect) = book.create(device, now);

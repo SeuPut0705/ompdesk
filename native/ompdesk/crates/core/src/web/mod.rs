@@ -45,3 +45,6 @@ mod edge_ws;
 
 #[cfg(test)]
 mod proof_browsers;
+
+#[cfg(test)]
+mod notification_fixture;

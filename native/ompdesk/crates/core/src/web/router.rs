@@ -26,8 +26,8 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
 use super::deps::{BoxFuture, Connection, Outbox, Outgoing, Router};
-use crate::server::{Call, Events, Fault, PushCall, Registry, Reply};
 use super::native::{ConnectionInfo, Invocation, NativeEvent};
+use crate::server::{Call, Events, Fault, PushCall, Registry, Reply};
 use tokio::sync::mpsc;
 
 pub const EVENT_BATCH_MS: u64 = 75;
@@ -706,49 +706,86 @@ impl Host {
     }
 
     fn native_sink(&self) -> Option<mpsc::UnboundedSender<NativeEvent>> {
-        self.native.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.native
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn is_connected(&self, device: &str) -> bool {
-        self.state().devices.get(device).is_some_and(|list| !list.is_empty())
+        self.state()
+            .devices
+            .get(device)
+            .is_some_and(|list| !list.is_empty())
     }
 
     pub fn is_device_visible(&self, device: &str) -> bool {
         let state = self.state();
-        state.devices.get(device).into_iter().flatten()
+        state
+            .devices
+            .get(device)
+            .into_iter()
+            .flatten()
             .any(|id| state.conns.get(id).is_some_and(|c| !c.closed && c.visible))
     }
 
     pub fn accepts_push(&self, channel: &str) -> bool {
-        self.config.policy.get(channel).is_some_and(|p| p.dir == Dir::Push && p.mode.as_deref() != Some("client"))
+        self.config
+            .policy
+            .get(channel)
+            .is_some_and(|p| p.dir == Dir::Push && p.mode.as_deref() != Some("client"))
     }
 
     /// Recheck a queued call immediately before its effects. A revoke or connection replacement
     /// between receipt and dispatch must not run a call with the old credential.
     pub fn authenticates(&self, call: &Invocation) -> bool {
-        if !Weak::ptr_eq(&self.me, &call.host) { return false }
-        let state = self.state();
-        if !state.conns.get(&call.conn).is_some_and(|c| !c.closed && c.device == call.device && c.conn_id == call.conn_id) {
+        if !Weak::ptr_eq(&self.me, &call.host) {
             return false;
         }
-        let Some(grants) = self.grants.grants(&call.device) else { return false };
+        let state = self.state();
+        if !state
+            .conns
+            .get(&call.conn)
+            .is_some_and(|c| !c.closed && c.device == call.device && c.conn_id == call.conn_id)
+        {
+            return false;
+        }
+        let Some(grants) = self.grants.grants(&call.device) else {
+            return false;
+        };
         let asked = if call.invoke { Dir::Invoke } else { Dir::Send };
         if let Some(own) = self.config.web_channels.get(&call.channel) {
             return authorize(&grants, asked, own.dir, &own.permission, &call.channel).is_ok();
         }
         self.config.policy.get(&call.channel).is_some_and(|policy| {
             policy.mode.as_deref() != Some("boundary")
-                && authorize(&grants, asked, policy.dir, policy.permission.as_deref().unwrap_or("pairing-admin"), &call.channel).is_ok()
-                && (call.channel != self.config.channels.prefs_set || !writes_mobile_web(&call.args))
+                && authorize(
+                    &grants,
+                    asked,
+                    policy.dir,
+                    policy.permission.as_deref().unwrap_or("pairing-admin"),
+                    &call.channel,
+                )
+                .is_ok()
+                && (call.channel != self.config.channels.prefs_set
+                    || !writes_mobile_web(&call.args))
         })
     }
 
     pub fn complete(&self, call: Invocation, answer: Result<Reply, Fault>) {
-        if !Weak::ptr_eq(&self.me, &call.host) || !call.answered { return }
+        if !Weak::ptr_eq(&self.me, &call.host) || !call.answered {
+            return;
+        }
         let answer = match answer {
-            Ok(reply) if reply.bin.is_none() => Answer::Value(Some(reply.result.get().as_bytes().to_vec())),
-            Ok(_) => Answer::Error(raw(&json!({ "message": "The computer's binary answer has no page encoding", "code": "web_binary" }))),
-            Err(error) => Answer::Error(raw(&json!({ "message": error.message, "code": error.code }))),
+            Ok(reply) if reply.bin.is_none() => {
+                Answer::Value(Some(reply.result.get().as_bytes().to_vec()))
+            }
+            Ok(_) => Answer::Error(raw(
+                &json!({ "message": "The computer's binary answer has no page encoding", "code": "web_binary" }),
+            )),
+            Err(error) => Answer::Error(raw(
+                &json!({ "message": error.message, "code": error.code }),
+            )),
         };
         self.answered(call.call, answer);
     }
@@ -784,11 +821,22 @@ impl Host {
     /// Main's copy of a device's connections (`web.conns`): after a connection came or went, or a page's presence.
     fn tell_conns(&self, state: &State, device: &str, change: &'static str, conn_id: &str) {
         if let Some(sink) = self.native_sink() {
-            let connections = state.devices.get(device).into_iter().flatten()
+            let connections = state
+                .devices
+                .get(device)
+                .into_iter()
+                .flatten()
                 .filter_map(|id| state.conns.get(id))
-                .map(|c| ConnectionInfo { id: c.conn_id.clone(), visible: c.visible }).collect();
+                .map(|c| ConnectionInfo {
+                    id: c.conn_id.clone(),
+                    visible: c.visible,
+                })
+                .collect();
             let _ = sink.send(NativeEvent::Connections {
-                device: device.to_owned(), connections, change, connection: conn_id.to_owned(),
+                device: device.to_owned(),
+                connections,
+                change,
+                connection: conn_id.to_owned(),
             });
             return;
         }
@@ -1293,8 +1341,15 @@ impl Host {
         }
         if let Some(sink) = self.native_sink() {
             let invocation = Invocation {
-                host: self.me.clone(), call, conn, device, conn_id, channel: ch.to_owned(),
-                args, invoke: id.is_some(), answered,
+                host: self.me.clone(),
+                call,
+                conn,
+                device,
+                conn_id,
+                channel: ch.to_owned(),
+                args,
+                invoke: id.is_some(),
+                answered,
             };
             if sink.send(NativeEvent::Call(invocation)).is_err() {
                 self.close_conn(state, conn, CLOSE_GOING_AWAY, "application stopped");

@@ -443,7 +443,15 @@ pub async fn send_message(
 ) -> Result<u16, Fault> {
     let mut salt = [0u8; 16];
     crate::sys::random(&mut salt).map_err(|error| Fault::new("random", error.to_string()))?;
-    let prepared = prepare(vapid, subscription, payload, options, &random_secret(), &salt, now_seconds())?;
+    let prepared = prepare(
+        vapid,
+        subscription,
+        payload,
+        options,
+        &random_secret(),
+        &salt,
+        now_seconds(),
+    )?;
     deliver(&prepared, timeout).await
 }
 
@@ -492,7 +500,10 @@ async fn send(call: Call) -> Result<Reply, Fault> {
         topic: params.topic,
     };
     let sending = send_message(
-        &vapid, &params.subscription, params.payload.as_bytes(), &options,
+        &vapid,
+        &params.subscription,
+        params.payload.as_bytes(),
+        &options,
         Duration::from_millis(params.timeout_ms),
     );
     let status = tokio::select! {

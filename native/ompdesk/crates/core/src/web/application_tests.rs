@@ -29,14 +29,7 @@ struct World {
 }
 impl Text for World {
     fn text(&self, key: &str, params: &[(&str, String)]) -> String {
-        let labels: Value =
-            serde_json::from_str(include_str!("../../../shell/src/boot_core/main-text.json"))
-                .unwrap();
-        let mut text = labels[key]["en"].as_str().unwrap().to_owned();
-        for (key, value) in params {
-            text = text.replace(&format!("{{{key}}}"), value);
-        }
-        text
+        super::super::notification_fixture::text(key, "en", params)
     }
 }
 impl Host for World {
