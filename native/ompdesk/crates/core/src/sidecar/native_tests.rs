@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use super::*;
 use std::sync::atomic::AtomicUsize;
 use tokio::sync::mpsc;
@@ -20,7 +22,6 @@ impl Sink for Recorder {
     }
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn native_commands_flush_before_reply_and_close_waits_for_the_real_child() {
     let (events, _keep_output, _frames) = Events::capture();
@@ -117,7 +118,6 @@ async fn native_commands_flush_before_reply_and_close_waits_for_the_real_child()
     }));
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn abandoning_a_native_handle_releases_its_lane_without_an_explicit_dispose() {
     let (events, _keep_output, _frames) = Events::capture();
