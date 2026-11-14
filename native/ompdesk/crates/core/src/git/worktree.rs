@@ -66,8 +66,8 @@ async fn add_worktree(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
-    primary: String,
-    start_point: String,
+    pub(crate) primary: String,
+    pub(crate) start_point: String,
 }
 
 /// Before a worktree is made: `cwd` is in a repository, its main checkout, and the start point `base_ref` names:
@@ -171,10 +171,10 @@ pub enum Mode {
 /// The branch a caller names (main checked its shape: `worktreeBranchSource`).
 #[derive(Deserialize)]
 pub struct Source {
-    name: String,
-    mode: Mode,
-    remote: Option<String>,
-    from: Option<String>,
+    pub(crate) name: String,
+    pub(crate) mode: Mode,
+    pub(crate) remote: Option<String>,
+    pub(crate) from: Option<String>,
 }
 
 /// A worktree at `target` on exactly the branch the caller names: a new one (from `from`, else HEAD), an existing

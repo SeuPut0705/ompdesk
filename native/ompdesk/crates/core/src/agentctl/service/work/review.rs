@@ -45,7 +45,7 @@ fn epoch_ms(value: Option<&Value>) -> Option<f64> {
 }
 
 /// `isTurnPrompt`: a prompt that starts a turn; a steer joins the running one.
-fn is_turn_prompt(message: &Value) -> bool {
+pub(crate) fn is_turn_prompt(message: &Value) -> bool {
     message.get("role").and_then(Value::as_str) == Some("user")
         && message.get("steering").and_then(Value::as_bool) != Some(true)
 }

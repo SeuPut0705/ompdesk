@@ -660,12 +660,12 @@ pub async fn draft_facts(
 
 #[derive(Deserialize)]
 pub struct CreateInput {
-    title: String,
-    body: String,
-    base: Option<String>,
-    head: Option<String>,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) base: Option<String>,
+    pub(crate) head: Option<String>,
     #[serde(default)]
-    draft: bool,
+    pub(crate) draft: bool,
 }
 
 #[derive(Serialize, Debug, PartialEq)]

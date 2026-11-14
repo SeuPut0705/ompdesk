@@ -17,9 +17,9 @@
 //! read, and passes as gh printed it). Nothing here logs a request or its environment.
 
 mod auth;
-mod center;
+pub(crate) mod center;
 mod json;
-mod pr;
+pub(crate) mod pr;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -140,7 +140,7 @@ impl Gh {
     }
 
     /// The request's answer, no fault carrying a token.
-    fn answer(&self, outcome: Result<Reply, Fault>) -> Result<Reply, Fault> {
+    pub(crate) fn answer<T>(&self, outcome: Result<T, Fault>) -> Result<T, Fault> {
         outcome.map_err(|fault| Fault {
             message: self.scrub(fault.message),
             ..fault
@@ -155,7 +155,7 @@ pub struct Tools {
 }
 
 impl Tools {
-    fn new(runners: Runners, scope: Scope) -> Tools {
+    pub(crate) fn new(runners: Runners, scope: Scope) -> Tools {
         Tools {
             gh: Gh::new(runners.gh, scope.clone()),
             git: runners.git.map(|runner| Git::new(runner, scope)),
@@ -207,10 +207,10 @@ impl Drop for BodyFile {
 
 /// How gh and git run, as main hands them over; none for a tool that is not installed.
 #[derive(Deserialize)]
-struct Runners {
-    gh: Option<Runner>,
+pub(crate) struct Runners {
+    pub(crate) gh: Option<Runner>,
     #[serde(default)]
-    git: Option<Runner>,
+    pub(crate) git: Option<Runner>,
 }
 
 #[derive(Deserialize)]
