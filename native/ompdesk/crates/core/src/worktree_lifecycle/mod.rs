@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use tokio::sync::{Notify, oneshot};
 
 use crate::server::Fault;
+pub use crate::git::session_lifecycle::{Risk, Snapshot, Worktree};
 
 pub type Effect<'a, T> = Pin<Box<dyn Future<Output = Result<T, Fault>> + Send + 'a>>;
 pub type Work<T> = Effect<'static, T>;
@@ -28,16 +29,6 @@ pub enum OnExit { Keep, Ask, Remove }
 #[serde(rename_all = "camelCase")]
 pub struct Settings { pub on_start: OnStart, pub on_exit: OnExit, pub eligible: bool }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Worktree {
-    pub path: String,
-    pub branch: String,
-    pub source_cwd: String,
-    pub base_commit: String,
-    pub root: String,
-}
-
 impl Worktree {
     fn valid(&self) -> bool {
         [&self.path, &self.branch, &self.source_cwd, &self.base_commit, &self.root]
@@ -48,13 +39,6 @@ impl Worktree {
             "path": self.path, "lifecycle": true})
     }
 }
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Risk { pub dirty: bool, pub moved: bool, pub off_branch: bool }
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct Snapshot { pub state: Risk, pub fingerprint: String, pub present: bool }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
