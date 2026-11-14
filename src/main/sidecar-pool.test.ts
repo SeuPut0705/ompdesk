@@ -480,12 +480,12 @@ describe("SidecarPool exact window-view leave", () => {
 				entered.promise.then(() => ({ stage: "tab.leave" as const })),
 				closing.then(
 					value => ({ stage: "settled" as const, value }),
-					error => ({ stage: "rejected" as const, error: String(error) }),
+					error => ({ stage: "rejected" as const, error }),
 				),
 			]);
-			expect(first, `close settled before either barrier; sent: ${sent.join(", ")}`).toMatchObject({
-				stage: expect.stringMatching(/^(beforeCommit|tab\.leave)$/),
-			});
+			if (first.stage === "rejected") throw first.error;
+			if (first.stage === "settled")
+				throw new Error(`close settled ${String(first.value)} before either barrier; sent: ${sent.join(", ")}`);
 			if (change === "dirty") local.dirty = true;
 			if (change === "draft") local.draft = "keep this draft";
 			if (change === "revoke") local.connected = false;
