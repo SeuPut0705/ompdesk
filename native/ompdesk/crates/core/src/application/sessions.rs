@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, watch};
 
+use super::session_authority::SessionAuthority;
 use crate::remote::session_feed::{self, Row, SessionDelta, SessionList};
 use crate::server::{Fault, Scope};
 use crate::sessions::{NativeIndex, NativeReport};
@@ -13,9 +14,7 @@ use crate::stock::native::Service as Stock;
 
 mod pace;
 mod search;
-mod tombstones;
 pub use search::ContentMatch;
-pub use tombstones::{Tombstone, Tombstones};
 
 const STOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -60,7 +59,7 @@ pub struct SessionIndex {
     stock: Arc<Stock>,
     root: PathBuf,
     cwd: PathBuf,
-    tombstones: Arc<Tombstones>,
+    tombstones: Arc<SessionAuthority>,
     kinds_file: PathBuf,
     chats: Mutex<HashSet<String>>,
     engine: Mutex<NativeIndex>,
@@ -77,7 +76,7 @@ impl SessionIndex {
         stock: Arc<Stock>,
         root: PathBuf,
         cwd: PathBuf,
-        tombstones: Arc<Tombstones>,
+        tombstones: Arc<SessionAuthority>,
         kinds_file: PathBuf,
     ) -> Arc<Self> {
         let (changes, _) = broadcast::channel(128);
@@ -514,7 +513,7 @@ impl SessionIndex {
             .collect())
     }
 
-    fn target(&self, path: &Path) -> Result<PathBuf, Fault> {
+    pub fn validate_target(&self, path: &Path) -> Result<PathBuf, Fault> {
         let path = absolute(path);
         if path == self.root
             || !path.starts_with(&self.root)
@@ -527,18 +526,64 @@ impl SessionIndex {
         Ok(path)
     }
 
+    pub async fn delete_stored(&self, path: &Path, scope: Scope) -> Result<(), Fault> {
+        let path = self.validate_target(path)?;
+        let params = json!({"sessionPath": path, "sessionsRoot": self.root});
+        self.stock
+            .request_joined("sessions.delete", &params, STOCK_TIMEOUT, scope)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn move_stored(
+        &self,
+        path: &Path,
+        cwd: &Path,
+        scope: Scope,
+    ) -> Result<PathBuf, Fault> {
+        let source = self.validate_target(path)?;
+        let cwd = absolute(cwd);
+        if !cwd.is_dir() {
+            return Err(Fault::new(
+                "not_a_directory",
+                format!("Not a directory: {}", cwd.display()),
+            ));
+        }
+        let params = json!({"sessionPath": source, "cwd": cwd, "sessionsRoot": self.root});
+        let result = self
+            .stock
+            .request_joined("sessions.move", &params, STOCK_TIMEOUT, scope)
+            .await?;
+        let moved = result["sessionPath"]
+            .as_str()
+            .ok_or_else(|| Fault::new("stock_json", "Missing moved session path"))?;
+        Ok(PathBuf::from(moved))
+    }
+
+    pub fn invalidate_paths(&self, paths: &[PathBuf]) {
+        let mut cache = lock(&self.cache);
+        let mut pace = lock(&self.pace_cache);
+        for path in paths {
+            cache.invalidate(path);
+            pace.invalidate(path);
+        }
+    }
+
+    pub fn notify_mutation(self: &Arc<Self>) {
+        self.notify_all();
+    }
+
     pub async fn delete(self: &Arc<Self>, path: &Path) -> Result<(), Fault> {
-        let path = self.target(path)?;
+        let path = self.validate_target(path)?;
         self.request("sessions.delete", json!({"sessionPath":path}))
             .await?;
-        lock(&self.cache).invalidate(&path);
-        lock(&self.pace_cache).invalidate(&path);
-        self.notify_all();
+        self.invalidate_paths(std::slice::from_ref(&path));
+        self.notify_mutation();
         Ok(())
     }
 
     pub async fn move_session(self: &Arc<Self>, path: &Path, cwd: &Path) -> Result<PathBuf, Fault> {
-        let source = self.target(path)?;
+        let source = self.validate_target(path)?;
         let cwd = absolute(cwd);
         if !cwd.is_dir() {
             return Err(Fault::new(
@@ -553,18 +598,13 @@ impl SessionIndex {
             .as_str()
             .ok_or_else(|| Fault::new("stock_json", "Missing moved session path"))?;
         let moved = PathBuf::from(moved);
-        let mut cache = lock(&self.cache);
-        cache.invalidate(&source);
-        cache.invalidate(&moved);
-        drop(cache);
-        lock(&self.pace_cache).invalidate(&source);
-        lock(&self.pace_cache).invalidate(&moved);
-        self.notify_all();
+        self.invalidate_paths(&[source, moved.clone()]);
+        self.notify_mutation();
         Ok(moved)
     }
 
     pub async fn messages(&self, path: &Path) -> Result<Value, Fault> {
-        let path = self.target(path)?;
+        let path = self.validate_target(path)?;
         let result = self
             .request("sessions.messages", json!({"sessionPath":path}))
             .await?;
@@ -572,7 +612,7 @@ impl SessionIndex {
     }
 
     pub async fn owned(&self, path: &Path) -> Result<bool, Fault> {
-        let Ok(path) = self.target(path) else {
+        let Ok(path) = self.validate_target(path) else {
             return Ok(false);
         };
         Ok(self
@@ -627,14 +667,14 @@ impl SessionIndex {
     }
 
     pub fn pace(&self, path: &Path) -> Result<Option<Value>, Fault> {
-        let path = self.target(path)?;
+        let path = self.validate_target(path)?;
         Ok(lock(&self.pace_cache).read(&path))
     }
 
     pub fn search_content(&self, query: &str, paths: &[PathBuf]) -> Vec<ContentMatch> {
         let paths: Vec<_> = paths
             .iter()
-            .filter_map(|path| self.target(path).ok())
+            .filter_map(|path| self.validate_target(path).ok())
             .collect();
         lock(&self.cache).search(query, &paths)
     }

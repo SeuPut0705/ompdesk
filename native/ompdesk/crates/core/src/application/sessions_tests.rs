@@ -7,66 +7,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
-#[test]
-fn tombstones_prune_the_oldest_and_keep_device_keys_separate() {
-    let tombstones = Tombstones::open(None);
-    for n in 0..2001 {
-        tombstones
-            .add(&format!("/sessions/{n}.jsonl"), None, n as f64)
-            .unwrap();
-    }
-    assert!(!tombstones.has(Path::new("/sessions/0.jsonl"), None));
-    assert!(tombstones.has(Path::new("/sessions/1.jsonl"), None));
-    tombstones
-        .add("/sessions/2.jsonl", Some("other-device"), 2002.0)
-        .unwrap();
-    assert!(tombstones.has(Path::new("/sessions/2.jsonl"), None));
-    assert!(tombstones.has(Path::new("/sessions/2.jsonl"), Some("other-device")));
-    assert_eq!(tombstones.list().len(), 2000);
-}
-
-#[test]
-fn tombstones_keep_loaded_spelling_and_duplicate_order() {
-    let dir =
-        std::env::temp_dir().join(format!("ompdesk-session-tombstones-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = dir.join("deleted-sessions.json");
-    let first = "relative-session.jsonl";
-    let absolute_first = absolute(Path::new(first)).to_string_lossy().into_owned();
-    let replacement = "./relative-session.jsonl";
-    std::fs::write(
-        &file,
-        serde_json::to_vec(&json!([
-            {"path": first, "at": 1},
-            {"path": "second-session.jsonl", "at": 2},
-            {"path": replacement, "at": 3},
-            {"path": first, "device": "remote", "at": 4}
-        ]))
-        .unwrap(),
-    )
-    .unwrap();
-
-    let tombstones = Tombstones::open(Some(file.clone()));
-    let loaded = tombstones.list();
-    assert_eq!(loaded.len(), 3);
-    assert_eq!(loaded[0].path, replacement);
-    assert_eq!(loaded[0].at, 3.0);
-    assert_eq!(loaded[1].path, "second-session.jsonl");
-    assert_eq!(loaded[2].path, first);
-    assert!(tombstones.has(Path::new(&absolute_first), None));
-    assert!(tombstones.has(Path::new(first), Some("remote")));
-    assert!(!tombstones.has(Path::new(&absolute_first), Some("remote")));
-
-    tombstones.add(first, None, 5.0).unwrap();
-    let updated = tombstones.list();
-    assert_eq!(updated[0].path, "second-session.jsonl");
-    assert_eq!(updated[1].device.as_deref(), Some("remote"));
-    assert_eq!(updated[2].path, absolute_first);
-    assert_eq!(updated[2].at, 5.0);
-    std::fs::remove_file(file).unwrap();
-    std::fs::remove_dir(dir).unwrap();
-}
-
 struct FixtureLauncher {
     entered: Notify,
     release: Notify,
@@ -114,7 +54,7 @@ fn index() -> (Arc<SessionIndex>, Arc<FixtureLauncher>) {
         stock,
         PathBuf::from("/synthetic/sessions"),
         PathBuf::from("/project/a"),
-        Arc::new(Tombstones::open(None)),
+        Arc::new(SessionAuthority::open(None)),
         PathBuf::from("/synthetic/no-kinds.json"),
     );
     {
@@ -149,8 +89,8 @@ async fn local_windows_use_their_own_project_and_shared_tombstones() {
     );
     index
         .tombstones
-        .add("/synthetic/sessions/b.jsonl", None, 1.0)
-        .unwrap();
+        .begin_delete(Path::new("/synthetic/sessions/b.jsonl"), None)
+        .commit(1.0);
     assert!(
         index
             .list(true, Some(Path::new("/project/b")))
@@ -186,7 +126,7 @@ async fn failed_read_does_not_poison_the_next_read() {
     launcher.entered.notified().await;
     launcher.release.notify_one();
     assert!(reader.await.unwrap().unwrap().sessions.is_empty());
-    index.stock.close().await;
+    index.stock.close().await.unwrap();
 }
 
 #[cfg(unix)]
@@ -218,7 +158,7 @@ async fn invalidation_during_a_shared_read_is_not_marked_fresh() {
     assert_eq!(first.version, after_change.version);
     assert_eq!(lock(&index.state).copy_generation, Some(1));
     assert_eq!(launcher.attempts.load(Ordering::SeqCst), 2);
-    index.stock.close().await;
+    index.stock.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -251,4 +191,139 @@ async fn warmup_invalidates_only_a_live_watch() {
     tokio::time::advance(Duration::from_secs(2)).await;
     tokio::task::yield_now().await;
     assert_eq!(lock(&index.state).generation, 1);
+}
+
+#[test]
+fn target_validation_preserves_existing_confinement() {
+    let (index, _) = index();
+    assert_eq!(
+        index
+            .validate_target(Path::new("/synthetic/sessions/folder/../a.jsonl"))
+            .unwrap(),
+        PathBuf::from("/synthetic/sessions/a.jsonl")
+    );
+    for path in [
+        "/synthetic/sessions",
+        "/synthetic/sessions/../other/a.jsonl",
+        "/synthetic/sessions/a.txt",
+    ] {
+        assert_eq!(
+            index.validate_target(Path::new(path)).unwrap_err().code,
+            "invalid_session_path"
+        );
+    }
+}
+
+#[tokio::test]
+async fn invalidation_and_notification_are_separate() {
+    let (index, _) = index();
+    let mut paths = index.subscribe_paths();
+    let mut changes = index.subscribe();
+    index.invalidate_paths(&[PathBuf::from("/synthetic/sessions/a.jsonl")]);
+    assert!(matches!(
+        paths.try_recv(),
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+    ));
+    assert!(matches!(
+        changes.try_recv(),
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+    ));
+    index.notify_mutation();
+    assert_eq!(paths.try_recv().unwrap(), None);
+    assert!(changes.try_recv().unwrap().is_none());
+    assert!(matches!(
+        paths.try_recv(),
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+    ));
+}
+
+struct JoinedIndexLauncher(std::net::SocketAddr);
+
+impl Launcher for JoinedIndexLauncher {
+    fn launch(
+        &self,
+        _: WorkerKind,
+    ) -> Pin<Box<dyn Future<Output = Result<LaunchCommand, Fault>> + Send + '_>> {
+        Box::pin(async move {
+            Ok(LaunchCommand {
+                bin: std::env::current_exe()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                args: vec![
+                    "--exact".into(),
+                    "stock::native::tests::joined_worker_fixture".into(),
+                    "--nocapture".into(),
+                ],
+                env: BTreeMap::from([("OMPDESK_JOINED_WORKER".into(), self.0.to_string())]),
+                stamp_file: None,
+            })
+        })
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stored_delete_retains_scope_after_cancellation_and_drop() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (events, _, _) = Events::capture();
+    let stock = Arc::new(Stock::new(
+        Config {
+            host: format!("index-joined-{}", listener.local_addr().unwrap()),
+            events,
+        },
+        Arc::new(JoinedIndexLauncher(listener.local_addr().unwrap())),
+    ));
+    let index = SessionIndex::new(
+        stock.clone(),
+        "/synthetic/sessions".into(),
+        "/project".into(),
+        Arc::new(SessionAuthority::open(None)),
+        "/synthetic/no-kinds.json".into(),
+    );
+    let mut paths = index.subscribe_paths();
+    for cancel in [true, false] {
+        let (scope, gone) = Scope::watched();
+        let task = tokio::spawn({
+            let index = index.clone();
+            let scope = scope.clone();
+            async move {
+                index
+                    .delete_stored(Path::new("/synthetic/sessions/a.jsonl"), scope)
+                    .await
+            }
+        });
+        let (mut control, _) = listener.accept().await.unwrap();
+        let mut started = [0; 7];
+        control.read_exact(&mut started).await.unwrap();
+        assert_eq!(&started, b"started");
+        if cancel {
+            scope.cancel();
+        } else {
+            task.abort();
+        }
+        drop(scope);
+        let mut withdrawn = [0; 6];
+        control.read_exact(&mut withdrawn).await.unwrap();
+        assert_eq!(&withdrawn, b"cancel");
+        let mut gone = Box::pin(gone.wait());
+        let pending =
+            std::future::poll_fn(|cx| std::task::Poll::Ready(gone.as_mut().poll(cx).is_pending()))
+                .await;
+        assert!(pending);
+        control.write_all(b"r").await.unwrap();
+        if cancel {
+            assert_eq!(task.await.unwrap().unwrap_err().code, "cancelled");
+        } else {
+            assert!(task.await.unwrap_err().is_cancelled());
+        }
+        gone.await;
+        assert!(matches!(
+            paths.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+        stock.stop().await.unwrap();
+    }
+    stock.close().await.unwrap();
 }
