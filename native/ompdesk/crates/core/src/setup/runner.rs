@@ -230,15 +230,6 @@ impl Runner {
         if scope.cancelled() {
             return RunOutcome::Cancelled;
         }
-        // Base owns the Windows STARTUPINFOEX handle allowlist. Never replace it with a Bun/Node launcher.
-        #[cfg(windows)]
-        if spec.isolated {
-            return failed(
-                "spawn",
-                None,
-                "Native isolated Windows handle allowlist is not integrated".to_owned(),
-            );
-        }
         let mut value = match serde_json::to_value(spec) {
             Ok(value) => value,
             Err(error) => return failed("spawn", None, error.to_string()),
