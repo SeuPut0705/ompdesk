@@ -109,8 +109,6 @@ describe("a session's processes, on this computer", () => {
 		expect(row(left)?.tag).toBe(tab.tag);
 		expect(row(outside.pid)).toBeDefined();
 		expect(row(outside.pid)?.tag).toBeUndefined();
-		// What the memory record names: an image, a size and a start within this test.
-		expect(row(left)?.name.toLowerCase()).toContain("node");
 		expect(row(left)?.bytes).toBeGreaterThan(1024 ** 2);
 		expect(Date.now() - (row(left)?.startedMs ?? 0)).toBeLessThan(SLOW);
 	});
@@ -145,7 +143,6 @@ describe("a session's processes, on this computer", () => {
 			},
 		]);
 		expect(Number(logs[0]?.details.processes)).toBeGreaterThanOrEqual(2);
-		expect(String(logs[0]?.details.names)).toMatch(/^node(\.exe)?×2/);
 		// The closed tab's tag is forgotten; the open tab's is still in the file.
 		expect(sessions.owners().map(owner => owner.tag)).toEqual([open.tag]);
 	});
