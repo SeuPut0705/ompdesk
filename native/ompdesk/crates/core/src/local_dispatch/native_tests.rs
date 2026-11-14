@@ -142,16 +142,33 @@ impl Rig {
     async fn close(self) {
         let exited = self.source.when_exited();
         self.source.dispose(Duration::ZERO);
-        exited.await.unwrap();
-        self.held.await.unwrap();
+        let exit = exited.await;
+        let held = self.held.await;
         self.stock.close().await;
         self.fingerprints.dispose();
+        exit.unwrap();
+        held.unwrap();
     }
+}
+
+async fn run_scenario<F>(name: &str, scenario: F)
+where
+    F: for<'a> FnOnce(&'a mut Rig) -> EffectFuture<'a, ()> + Send + 'static,
+{
+    let rig = Arc::new(tokio::sync::Mutex::new(Rig::new(name).await));
+    let task_rig = Arc::clone(&rig);
+    let outcome = tokio::spawn(async move {
+        let mut rig = task_rig.lock().await;
+        scenario(&mut rig).await;
+    }).await;
+    let rig = Arc::try_unwrap(rig).ok().unwrap().into_inner();
+    rig.close().await;
+    outcome.unwrap();
 }
 
 #[tokio::test]
 async fn failed_local_hits_write_no_stock_stdin_and_unknown_stock_is_delivered_once() {
-    let rig = Rig::new("local-consumer-routing").await;
+    run_scenario("local-consumer-routing", |rig| Box::pin(async move {
     let before = rig.stdin();
     let flushes = rig.sink.flushes.load(Ordering::SeqCst);
     let refusal = rig.command(json!({"type":"set_autopilot","id":"page-chosen"})).await;
@@ -190,12 +207,12 @@ async fn failed_local_hits_write_no_stock_stdin_and_unknown_stock_is_delivered_o
         "type":"response","id":sent["id"],"command":"native_dispatch_unhandled","success":true,"data":{},
     }));
     assert!(rig.sink.flushes.load(Ordering::SeqCst) > flushes, "the actual child response is flushed before its consumer resumes");
-    rig.close().await;
+    })).await;
 }
 
 #[tokio::test]
 async fn captured_cwd_scope_and_generation_reach_actual_git_and_lane_consumers() {
-    let mut rig = Rig::new("local-consumer-capture").await;
+    run_scenario("local-consumer-capture", |rig| Box::pin(async move {
     let repo = rig.fixture.dir.join("captured-repo");
     repo_at(&repo);
     let branch = format!("captured-{}", rig.fixture.dir.file_name().unwrap().to_string_lossy());
@@ -227,5 +244,5 @@ async fn captured_cwd_scope_and_generation_reach_actual_git_and_lane_consumers()
     let after_restart = rig.stdin();
     assert_eq!(late.await.unwrap_err().code, "sidecar_disconnected");
     assert_eq!(rig.stdin(), after_restart, "a captured old generation must not write to its replacement child");
-    rig.close().await;
+    })).await;
 }
