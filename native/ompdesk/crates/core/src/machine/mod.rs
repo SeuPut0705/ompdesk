@@ -17,7 +17,7 @@ pub use paths::{
     update_environment,
 };
 pub use rea::{REA_NODE_REQUIREMENT, ReaState, rea_node_supported};
-pub use runtime::{Failure, MIN_OMP_VERSION, Resolution, Runtime, parse_version};
+pub use runtime::{Failure, MIN_OMP_VERSION, Resolution, Runtime, is_newer, parse_version};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
