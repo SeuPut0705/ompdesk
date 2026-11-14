@@ -489,6 +489,9 @@ impl<H: Host> Lifecycle<H> {
 
 pub mod native;
 
+pub mod claims;
+pub use claims::{Folder, RemovalClaims, RemovalGuard};
+
 #[cfg(test)]
 mod tests;
 #[cfg(all(test, unix))]
