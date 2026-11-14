@@ -4,6 +4,7 @@ pub mod accounts;
 pub mod callers;
 pub mod frames;
 pub mod memory_host;
+pub mod omp_cli;
 pub mod outcomes;
 pub mod prefs;
 pub mod proxy;
