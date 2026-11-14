@@ -24,11 +24,11 @@ import type { SessionSummary } from "../../shared/session-summary";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import { CorePort } from "../core/ports";
 import { core } from "../core/process";
-import { RpcTimeoutError } from "../rpc-client";
 import type { Pace } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import type { MailDelivery } from "./mail";
+import { NativeInboxNetwork, NativeInboxStock } from "./native-inbox-test-rig";
 import {
 	AgentControl,
 	type AgentControlFiles,
@@ -40,7 +40,6 @@ import {
 	type HostTab,
 	type OpenedChild,
 	type SchedulesHost,
-	type SentAnswer,
 	SessionFolderMissing,
 	type SpawnRequest,
 	type StoredSession,
@@ -105,9 +104,28 @@ class FakeHost implements AgentControlHost {
 	files: AgentControlFiles = {};
 	/** The waits the service shortens, in ms: what the TypeScript tests moved fake timers for. */
 	tuning: Tuning = {};
-	sentMarks?: (tabId: string, marks: string[]) => Promise<SentAnswer | null>;
 	/** The app's side of `ompdesk_app`; absent unless a test gives it. */
 	appPorts?: AgentControlHost["appPorts"];
+	readonly stocks = new Map<string, NativeInboxStock>();
+	inboxNetwork?: NativeInboxNetwork;
+	inboxRoot?: string;
+
+	nativeInbox(root?: string): void {
+		this.inboxRoot ??= root ?? mkdtempSync(join(tmpdir(), "agent-control-native-inbox-"));
+		for (const tab of this.tabsById.values()) this.attachStock(tab);
+	}
+
+	attachStock(tab: FakeTab): NativeInboxStock {
+		tab.sessionPath ??= `/s/${tab.tabId}.jsonl`;
+		tab.runtimeInstance ??= `runtime:${tab.tabId}`;
+		const stock = new NativeInboxStock(tab.sessionPath, tab.runtimeInstance);
+		Object.defineProperty(stock.session, "isStreaming", {
+			configurable: true,
+			get: () => this.tabsById.get(tab.tabId)?.busy ?? false,
+		});
+		this.stocks.set(tab.tabId, stock);
+		return stock;
+	}
 
 	constructor(...tabs: Partial<FakeTab>[]) {
 		for (const tab of tabs) this.add(tab);
@@ -126,6 +144,7 @@ class FakeHost implements AgentControlHost {
 			...tab,
 		};
 		this.tabsById.set(full.tabId, full);
+		if (this.inboxRoot) this.attachStock(full);
 		return full;
 	}
 
@@ -520,8 +539,12 @@ class FakeHost implements AgentControlHost {
 
 /** Every service a test opened: closed after it, so the core holds none. */
 const opened: AgentControl[] = [];
+const networks: NativeInboxNetwork[] = [];
+const inboxRoots: string[] = [];
 afterEach(() => {
 	for (const service of opened.splice(0)) service.close();
+	for (const network of networks.splice(0)) network.close();
+	for (const root of inboxRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 /**
@@ -548,7 +571,16 @@ const SHORT_WAITS: Tuning = {
 };
 
 function control(host: FakeHost, tuning: Tuning = {}) {
-	const service = new AgentControl(host, { files: host.files, tuning: { ...SHORT_WAITS, ...host.tuning, ...tuning } });
+	if (host.inboxRoot && !host.inboxNetwork) {
+		host.inboxNetwork = new NativeInboxNetwork(host, host.inboxRoot, host.stocks);
+		networks.push(host.inboxNetwork);
+		inboxRoots.push(host.inboxRoot);
+	}
+	const service = new AgentControl(host, {
+		files: { ...host.inboxNetwork?.files, ...host.files },
+		tuning: { ...SHORT_WAITS, ...host.tuning, ...tuning },
+	});
+	host.inboxNetwork?.bind(service);
 	opened.push(service);
 	return service;
 }
@@ -1187,96 +1219,123 @@ describe("ompdesk_session_open", () => {
 describe("ompdesk_session_send", () => {
 	it("marks the message as sent by an agent with the sender's title and starts an idle session", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
+		host.nativeInbox();
+		const stock = host.stocks.get("work0002")!;
 		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
-		expect(result.text).toContain("it was idle and starts on it");
-		expect(prompts(host, "work0002")).toEqual([wrapAgentMessage("please review", "Boss")]);
+		expect(result.isError, result.text).toBeFalsy();
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		expect(request.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ kind: "prompt", content: expect.stringContaining("please review") }),
+			]),
+		);
+		expect(stock.admissions).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					message: expect.objectContaining({ content: expect.stringContaining("please review") }),
+				}),
+			]),
+		);
 	});
 
-	it("says nothing was delivered when the target's omp refuses the message", async () => {
+	it("retains disk responsibility when the receiving stock bridge refuses admission", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
-		const command = host.command;
-		host.command = async (tabId, request, timeoutMs) => {
-			if (tabId === "work0002" && request.type === "prompt") {
-				host.sent.push({ tabId, command: request });
-				return {
-					...bad("Sidecar not ready"),
-					code: "sidecar_not_ready",
-				} as RpcResponse;
-			}
-			return command.call(host, tabId, request, timeoutMs);
+		host.nativeInbox();
+		const stock = host.stocks.get("work0002")!;
+		stock.session.prompt = async () => {
+			throw new Error("Sidecar not ready");
 		};
-		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
-		expect(result.isError).toBe(true);
-		expect(result.text).toContain("Not delivered");
-		expect(result.text).toContain("Sidecar not ready");
-		expect(result.text).not.toContain("accepted");
-		expect((host.tabsById.get("work0002") as FakeTab).busy).toBeFalsy();
+		const result = await control(host).run("main0001", T.send, {
+			session: "work0002",
+			message: "please review",
+			request_id: "refused",
+		});
+		await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		expect(stock.admissions).toEqual([]);
+		expect((await stock.status()).entries).toEqual(
+			expect.arrayContaining([expect.objectContaining({ kind: "prompt", state: "failed" })]),
+		);
+		const ledger = JSON.parse(readFileSync(join(host.inboxRoot!, "inbox.json"), "utf8"));
+		expect(ledger.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					state: "pending",
+					receiver: expect.objectContaining({ sessionPath: "/s/work0002.jsonl" }),
+				}),
+			]),
+		);
+		expect(result.text).not.toContain("no message was delivered");
 	});
 
 	it("never promises a turn it did not see start", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
-		const command = host.command;
-		// The omp takes the prompt but no turn follows (its busy flag never rises).
-		host.command = async (tabId, request, timeoutMs) => {
-			if (tabId === "work0002" && request.type === "prompt") {
-				host.sent.push({ tabId, command: request });
-				return ok();
-			}
-			return command.call(host, tabId, request, timeoutMs);
-		};
+		host.nativeInbox();
+		const stock = host.stocks.get("work0002")!;
 		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
+		await stock.waitForRequest();
+		expect((host.tabsById.get("work0002") as FakeTab).busy).toBe(false);
 		expect(result.text).not.toContain("starts on it");
-		expect(result.text).toContain("no turn started");
 	});
 
 	it("waits while the person types into the target, then sends; gives up after a minute with nothing sent", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", drafting: true });
+		host.nativeInbox();
+		const stock = host.stocks.get("work0002")!;
 		const service = control(host);
 		const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
 		await sleep(150);
-		expect(prompts(host, "work0002")).toEqual([]);
+		expect(stock.requests).toEqual([]);
 		(host.tabsById.get("work0002") as FakeTab).drafting = false;
 		for (const listener of host.listeners) listener();
-		expect((await sending).text).toContain("it was idle and starts on it");
-		expect(prompts(host, "work0002")).toHaveLength(1);
+		expect((await sending).isError).toBeFalsy();
+		await stock.waitForRequest();
+		expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
 
 		// The minute (`draftWaitMs`, 400 ms here) passes with the draft still there.
 		(host.tabsById.get("work0002") as FakeTab).drafting = true;
 		const result = await service.run("main0001", T.send, { session: "work0002", message: "and this" });
 		expect(result.isError).toBe(true);
 		expect(result.text).toContain("The person is typing in");
-		expect(prompts(host, "work0002")).toHaveLength(1);
+		expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
 	});
 
 	it("sees a draft the person starts while the send reads the target's journal", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
-		let release = (): void => {};
-		const held = new Promise<void>(resolve => {
-			release = resolve;
-		});
+		host.parents.set("work0002", "main0001");
+		host.nativeInbox();
+		const stock = host.stocks.get("work0002")!;
+		const entered = Promise.withResolvers<void>();
+		const held = Promise.withResolvers<void>();
+		const service = control(host);
 		const command = host.command;
 		host.command = async (tabId, request, timeoutMs) => {
-			if (request.type === "get_transcript_page") await held;
+			if (tabId === "work0002" && request.type === "get_transcript_page") {
+				entered.resolve();
+				await held.promise;
+			}
 			return command(tabId, request, timeoutMs);
 		};
-		const service = control(host);
 		const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
-		await sleep(50);
+		await entered.promise;
 		(host.tabsById.get("work0002") as FakeTab).drafting = true;
-		release();
+		held.resolve();
 		await sleep(150);
-		expect(prompts(host, "work0002")).toEqual([]);
+		expect(stock.requests).toEqual([]);
 		(host.tabsById.get("work0002") as FakeTab).drafting = false;
 		for (const listener of host.listeners) listener();
 		expect((await sending).isError).toBeFalsy();
-		expect(prompts(host, "work0002")).toHaveLength(1);
+		await stock.waitForRequest();
+		expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
 	});
 
 	it("answers a repeat of a delivered request at once, never waiting on the person's draft", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
+		host.nativeInbox();
+		const stock = host.stocks.get("work0002")!;
 		const service = control(host);
 		const args = { session: "work0002", message: "please review", request_id: "r1" };
 		expect((await service.run("main0001", T.send, args)).isError).toBeFalsy();
+		await stock.waitForRequest();
 		(host.tabsById.get("work0002") as FakeTab).drafting = true;
 		let answered: { text: string; isError?: boolean } | undefined;
 		void service.run("main0001", T.send, args).then(result => {
@@ -1286,7 +1345,7 @@ describe("ompdesk_session_send", () => {
 		await sleep(250);
 		expect(answered?.isError).toBeFalsy();
 		expect(answered?.text).toMatch(/already delivered; nothing sent again/);
-		expect(prompts(host, "work0002")).toHaveLength(1);
+		expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
 	});
 
 	it("refuses a self-send, a hidden session, an unknown id and an ambiguous prefix", async () => {
@@ -1296,6 +1355,7 @@ describe("ompdesk_session_send", () => {
 			{ tabId: "work0003" },
 			{ tabId: "work0004" },
 		);
+		host.nativeInbox();
 		const service = control(host);
 		expect((await service.run("main0001", T.send, { session: "main0001", message: "me" })).text).toMatch(
 			/own session/,
@@ -1307,7 +1367,7 @@ describe("ompdesk_session_send", () => {
 		expect((await service.run("main0001", T.send, { session: "work", message: "x" })).text).toMatch(
 			/matches several/,
 		);
-		expect(prompts(host, "work0002")).toEqual([]);
+		expect(host.inboxNetwork!.requests).toEqual([]);
 	});
 
 	it("passes messages along a chain of sessions with no cap", async () => {
@@ -1318,12 +1378,15 @@ describe("ompdesk_session_send", () => {
 			{ tabId: "dddd0004" },
 			{ tabId: "eeee0005" },
 		);
+		host.nativeInbox();
 		const service = control(host);
 		expect((await service.run("aaaa0001", T.send, { session: "bbbb0002", message: "1" })).isError).toBe(false);
 		expect((await service.run("bbbb0002", T.send, { session: "cccc0003", message: "2" })).isError).toBe(false);
 		expect((await service.run("cccc0003", T.send, { session: "dddd0004", message: "3" })).isError).toBe(false);
 		expect((await service.run("dddd0004", T.send, { session: "eeee0005", message: "4" })).isError).toBe(false);
-		expect(prompts(host, "eeee0005")).toHaveLength(1);
+		const stock = host.stocks.get("eeee0005")!;
+		await stock.waitForRequest();
+		expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
 	});
 });
 
@@ -1880,8 +1943,9 @@ const clean: BranchFacts = {
 };
 
 /** A parent and two worktree children it opened, each on its own branch. */
-async function withWorktreeChildren() {
+async function withWorktreeChildren(native = false) {
 	const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+	if (native) host.nativeInbox();
 	const service = control(host);
 	const ids = await service.openSessions("main0001", [
 		{ message: "part one", worktree: true },
@@ -1921,16 +1985,18 @@ describe("ompdesk_session_stop delete on a worktree child it opened", () => {
 
 describe("a worktree child's done report", () => {
 	it("carries what its git holds, and tells the child what disagrees with the report", async () => {
-		const { host, service, ids } = await withWorktreeChildren();
+		const { host, service, ids } = await withWorktreeChildren(true);
 		host.facts.set("omp/agent/a", { ...clean, uncommitted: 2, untracked: 0 });
 		const result = await service.run(ids[0], T.report, {
 			kind: "done",
 			text: "Finished",
 			files: ["src/a.ts", "src/c.ts"],
 		});
-		const mail = host.mails.at(-1);
-		expect(mail?.to).toBe("main0001");
-		expect(mail?.content).toContain(
+		const stock = host.stocks.get("main0001")!;
+		const report = await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.kind === "report" && entry.content.toString().includes("Finished")),
+		);
+		expect(report.entries.find(entry => entry.kind === "report")?.content).toContain(
 			"Git (omp/agent/a): 2 commit(s) not in main yet; 2 uncommitted file(s); reported but unchanged: src/c.ts.",
 		);
 		expect(result.text).toContain("your worktree still has 2 uncommitted file(s)");
@@ -1938,16 +2004,24 @@ describe("a worktree child's done report", () => {
 
 		host.facts.set("omp/agent/b", { ...clean, branch: "omp/agent/b", untracked: 0, merged: true });
 		const landed = await service.run(ids[1], T.report, { kind: "done", text: "Landed", files: ["./src/b.ts"] });
-		expect(host.mails.at(-1)?.content).toContain("Git (omp/agent/b): landed.");
+		const second = await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.kind === "report" && entry.content.toString().includes("Landed")),
+		);
+		expect(
+			second.entries.find(entry => entry.kind === "report" && entry.content.toString().includes("Landed"))?.content,
+		).toContain("Git (omp/agent/b): landed.");
 		expect(landed.text).toBe("Delivered.");
 	});
 
 	it("reports as before when its git cannot be read", async () => {
-		const { host, service, ids } = await withWorktreeChildren();
+		const { host, service, ids } = await withWorktreeChildren(true);
 		host.facts.clear();
 		const result = await service.run(ids[0], T.report, { kind: "done", text: "Finished" });
 		expect(result.text).toBe("Delivered.");
-		expect(host.mails.at(-1)?.content).not.toContain("Git (");
+		const report = await host.stocks
+			.get("main0001")!
+			.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(report.entries.find(entry => entry.kind === "report")?.content).not.toContain("Git (");
 	});
 });
 
@@ -3062,8 +3136,11 @@ describe("ompdesk_autopilot", () => {
 
 describe("autoClose: opened sessions whose work landed", () => {
 	/** The caller opens one session; its tab then reads as a finished, agent-opened child with a stored file. */
-	async function finishedChild(options: { worktree?: boolean; throwaway?: boolean; patch?: Partial<FakeTab> } = {}) {
+	async function finishedChild(
+		options: { worktree?: boolean; throwaway?: boolean; patch?: Partial<FakeTab>; native?: boolean } = {},
+	) {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		if (options.native) host.nativeInbox();
 		const service = control(host);
 		await service.run("main0001", T.open, {
 			message: "do it",
@@ -3082,6 +3159,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 			cost: 0.42,
 			...options.patch,
 		});
+		if (options.native && child.sessionPath) host.stocks.get(child.tabId)!.replaceReceiver(child.sessionPath);
 		return { host, service, child };
 	}
 
@@ -3109,10 +3187,12 @@ describe("autoClose: opened sessions whose work landed", () => {
 
 	describe("a throwaway child", () => {
 		it("closes and deletes its saved session once its done report reached the opener, and tells the opener", async () => {
-			const { host, service, child } = await finishedChild({ throwaway: true });
+			const { host, service, child } = await finishedChild({ native: true, throwaway: true });
 			// The pass that sends its done report leaves it: the opener reads the report in its next turn.
 			await service.autoClose("main0001");
-			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+			await host.stocks
+				.get("main0001")!
+				.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
 			expect(closes(host)).toHaveLength(0);
 			expect(host.deletedStored).toEqual([]);
 			await service.autoClose("main0001");
@@ -3126,6 +3206,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 
 		it("deletes one on a paired device on that device, worktree and all once it landed", async () => {
 			const { host, service } = await finishedChild({
+				native: true,
 				throwaway: true,
 				worktree: true,
 				patch: { device: desktop.id, deviceName: desktop.name },
@@ -3139,6 +3220,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 
 		it("keeps a problem, one the person reopened, and one whose worktree git kept", async () => {
 			const problem = await finishedChild({
+				native: true,
 				throwaway: true,
 				patch: { last: "Two tests fail.\nResult: problem — two tests fail" },
 			});
@@ -3148,7 +3230,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 			expect(problem.host.deletedStored).toEqual([]);
 			expect(problem.host.closedRecords).toHaveLength(1);
 
-			const reopened = await finishedChild({ throwaway: true });
+			const reopened = await finishedChild({ native: true, throwaway: true });
 			await reopened.service.autoClose("main0001");
 			reopened.host.view = (_caller, event) => {
 				reopened.host.views.push(event);
@@ -3160,7 +3242,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 			expect(reopened.host.deletedStored).toEqual([]);
 			expect(reopened.host.closedRecords).toHaveLength(1);
 
-			const kept = await finishedChild({ throwaway: true, worktree: true });
+			const kept = await finishedChild({ native: true, throwaway: true, worktree: true });
 			kept.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
 			kept.host.removeSafeWorktree = async () => {
 				throw new Error("in use");
@@ -3248,7 +3330,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 			await service.autoClose("main0001");
 			expect(host.mails.filter(mail => mail.to === child.tabId)).toHaveLength(0);
 		}
-		const { host, service, child } = await finishedChild({ patch: { last: "Done." } });
+		const { host, service, child } = await finishedChild({ native: true, patch: { last: "Done." } });
 		await service.run(child.tabId, T.report, { kind: "done", text: "finished" });
 		const before = host.mails.length;
 		await service.autoClose("main0001");
@@ -3271,20 +3353,39 @@ describe("autoClose: opened sessions whose work landed", () => {
 		const SHORT = "pace 22 min, 156 calls, median 4.0 s";
 
 		it("ends the auto done report the opener receives with the Pace line", async () => {
-			const { host, service } = await finishedChild({ patch: { last: "Parser fixed in a.ts.\nResult: ok" } });
+			const { host, service } = await finishedChild({
+				native: true,
+				patch: { last: "Parser fixed in a.ts.\nResult: ok" },
+			});
 			host.paces.set("/s/kid.jsonl", slow);
 			await service.autoClose("main0001");
-			const [mail] = host.mails.filter(entry => entry.to === "main0001");
-			expect(mail?.content).toContain(LINE);
-			expect(mail?.details).toMatchObject({ text: expect.stringMatching(/\n\nPace: wall 22 min[^\n]*$/) });
+			const request = await host.stocks
+				.get("main0001")!
+				.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+			expect(request.entries).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						kind: "report",
+						content: expect.stringContaining(LINE),
+						details: expect.objectContaining({ text: expect.stringMatching(/\n\nPace: wall 22 min[^\n]*$/) }),
+					}),
+				]),
+			);
 		});
 
 		it("ends a child's own done report with it and keeps the mail id when only the pace differs", async () => {
-			const { host, service, child } = await finishedChild();
+			const { host, service, child } = await finishedChild({ native: true });
 			host.paces.set("/s/kid.jsonl", slow);
 			const first = await service.run(child.tabId, T.report, { kind: "done", text: "finished" });
 			expect(first.text).toBe("Delivered.");
-			expect(host.mails.at(-1)?.content).toContain(LINE);
+			const request = await host.stocks
+				.get("main0001")!
+				.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+			expect(request.entries).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ kind: "report", content: expect.stringContaining(LINE) }),
+				]),
+			);
 			host.paces.set("/s/kid.jsonl", { ...slow, wallS: 3000, modelS: 2800, modelCalls: 300 });
 			const again = await service.run(child.tabId, T.report, { kind: "done", text: "finished" });
 			expect(again.text).toContain("was already delivered");
@@ -3320,13 +3421,16 @@ describe("autoClose: opened sessions whose work landed", () => {
 		});
 
 		it("leaves the report and the rows without a line when the pace cannot be read", async () => {
-			const { host, service, child } = await finishedChild();
+			const { host, service, child } = await finishedChild({ native: true });
 			host.sessionPace = async () => {
 				throw new Error("link down");
 			};
 			const sent = await service.run(child.tabId, T.report, { kind: "done", text: "finished" });
 			expect(sent.text).toBe("Delivered.");
-			expect(host.mails.at(-1)?.content).not.toContain("Pace:");
+			const request = await host.stocks
+				.get("main0001")!
+				.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+			expect(request.entries.find(entry => entry.kind === "report")?.content).not.toContain("Pace:");
 			expect((await service.run("main0001", T.list, { mine: true })).text).not.toContain("pace ");
 			expect((await service.run("main0001", T.result, { session: child.tabId })).text).not.toContain("pace ");
 		});
@@ -3334,47 +3438,87 @@ describe("autoClose: opened sessions whose work landed", () => {
 
 	describe("the done report main sends for a child", () => {
 		it("sends the opener one done mail with the final answer when the child ended with a verdict and reported nothing", async () => {
-			const { host, service } = await finishedChild({ patch: { last: "Parser fixed in a.ts.\nResult: ok" } });
+			const { host, service } = await finishedChild({
+				native: true,
+				patch: { last: "Parser fixed in a.ts.\nResult: ok" },
+			});
 			await service.autoClose("main0001");
 			await service.autoClose("main0001");
-			const toOpener = host.mails.filter(mail => mail.to === "main0001");
-			expect(toOpener).toHaveLength(1);
-			expect(toOpener[0]?.content).toContain("Parser fixed in a.ts.");
-			expect(toOpener[0]?.content).toContain("done");
-			expect(toOpener[0]?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
+			const stock = host.stocks.get("main0001")!;
+			const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+			expect(request.entries).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						kind: "report",
+						triggerTurn: true,
+						content: expect.stringContaining("Parser fixed in a.ts."),
+					}),
+				]),
+			);
+			expect(
+				stock.admissions.filter(
+					event => event.queue !== "aside" && JSON.stringify(event.message).includes("Parser fixed in a.ts."),
+				),
+			).toHaveLength(1);
 		});
 
 		it("sends exactly one when the child reported done itself", async () => {
-			const { host, service, child } = await finishedChild();
+			const { host, service, child } = await finishedChild({ native: true });
 			await service.run(child.tabId, T.report, { kind: "done", text: "finished", dispatch: "d1" });
 			await service.autoClose("main0001");
-			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+			const stock = host.stocks.get("main0001")!;
+			await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+			expect(
+				stock.admissions.filter(
+					event => event.queue !== "aside" && JSON.stringify(event.message).includes("finished"),
+				),
+			).toHaveLength(1);
 		});
 
 		it("still sends the done mail after a progress report or a note on the same dispatch", async () => {
 			for (const kind of ["progress", "note"] as const) {
 				const { host, service, child } = await finishedChild({
+					native: true,
 					patch: { last: "Parser fixed in a.ts.\nResult: ok" },
 				});
 				await service.run(child.tabId, T.report, { kind, text: "half way", dispatch: "d1" });
 				await service.autoClose("main0001");
-				const done = host.mails.filter(
-					mail => mail.to === "main0001" && mail.content.includes("Parser fixed in a.ts."),
+				const stock = host.stocks.get("main0001")!;
+				const request = await stock.waitForRequest(request =>
+					request.entries.some(
+						entry => entry.kind === "report" && entry.content.toString().includes("Parser fixed in a.ts."),
+					),
 				);
-				expect(done, kind).toHaveLength(1);
-				expect(done[0]?.delivery, kind).toEqual({ triggerTurn: true, deliverAs: "aside" });
+				expect(request.entries).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							kind: "report",
+							triggerTurn: true,
+							content: expect.stringContaining("Parser fixed in a.ts."),
+						}),
+					]),
+				);
+				expect(
+					stock.admissions.filter(
+						event => event.queue !== "aside" && JSON.stringify(event.message).includes("Parser fixed in a.ts."),
+					),
+					kind,
+				).toHaveLength(1);
 			}
 		});
 
 		it("keeps an unanswered question or blocker waiting, and sends the done once the opener answered and it finished", async () => {
 			for (const kind of ["question", "blocked"] as const) {
 				const { host, service, child } = await finishedChild({
+					native: true,
 					patch: { last: "Needs the opener's call on the schema.\nResult: problem — needs a decision" },
 				});
 				await service.run(child.tabId, T.report, { kind, text: "which schema?", dispatch: "d1" });
 				await service.autoClose("main0001");
+				const stock = host.stocks.get("main0001")!;
+				await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
 				expect(
-					host.mails.filter(mail => mail.to === "main0001" && mail.content.includes("Result:")),
+					stock.admissions.filter(event => JSON.stringify(event.message).includes("Result:")),
 					kind,
 				).toHaveLength(0);
 				expect(closes(host), kind).toHaveLength(0);
@@ -3384,10 +3528,17 @@ describe("autoClose: opened sessions whose work landed", () => {
 				child.busy = false;
 				child.last = "Moved to schema v2.\nResult: ok";
 				await service.autoClose("main0001");
-				const done = host.mails.filter(
-					mail => mail.to === "main0001" && mail.content.includes("Moved to schema v2."),
+				await stock.waitForRequest(request =>
+					request.entries.some(
+						entry => entry.kind === "report" && entry.content.toString().includes("Moved to schema v2."),
+					),
 				);
-				expect(done, kind).toHaveLength(1);
+				expect(
+					stock.admissions.filter(
+						event => event.queue !== "aside" && JSON.stringify(event.message).includes("Moved to schema v2."),
+					),
+					kind,
+				).toHaveLength(1);
 			}
 		});
 
@@ -3397,48 +3548,72 @@ describe("autoClose: opened sessions whose work landed", () => {
 				{ lastRun: { stopReason: "aborted" } },
 				{ userTouched: true },
 			] as Partial<FakeTab>[]) {
-				const { host, service } = await finishedChild({ patch });
+				const { host, service } = await finishedChild({ native: true, patch });
 				await service.autoClose("main0001");
-				expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(0);
+				expect(host.stocks.get("main0001")!.requests).toHaveLength(0);
 			}
 		});
 
 		it("gives the next dispatch its own report", async () => {
-			const { host, service, child } = await finishedChild({ patch: { looked: true } });
+			const { host, service, child } = await finishedChild({ native: true, patch: { looked: true } });
 			await service.autoClose("main0001");
-			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+			const stock = host.stocks.get("main0001")!;
+			await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+			expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
 			await service.run("main0001", T.send, { session: child.tabId, message: "and again" });
 			child.busy = true;
 			await service.autoClose("main0001");
 			child.busy = false;
 			child.last = "Second round.\nResult: ok";
 			await service.autoClose("main0001");
-			const toOpener = host.mails.filter(mail => mail.to === "main0001");
-			expect(toOpener).toHaveLength(2);
-			expect(toOpener[1]?.content).toContain("Second round.");
+			await stock.waitForRequest(request =>
+				request.entries.some(
+					entry => entry.kind === "report" && entry.content.toString().includes("Second round."),
+				),
+			);
+			expect(
+				stock.admissions.filter(
+					event => event.queue !== "aside" && JSON.stringify(event.message).includes("Second round."),
+				),
+			).toHaveLength(1);
+			expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(2);
 		});
 
 		it("sends one for a child a relaunch restored once a turn of this launch ended, unless it reported that work itself", async () => {
 			// Its cut-off turn went on after the relaunch (or it took a message): the opener's new tab hears it.
 			const resumed = await finishedChild({
+				native: true,
 				patch: { restored: true, lastRun: { stopReason: "stop" }, last: "Titles combined.\nResult: ok" },
 			});
 			await resumed.service.autoClose("main0001");
-			const done = resumed.host.mails.filter(
-				mail => mail.to === "main0001" && mail.content.includes("Titles combined."),
+			const stock = resumed.host.stocks.get("main0001")!;
+			const done = await stock.waitForRequest(request =>
+				request.entries.some(
+					entry => entry.kind === "report" && entry.content.toString().includes("Titles combined."),
+				),
 			);
-			expect(done).toHaveLength(1);
-			expect(done[0]?.details.dispatch).toBe("d1");
+			expect(done.entries).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ kind: "report", details: expect.objectContaining({ dispatch: "d1" }) }),
+				]),
+			);
+			expect(
+				stock.admissions.filter(
+					event => event.queue !== "aside" && JSON.stringify(event.message).includes("Titles combined."),
+				),
+			).toHaveLength(1);
 
 			// Restored and not run this launch: its ending is from before, when main already told its opener.
 			const asleep = await finishedChild({
+				native: true,
 				patch: { restored: true, status: "asleep", lastRun: undefined, last: undefined },
 			});
 			await asleep.service.autoClose("main0001");
-			expect(asleep.host.mails.filter(mail => mail.to === "main0001")).toHaveLength(0);
+			expect(asleep.host.stocks.get("main0001")!.requests).toHaveLength(0);
 
 			// Its own done report since its last prompt is in its journal: nothing more is sent.
 			const reported = await finishedChild({
+				native: true,
 				patch: {
 					restored: true,
 					lastRun: { stopReason: "stop" },
@@ -3470,13 +3645,13 @@ describe("autoClose: opened sessions whose work landed", () => {
 				},
 			});
 			await reported.service.autoClose("main0001");
-			expect(reported.host.mails.filter(mail => mail.to === "main0001")).toHaveLength(0);
+			expect(reported.host.stocks.get("main0001")!.requests).toHaveLength(0);
 		});
 	});
 
 	describe("a message to a child whose tab was closed", () => {
 		it("opens the child it opened again and delivers, by the id it was given", async () => {
-			const { host, service, child } = await finishedChild();
+			const { host, service, child } = await finishedChild({ native: true });
 			await service.autoClose("main0001");
 			expect(closes(host)).toHaveLength(1);
 			expect(host.closedRecords[0]?.tabIds).toEqual([child.tabId]);
@@ -3485,7 +3660,11 @@ describe("autoClose: opened sessions whose work landed", () => {
 			expect(host.spawned.at(-1)).toMatchObject({ sessionPath: "/s/kid.jsonl" });
 			const again = [...host.tabsById.values()].find(tab => tab.sessionPath === "/s/kid.jsonl");
 			expect(again?.tabId).toBeDefined();
-			expect(prompts(host, again?.tabId ?? "")).toEqual([expect.stringContaining("one more thing")]);
+			const stock = host.stocks.get(again!.tabId)!;
+			const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+			expect(request.entries).toEqual(
+				expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("one more thing") })]),
+			);
 			expect(sent.text).toContain("Dispatch d");
 		});
 
@@ -3509,10 +3688,18 @@ describe("autoClose: opened sessions whose work landed", () => {
 					tabIds: ["their0003"],
 				},
 			];
+			host.nativeInbox();
 			const service = control(host);
 			const sent = await service.run("boss0009", T.send, { session: "kidold01", message: "carry on" });
 			expect(sent.isError, sent.text).toBe(false);
 			expect(host.spawned).toEqual([expect.objectContaining({ sessionPath: "/s/kid.jsonl" })]);
+			const reopened = [...host.tabsById.values()].find(tab => tab.sessionPath === "/s/kid.jsonl")!;
+			const received = await host.stocks
+				.get(reopened.tabId)!
+				.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+			expect(received.entries).toEqual(
+				expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("carry on") })]),
+			);
 			const refused = await service.run("boss0009", T.send, { session: "their0003", message: "x" });
 			expect(refused.text).toContain("not open in any tab");
 			expect(host.spawned).toHaveLength(1);
@@ -3610,13 +3797,18 @@ describe("autoClose: opened sessions whose work landed", () => {
 		const problem = "Two tests still fail.\nResult: problem — two tests fail";
 
 		it("is not closed before its opener read it: the report waits for the opener's turn, a result read counts too", async () => {
-			const { host, service } = await finishedChild({ patch: { last: problem } });
+			const { host, service } = await finishedChild({ native: true, patch: { last: problem } });
 			const opener = host.tabsById.get("main0001") as FakeTab;
 			opener.busy = true;
 			await service.autoClose("main0001");
-			expect(
-				host.mails.filter(mail => mail.to === "main0001" && mail.content.includes("two tests fail")),
-			).toHaveLength(1);
+			const request = await host.stocks
+				.get("main0001")!
+				.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+			expect(request.entries).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ kind: "report", content: expect.stringContaining("two tests fail") }),
+				]),
+			);
 			await service.autoClose("main0001");
 			expect(closes(host)).toHaveLength(0);
 			opener.busy = false;
@@ -3624,7 +3816,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 			expect(closes(host)).toHaveLength(1);
 			expect(host.closedRecords).toHaveLength(1);
 
-			const read = await finishedChild({ patch: { last: problem } });
+			const read = await finishedChild({ native: true, patch: { last: problem } });
 			(read.host.tabsById.get("main0001") as FakeTab).busy = true;
 			await read.service.autoClose("main0001");
 			expect(closes(read.host)).toHaveLength(0);
@@ -3634,9 +3826,11 @@ describe("autoClose: opened sessions whose work landed", () => {
 		});
 
 		it("is not closed in the pass that sent its done report to an idle opener, but in the next", async () => {
-			const { host, service } = await finishedChild({ patch: { last: problem } });
+			const { host, service } = await finishedChild({ native: true, patch: { last: problem } });
 			await service.autoClose("main0001");
-			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+			await host.stocks
+				.get("main0001")!
+				.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
 			expect(closes(host)).toHaveLength(0);
 			await service.autoClose("main0001");
 			expect(closes(host)).toHaveLength(1);
@@ -4395,8 +4589,9 @@ describe("ompdesk_compare with criteria", () => {
 });
 
 describe("ompdesk_report: sessions tell their opener", () => {
-	async function family() {
+	async function family(native = false) {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		if (native) host.nativeInbox();
 		// Progress from one sender is coalesced for the mailbox window (`mailCoalesceMs`, 2 s by default).
 		const service = control(host, { mailCoalesceMs: 150 });
 		const opened = await service.run("boss0001", T.open, {
@@ -4409,7 +4604,7 @@ describe("ompdesk_report: sessions tell their opener", () => {
 	}
 
 	it("says where an idle session it opened left the work: its verdict, its report, or neither", async () => {
-		const { host, service, a, b } = await family();
+		const { host, service, a, b } = await family(true);
 		for (const id of [a, b]) {
 			const tab = host.tabsById.get(id) as FakeTab;
 			tab.busy = false;
@@ -4432,7 +4627,9 @@ describe("ompdesk_report: sessions tell their opener", () => {
 	});
 
 	it("names the dispatch in the child's task, and a done report reaches the opener between its steps", async () => {
-		const { host, service, a } = await family();
+		const { host, service, a } = await family(true);
+		const stock = host.stocks.get("boss0001")!;
+		(host.tabsById.get("boss0001") as FakeTab).busy = true;
 		expect(prompts(host, a)[0]).toContain('[ompdesk dispatch d1: report with ompdesk_report, dispatch "d1"]');
 		const result = await service.run(a, T.report, {
 			kind: "done",
@@ -4442,35 +4639,53 @@ describe("ompdesk_report: sessions tell their opener", () => {
 			dispatch: "d1",
 		});
 		expect(result.text).toBe("Delivered.");
-		expect(host.mails).toHaveLength(1);
-		const mail = host.mails[0];
-		expect(mail?.to).toBe("boss0001");
-		expect(mail?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
-		expect(mail?.content).toContain(`<ompdesk-mail from="${a}"`);
-		expect(mail?.content).toContain("changed files: src/a.ts");
-		expect(mail?.content).toContain("checks: bun test passed");
-		expect(mail?.details).toMatchObject({ kind: "done", text: "A is finished", dispatch: "d1" });
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(request.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "report",
+					triggerTurn: true,
+					content: expect.stringContaining("changed files: src/a.ts"),
+					details: expect.objectContaining({ kind: "done", text: "A is finished", dispatch: "d1" }),
+				}),
+			]),
+		);
+		expect(request.entries.find(entry => entry.kind === "report")?.content).toContain("checks: bun test passed");
 		expect(host.reviewChanged).toHaveBeenCalledWith("boss0001");
 		const items = await service.reviewItems("boss0001");
 		expect(items.find(item => item.tabId === a)?.report).toMatchObject({ kind: "done", text: "A is finished" });
 	});
 
 	it("routes a question between the opener's steps and keeps it waiting until the opener answers", async () => {
-		const { host, service, a } = await family();
+		const { host, service, a } = await family(true);
+		const stock = host.stocks.get("boss0001")!;
+		(host.tabsById.get("boss0001") as FakeTab).busy = true;
 		expect((await service.run(a, T.report, { kind: "question", text: "Keep the old API?" })).text).toMatch(
 			/Wait for the answer/,
 		);
-		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
-		expect(host.mails[0]?.content).toMatch(/waits on you/);
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(request.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "report",
+					triggerTurn: true,
+					content: expect.stringMatching(/waits on you/),
+				}),
+			]),
+		);
 		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBe(true);
 		// Nothing answers it but the opener (or the user through it): a send to the child does.
 		await service.run("boss0001", T.send, { session: a, message: "Keep it." });
 		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBeUndefined();
-		expect(prompts(host, a).at(-1)).toContain("dispatch d2");
+		const child = host.stocks.get(a)!;
+		const answer = await child.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		expect(answer.entries).toEqual(
+			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("dispatch d2") })]),
+		);
 	});
 
 	it("lists a child as waiting only on a question it asked its opener, never one it asked a sibling", async () => {
-		const { service, a, b } = await family();
+		const { service, a, b } = await family(true);
 		await service.run(a, T.report, { kind: "progress", text: "half of A done" });
 		await service.run(a, T.report, { kind: "question", to: b, text: "Did you change the shared type?" });
 		const item = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
@@ -4480,7 +4695,7 @@ describe("ompdesk_report: sessions tell their opener", () => {
 	});
 
 	it("stops listing a child as waiting once it carries on with a new turn", async () => {
-		const { host, service, a } = await family();
+		const { host, service, a } = await family(true);
 		const child = host.tabsById.get(a);
 		if (!child) throw new Error("no child");
 		// It asks from within a turn main stamped.
@@ -4504,7 +4719,8 @@ describe("ompdesk_report: sessions tell their opener", () => {
 	});
 
 	it("tells the opener when a child shows a question card, once, and lists the child as waiting until it is answered", async () => {
-		const { host, service, a, b } = await family();
+		const { host, service, a, b } = await family(true);
+		const stock = host.stocks.get("boss0001")!;
 		const child = host.tabsById.get(a);
 		if (!child) throw new Error("no child");
 		child.asks = [
@@ -4520,11 +4736,13 @@ describe("ompdesk_report: sessions tell their opener", () => {
 			},
 		];
 		await service.childAsked("boss0001", a, "q1");
-		expect(host.mails).toHaveLength(1);
-		const mail = host.mails[0];
-		expect(mail?.to).toBe("boss0001");
-		expect(mail?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
-		expect(mail?.details).toMatchObject({ kind: "question", from: a, id: `ask-${a}-q1` });
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		const mail = request.entries.find(entry => entry.kind === "report");
+		expect(mail).toMatchObject({
+			kind: "report",
+			triggerTurn: true,
+			details: { kind: "question", from: a, id: `ask-${a}-q1` },
+		});
 		expect(mail?.content).toContain("어떤 문구가 어디에 떴나요?");
 		expect(mail?.content).toContain('"omp를 사용할 수 없어요" (상단 띠)');
 		expect(mail?.content).toContain("ompdesk_session_answer");
@@ -4532,18 +4750,26 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBe(true);
 		// The same card announced again (a re-attached link) is not a second message.
 		await service.childAsked("boss0001", a, "q1");
-		expect(host.mails).toHaveLength(1);
+		expect(
+			stock.admissions.filter(
+				event => JSON.stringify(event.message).includes("어떤 문구가 어디에 떴나요?") && event.queue === "followUp",
+			),
+		).toHaveLength(1);
 		// Answered: no longer waiting.
 		await service.run("boss0001", T.answer, { session: a, choice: "다른 문구" });
 		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBeUndefined();
 		// A session it did not open, or a card that is gone, tells nobody.
 		await service.childAsked(b, a, "q1");
 		await service.childAsked("boss0001", a, "gone");
-		expect(host.mails).toHaveLength(1);
+		expect(
+			stock.admissions.filter(
+				event => JSON.stringify(event.message).includes("어떤 문구가 어디에 떴나요?") && event.queue === "followUp",
+			),
+		).toHaveLength(1);
 	});
 
 	it("never mails the opener about OMPdesk's own confirmation card or a session hidden from agents", async () => {
-		const { host, service, a, b } = await family();
+		const { host, service, a, b } = await family(true);
 		const first = host.tabsById.get(a);
 		const second = host.tabsById.get(b);
 		if (!first || !second) throw new Error("no children");
@@ -4552,54 +4778,97 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		second.hidden = true;
 		await service.childAsked("boss0001", a, "req1");
 		await service.childAsked("boss0001", b, "req1");
-		expect(host.mails).toHaveLength(0);
+		expect(host.stocks.get("boss0001")!.requests).toHaveLength(0);
 	});
 
 	it("ignores a report for a superseded dispatch and delivers a repeated report id once", async () => {
-		const { host, service, a } = await family();
+		const { host, service, a } = await family(true);
+		const stock = host.stocks.get("boss0001")!;
 		await service.run("boss0001", T.send, { session: a, message: "New plan" });
 		const stale = await service.run(a, T.report, { kind: "done", text: "old work", dispatch: "d1" });
 		expect(stale.text).toMatch(/Ignored: dispatch d1 is no longer current .* dispatch d2/);
-		expect(host.mails).toHaveLength(0);
+		expect(stock.requests).toHaveLength(0);
 		await service.run(a, T.report, { kind: "done", text: "new work", dispatch: "d2", id: "r1" });
 		const again = await service.run(a, T.report, { kind: "done", text: "new work", dispatch: "d2", id: "r1" });
 		expect(again.text).toMatch(/already delivered/);
-		expect(host.mails).toHaveLength(1);
+		const conflict = await service.run(a, T.report, {
+			kind: "done",
+			text: "different work",
+			dispatch: "d2",
+			id: "r1",
+		});
+		expect(conflict.isError).toBe(true);
+		await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(
+			stock.admissions.filter(
+				event =>
+					event.queue !== "aside" &&
+					event.message.details &&
+					JSON.stringify(event.message.details).includes("new work"),
+			),
+		).toHaveLength(1);
 	});
 
 	it("coalesces progress into its latest report, without a turn, and a done supersedes the pending progress", async () => {
-		const { host, service, a, fire } = await family();
+		const { host, service, a, fire } = await family(true);
+		const stock = host.stocks.get("boss0001")!;
 		await service.run(a, T.report, { kind: "progress", text: "step 1" });
 		await service.run(a, T.report, { kind: "progress", text: "step 2" });
-		expect(host.mails).toHaveLength(0);
+		expect(stock.requests).toHaveLength(0);
 		await fire();
 		await Promise.resolve();
-		expect(host.mails).toHaveLength(1);
-		expect(host.mails[0]?.details).toMatchObject({ text: "step 2", merged: 1 });
-		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false });
+		const progress = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(progress.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "report",
+					triggerTurn: false,
+					details: expect.objectContaining({ text: "step 2", merged: 1 }),
+				}),
+			]),
+		);
 		await service.run(a, T.report, { kind: "progress", text: "step 3" });
 		await service.run(a, T.report, { kind: "done", text: "finished" });
 		await fire();
 		await Promise.resolve();
-		expect(host.mails.map(mail => mail.details.text)).toEqual(["step 2", "finished"]);
+		const done = await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.kind === "report" && entry.details.text === "finished"),
+		);
+		expect(done.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ kind: "report", details: expect.objectContaining({ text: "finished" }) }),
+			]),
+		);
+		expect(stock.admissions.some(event => JSON.stringify(event.message).includes("step 3"))).toBe(false);
 	});
 
 	it("sends progress to a busy opener as a no-turn report, never stock's hidden next-turn queue", async () => {
-		const { host, service, a, fire } = await family();
+		const { host, service, a, fire } = await family(true);
+		const stock = host.stocks.get("boss0001")!;
 		const boss = host.tabsById.get("boss0001");
 		if (boss) boss.busy = true;
 		await service.run(a, T.report, { kind: "progress", text: "halfway" });
 		await fire();
 		await Promise.resolve();
 		// The opener's bridge sends it as an aside while its turn runs; stock's hidden `nextTurn` is never used.
-		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false });
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(request.entries).toEqual(
+			expect.arrayContaining([expect.objectContaining({ kind: "report", triggerTurn: false })]),
+		);
 	});
 
 	it("lets a child write to a sibling as a note, never to an outsider, and refuses a session nobody opened", async () => {
-		const { host, service, a, b } = await family();
+		const { host, service, a, b } = await family(true);
 		host.add({ tabId: "else0009", title: "Other" });
 		await service.run(a, T.report, { kind: "done", to: b, text: "I changed X, rebase" });
-		expect(host.mails[0]).toMatchObject({ to: b, details: { kind: "note" } });
+		const report = await host.stocks
+			.get(b)!
+			.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(report.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ kind: "report", details: expect.objectContaining({ kind: "note" }) }),
+			]),
+		);
 		expect((await service.run(a, T.report, { kind: "note", to: "else0009", text: "hi" })).text).toMatch(
 			/only to the session that opened you, to a sibling it opened, or to a session working in the same checkout/,
 		);
@@ -4613,6 +4882,7 @@ describe("ompdesk_report: sessions tell their opener", () => {
 			{ tabId: "priv0003", hidden: true },
 			{ tabId: "else0004" },
 		);
+		host.nativeInbox();
 		host.peers.set("mine0001", ["peer0002", "priv0003"]);
 		const service = control(host);
 		await service.run("mine0001", T.report, {
@@ -4621,10 +4891,19 @@ describe("ompdesk_report: sessions tell their opener", () => {
 			text: "May I commit src/a.ts first?",
 		});
 		await service.run("mine0001", T.report, { kind: "done", to: "peer0002", text: "Committing src/a.ts now" });
-		expect(host.mails.map(mail => [mail.to, mail.details.kind, mail.delivery])).toEqual([
-			["peer0002", "question", { triggerTurn: true, deliverAs: "aside" }],
-			["peer0002", "note", { triggerTurn: false }],
-		]);
+		const stock = host.stocks.get("peer0002")!;
+		const question = await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.kind === "report" && entry.details.kind === "question"),
+		);
+		const note = await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.kind === "report" && entry.details.kind === "note"),
+		);
+		expect(question.entries).toEqual(
+			expect.arrayContaining([expect.objectContaining({ kind: "report", triggerTurn: true })]),
+		);
+		expect(note.entries).toEqual(
+			expect.arrayContaining([expect.objectContaining({ kind: "report", triggerTurn: false })]),
+		);
 		expect((await service.run("mine0001", T.report, { kind: "note", to: "priv0003", text: "x" })).text).toMatch(
 			/hid this session/,
 		);
@@ -4634,49 +4913,89 @@ describe("ompdesk_report: sessions tell their opener", () => {
 	});
 
 	it("sends with a request id once and returns the first receipt on a repeat", async () => {
-		const { host, service, a } = await family();
+		const { host, service, a } = await family(true);
 		const first = await service.run("boss0001", T.send, { session: a, message: "go", request_id: "q1" });
 		const again = await service.run("boss0001", T.send, { session: a, message: "go", request_id: "q1" });
 		expect(first.text).toMatch(/accepted/);
 		expect(again.text).toMatch(/already delivered; nothing sent again/);
-		expect(prompts(host, a).filter(prompt => prompt.includes("go"))).toHaveLength(1);
+		const stock = host.stocks.get(a)!;
+		await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.kind === "prompt" && entry.content.toString().includes("go")),
+		);
+		expect(
+			stock.admissions.filter(event => JSON.stringify(event.message).includes("go") && event.queue === "followUp"),
+		).toHaveLength(1);
 	});
 });
 
 describe("mail across failures and relaunches", () => {
-	it("keeps a report whose delivery failed undelivered, so the sender's retry with the same id goes through", async () => {
+	it("retains a report after stock refuses it and admits it once after recovery", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		host.nativeInbox();
 		const service = control(host);
 		const opened = await service.run("boss0001", T.open, { message: "Do A" });
 		const child = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
-		const original = host.mail;
-		host.mail = async () => {
+		const stock = host.stocks.get("boss0001")!;
+		const original = stock.session.promptCustomMessage;
+		stock.session.promptCustomMessage = async () => {
 			throw new Error("link down");
 		};
-		const failed = await service.run(child, T.report, { kind: "done", text: "A finished", id: "r1" });
-		expect(failed.isError).toBe(true);
-		host.mail = original;
-		expect((await service.run(child, T.report, { kind: "done", text: "A finished", id: "r1" })).text).toBe(
-			"Delivered.",
+		const first = await service.run(child, T.report, { kind: "done", text: "A finished", id: "r1" });
+		await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		expect(first.text).not.toContain("nothing delivered");
+		expect(stock.admissions).toHaveLength(0);
+		const ledger = JSON.parse(readFileSync(join(host.inboxRoot!, "inbox.json"), "utf8"));
+		expect(ledger.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ state: "pending", key: expect.objectContaining({ kind: "report" }) }),
+			]),
 		);
-		expect(host.mails).toHaveLength(1);
+		stock.session.promptCustomMessage = original;
+		await service.runtime.activity({ type: "step", tabId: "boss0001" });
+		await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.kind === "report" && stock.admissions.length > 0),
+		);
+		const again = await service.run(child, T.report, { kind: "done", text: "A finished", id: "r1" });
+		expect(again.text).toContain("already delivered");
+		expect(
+			stock.admissions.filter(
+				event => JSON.stringify(event.message).includes("A finished") && event.queue === "followUp",
+			),
+		).toHaveLength(1);
 	});
 
 	it("gives the same report the same id without one, so a re-run call is recognized", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		host.nativeInbox();
 		const service = control(host);
 		const opened = await service.run("boss0001", T.open, { message: "Do A" });
 		const child = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
 		await service.run(child, T.report, { kind: "done", text: "A finished" });
 		await service.run(child, T.report, { kind: "done", text: "A finished" });
-		expect(host.mails).toHaveLength(1);
+		const stock = host.stocks.get("boss0001")!;
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "report"));
+		const entry = request.entries.find(entry => entry.kind === "report");
+		expect(entry?.deliveryId).toBeTruthy();
+		expect(
+			stock.admissions.filter(
+				event => JSON.stringify(event.message).includes("A finished") && event.queue === "followUp",
+			),
+		).toHaveLength(1);
+		service.close();
+		(host.tabsById.get("boss0001") as FakeTab).runtimeInstance = "runtime:boss0001:relaunch";
+		host.attachStock(host.tabsById.get("boss0001")!);
 		const rerun = control(host);
-		await rerun.run(child, T.report, { kind: "done", text: "A finished" });
-		// A relaunched main delivers again; the receiver's bridge drops it by the same id (bridge-agent-mail.test.ts).
-		expect(host.mails.map(mail => mail.details.id)).toEqual([host.mails[0]?.details.id, host.mails[0]?.details.id]);
+		const replay = await rerun.run(child, T.report, { kind: "done", text: "A finished" });
+		expect(replay.text).toContain("already delivered");
+		const ledger = JSON.parse(readFileSync(join(host.inboxRoot!, "inbox.json"), "utf8"));
+		expect(
+			ledger.entries.filter(
+				(record: { key: { deliveryId: string } }) => record.key.deliveryId === entry?.deliveryId,
+			),
+		).toHaveLength(1);
 	});
 
-	it("after a relaunch reads the child's dispatch and the request ids back from its journal", async () => {
+	it("keeps a request's first dispatch across a relaunch and advances the next dispatch", async () => {
 		const host = new FakeHost(
 			{ tabId: "boss0001", title: "Boss" },
 			{
@@ -4685,7 +5004,7 @@ describe("mail across failures and relaunches", () => {
 					{
 						role: "user",
 						content: wrapAgentMessage(
-							'Do A\n\n[ompdesk dispatch d2: report with ompdesk_report, dispatch "d2"]\n[ompdesk request q7]',
+							'Do A\n\n[ompdesk dispatch d2: report with ompdesk_report, dispatch "d2"]',
 							"Boss",
 						),
 					} as AgentMessage,
@@ -4693,14 +5012,34 @@ describe("mail across failures and relaunches", () => {
 			},
 		);
 		host.parents.set("kid00002", "boss0001");
+		host.nativeInbox();
+		const before = control(host);
+		const args = { session: "kid00002", message: "x", request_id: "q7" };
+		const first = await before.run("boss0001", T.send, args);
+		expect(first.text).toContain("Dispatch d3");
+		const stock = host.stocks.get("kid00002")!;
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		const firstEntry = request.entries.find(entry => entry.kind === "prompt");
+		before.close();
+		const kid = host.tabsById.get("kid00002")!;
+		kid.runtimeInstance = "runtime:kid00002:relaunch";
+		host.attachStock(kid);
 		const relaunched = control(host);
 		const stale = await relaunched.run("kid00002", T.report, { kind: "done", text: "old", dispatch: "d1" });
 		expect(stale.text).toMatch(/Ignored: dispatch d1/);
-		const again = await relaunched.run("boss0001", T.send, { session: "kid00002", message: "x", request_id: "q7" });
-		expect(again.text).toMatch(/request q7 was already delivered/);
-		expect(prompts(host, "kid00002")).toEqual([]);
-		await relaunched.run("boss0001", T.send, { session: "kid00002", message: "next" });
-		expect(prompts(host, "kid00002")[0]).toContain("dispatch d3");
+		const again = await relaunched.run("boss0001", T.send, args);
+		expect(again.text).toMatch(/already delivered/);
+		expect(again.text).toContain("d3");
+		const conflict = await relaunched.run("boss0001", T.send, { ...args, message: "different" });
+		expect(conflict.isError).toBe(true);
+		const ledger = JSON.parse(readFileSync(join(host.inboxRoot!, "inbox.json"), "utf8"));
+		expect(
+			ledger.entries.filter(
+				(record: { key: { deliveryId: string } }) => record.key.deliveryId === firstEntry?.deliveryId,
+			),
+		).toHaveLength(1);
+		const next = await relaunched.run("boss0001", T.send, { session: "kid00002", message: "next" });
+		expect(next.text).toContain("Dispatch d4");
 	});
 });
 
@@ -4878,6 +5217,7 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 
 	it("joins two same-request sends arriving together into one delivery", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "kid00002" });
+		host.nativeInbox();
 		const service = control(host);
 		const args = { session: "kid00002", message: "go", request_id: "q1" };
 		const [one, two] = await Promise.all([
@@ -4885,7 +5225,9 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 			service.run("boss0001", T.send, args),
 		]);
 		expect([one.isError, two.isError]).toEqual([false, false]);
-		expect(prompts(host, "kid00002")).toHaveLength(1);
+		const stock = host.stocks.get("kid00002")!;
+		await stock.waitForRequest();
+		expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
 		expect([one.text, two.text].some(text => text.includes("nothing sent again"))).toBe(true);
 	});
 });
@@ -5101,11 +5443,14 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 			{ tabId: "else0003", title: "Other", sessionPath: "/s/else.jsonl" },
 		);
 		host.parents.set("kidnew02", "boss0001");
+		host.nativeInbox();
 		const service = control(host);
 		const sent = await service.run("boss0001", T.send, { session: "kidold02", message: "carry on" });
 		expect(sent.isError).toBe(false);
-		expect(prompts(host, "kidnew02")).toHaveLength(1);
-		expect(prompts(host, "else0003")).toHaveLength(0);
+		const stock = host.stocks.get("kidnew02")!;
+		await stock.waitForRequest();
+		expect(stock.admissions.filter(event => event.queue !== "aside")).toHaveLength(1);
+		expect(host.stocks.get("else0003")!.requests).toHaveLength(0);
 		expect((await service.run("boss0001", T.result, { session: "kidold02" })).text).toContain("[kidnew02]");
 		expect((await service.run("boss0001", T.send, { session: "kidold99", message: "x" })).text).toMatch(/No session/);
 	});
@@ -5125,6 +5470,7 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 			}),
 			storedRow({ id: "bbbb", path: "/s/named.jsonl", title: "Ship the release" }),
 		];
+		host.nativeInbox();
 		const service = control(host);
 		const listed = await service.run("boss0001", T.list, {});
 		expect(listed.text).toContain('"Fix the parser"');
@@ -5140,26 +5486,34 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 	it("steers a running session by default, and queues a follow-up only when asked", async () => {
 		// The owner's call (6 Nov 2026): an agent's instruction to a running session waited for that session's whole turn.
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		host.nativeInbox();
 		const service = control(host);
 		const opened = await service.run("boss0001", T.open, { message: "Title: part A\nDo A" });
 		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
-		const behavior = () => {
-			const last = host.sent.filter(entry => entry.tabId === kid && entry.command.type === "prompt").at(-1)?.command;
-			return last?.type === "prompt" ? last.streamingBehavior : undefined;
-		};
+		const stock = host.stocks.get(kid)!;
 		const now = await service.run("boss0001", T.send, { session: kid, message: "Stop at B" });
 		expect(now.text).toContain("delivered as steer (it reads it between steps)");
-		expect(behavior()).toBe("steer");
+		await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.content.toString().includes("Stop at B")),
+		);
+		expect(stock.asides).toEqual(
+			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Stop at B") })]),
+		);
 		const later = await service.run("boss0001", T.send, { session: kid, message: "Then C", delivery: "follow_up" });
 		expect(later.text).toContain("queued as a follow-up");
-		expect(behavior()).toBe("followUp");
+		await stock.waitForRequest(request => request.entries.some(entry => entry.content.toString().includes("Then C")));
+		expect(stock.followUps).toEqual(
+			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Then C") })]),
+		);
 	});
 
 	it("tells a busy child that reports of a follow-up queued for it, and steers the next one", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		host.nativeInbox();
 		const service = control(host);
 		const opened = await service.run("boss0001", T.open, { message: "Title: part A\nDo A" });
 		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+		const stock = host.stocks.get(kid)!;
 		// The child works (its first prompt made it busy); the opener queues more work behind its turn.
 		const queued = await service.run("boss0001", T.send, {
 			session: kid,
@@ -5167,6 +5521,9 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 			delivery: "follow_up",
 		});
 		expect(queued.text).toContain("queued as a follow-up");
+		await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.content.toString().includes("Also do C")),
+		);
 		// It reports done and would keep waiting in the same turn: the report must say a message waits for it.
 		const report = await service.run(kid, T.report, { kind: "done", text: "A done", dispatch: "d2" });
 		expect(report.text).toMatch(/d2/);
@@ -5175,25 +5532,25 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 		// A message sent after it reported in this turn reaches it between its steps.
 		const next = await service.run("boss0001", T.send, { session: kid, message: "And D" });
 		expect(next.text).toContain("steer");
-		const last = host.sent.filter(entry => entry.tabId === kid && entry.command.type === "prompt").at(-1)?.command;
-		expect(last?.type === "prompt" ? last.streamingBehavior : undefined).toBe("steer");
+		await stock.waitForRequest(request => request.entries.some(entry => entry.content.toString().includes("And D")));
+		expect(stock.asides).toEqual(
+			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("And D") })]),
+		);
 	});
 
 	it("says nothing about a follow-up the child already read", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		host.nativeInbox();
 		const service = control(host);
 		const opened = await service.run("boss0001", T.open, { message: "Do A" });
 		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+		const stock = host.stocks.get(kid)!;
 		await service.run("boss0001", T.send, { session: kid, message: "Also do C", delivery: "follow_up" });
-		const tab = host.tabsById.get(kid);
-		if (tab)
-			tab.messages = [
-				{
-					role: "user",
-					content: [{ type: "text", text: prompts(host, kid).at(-1) as string }],
-					timestamp: 1,
-				} as AgentMessage,
-			];
+		await stock.waitForRequest(request =>
+			request.entries.some(entry => entry.content.toString().includes("Also do C")),
+		);
+		stock.journalQueued();
+		await stock.observeProviderOutput([{ type: "text_delta", delta: "fixture output" }]);
 		const report = await service.run(kid, T.report, { kind: "done", text: "C done", dispatch: "d2" });
 		expect(report.text).toBe("Delivered.");
 	});
@@ -5476,6 +5833,7 @@ describe("situation matrix", () => {
 		const outcome = await shortWaits(() => {
 			const host = world();
 			cell.setup?.(host);
+			if (!cell.error && (cell.tool === T.send || cell.tool === T.report)) host.nativeInbox();
 			return control(host).run("boss0001", cell.tool, cell.args);
 		});
 		if (cell.error) {
@@ -5786,45 +6144,39 @@ describe("messages that outlive the omp they were handed to", () => {
 	});
 	/** What launches share: the file the send outbox keeps (`send-outbox.json`). */
 	const outboxFile = () => join(dir, "send-outbox.json");
-	const owed = (): unknown[] => {
-		try {
-			return JSON.parse(readFileSync(outboxFile(), "utf8")) as unknown[];
-		} catch {
-			return [];
-		}
-	};
-	/** What the child's journal holds of the markers asked about (its user messages, as the bridge reads them). */
-	const journaled = (host: FakeHost, tabId: string, marks: string[]): string[] =>
-		marks.filter(mark =>
-			(host.tabsById.get(tabId)?.messages ?? []).some(
-				message => message.role === "user" && JSON.stringify(message.content).includes(mark),
-			),
-		);
 
-	it("says a send whose command never answered is queued, and a resend of the same message runs it once", async () => {
-		// Stock `login` holds the omp's command queue while a provider sign-in waits: the prompt waits there and runs
-		// when the sign-in ends, after main gave up waiting for its answer.
+	it("keeps a send pending while stock admission is held and admits an exact retry once", async () => {
 		const host = new FakeHost(
 			{ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
 			{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl" },
 		);
 		host.parents.set("kid00002", "boss0001");
+		host.nativeInbox(dir);
 		host.files.sendOutbox = outboxFile();
-		host.sentMarks = async (tabId, marks) => ({ instance: "omp-a", journaled: journaled(host, tabId, marks) });
-		const inner = host.command;
-		host.command = async (tabId, command, timeoutMs) => {
-			if (command.type !== "prompt") return inner(tabId, command, timeoutMs);
-			host.sent.push({ tabId, command });
-			throw new RpcTimeoutError(30_000, "prompt");
+		const stock = host.stocks.get("kid00002")!;
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const prompt = stock.session.prompt;
+		stock.session.prompt = async (...args) => {
+			entered.resolve();
+			await release.promise;
+			return prompt(...args);
 		};
 		const service = control(host);
-		const first = await service.run("boss0001", T.send, { session: "kid00002", message: "Also do C" });
+		const args = { session: "kid00002", message: "Also do C", request_id: "held-q1" };
+		const first = await service.run("boss0001", T.send, args);
+		await entered.promise;
 		expect(first.isError, first.text).toBe(false);
-		expect(first.text).toContain("runs once that ends, so do not send it again");
-		const again = await service.run("boss0001", T.send, { session: "kid00002", message: "Also do C" });
+		expect(stock.admissions).toHaveLength(0);
+		const again = await service.run("boss0001", T.send, args);
 		expect(again.isError, again.text).toBe(false);
-		expect(again.text).toContain("already on its way");
-		expect(prompts(host, "kid00002")).toHaveLength(1);
+		release.resolve();
+		await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		expect(
+			stock.admissions.filter(
+				event => JSON.stringify(event.message).includes("Also do C") && event.queue === "followUp",
+			),
+		).toHaveLength(1);
 	});
 
 	it("hands a follow-up the child's old omp queued to its omp after a relaunch, once, ahead of the next message", async () => {
@@ -5833,15 +6185,22 @@ describe("messages that outlive the omp they were handed to", () => {
 			{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", busy: true },
 		);
 		before.parents.set("kid00002", "boss0001");
+		before.nativeInbox(dir);
 		before.files.sendOutbox = outboxFile();
-		before.sentMarks = async () => ({ instance: "omp-a", journaled: [] });
-		const queued = await control(before).run("boss0001", T.send, {
+		const firstService = control(before);
+		const queued = await firstService.run("boss0001", T.send, {
 			session: "kid00002",
 			message: "Also do C",
 			delivery: "follow_up",
 		});
 		expect(queued.text).toContain("queued as a follow-up");
 		expect(queued.text).toContain("Dispatch d1");
+		const oldStock = before.stocks.get("kid00002")!;
+		await oldStock.waitForRequest(request =>
+			request.entries.some(entry => entry.content.toString().includes("Also do C")),
+		);
+		firstService.close();
+		before.inboxNetwork?.close();
 
 		// OMPdesk relaunches: the old omp is gone with its queue; the child's session is back under a new id.
 		const after = new FakeHost(
@@ -5849,28 +6208,40 @@ describe("messages that outlive the omp they were handed to", () => {
 			{ tabId: "kid00009", title: "Kid", sessionPath: "/s/kid.jsonl", formerIds: ["kid00002"] },
 		);
 		after.parents.set("kid00009", "boss0009");
+		after.nativeInbox(dir);
 		after.files.sendOutbox = outboxFile();
-		after.sentMarks = async (tabId, marks) => ({ instance: "omp-b", journaled: journaled(after, tabId, marks) });
+		const newStock = after.stocks.get("kid00009")!;
 		const service = control(after);
 		await service.redeliverSends();
 		await service.redeliverSends();
-		expect(prompts(after, "kid00009")).toEqual([expect.stringContaining("Also do C")]);
-		expect(prompts(after, "kid00009")[0]).toContain("[ompdesk dispatch d1:");
+		const redelivered = await newStock.waitForRequest(request =>
+			request.entries.some(entry => entry.content.toString().includes("Also do C")),
+		);
+		expect(redelivered.entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ content: expect.stringContaining("[ompdesk dispatch d1:") }),
+			]),
+		);
 
 		// The opener's next message, by the id it had: numbered past the one still on its way, and after it.
 		const next = await service.run("boss0009", T.send, { session: "kid00002", message: "And D" });
 		expect(next.isError, next.text).toBe(false);
 		expect(next.text).toContain("Dispatch d2");
-		expect(prompts(after, "kid00009")).toHaveLength(2);
-
-		// Its turn took both: the journal holds them, and nothing is owed any more.
-		const child = after.tabsById.get("kid00009") as FakeTab;
-		child.messages = prompts(after, "kid00009").map(
-			text => ({ role: "user", content: [{ type: "text", text }], timestamp: 1 }) as AgentMessage,
+		await newStock.waitForRequest(request =>
+			request.entries.some(entry => entry.content.toString().includes("And D")),
 		);
+		expect(
+			newStock.admissions.filter(
+				event => JSON.stringify(event.message).includes("Also do C") && event.queue === "followUp",
+			),
+		).toHaveLength(1);
+		newStock.journalQueued();
 		await service.redeliverSends();
-		expect(owed()).toEqual([]);
-		expect(prompts(after, "kid00009")).toHaveLength(2);
+		expect(
+			newStock.admissions.filter(
+				event => JSON.stringify(event.message).includes("Also do C") && event.queue === "followUp",
+			),
+		).toHaveLength(1);
 	});
 });
 
@@ -6238,9 +6609,13 @@ describe("one id per session: a message names its sender and reaches the session
 			{ tabId: "main0001", title: "메인", sessionPath: file(MAIN) },
 			{ tabId: "ask00002", title: "문의", sessionPath: askFile },
 		);
+		host.nativeInbox();
 		await control(host).run("main0001", T.send, { session: "ask00002", message: "받았다" });
-		const [prompt = ""] = prompts(host, "ask00002");
+		const stock = host.stocks.get("ask00002")!;
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		const prompt = request.entries.find(entry => entry.kind === "prompt")?.content;
 		expect(prompt).toBe(wrapAgentMessage("받았다", "메인", MAIN));
+		if (typeof prompt !== "string") throw new Error("Expected text prompt");
 		const asked = host.tabsById.get("ask00002") as FakeTab;
 		asked.messages = [userText(prompt)];
 		expect((await control(host).run("main0001", T.read, { session: "ask00002" })).text).toContain(
@@ -6292,6 +6667,7 @@ describe("one id per session: a message names its sender and reaches the session
 			},
 		);
 		host.deviceList = [seuput];
+		host.nativeInbox();
 		// Main lists every tab afresh (host.ts `#controlTab`): a woken tab is a new row with what its omp says now.
 		host.start = tabId => {
 			const asleep = host.tabsById.get(tabId) as FakeTab;
@@ -6305,7 +6681,9 @@ describe("one id per session: a message names its sender and reaches the session
 			});
 		};
 		const result = await control(host).run("main0001", T.send, { session: ASK, message: "받았다" });
-		expect(prompts(host, "15ca089d159bfde0")).toHaveLength(1);
+		await host.stocks
+			.get("15ca089d159bfde0")!
+			.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
 		expect(result.text).toContain(`Sent to "문의" (saved id ${ASK}, on SeuPut): accepted`);
 		expect(result.text).toContain(`waiting for the user's answer: "판단에 필요한 사실"`);
 		expect(result.text).not.toContain("untitled");
@@ -6325,6 +6703,7 @@ describe("one id per session: a message names its sender and reaches the session
 				elsewhere: { work: "idle" },
 			}),
 		];
+		host.nativeInbox();
 		const result = await control(host).run("main0001", T.send, { session: ASK, message: "받았다" });
 		expect(host.spawned).toEqual([{ sessionPath: askFile, device: seuput.id, join: true }]);
 		expect(result.text).toContain(`Sent to "문의" (saved id ${ASK}, on `);
@@ -6336,13 +6715,14 @@ describe("one id per session: a message names its sender and reaches the session
 			{ tabId: "ask00002", title: "문의", sessionPath: askFile },
 		);
 		host.storedRows = [storedRow({ id: ASK, path: askFile, title: "문의", tabId: "ask00002" })];
+		host.nativeInbox();
 		const service = control(host);
 		await service.run("main0001", T.list, { scope: "stored" });
 		// A new session in that tab: the row's tab id now names another conversation.
 		(host.tabsById.get("ask00002") as FakeTab).sessionPath = file(OTHER);
 		host.storedRows = [storedRow({ id: ASK, path: askFile, title: "문의" })];
 		const result = await service.run("main0001", T.send, { session: ASK, message: "받았다" });
-		expect(prompts(host, "ask00002")).toEqual([]);
+		expect(host.stocks.get("ask00002")!.requests).toEqual([]);
 		expect(result.isError).toBe(true);
 		expect(result.text).toContain("not open in any tab");
 	});
@@ -6356,16 +6736,17 @@ describe("one id per session: a message names its sender and reaches the session
 		host.deviceList = [seuput];
 		const there = [summary({ sessionPath: askFile, sessionId: ASK, title: "문의", cwd: "/yuyu-mos" })];
 		host.summaries = device => (device === seuput.id ? there : host.localRows);
+		host.nativeInbox();
 		const service = control(host);
 		const both = await service.run("main0001", T.send, { session: "문의", message: "받았다" });
 		expect(both.isError).toBe(true);
 		expect(both.text).toContain(`old00002 "문의" (saved id ${OLD_ASK})`);
 		expect(both.text).toContain(`"문의" (saved id ${ASK}, open in a tab on SeuPut)`);
-		expect(prompts(host, "old00002")).toEqual([]);
+		expect(host.stocks.get("old00002")!.requests).toEqual([]);
 		// The older tab closed: the title names the paired computer's session alone, never a tab it only starts.
 		host.tabsById.delete("old00002");
 		const one = await service.run("main0001", T.send, { session: "문의", message: "받았다" });
-		expect(prompts(host, "help0003")).toEqual([]);
+		expect(host.stocks.get("help0003")!.requests).toEqual([]);
 		expect(one.text).not.toContain("문의응대");
 	});
 });
@@ -6383,10 +6764,6 @@ describe("a message to a running session the sender did not open is read between
 	const askFile = `/Users/seuput/.omp/agent/sessions/-Desktop-GitHub-yuyu-mos/2026-11-11T09-33-27-252Z_${ASK}.jsonl`;
 	const mainFile = `/Users/u/.omp/agent/sessions/-Volumes-BACKUP-github-ompdesk--/2026-11-10T08-57-43-862Z_${MAIN}.jsonl`;
 	const seuput: ControlDevice = { id: "seuput", name: "SeuPut", state: "online" };
-	const behaviors = (host: FakeHost, tabId: string) =>
-		host.sent.flatMap(entry =>
-			entry.tabId === tabId && entry.command.type === "prompt" ? [entry.command.streamingBehavior] : [],
-		);
 	const world = (asks: ControlAsk[]) => {
 		const host = new FakeHost(
 			{ tabId: "main0001", title: "메인", sessionPath: mainFile },
@@ -6402,6 +6779,7 @@ describe("a message to a running session the sender did not open is read between
 			},
 		);
 		host.deviceList = [seuput];
+		host.nativeInbox();
 		return host;
 	};
 	const answer = { session: ASK, message: "결과: 재현했고 고쳤다", delivery: "follow_up" };
@@ -6409,7 +6787,14 @@ describe("a message to a running session the sender did not open is read between
 	it("steers a follow-up asked for a session it did not open", async () => {
 		const host = world([]);
 		const result = await control(host).run("main0001", T.send, answer);
-		expect(behaviors(host, "15ca089d159bfde0")).toEqual(["steer"]);
+		const stock = host.stocks.get("15ca089d159bfde0")!;
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		expect(request.entries).toEqual(
+			expect.arrayContaining([expect.objectContaining({ kind: "prompt", intent: "immediate" })]),
+		);
+		expect(stock.asides).toEqual(
+			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining(answer.message) })]),
+		);
 		expect(result.text).toContain("delivered as steer");
 		expect(result.text).not.toContain("queued as a follow-up");
 	});
@@ -6417,7 +6802,14 @@ describe("a message to a running session the sender did not open is read between
 	it("keeps it a follow-up while that session shows the person a card, which a steer would close", async () => {
 		const host = world([select("판단에 필요한 사실", ["가", "나"])]);
 		const result = await control(host).run("main0001", T.send, answer);
-		expect(behaviors(host, "15ca089d159bfde0")).toEqual(["followUp"]);
+		const stock = host.stocks.get("15ca089d159bfde0")!;
+		const request = await stock.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
+		expect(request.entries).toEqual(
+			expect.arrayContaining([expect.objectContaining({ kind: "prompt", intent: "follow_up" })]),
+		);
+		expect(stock.followUps).toEqual(
+			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining(answer.message) })]),
+		);
 		expect(result.text).toContain(`waiting for the user's answer: "판단에 필요한 사실"`);
 	});
 });

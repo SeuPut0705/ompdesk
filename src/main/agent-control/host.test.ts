@@ -1,3 +1,4 @@
+import { mkdtempSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -30,14 +31,23 @@ import { core } from "../core/process";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
-import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
+import {
+	INBOX_METHODS,
+	InboxAcceptParams,
+	InboxStatusParams,
+	SchedulesCommandParams,
+	SchedulesCreateParams,
+} from "../remote/app-protocol";
 import { RpcClient } from "../rpc-client";
 import type { ScheduleService } from "../schedules";
 import { deleteSession, sessionDeleteInProgress } from "../session-mutations";
+import type { SidecarLink } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import { FileEditReports } from "../web/file-edit-reports";
-import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
+import { UploadStore } from "../web/uploads";
+import { type AgentControlHostDeps, AgentControlRuntime, type InboxSelection, splitBranch } from "./host";
 import { localInboxRuntimeInstance } from "./inbox-runtime-instance";
+import { NativeInboxStock, nativeInboxFiles } from "./native-inbox-test-rig";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 
@@ -69,14 +79,25 @@ function window(id = 1): ClientWindow & { sent: [string, unknown][] } {
 
 /** Every runtime a test made: its service in the core is closed after the test. */
 const runtimes: AgentControlRuntime[] = [];
-afterEach(() => {
+const nativeRoots: string[] = [];
+afterEach(async () => {
 	for (const runtime of runtimes.splice(0)) runtime.control.close();
+	await Promise.all(nativeRoots.splice(0).map(root => fs.rm(root, { recursive: true, force: true })));
 });
+
+function nativeRoot(): string {
+	const root = mkdtempSync(path.join(os.tmpdir(), "agent-native-host-"));
+	nativeRoots.push(root);
+	return root;
+}
 
 function setup(
 	options: {
+		deviceId?: string;
+		inboxRoutes?: AgentControlHostDeps["inboxRoutes"];
 		prefs?: Record<string, unknown>;
 		tabs?: Partial<IpcTabInfo>[];
+		busyTabs?: readonly string[];
 		/** Tabs of a second window. */
 		otherTabs?: Partial<IpcTabInfo>[];
 		requests?: IpcOpenExtensionRequest[];
@@ -92,6 +113,7 @@ function setup(
 		mailOutboxFile?: string;
 		/** `AgentControlHostDeps.sendOutboxFile`. */
 		sendOutboxFile?: string;
+		nativeRoot?: string;
 		/** `AgentControlHostDeps.sessionFatesFile`. */
 		sessionFatesFile?: string;
 		sessions?: AgentControlHostDeps["sessions"];
@@ -136,12 +158,45 @@ function setup(
 	const openers = vi.fn();
 	const spawned: IpcSpawnTabPayload[] = [];
 	const activity: ((event: { type: string; tabId: string }) => void)[] = [];
-	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
+	const nativeFiles = options.nativeRoot ? nativeInboxFiles(options.nativeRoot) : undefined;
+	const sidecars = new Map<
+		string,
+		Pick<SidecarLink, "cwd" | "device"> &
+			Partial<Pick<SidecarLink, "rpcClient" | "status" | "processAlive" | "bridgeRequest">>
+	>([["main0001", { cwd: "/repo" }]]);
+	const stocks = new Map<string, NativeInboxStock>();
+	const attachStock = (tabId: string, sessionPath: string) => {
+		const client = new RpcClient({
+			send: async () => {
+				throw new Error("Native Inbox delivery must use the bridge, not stock RPC");
+			},
+		});
+		const instance = localInboxRuntimeInstance(client);
+		if (!instance) throw new Error("Missing actual RpcClient incarnation");
+		const stock = new NativeInboxStock(sessionPath, instance);
+		stock.session.isStreaming = options.busyTabs?.includes(tabId) ?? tabId === "busy0002";
+		const sidecar: Pick<SidecarLink, "cwd" | "status" | "processAlive" | "rpcClient" | "bridgeRequest"> = {
+			cwd: "/repo",
+			status: "ready",
+			processAlive: true,
+			rpcClient: client,
+			bridgeRequest: stock.bridgeRequest.bind(stock),
+		};
+		sidecars.set(tabId, sidecar);
+		stocks.set(tabId, stock);
+		return stock;
+	};
 	const deps: AgentControlHostDeps = {
-		deviceId: "fixture-host",
+		deviceId: options.deviceId ?? "fixture-host",
+		inboxRoutes: options.inboxRoutes,
 		pool: {
 			tabsForWindow: target => (target === win2 ? otherTabs : target === webWin ? webTabs : tabs),
-			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),
+			tabFacts: tabId => ({
+				title: "",
+				busy: options.busyTabs?.includes(tabId) ?? tabId === "busy0002",
+				awaitingConnection: false,
+				retrying: false,
+			}),
 			pendingPlan: () => null,
 			observeTabs: observer => {
 				activity.push(observer as never);
@@ -213,9 +268,13 @@ function setup(
 		sweepMs: options.sweepMs,
 		runtimeTuning: options.runtimeTuning,
 		tuning: { ...SHORT_WAITS, ...options.tuning },
-		mailOutboxFile: options.mailOutboxFile,
-		sendOutboxFile: options.sendOutboxFile,
-		uploads: options.uploads,
+		mailOutboxFile: options.mailOutboxFile ?? nativeFiles?.mailOutbox ?? undefined,
+		sendOutboxFile: options.sendOutboxFile ?? nativeFiles?.sendOutbox ?? undefined,
+		attachmentsDir: nativeFiles?.attachments,
+		inboxFiles: nativeFiles?.inbox,
+		uploads:
+			options.uploads ??
+			(nativeFiles?.inbox ? new UploadStore({ userData: nativeFiles.inbox.uploadUserData }) : undefined),
 		sessionFatesFile: options.sessionFatesFile,
 		fileEdits,
 		releaseTab: async (target, tabId, stillReleasable) => {
@@ -230,6 +289,11 @@ function setup(
 			return true;
 		},
 	};
+	if (options.nativeRoot) {
+		for (const tab of [...tabs, ...otherTabs, ...webTabs]) {
+			if (tab.sessionPath && !tab.device) attachStock(tab.tabId, tab.sessionPath);
+		}
+	}
 	const runtime = new AgentControlRuntime(deps);
 	runtimes.push(runtime);
 	return {
@@ -250,6 +314,8 @@ function setup(
 		prefs,
 		openers,
 		sidecars,
+		stocks,
+		attachStock,
 	};
 }
 
@@ -929,9 +995,10 @@ describe("AgentControlRuntime", () => {
 	});
 
 	it("lists and steers another window's sessions through that window", async () => {
-		const { runtime, win, win2, commands } = setup({
-			tabs: [{ tabId: "main0001", title: "Boss" }],
-			otherTabs: [{ tabId: "far00002", title: "Far work" }],
+		const { runtime, win, win2, stocks, deps } = setup({
+			nativeRoot: nativeRoot(),
+			tabs: [{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" }],
+			otherTabs: [{ tabId: "far00002", title: "Far work", sessionPath: "/s/far.jsonl" }],
 		});
 		expect((await runtime.run(win, "main0001", T.list, {})).text).not.toContain("far00002");
 		expect((await runtime.run(win, "main0001", T.list, { scope: "app" })).text).toContain(
@@ -939,7 +1006,15 @@ describe("AgentControlRuntime", () => {
 		);
 		const sent = await runtime.run(win, "main0001", T.send, { session: "far00002", message: "hello" });
 		expect(sent.isError, sent.text).toBe(false);
-		expect(commands.find(entry => entry.command.type === "prompt")?.win).toBe(win2);
+		const stock = stocks.get("far00002");
+		if (!stock) throw new Error("Missing receiving stock fixture");
+		const request = await stock.waitForRequest();
+		expect(request.entries[0]).toMatchObject({
+			kind: "prompt",
+			intent: "immediate",
+			content: expect.stringContaining("hello"),
+		});
+		expect(deps.pool.windowOfTab("far00002")).toBe(win2);
 		await runtime.run(win, "main0001", T.focus, { session: "far00002" });
 		expect(win2.sent).toContainEqual([AGENT_CONTROL_VIEW, { tabId: "far00002", how: "focus" }]);
 	});
@@ -1121,9 +1196,65 @@ describe("AgentControlRuntime", () => {
 		 * the host, holding the file.
 		 */
 		function heldByDesktop() {
-			const request = vi.fn(async (_device: string, method: string) =>
-				method === "sessions.list" ? [row("/far", "s-main", { title: "메인", heldOnHost: true })] : null,
-			);
+			const route = {
+				peerDeviceId: "fixture-host",
+				connectionIncarnation: "test-connection-desktop",
+				rtab: "view0004",
+			};
+			const receiver = setup({
+				deviceId: "dev-1",
+				nativeRoot: nativeRoot(),
+				tabs: [{ tabId: "host0004", sessionPath: "/far/s-main.jsonl" }],
+				inboxRoutes: targets =>
+					targets.flatMap(target =>
+						target.tabId === "host0004" && target.sessionPath && target.runtimeInstance
+							? [
+									{
+										...route,
+										tabId: target.tabId,
+										sessionPath: target.sessionPath,
+										runtimeInstance: target.runtimeInstance,
+									},
+								]
+							: [],
+					),
+				remote: {
+					hosts: () => [{ deviceId: "fixture-host", name: "Source", state: "online" }],
+					request: async () => {
+						throw new Error("Unexpected reverse link request");
+					},
+				} as AgentControlHostDeps["remote"],
+			});
+			const execution = receiver.sidecars.get("host0004");
+			if (!execution?.rpcClient) throw new Error("Missing paired receiving RpcClient");
+			const capturedClient = execution.rpcClient;
+			const selection: InboxSelection = {
+				tabId: "host0004",
+				sessionPath: "/far/s-main.jsonl",
+				route,
+				assertCurrent: () => {
+					if (
+						receiver.deps.pool.sidecarOf("host0004") !== execution ||
+						execution.rpcClient !== capturedClient ||
+						receiver.tabs.find(tab => tab.tabId === "host0004")?.sessionPath !== "/far/s-main.jsonl"
+					)
+						throw new Error("Receiving connection changed");
+				},
+			};
+			const request = vi.fn(async (_device: string, method: string, params: unknown) => {
+				if (method === "sessions.list") return [row("/far", "s-main", { title: "메인", heldOnHost: true })];
+				if (method === INBOX_METHODS.status) {
+					const parsed = InboxStatusParams.parse(params);
+					expect(parsed).toEqual({ rtab: route.rtab, sessionPath: selection.sessionPath });
+					return receiver.runtime.hostedInboxStatus(selection);
+				}
+				if (method === INBOX_METHODS.accept) {
+					const parsed = InboxAcceptParams.parse(params);
+					expect(parsed.rtab).toBe(route.rtab);
+					return receiver.runtime.acceptHostedInbox(selection, parsed.transfer, route.peerDeviceId);
+				}
+				throw new Error(`Unsupported paired fixture request: ${method}`);
+			});
 			const live = summariesOf([
 				{
 					sessionPath: "/far/s-main.jsonl",
@@ -1134,6 +1265,8 @@ describe("AgentControlRuntime", () => {
 				},
 			]);
 			const world = setup({
+				nativeRoot: nativeRoot(),
+				tabs: [{ tabId: "main0001", sessionPath: "/s/boss.jsonl" }],
 				remote: {
 					hosts: () => [{ deviceId: "dev-1", name: "Mac mini", state: "online" }],
 					request: request as never,
@@ -1152,9 +1285,10 @@ describe("AgentControlRuntime", () => {
 					...(payload.sessionPath ? { sessionPath: payload.sessionPath } : {}),
 					...(payload.device ? { device: payload.device } : {}),
 				});
+				world.sidecars.set("view0004", { cwd: "/far", device: "dev-1", status: "ready", processAlive: true });
 				return { tabId: "view0004", attached: true };
 			};
-			return world;
+			return { ...world, receiverStock: receiver.stocks.get("host0004") };
 		}
 
 		it("lists a paired computer's session another device's tab holds as open there, naming that device", async () => {
@@ -1166,11 +1300,13 @@ describe("AgentControlRuntime", () => {
 		});
 
 		it("carries a file to the receiver: it lands in this computer's upload folder and the prompt names its path", async () => {
-			const store = vi.fn(async (_device: string, name: string) => ({ path: `/uploads/${name}` }));
-			const { runtime, win, commands } = setup({
-				tabs: [{ tabId: "main0001" }, { tabId: "recv0002", sessionPath: "/s/recv.jsonl" }],
+			const { runtime, win, stocks } = setup({
+				nativeRoot: nativeRoot(),
+				tabs: [
+					{ tabId: "main0001", sessionPath: "/s/boss.jsonl" },
+					{ tabId: "recv0002", sessionPath: "/s/recv.jsonl" },
+				],
 				reads: { "/repo/notes.pdf": { name: "notes.pdf", mimeType: "application/pdf", dataBase64: "JVBERi0=" } },
-				uploads: { store } as never,
 			});
 			const sent = await runtime.run(win, "main0001", T.send, {
 				session: "recv0002",
@@ -1178,11 +1314,16 @@ describe("AgentControlRuntime", () => {
 				attachments: [{ path: "/repo/notes.pdf" }],
 			});
 			expect(sent.isError, sent.text).toBe(false);
-			expect(sent.text).toContain("attached: 1 (1 file at /uploads/notes.pdf)");
-			expect(store).toHaveBeenCalledTimes(1);
-			const prompt = commands.find(entry => entry.command.type === "prompt");
-			expect(prompt?.tabId).toBe("recv0002");
-			expect(JSON.stringify(prompt?.command)).toContain("Attached: /uploads/notes.pdf");
+			const stock = stocks.get("recv0002");
+			if (!stock) throw new Error("Missing receiving stock fixture");
+			const request = await stock.waitForRequest();
+			const entry = request.entries[0];
+			expect(entry).toMatchObject({ kind: "prompt", content: expect.stringContaining("read this") });
+			if (!entry || typeof entry.content !== "string") throw new Error("Missing file prompt");
+			const file = /Attached: ([^\n]+)/.exec(entry.content)?.[1];
+			if (!file) throw new Error("Missing actual receiving attachment path");
+			expect(await fs.readFile(file, "utf8")).toBe("%PDF-");
+			expect(sent.text).toContain("1 file");
 		});
 
 		it("refuses the whole send when an attachment cannot be read, and puts nothing on the receiver", async () => {
@@ -1203,16 +1344,20 @@ describe("AgentControlRuntime", () => {
 		});
 
 		it("sends to that session through a view of the tab that holds it, never nesting it under the caller", async () => {
-			const { runtime, win, spawned, commands, openers } = heldByDesktop();
+			const { runtime, win, spawned, receiverStock, openers } = heldByDesktop();
 			const sent = await runtime.run(win, "main0001", T.send, {
 				session: "s-main",
 				message: "clean up the child sessions",
 			});
 			expect(sent.isError, sent.text).toBe(false);
 			expect(spawned).toEqual([{ sessionPath: "/far/s-main.jsonl", device: "dev-1" }]);
-			const prompt = commands.find(entry => entry.command.type === "prompt");
-			expect(prompt?.tabId).toBe("view0004");
-			expect(JSON.stringify(prompt?.command)).toContain("clean up the child sessions");
+			if (!receiverStock) throw new Error("Missing paired receiving execution");
+			const delivered = await receiverStock.waitForRequest();
+			expect(delivered.entries[0]).toMatchObject({
+				kind: "prompt",
+				intent: "immediate",
+				content: expect.stringContaining("clean up the child sessions"),
+			});
 			expect(openers).not.toHaveBeenCalled();
 			const mine = (await runtime.run(win, "main0001", T.list, { scope: "app", mine: true })).text;
 			expect(mine).toMatch(/^0 sessions/);
@@ -1233,7 +1378,9 @@ describe("AgentControlRuntime", () => {
 		});
 
 		it("sends to this computer's session a tab it runs for a paired device holds, through a window's view of it", async () => {
-			const { runtime, win, deps, spawned, commands, openers, tabs } = setup({
+			const { runtime, win, deps, spawned, stocks, attachStock, openers, tabs } = setup({
+				nativeRoot: nativeRoot(),
+				tabs: [{ tabId: "main0001", sessionPath: "/s/boss.jsonl" }],
 				sessions: {
 					list: async () => [row("/s", "hosted") as never],
 					search: async () => [],
@@ -1245,12 +1392,18 @@ describe("AgentControlRuntime", () => {
 			deps.spawnTab = async (_win, payload) => {
 				spawned.push(payload);
 				tabs.push({ tabId: "view0005", cwd: "/s", status: "ready", kind: "agent", sessionPath: "/s/hosted.jsonl" });
+				attachStock("view0005", "/s/hosted.jsonl");
 				return { tabId: "view0005", attached: true };
 			};
 			const sent = await runtime.run(win, "main0001", T.send, { session: "hosted", message: "hello" });
 			expect(sent.isError, sent.text).toBe(false);
 			expect(spawned).toEqual([{ sessionPath: "/s/hosted.jsonl" }]);
-			expect(commands.find(entry => entry.command.type === "prompt")?.tabId).toBe("view0005");
+			const stock = stocks.get("view0005");
+			if (!stock) throw new Error("Missing hosted receiving fixture");
+			expect((await stock.waitForRequest()).entries[0]).toMatchObject({
+				kind: "prompt",
+				content: expect.stringContaining("hello"),
+			});
 			expect(openers).not.toHaveBeenCalled();
 		});
 	});
@@ -1613,200 +1766,170 @@ describe("AgentControlRuntime", () => {
 			title: "Which wording appeared?",
 			options: ["omp is unavailable", "Other (type your own)"],
 		};
-		const { activity, commands, sidecars } = setup({
+		const { activity, stocks, sidecars } = setup({
+			nativeRoot: nativeRoot(),
 			tabs: [
 				{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
-				{ tabId: "remo0004", title: "Remote", device: "dev-1", openedBy: "main0001" },
+				{
+					tabId: "remo0004",
+					title: "Remote",
+					device: "dev-1",
+					sessionPath: "/h/child.jsonl",
+					openedBy: "main0001",
+				},
 			],
 			requests: [{ tabId: "remo0004", request }],
 		});
 		sidecars.set("remo0004", { cwd: "C:\\work", device: "dev-1" });
 		for (const observer of activity) observer({ type: "ask", tabId: "remo0004", requestId: "q1" } as never);
-		await vi.waitFor(() => expect(commands.some(entry => entry.command.type === "agent_control_mail")).toBe(true), {
-			timeout: 5_000,
-		});
-		const mail = commands.find(entry => entry.command.type === "agent_control_mail");
-		expect(mail?.tabId).toBe("main0001");
-		expect(mail?.command).toMatchObject({
+		const stock = stocks.get("main0001");
+		if (!stock) throw new Error("Missing receiving opener");
+		const mail = await stock.waitForRequest();
+		expect(mail.entries[0]).toMatchObject({
+			kind: "report",
 			triggerTurn: true,
-			deliverAs: "aside",
-			details: { kind: "question", from: "remo0004" },
+			intent: "immediate",
+			details: { kind: "question" },
+		});
+		expect(stock.asides).toHaveLength(1);
+	});
+
+	it("replays a disk-kept done report to the parent's replacement execution without claiming provider consumption", async () => {
+		const root = nativeRoot();
+		const before = setup({
+			nativeRoot: root,
+			busyTabs: ["main0001"],
+			tabs: [
+				{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+				{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
+			],
+			sweepMs: 50,
+		});
+		const parent = before.stocks.get("main0001");
+		if (!parent) throw new Error("Missing receiving parent");
+		const reported = await before.runtime.run(before.win, "kid00002", T.report, {
+			kind: "done",
+			text: "All checks pass",
+		});
+		expect(reported.isError, reported.text).toBe(false);
+		const original = await parent.waitForRequest();
+		expect(parent.asides).toHaveLength(1);
+		expect((await parent.status()).receipts).toEqual([]);
+		before.runtime.control.close();
+
+		const after = setup({
+			nativeRoot: root,
+			busyTabs: ["main0009"],
+			tabs: [{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" }],
+			sweepMs: 50,
+		});
+		await after.runtime.run(after.win, "main0009", T.list, {});
+		const replacement = after.stocks.get("main0009");
+		if (!replacement) throw new Error("Missing replacement parent");
+		const replay = await replacement.waitForRequest();
+		expect(replay.entries).toEqual(original.entries);
+		expect(replay.receiver.instance).not.toBe(original.receiver.instance);
+		expect(replacement.asides).toHaveLength(1);
+		await replacement.accept(replay);
+		expect(replacement.asides).toHaveLength(1);
+		replacement.journalQueued();
+		await replacement.accept(replay);
+		expect(replacement.branch).toHaveLength(1);
+		expect((await replacement.status()).receipts).toEqual([]);
+		expect(JSON.parse(await fs.readFile(path.join(root, "inbox.json"), "utf8"))).toMatchObject({
+			entries: [expect.objectContaining({ state: "pending" })],
 		});
 	});
 
-	it("sends a done report a busy parent accepted again to the omp that replaces it, until that omp's journal holds it", async () => {
-		// Stock queues an aside in memory and journals it at the next step boundary; a killed omp drops the queue. Each
-		// fake omp below does the same: a report is queued until the test journals it.
-		const omps = new Map<string, { journal: Set<string>; queued: Set<string> }>();
-		const received: string[] = [];
-		const asks: string[] = [];
-		const attach = (deps: AgentControlHostDeps) => {
-			const inner = deps.dispatch;
-			deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) => {
-				if (command.type !== "agent_control_mail") return inner(target, sidecar, tabId, command, timeoutMs);
-				asks.push(tabId);
-				const omp = omps.get(tabId) ?? { journal: new Set<string>(), queued: new Set<string>() };
-				omps.set(tabId, omp);
-				const id = String(command.details.id);
-				if (omp.journal.has(id)) return ok({ duplicate: true, journaled: true });
-				if (omp.queued.has(id)) return ok({ duplicate: true, journaled: false });
-				omp.queued.add(id);
-				received.push(tabId);
-				return ok();
-			};
-		};
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-mail-outbox-"));
-		try {
-			const file = path.join(dir, "mail-outbox.json");
-			const before = setup({
-				tabs: [
-					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
-					{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
-				],
-				sweepMs: 50,
-				mailOutboxFile: file,
-			});
-			attach(before.deps);
-			const reported = await before.runtime.run(before.win, "kid00002", T.report, {
-				kind: "done",
-				text: "All checks pass",
-			});
-			expect(reported.isError, reported.text).toBe(false);
-			expect(received).toEqual(["main0001"]);
+	it("replays a disk-kept follow-up to the child's replacement execution with the same dispatch", async () => {
+		const root = nativeRoot();
+		const before = setup({
+			nativeRoot: root,
+			tabs: [
+				{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+				{ tabId: "busy0002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
+			],
+			sweepMs: 50,
+		});
+		const child = before.stocks.get("busy0002");
+		if (!child) throw new Error("Missing receiving child");
+		const sent = await before.runtime.run(before.win, "main0001", T.send, {
+			session: "busy0002",
+			message: "Also do C",
+			delivery: "follow_up",
+		});
+		expect(sent.isError, sent.text).toBe(false);
+		const original = await child.waitForRequest();
+		expect(original.entries[0]).toMatchObject({
+			kind: "prompt",
+			intent: "follow_up",
+			content: expect.stringContaining("[ompdesk dispatch d1:"),
+		});
+		expect(child.followUps).toHaveLength(1);
+		before.runtime.control.close();
 
-			// The parent's omp is killed mid-turn and the app relaunches (its service goes with it): its session comes
-			// back in a tab with a new id.
-			before.runtime.control.close();
-			const after = setup({
-				tabs: [{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" }],
-				sweepMs: 50,
-				mailOutboxFile: file,
-			});
-			after.deps.pool.sessionOwner = sessionPath =>
-				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0009" } as never) : null;
-			attach(after.deps);
-			await expect.poll(() => received, { timeout: 5_000 }).toEqual(["main0001", "main0009"]);
-
-			// Queued in the new omp: asked again, never sent a second time.
-			await sleep(400);
-			expect(received).toEqual(["main0001", "main0009"]);
-
-			// Its next step journaled the report: one more look settles it, then nothing is sent.
-			const omp = omps.get("main0009");
-			for (const id of omp?.queued ?? []) omp?.journal.add(id);
-			await sleep(300);
-			const asked = asks.length;
-			await sleep(500);
-			expect(asks.length).toBe(asked);
-			expect(received).toEqual(["main0001", "main0009"]);
-		} finally {
-			await fs.rm(dir, { recursive: true, force: true });
-		}
+		const after = setup({
+			nativeRoot: root,
+			busyTabs: ["kid00009"],
+			tabs: [
+				{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" },
+				{ tabId: "kid00009", title: "Kid", sessionPath: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" },
+			],
+			sweepMs: 50,
+		});
+		await after.runtime.run(after.win, "main0009", T.list, {});
+		const replacement = after.stocks.get("kid00009");
+		if (!replacement) throw new Error("Missing replacement child");
+		const replay = await replacement.waitForRequest();
+		expect(replay.entries).toEqual(original.entries);
+		expect(replacement.followUps).toHaveLength(1);
+		await replacement.accept(replay);
+		expect(replacement.followUps).toHaveLength(1);
+		replacement.journalQueued();
+		await replacement.accept(replay);
+		expect(replacement.branch).toHaveLength(1);
+		expect((await replacement.status()).receipts).toEqual([]);
 	});
 
-	it("hands a follow-up a busy child's omp queued to the omp that holds its session after a relaunch, once", async () => {
-		// One fake omp per tab: a prompt into a running turn waits in its memory, as stock's follow-up queue does, and
-		// only what a turn took is in its journal.
-		const journals = new Map<string, string[]>();
-		const prompted: { tabId: string; message: string }[] = [];
-		const attach = (deps: AgentControlHostDeps) => {
-			const inner = deps.dispatch;
-			deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) => {
-				if (command.type === "agent_control_sent")
-					return ok({
-						instance: `omp-${tabId}`,
-						journaled: command.marks.filter(mark =>
-							(journals.get(tabId) ?? []).some(text => text.includes(mark)),
-						),
-					});
-				if (command.type === "prompt") prompted.push({ tabId, message: command.message });
-				return inner(target, sidecar, tabId, command, timeoutMs);
-			};
+	it("keeps native custody when the receiving bridge refuses, then delivers when that execution answers", async () => {
+		const root = nativeRoot();
+		const world = setup({
+			nativeRoot: root,
+			tabs: [
+				{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+				{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
+			],
+			sweepMs: 50,
+		});
+		const stock = world.stocks.get("main0001");
+		const sidecar = world.sidecars.get("main0001");
+		if (!stock || !sidecar?.bridgeRequest) throw new Error("Missing receiving execution");
+		const refused = Promise.withResolvers<void>();
+		const bridge = sidecar.bridgeRequest;
+		let ready = false;
+		sidecar.bridgeRequest = async (method, params, timeoutMs) => {
+			if (method === "agent_control.inbox" && !ready) {
+				refused.resolve();
+				throw new Error("That omp is starting.");
+			}
+			return bridge(method, params, timeoutMs);
 		};
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-send-outbox-"));
-		try {
-			const file = path.join(dir, "send-outbox.json");
-			const before = setup({
-				tabs: [
-					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
-					{ tabId: "busy0002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
-				],
-				sweepMs: 50,
-				sendOutboxFile: file,
-			});
-			attach(before.deps);
-			const sent = await before.runtime.run(before.win, "main0001", T.send, {
-				session: "busy0002",
-				message: "Also do C",
-				delivery: "follow_up",
-			});
-			expect(sent.text).toContain("queued as a follow-up");
-			expect(prompted.map(entry => entry.tabId)).toEqual(["busy0002"]);
-
-			// OMPdesk relaunches (an update): that omp ends with its queue; the child's session is back in a new tab.
-			before.runtime.control.close();
-			const after = setup({
-				tabs: [
-					{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" },
-					{ tabId: "kid00009", title: "Kid", sessionPath: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" },
-				],
-				sweepMs: 50,
-				sendOutboxFile: file,
-				owners: { "/s/kid.jsonl": "kid00009" },
-			});
-			attach(after.deps);
-			after.deps.pool.sidecarOf = () => ({ cwd: "/repo", status: "ready" }) as never;
-			await expect
-				.poll(() => prompted.map(entry => entry.tabId), { timeout: 5_000 })
-				.toEqual(["busy0002", "kid00009"]);
-			expect(prompted[1]?.message).toBe(prompted[0]?.message);
-			expect(prompted[1]?.message).toContain("[ompdesk dispatch d1:");
-
-			// That omp holds it now: asked again, never handed a second time.
-			await sleep(400);
-			expect(prompted).toHaveLength(2);
-
-			// Its turn took it: the next look finds it in the journal, and it is owed no more.
-			journals.set("kid00009", [prompted[1]?.message ?? ""]);
-			await expect.poll(async () => JSON.parse(await fs.readFile(file, "utf8")), { timeout: 5_000 }).toEqual([]);
-			expect(prompted).toHaveLength(2);
-		} finally {
-			await fs.rm(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("keeps a report its opener's omp could not take yet, and hands it over once that omp answers", async () => {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-mail-ahead-"));
-		try {
-			let up = false;
-			const received: string[] = [];
-			const { runtime, win, deps } = setup({
-				tabs: [
-					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
-					{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
-				],
-				sweepMs: 50,
-				mailOutboxFile: path.join(dir, "mail-outbox.json"),
-				owners: { "/s/boss.jsonl": "main0001" },
-			});
-			const inner = deps.dispatch;
-			deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) => {
-				if (command.type !== "agent_control_mail") return inner(target, sidecar, tabId, command, timeoutMs);
-				// The opener's omp is starting again (a relaunch, a restart): it cannot take a report yet.
-				if (!up) return { type: "response", success: false, error: "That omp is starting." } as RpcResponse;
-				received.push(tabId);
-				return ok();
-			};
-			await runtime.run(win, "kid00002", T.report, { kind: "done", text: "All checks pass" });
-			expect(received).toEqual([]);
-			up = true;
-			// The next sweep tick hands it over, and every tick after it again until the opener's journal holds it (this
-			// fake's answer never says so): the poll may first look after the second.
-			await expect.poll(() => received, { timeout: 5_000 }).toContain("main0001");
-			expect(new Set(received)).toEqual(new Set(["main0001"]));
-		} finally {
-			await fs.rm(dir, { recursive: true, force: true });
-		}
+		const report = await world.runtime.run(world.win, "kid00002", T.report, {
+			kind: "done",
+			text: "All checks pass",
+		});
+		expect(report.isError, report.text).toBe(false);
+		await refused.promise;
+		expect(stock.requests).toEqual([]);
+		expect(JSON.parse(await fs.readFile(path.join(root, "inbox.json"), "utf8"))).toMatchObject({
+			entries: [expect.objectContaining({ state: "pending" })],
+		});
+		ready = true;
+		expect((await stock.waitForRequest()).entries[0]).toMatchObject({
+			kind: "report",
+			content: expect.stringContaining("All checks pass"),
+		});
+		expect(stock.asides).toHaveLength(1);
 	});
 });
 
@@ -2030,11 +2153,20 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 	});
 
 	it("hears a report from a session it opened on its event stream, never as mail into a tab", async () => {
-		const { backend, runtime, tabs, commands, win } = outsideSetup();
+		const { backend, runtime, tabs, commands, win, attachStock } = outsideSetup({
+			nativeRoot: nativeRoot(),
+		});
 		const heard: { to: string; text: string }[] = [];
 		backend.onOutsideMail((to, text) => heard.push({ to, text }));
 		await backend.run(outside, T.open, { message: "Fix it" });
-		tabs.push({ tabId: "new00003", cwd: "/home/me/project", status: "ready", kind: "agent" });
+		tabs.push({
+			tabId: "new00003",
+			cwd: "/home/me/project",
+			status: "ready",
+			kind: "agent",
+			sessionPath: "/s/child.jsonl",
+		});
+		attachStock("new00003", "/s/child.jsonl");
 		const outcome = await runtime.run(win, "new00003", T.report, { kind: "done", text: "All green" });
 		expect(outcome.isError).toBe(false);
 		expect(heard).toEqual([{ to: "outside:cli#1", text: expect.stringContaining("All green") }]);
