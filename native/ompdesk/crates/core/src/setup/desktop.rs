@@ -110,13 +110,11 @@ pub async fn detect_agent_desktop(
         version: Some(version),
         ..
     } = &managed
-    {
-        if bundled
+        && bundled
             .as_ref()
             .is_none_or(|(_, bundled)| !newer(bundled, version))
-        {
-            return managed;
-        }
+    {
+        return managed;
     }
     match bundled {
         Some((path, version)) => Presence::Present {
