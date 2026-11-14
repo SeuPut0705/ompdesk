@@ -6,15 +6,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Semaphore;
 
 type Listener = Arc<dyn Fn(String, Value) + Send + Sync>;
-struct Target {
-    state: Mutex<Snapshot>,
+pub(crate) struct Target {
+    pub(crate) state: Mutex<Snapshot>,
     listeners: Mutex<Vec<Listener>>,
     answers: Mutex<HashSet<String>>,
 }
 #[derive(Clone)]
-struct Caller(String);
-struct Effects {
-    targets: Mutex<HashMap<String, Arc<Target>>>,
+pub(crate) struct Caller(pub(crate) String);
+pub(crate) struct Effects {
+    pub(crate) targets: Mutex<HashMap<String, Arc<Target>>>,
     calls: AtomicUsize,
     opens: AtomicUsize,
     closed: AtomicUsize,
@@ -291,7 +291,7 @@ impl QuotaStore for Records {
         Ok(true)
     }
 }
-fn service() -> (Arc<HostServices<Effects>>, Arc<Effects>, Arc<PeerQuota>) {
+pub(crate) fn service() -> (Arc<HostServices<Effects>>, Arc<Effects>, Arc<PeerQuota>) {
     let effects = Effects::new();
     let records = Arc::new(Records::default());
     lock(&records.0).insert("peer".into(), QuotaRecord::default());
