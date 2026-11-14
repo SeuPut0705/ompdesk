@@ -31,6 +31,8 @@ use crate::fs::disk;
 use crate::fs::error::Codes;
 use crate::git::read::blocking;
 use crate::git::run::Git;
+use crate::machine::{CommandShell, ShellContext};
+
 use crate::run::Opts;
 use crate::server::{Fault, Scope};
 
@@ -327,13 +329,13 @@ pub struct Shell {
 }
 
 impl Shell {
-    /// `bash` and `supervisor` are resolved by the native Machine service, not by a page request.
-    pub fn command(
-        command: String,
-        env: BTreeMap<String, String>,
-        bash: &std::path::Path,
-        supervisor: &std::path::Path,
-    ) -> Result<Self, Fault> {
+    /// Machine selects the executable and inherited/login environment; this boundary only applies its command syntax.
+    pub fn command(command: String, context: ShellContext) -> Result<Self, Fault> {
+        let ShellContext {
+            env,
+            shell,
+            supervisor,
+        } = context;
         let path = |path: &std::path::Path| {
             path.to_str().map(str::to_owned).ok_or_else(|| {
                 Fault::new(
@@ -342,11 +344,21 @@ impl Shell {
                 )
             })
         };
+        let (file, args) = match shell {
+            CommandShell::Bash(file) => (
+                file,
+                vec!["-o".into(), "pipefail".into(), "-c".into(), command],
+            ),
+            CommandShell::WindowsCmd(file) => {
+                (file, vec!["/d".into(), "/s".into(), "/c".into(), command])
+            }
+            CommandShell::PosixSh(file) => (file, vec!["-c".into(), command]),
+        };
         Ok(Self {
             env,
-            file: path(bash)?,
-            args: vec!["-o".into(), "pipefail".into(), "-c".into(), command],
-            supervisor: path(supervisor)?,
+            file: path(&file)?,
+            args,
+            supervisor: path(&supervisor)?,
         })
     }
 }
@@ -669,9 +681,11 @@ mod tests {
     async fn a_native_shell_keeps_machine_exports_and_does_not_hide_a_failed_pipe() {
         let shell = Shell::command(
             "printf '%s' \"$AUTOPILOT_TEST_EXPORT\"; false | /usr/bin/true".into(),
-            BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-login-shell".into())]),
-            std::path::Path::new("/bin/bash"),
-            std::path::Path::new("/unused-supervisor"),
+            ShellContext {
+                env: BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-login-shell".into())]),
+                shell: CommandShell::Bash("/bin/bash".into()),
+                supervisor: "/unused-supervisor".into(),
+            },
         )
         .unwrap();
         let output = Command::new(&shell.file)
@@ -690,12 +704,28 @@ mod tests {
     async fn a_posix_fallback_runs_without_bash_only_options() {
         let shell = Shell::command(
             "printf '%s' \"$AUTOPILOT_TEST_EXPORT\"; exit 7".into(),
-            BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-posix-shell".into())]),
-            std::path::Path::new("/bin/sh"),
-            std::path::Path::new("/unused-supervisor"),
-        ).unwrap();
-        let output = Command::new(&shell.file).args(&shell.args).env_clear().envs(&shell.env).output().await.unwrap();
-        assert_eq!(output.stdout, b"from-posix-shell", "{}", String::from_utf8_lossy(&output.stderr));
+            ShellContext {
+                env: BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-posix-shell".into())]),
+                shell: CommandShell::PosixSh("/bin/sh".into()),
+                supervisor: "/unused-supervisor".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(shell.args[0], "-c");
+        assert_eq!(shell.args.len(), 2);
+        let output = Command::new(&shell.file)
+            .args(&shell.args)
+            .env_clear()
+            .envs(&shell.env)
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(
+            output.stdout,
+            b"from-posix-shell",
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(output.status.code(), Some(7));
     }
 
@@ -704,16 +734,27 @@ mod tests {
         let command = "echo %AUTOPILOT_TEST_EXPORT% & exit /b 7";
         let shell = Shell::command(
             command.into(),
-            BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-comspec".into())]),
-            std::path::Path::new(r"C:\Windows\System32\cmd.exe"),
-            std::path::Path::new("/unused-supervisor"),
-        ).unwrap();
+            ShellContext {
+                env: BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-comspec".into())]),
+                shell: CommandShell::WindowsCmd(r"C:\Windows\System32\cmd.exe".into()),
+                supervisor: "/unused-supervisor".into(),
+            },
+        )
+        .unwrap();
         assert_eq!(shell.args, ["/d", "/s", "/c", command]);
         assert_eq!(shell.file, r"C:\Windows\System32\cmd.exe");
         #[cfg(windows)]
         {
-            let output = std::process::Command::new(&shell.file).args(&shell.args).env_clear().envs(&shell.env).output().unwrap();
-            assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "from-comspec");
+            let output = std::process::Command::new(&shell.file)
+                .args(&shell.args)
+                .env_clear()
+                .envs(&shell.env)
+                .output()
+                .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout).trim(),
+                "from-comspec"
+            );
             assert_eq!(output.status.code(), Some(7));
         }
     }
