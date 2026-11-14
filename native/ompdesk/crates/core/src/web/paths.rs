@@ -247,7 +247,16 @@ fn extension(path: &Path) -> Option<&'static str> {
     if dot == 0 || name == ".." {
         return None;
     }
-    Some(match name[dot + 1..].to_ascii_lowercase().as_str() {
+    let suffix = &name.as_bytes()[dot + 1..];
+    // The longest recognized suffix is "sqlite3"; no longer suffix can match this table.
+    let mut folded = [0u8; 7];
+    if suffix.len() > folded.len() {
+        return None;
+    }
+    for (out, byte) in folded.iter_mut().zip(suffix) {
+        *out = byte.to_ascii_lowercase();
+    }
+    Some(match std::str::from_utf8(&folded[..suffix.len()]).ok()? {
         "pdf" => "application/pdf",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
@@ -328,6 +337,25 @@ mod tests {
             Some(root.parent().unwrap().into())
         );
     }
+    #[cfg(windows)]
+    #[test]
+    fn windows_drive_relative_rooted_and_unc_paths_keep_node_confinement() {
+        let root = Path::new(r"C:\workspace");
+        assert_eq!(
+            resolve_within(root, Path::new(r"C:child")),
+            Some(PathBuf::from(r"C:\workspace\child"))
+        );
+        assert_eq!(
+            resolve_within(root, Path::new(r"\workspace\child")),
+            Some(PathBuf::from(r"C:\workspace\child"))
+        );
+        assert!(resolve_within(root, Path::new(r"D:child")).is_none());
+        assert!(resolve_within(root, Path::new(r"\outside")).is_none());
+        assert!(
+            resolve_within(Path::new(r"\\host\share\workspace"), Path::new(r"..\other")).is_none()
+        );
+    }
+
     #[test]
     fn magic_wins_except_the_original_container_refinements() {
         assert_eq!(

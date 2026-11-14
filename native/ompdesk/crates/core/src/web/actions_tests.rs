@@ -144,3 +144,26 @@ fn blob_read_refuses_missing_directory_and_oversized_file_before_loading_it() {
         .unwrap();
     assert_eq!(blob_file(&huge).unwrap_err().code, "file_too_large");
 }
+
+#[test]
+fn external_links_cannot_launch_custom_file_or_script_handlers() {
+    for url in [
+        "https://example.invalid",
+        "http://example.invalid",
+        "mailto:fixture@example.invalid",
+        "MAILTO:?subject=Hello",
+    ] {
+        assert!(is_openable_external_url(url), "{url:?}");
+    }
+    for url in [
+        "file:///secret",
+        "javascript:alert(1)",
+        "custom-app://run",
+        "mailto:",
+        "mailto:a b",
+        "mailto:a\u{feff}b",
+        "mailto:a\u{0000}b",
+    ] {
+        assert!(!is_openable_external_url(url), "{url:?}");
+    }
+}

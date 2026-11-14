@@ -16,6 +16,7 @@ pub mod devices;
 pub mod effects;
 pub mod host;
 pub mod limits;
+pub mod models;
 pub mod native;
 pub mod notification_batch;
 pub mod notifier;

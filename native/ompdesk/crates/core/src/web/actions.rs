@@ -197,7 +197,9 @@ impl Actions {
             "web:host.openExternal" => {
                 let request = object(given.ok_or_else(invalid)?)?;
                 let url = required_string(request, "url", 1, 8192)?;
-                self.shell.open_external(owner, url).await?;
+                if is_openable_external_url(url) {
+                    self.shell.open_external(owner, url).await?;
+                }
                 Value::Null
             }
             "web:blob.open" => {
@@ -261,6 +263,19 @@ impl Actions {
         };
         Ok(Some(result))
     }
+}
+
+/// The `external-url.ts` admission rule for native adapters.
+pub fn is_openable_external_url(url: &str) -> bool {
+    url.starts_with("https://")
+        || url.starts_with("http://")
+        || (url
+            .get(..7)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("mailto:"))
+            && url.len() > 7
+            && !url[7..]
+                .chars()
+                .any(|c| super::auth::js_space(c) || c.is_control()))
 }
 
 fn invalid() -> Fault {

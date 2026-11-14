@@ -20,6 +20,19 @@ const BLOCK_SEARCH_DEPTH: usize = 8;
 pub trait ModelImages: Send + Sync {
     fn to_model(&self, image: Value) -> BoxFuture<'_, Result<Value, Fault>>;
 }
+impl ModelImages for crate::stock::native::Service {
+    fn to_model(&self, image: Value) -> BoxFuture<'_, Result<Value, Fault>> {
+        Box::pin(async move {
+            self.request(
+                "image.toModel",
+                &image,
+                std::time::Duration::from_secs(30),
+                crate::server::Scope::detached(),
+            )
+            .await
+        })
+    }
+}
 
 pub struct Payloads {
     pub uploads: Arc<UploadStore>,
