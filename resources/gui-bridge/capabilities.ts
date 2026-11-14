@@ -70,6 +70,7 @@ export const FEATURES = {
 	streamMetadata: "Stock read grouping and live token rate",
 	agentBrowser: "Agent browsing in the Preview panel (stock browser relay)",
 	agentControl: "OMPdesk control tools (confirmation cards)",
+	agentInbox: "Native agent inbox (exact queue ownership and provider-context evidence)",
 	autopilot: "Autopilot (guarded, unattended Goal loop)",
 	desktopSlot: "Desktop slot (one session drives the screen at a time)",
 	phoneImages: "HEIC photos from a phone converted for the model",
@@ -398,6 +399,30 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/session/blob-store`]: ["BlobStore()", "BlobStore.prototype.get()", "parseBlobRef()"],
 			[UTILS]: ["getBlobsDir()"],
 		},
+	},
+	/** Strict candidate; enable only after the public stock boundary, transfer and provenance APIs are released. */
+	agentInbox: {
+		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
+		session: [
+			"isStreaming",
+			"messages",
+			"prompt()",
+			"promptCustomMessage()",
+			"sendCustomMessage()",
+			"transferQueuedMessagesToAside()",
+			"peekAsideMessages()",
+			"settleInFlightMessagePersistence()",
+			"agent.requestModelBoundary()",
+			"agent.streamFn()",
+			"agent.abort()",
+			"agent.addBeforeModelCallHook()",
+			"agent.peekSteeringQueue()",
+			"agent.peekFollowUpQueue()",
+			"sessionManager.getSessionFile()",
+			"sessionManager.getBranch()",
+			"sessionManager.appendCustomEntry()",
+			"sessionManager.flush()",
+		],
 	},
 	/**
 	 * modes/autopilot.ts: the tool set (`ask`/`eval`/`debug` off, the `autopilot` tool on), the session-only

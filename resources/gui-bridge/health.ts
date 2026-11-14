@@ -34,7 +34,7 @@ const HIDDEN = parseHidden(process.env.OMP_GUI_BRIDGE_PROBE_HIDE);
  * (verified on omp 18.8.0). src/main/bridge-capabilities.test.ts keeps the keys
  * in sync with the table.
  */
-const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
+const LOADERS: Readonly<Partial<Record<string, () => Promise<unknown>>>> = {
 	"@oh-my-pi/pi-tui/tools/url-scheme-host": () => import("@oh-my-pi/pi-tui/tools/url-scheme-host"),
 	"@oh-my-pi/pi-tui/chat/image-loading": () => import("@oh-my-pi/pi-tui/chat/image-loading"),
 	"@oh-my-pi/pi-coding-agent/utils/image-resize": () => import("@oh-my-pi/pi-coding-agent/utils/image-resize"),
