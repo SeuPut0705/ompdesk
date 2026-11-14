@@ -167,12 +167,14 @@ impl Pushed {
                     return None;
                 }
                 let members = Members::parse(self.data.as_deref()?)?;
-                let tab = members.get("tabId").filter(|raw| is_string(raw))?;
+                let tab_id = string_of(members.get("tabId").filter(|raw| is_string(raw))?)?;
+                let view = members.get("viewId").filter(|raw| is_string(raw))?;
+                let view_id = string_of(view).filter(|id| !id.is_empty())?;
                 let payload = members.get("payload")?;
                 let events: Vec<Box<RawValue>> = serde_json::from_str(payload.get()).ok()?;
                 Some(TabBatch {
-                    tab: tab.to_owned(),
-                    tab_id: string_of(tab),
+                    tab_id,
+                    view_id,
                     members,
                     events,
                 })
@@ -186,18 +188,15 @@ impl Pushed {
 }
 
 struct TabBatch {
-    tab: Box<RawValue>,
-    tab_id: Option<String>,
+    tab_id: String,
+    view_id: String,
     members: Members,
     events: Vec<Box<RawValue>>,
 }
 
 impl TabBatch {
     fn same_tab(&self, other: &TabBatch) -> bool {
-        match (&self.tab_id, &other.tab_id) {
-            (Some(a), Some(b)) => a == b,
-            _ => self.tab.get() == other.tab.get(),
-        }
+        self.tab_id == other.tab_id && self.view_id == other.view_id
     }
 }
 
@@ -376,43 +375,30 @@ impl Coalesced {
         if let Some((_, text)) = texts.iter().find(|(from, _)| *from == ids) {
             return Some(Arc::clone(text));
         }
-        let text: Arc<str> = if self.from.len() == 1 {
-            let (joined, events) = merge(batch.events.iter().map(|raw| &**raw));
-            if !joined {
-                return first.data.as_deref().map(|raw| Arc::from(raw.get()));
+        let all = self
+            .from
+            .iter()
+            .filter_map(|item| item.batch(channel))
+            .flat_map(|batch| batch.events.iter().map(|raw| &**raw));
+        let (joined, events) = merge(all);
+        if self.from.len() == 1 && !joined {
+            return first.data.as_deref().map(|raw| Arc::from(raw.get()));
+        }
+        let mut out = String::from("{");
+        for (index, (key, value)) in batch.members.members.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
             }
-            let mut out = String::from("{");
-            for (index, (key, value)) in batch.members.members.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                out.push_str(&key_text(key));
-                out.push(':');
-                if key == "payload" {
-                    write_events(&mut out, &events);
-                } else {
-                    out.push_str(value.get());
-                }
+            out.push_str(&key_text(key));
+            out.push(':');
+            if key == "payload" {
+                write_events(&mut out, &events);
+            } else {
+                out.push_str(value.get());
             }
-            out.push('}');
-            Arc::from(out)
-        } else {
-            let all = self
-                .from
-                .iter()
-                .filter_map(|item| item.batch(channel))
-                .flat_map(|batch| batch.events.iter().map(|raw| &**raw));
-            let (_, events) = merge(all);
-            let tab = self
-                .from
-                .last()
-                .and_then(|item| item.batch(channel))
-                .map_or("null", |batch| batch.tab.get());
-            let mut out = format!("{{\"tabId\":{tab},\"payload\":");
-            write_events(&mut out, &events);
-            out.push('}');
-            Arc::from(out)
-        };
+        }
+        out.push('}');
+        let text: Arc<str> = Arc::from(out);
         if texts.len() < DATA_TEXTS_KEPT {
             texts.push((ids, Arc::clone(&text)));
         }

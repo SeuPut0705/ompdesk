@@ -522,8 +522,12 @@ describe("model quota", () => {
 			type: "message_end",
 			message: { role: "assistant", usage: { totalTokens: 321 } },
 		} as AgentSessionEvent;
-		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "tab-9", payload: [end] });
-		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "tab-other", payload: [end] });
+		r.windows
+			.windowFor("dev1")
+			.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "tab-9", viewId: "view-tab-9", payload: [end] });
+		r.windows
+			.windowFor("dev1")
+			.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "tab-other", viewId: "view-tab-other", payload: [end] });
 		expect(r.quota.record).toHaveBeenCalledExactlyOnceWith("dev1", { tokens: 321 });
 	});
 });
@@ -561,12 +565,25 @@ describe("events", () => {
 	it("joins a tab's neighbouring batches and merges their streaming deltas", async () => {
 		const r = await rig();
 		const win = r.windows.windowFor("dev1");
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("Hel"), text("lo")] });
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text(" wor"), text("ld")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, {
+			tabId: "a",
+			viewId: "view-A",
+			payload: [text("Hel"), text("lo")],
+		});
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, {
+			tabId: "a",
+			viewId: "view-A",
+			payload: [text(" wor"), text("ld")],
+		});
 		await r.host.flush();
 		const sent = r.socket.frames("evt");
 		expect(sent).toHaveLength(1);
-		const batch = sent[0]?.d as { tabId: string; payload: Extract<AgentSessionEvent, { type: "message_update" }>[] };
+		const batch = sent[0]?.d as {
+			tabId: string;
+			viewId: string;
+			payload: Extract<AgentSessionEvent, { type: "message_update" }>[];
+		};
+		expect(batch.viewId).toBe("view-A");
 		expect(batch.payload).toHaveLength(1);
 		expect(batch.payload[0]?.assistantMessageEvent).toMatchObject({ type: "text_delta", delta: "Hello world" });
 	});
@@ -642,9 +659,13 @@ describe("events", () => {
 				return label;
 			},
 		});
-		const batch = { tabId: "a", payload: [{ type: "agent_start", note: counted("x") }] };
+		const batch = { tabId: "a", viewId: "view-A", payload: [{ type: "agent_start", note: counted("x") }] };
 		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, batch);
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [{ type: "turn_start" }] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, {
+			tabId: "a",
+			viewId: "view-A",
+			payload: [{ type: "turn_start" }],
+		});
 		// The pool hands every window the same push object: another device's window costs no second text.
 		r.router.deliver("dev2", IPC_EVENTS.EVENTS_BATCH, batch);
 		await r.host.flush();
@@ -655,7 +676,11 @@ describe("events", () => {
 					t: "evt",
 					seq: 1,
 					ch: IPC_EVENTS.EVENTS_BATCH,
-					d: { tabId: "a", payload: [{ type: "agent_start", note: "x" }, { type: "turn_start" }] },
+					d: {
+						tabId: "a",
+						viewId: "view-A",
+						payload: [{ type: "agent_start", note: "x" }, { type: "turn_start" }],
+					},
 				},
 			]);
 		}
@@ -673,13 +698,68 @@ describe("events", () => {
 		});
 	});
 
+	it("encodes a shared immutable payload once while preserving distinct escaped view bindings", async () => {
+		const r = await rig();
+		const win = r.windows.windowFor("dev1");
+		const event = { type: "agent_start", note: '뷰 "quoted" \\ path' };
+		let written = 0;
+		const payload = [
+			{
+				toJSON: () => {
+					written++;
+					return event;
+				},
+			},
+		];
+		const tabId = '탭 "same" \\ id';
+		const views = ['뷰 "A" \\ old', '뷰 "B" \\ new'];
+		for (const viewId of views)
+			win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId, viewId, payload, label: "preserved metadata" });
+		await r.host.flush();
+		expect(written).toBe(1);
+		expect(r.socket.frames("evt").map(frame => frame.d)).toEqual(
+			views.map(viewId => ({ tabId, viewId, payload: [event], label: "preserved metadata" })),
+		);
+	});
+
+	it("encodes distinct slimmer payload arrays separately and preserves JSON failure semantics", async () => {
+		const r = await rig();
+		const win = r.windows.windowFor("dev1");
+		let written = 0;
+		const event = {
+			toJSON: () => {
+				written++;
+				return { type: "agent_start" };
+			},
+		};
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [event, undefined] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-B", payload: [event, undefined] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, {
+			tabId: "a",
+			viewId: "view-C",
+			payload: [
+				{
+					toJSON: () => {
+						throw new Error("cannot encode");
+					},
+				},
+			],
+		});
+		await r.host.flush();
+		expect(written).toBe(2);
+		expect(r.socket.frames("evt").map(frame => frame.d)).toEqual([
+			{ tabId: "a", viewId: "view-A", payload: [{ type: "agent_start" }, null] },
+			{ tabId: "a", viewId: "view-B", payload: [{ type: "agent_start" }, null] },
+		]);
+	});
+
 	it("keeps order across tabs and channels", async () => {
 		const r = await rig();
 		const win = r.windows.windowFor("dev1");
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("1")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("1")] });
 		win.webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a" });
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("2")] });
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "b", payload: [text("3")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("2")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "b", viewId: "view-B", payload: [text("3")] });
 		await r.host.flush();
 		expect(r.socket.frames("evt").map(event => event.ch)).toEqual([
 			IPC_EVENTS.EVENTS_BATCH,
@@ -700,6 +780,7 @@ describe("events", () => {
 		const end: AgentSessionEvent = { type: "message_end", message: { role: "assistant" } } as AgentSessionEvent;
 		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.EVENTS_BATCH, {
 			tabId: "a",
+			viewId: "view-A",
 			payload: [snapshot, text("b"), text("c"), thinking, otherBlock, otherMessage, end, text("d")],
 		});
 		await r.host.flush();
@@ -742,7 +823,7 @@ describe("presence", () => {
 		const r = await rig();
 		const win = r.windows.windowFor("dev1");
 		await r.frame({ t: "presence", visible: false });
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("x")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("x")] });
 		win.webContents.send(IPC_EVENTS.SUBAGENT_FRAMES, []);
 		win.webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a", status: "running" });
 		await r.host.flush();
@@ -751,7 +832,7 @@ describe("presence", () => {
 		await r.frame({ t: "presence", visible: true });
 		expect(r.socket.frames("hello")).toHaveLength(hellos + 1);
 		expect(r.socket.frames("hello").at(-1)).toMatchObject({ resumed: false });
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("y")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("y")] });
 		await r.host.flush();
 		expect(r.socket.frames("evt").at(-1)?.ch).toBe(IPC_EVENTS.EVENTS_BATCH);
 	});
@@ -761,7 +842,9 @@ describe("presence", () => {
 		// The first hello of a page load counts: that page holds no stream yet.
 		expect(r.resyncs).toEqual(["dev1"]);
 		await r.frame({ t: "presence", visible: false });
-		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("x")] });
+		r.windows
+			.windowFor("dev1")
+			.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("x")] });
 		await r.frame({ t: "presence", visible: true });
 		expect(r.resyncs).toEqual(["dev1", "dev1"]);
 		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a" });
@@ -775,7 +858,7 @@ describe("presence", () => {
 	it("drops a stream already queued when the page hides before the batch goes out", async () => {
 		const r = await rig();
 		const win = r.windows.windowFor("dev1");
-		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("x")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("x")] });
 		await r.frame({ t: "presence", visible: false });
 		await r.host.flush();
 		expect(r.socket.frames("evt")).toEqual([]);
@@ -851,7 +934,9 @@ describe("resume", () => {
 
 		const hidden = await rig();
 		await hidden.frame({ t: "presence", visible: false });
-		hidden.windows.windowFor("dev1").webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("x")] });
+		hidden.windows
+			.windowFor("dev1")
+			.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("x")] });
 		await hidden.connection.dispose();
 		expect(await reconnect(hidden, hidden.connection.connId)).toMatchObject({ resumed: false });
 

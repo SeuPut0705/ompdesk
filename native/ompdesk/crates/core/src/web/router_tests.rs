@@ -14,11 +14,21 @@ struct Row {
     out: Vec<Item>,
 }
 
+fn with_view_identity(channel: &str, text: &str) -> String {
+    if channel != BATCH {
+        return text.to_owned();
+    }
+    let mut value: Value = serde_json::from_str(text).expect("captured JSON");
+    if value["tabId"].is_string() && value["payload"].is_array() {
+        value["viewId"] = Value::from("captured-view");
+    }
+    value.to_string()
+}
+
 fn pushed(item: &Item) -> Arc<Pushed> {
-    let data = item
-        .d
-        .clone()
-        .map(|text| RawValue::from_string(text).expect("captured JSON"));
+    let data = item.d.clone().map(|text| {
+        RawValue::from_string(with_view_identity(&item.ch, &text)).expect("captured JSON")
+    });
     Pushed::new(item.ch.clone(), data)
 }
 
@@ -31,19 +41,27 @@ fn joins_and_merges_as_the_typescript_router_did() {
     for (index, row) in rows.iter().enumerate() {
         let queue: Vec<Arc<Pushed>> = row.pushed.iter().map(pushed).collect();
         let out = coalesce(&queue, BATCH);
-        let got: Vec<(String, Option<String>)> = out
+        let got: Vec<(String, Option<Value>)> = out
             .iter()
             .map(|item| {
                 (
                     item.ch().to_owned(),
-                    item.data_text(BATCH).map(|t| t.to_string()),
+                    item.data_text(BATCH)
+                        .map(|t| serde_json::from_str(&t).unwrap()),
                 )
             })
             .collect();
-        let want: Vec<(String, Option<String>)> = row
+        let want: Vec<(String, Option<Value>)> = row
             .out
             .iter()
-            .map(|item| (item.ch.clone(), item.d.clone()))
+            .map(|item| {
+                (
+                    item.ch.clone(),
+                    item.d.as_ref().map(|text| {
+                        serde_json::from_str(&with_view_identity(&item.ch, text)).unwrap()
+                    }),
+                )
+            })
             .collect();
         assert_eq!(got, want, "row {index}");
     }
@@ -53,11 +71,21 @@ fn joins_and_merges_as_the_typescript_router_did() {
 fn makes_a_joined_text_once_for_the_same_pushes() {
     let a = Pushed::new(
         BATCH.into(),
-        Some(RawValue::from_string(r#"{"tabId":"a","payload":[{"type":"x"}]}"#.into()).unwrap()),
+        Some(
+            RawValue::from_string(
+                r#"{"tabId":"a","viewId":"view-A","payload":[{"type":"x"}]}"#.into(),
+            )
+            .unwrap(),
+        ),
     );
     let b = Pushed::new(
         BATCH.into(),
-        Some(RawValue::from_string(r#"{"tabId":"a","payload":[{"type":"y"}]}"#.into()).unwrap()),
+        Some(
+            RawValue::from_string(
+                r#"{"tabId":"a","viewId":"view-A","payload":[{"type":"y"}]}"#.into(),
+            )
+            .unwrap(),
+        ),
     );
     let queue = vec![Arc::clone(&a), Arc::clone(&b)];
     let first = coalesce(&queue, BATCH)[0].data_text(BATCH).unwrap();
@@ -65,7 +93,7 @@ fn makes_a_joined_text_once_for_the_same_pushes() {
     assert!(Arc::ptr_eq(&first, &second));
     assert_eq!(
         &*first,
-        r#"{"tabId":"a","payload":[{"type":"x"},{"type":"y"}]}"#
+        r#"{"tabId":"a","viewId":"view-A","payload":[{"type":"x"},{"type":"y"}]}"#
     );
 }
 

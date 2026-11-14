@@ -154,6 +154,7 @@ interface ConnsEvent {
 
 interface TabBatch {
 	tabId: string;
+	viewId: string;
 	payload: AgentSessionEvent[];
 }
 
@@ -163,6 +164,9 @@ function isTabBatch(data: unknown): data is TabBatch {
 		data !== null &&
 		"tabId" in data &&
 		typeof data.tabId === "string" &&
+		"viewId" in data &&
+		typeof data.viewId === "string" &&
+		data.viewId.length > 0 &&
 		"payload" in data &&
 		Array.isArray(data.payload)
 	);
@@ -364,9 +368,30 @@ export class WsRouter {
 		const keyed = STREAM_CHANNELS.has(channel) && typeof payload === "object" && payload !== null ? payload : null;
 		const known = keyed ? this.#texts.get(keyed) : undefined;
 		if (known) return known;
-		const text = JSON.stringify(payload);
-		if (text === undefined) return undefined;
-		const bytes = Buffer.from(text, "utf8");
+		let bytes: Uint8Array;
+		if (
+			channel === IPC_EVENTS.EVENTS_BATCH &&
+			isTabBatch(payload) &&
+			!Array.isArray(payload) &&
+			!("toJSON" in payload) &&
+			!("toJSON" in payload.payload)
+		) {
+			const { payload: events, ...metadata } = payload;
+			let body = this.#texts.get(events);
+			if (!body) {
+				body = Buffer.from(JSON.stringify(events), "utf8");
+				this.#texts.set(events, body);
+			}
+			const head = Buffer.from(`${JSON.stringify(metadata).slice(0, -1)},"payload":`, "utf8");
+			bytes = new Uint8Array(head.length + body.length + 1);
+			bytes.set(head);
+			bytes.set(body, head.length);
+			bytes[bytes.length - 1] = 125;
+		} else {
+			const text = JSON.stringify(payload);
+			if (text === undefined) return undefined;
+			bytes = Buffer.from(text, "utf8");
+		}
 		if (keyed) this.#texts.set(keyed, bytes);
 		return bytes;
 	}
