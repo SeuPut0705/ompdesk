@@ -1,10 +1,14 @@
 //! Machine-wide runtime discovery and application services. Config and effects are injected by the native app,
 //! never deserialized from the page. Every setup/helper/session shares this instance and its refreshed environment.
 
+pub mod application;
 mod command;
+mod detect;
 mod paths;
+mod rea;
 mod runtime;
 mod shell;
+mod tools;
 
 pub use command::{CommandShell, ShellContext};
 
@@ -12,12 +16,14 @@ pub use paths::{
     Platform, find_git_bash, find_on_path, is_compiled_omp, manifest_bun_minimum,
     update_environment,
 };
+pub use rea::{REA_NODE_REQUIREMENT, ReaState, rea_node_supported};
 pub use runtime::{Failure, MIN_OMP_VERSION, Resolution, Runtime, parse_version};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use tokio::sync::Mutex;
 
@@ -52,6 +58,9 @@ pub struct Service {
     shell: Mutex<Option<shell::Login>>,
     runtime: Mutex<Option<Runtime>>,
     ego: Mutex<Option<PathBuf>>,
+    rea: Mutex<rea::Cache>,
+    tools: tools::Cache,
+    detected: AtomicBool,
 }
 
 impl Service {
@@ -65,6 +74,9 @@ impl Service {
             shell: Mutex::new(None),
             runtime: Mutex::new(None),
             ego: Mutex::new(None),
+            rea: Mutex::new(rea::Cache::default()),
+            tools: tools::Cache::default(),
+            detected: AtomicBool::new(false),
         })
     }
 
@@ -186,6 +198,7 @@ impl Service {
         drop(shell);
         drop(runtime);
         *self.ego.lock().await = None;
+        self.rea.lock().await.reset();
         Ok(())
     }
 
@@ -260,3 +273,6 @@ impl Service {
         .await
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests;
