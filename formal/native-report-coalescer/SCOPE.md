@@ -1,6 +1,6 @@
 # Native report coalescer
 
-Status: SOURCE / unverified design-to-code candidate. Owner: Main dispatch d113. No manifest registration, stamp or hosted run is part of this source packet.
+Status: SOURCE / unverified design-to-code candidate. Owner: Main dispatch d113. Main registered the model with `syncCommit: null`; no hosted result or stamp exists yet.
 
 ## Promise and harm
 

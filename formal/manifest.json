@@ -186,6 +186,29 @@
 			],
 			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/stock-lane-verify/SKILL.md"
+		},
+		{
+			"id": "native-report-coalescer",
+			"title": "Native reports: selected delivery, receiving responsibility and exact completion ownership",
+			"kind": "tla",
+			"dir": "native-report-coalescer/tla",
+			"spec": "NativeReportCoalescer.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"native/ompdesk/crates/core/src/agentctl/rules/mail.rs:400-540",
+				"native/ompdesk/crates/core/src/agentctl/rules/mail.rs:593-688",
+				"native/ompdesk/crates/core/src/agentctl/rules/mail.rs:763-915",
+				"native/ompdesk/crates/core/src/agentctl/rules/mail.rs:930-954",
+				"native/ompdesk/crates/core/src/agentctl/service/messages.rs:746-772",
+				"native/ompdesk/crates/core/src/agentctl/service/messages.rs:819-847",
+				"native/ompdesk/crates/core/src/agentctl/service/mod.rs:302-325",
+				"native/ompdesk/crates/core/src/agentctl/service/attach.rs:667-708",
+				"native/ompdesk/crates/core/src/agentctl/service/attach.rs:742-801",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_source.rs:224-259",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_source.rs:583-643"
+			],
+			"syncCommit": null
 		}
 	]
 }

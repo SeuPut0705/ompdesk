@@ -1,6 +1,6 @@
 # Correspondence: native report coalescer
 
-Sync status: SOURCE, source-read against `9f42f5ccb`, not model-checked, registered or stamped.
+Sync status: SOURCE, source-read against `9f42f5ccb` and registered with `syncCommit: null`, not model-checked or stamped.
 Main d113 owns acceptance of this mapping and the actual hosted result.
 The original `77bc9fe81` remains the pre-fix reference; its memory-Queued behavior is not relabelled as a pass.
 
