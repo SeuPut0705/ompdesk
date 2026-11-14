@@ -1651,6 +1651,54 @@ describe("retained execution view races", () => {
 		expect(sessionRuntimeStore<ComposerStore>("t2", "composer")?.getState().draft).toBe("work in reopened B");
 	});
 
+	it("keeps the second reopened view while an earlier deleted-session close is pending", async () => {
+		const remaining = tabInfo("t0", "/alpha");
+		const viewA = {
+			...tabInfo("t1", "/beta"),
+			viewId: "pool/a/view-1",
+			sessionPath: "/sessions/a.jsonl",
+		};
+		const viewB = {
+			...tabInfo("t2", "/gamma"),
+			viewId: "pool/b/view-1",
+			sessionPath: "/sessions/b.jsonl",
+		};
+		const freshB = { ...viewB, viewId: "pool/b/view-2", title: "Reopened B" };
+		omp.tabs.list.mockResolvedValue([remaining, viewA, viewB]);
+		await useTabsStore.getState().reconcileTabs();
+		const oldRuntimeB = sessionRuntime("t2");
+		const releaseA = Promise.withResolvers<boolean>();
+		const closeAStarted = Promise.withResolvers<void>();
+		omp.tabs.close.mockImplementationOnce(() => {
+			closeAStarted.resolve();
+			return releaseA.promise;
+		});
+		omp.tabs.list.mockResolvedValue([remaining]);
+
+		const oldList = useTabsStore.getState().applyTabList([remaining], ["t1", "t2"]);
+		await closeAStarted.promise;
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
+		omp.tabs.list.mockResolvedValue([remaining, freshB]);
+		await useTabsStore.getState().reconcileTabs();
+		const freshRuntimeB = sessionRuntime("t2");
+		expect(freshRuntimeB).not.toBeNull();
+		expect(freshRuntimeB).not.toBe(oldRuntimeB);
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t2")?.viewId).toBe(freshB.viewId);
+		sessionRuntimeStore<ComposerStore>("t2", "composer")?.setState({ draft: "work in reopened B" });
+
+		releaseA.resolve(true);
+		await oldList;
+
+		expect(omp.tabs.close).toHaveBeenCalledTimes(1);
+		expect(omp.tabs.close).not.toHaveBeenCalledWith("t2");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t2")).toMatchObject({
+			viewId: freshB.viewId,
+			sessionPath: freshB.sessionPath,
+		});
+		expect(sessionRuntime("t2")).toBe(freshRuntimeB);
+		expect(sessionRuntimeStore<ComposerStore>("t2", "composer")?.getState().draft).toBe("work in reopened B");
+	});
+
 	it("keeps the reopened focused view and its work when the old close succeeds late", async () => {
 		seedOldView();
 		const oldRuntime = sessionRuntime("t1");
