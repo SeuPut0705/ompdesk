@@ -22,6 +22,14 @@ struct Effects {
     block: AtomicBool,
     acquired: Semaphore,
     release: Semaphore,
+    block_close: AtomicBool,
+    close_started: Semaphore,
+    close_release: Semaphore,
+    closed_targets: Mutex<Vec<Arc<Target>>>,
+    block_runtime: AtomicBool,
+    runtime_started: Semaphore,
+    runtime_release: Semaphore,
+    fail_after_close: AtomicBool,
 }
 impl Effects {
     fn new() -> Arc<Self> {
@@ -34,6 +42,14 @@ impl Effects {
             block: AtomicBool::new(false),
             acquired: Semaphore::new(0),
             release: Semaphore::new(0),
+            block_close: AtomicBool::new(false),
+            close_started: Semaphore::new(0),
+            close_release: Semaphore::new(0),
+            closed_targets: Mutex::default(),
+            block_runtime: AtomicBool::new(false),
+            runtime_started: Semaphore::new(0),
+            runtime_release: Semaphore::new(0),
+            fail_after_close: AtomicBool::new(false),
         })
     }
 }
@@ -87,6 +103,46 @@ impl Host for Effects {
     }
     fn snapshot(&self, target: &Arc<Target>) -> Result<Snapshot, Fault> {
         Ok(lock(&target.state).clone())
+    }
+    async fn session_runtime(&self, target: &Arc<Target>) -> Result<SessionRuntime, Fault> {
+        self.runtime_started.add_permits(1);
+        if self.block_runtime.load(Ordering::SeqCst) {
+            self.runtime_release.acquire().await.unwrap().forget();
+        }
+        use crate::session_ops::{Activity, RuntimeState};
+        let snapshot = lock(&target.state);
+        Ok(SessionRuntime {
+            activity: if snapshot.run["compacting"] == true {
+                Activity::Compacting
+            } else if snapshot.run["running"] == true {
+                Activity::Running
+            } else {
+                Activity::Idle
+            },
+            state: match snapshot.status.as_str() {
+                "ready" => RuntimeState::Ready,
+                "asleep" => RuntimeState::Dormant,
+                _ => RuntimeState::Starting,
+            },
+        })
+    }
+    async fn close_session(&self, target: Arc<Target>) -> Result<SessionRelease, Fault> {
+        if self.session_runtime(&target).await?.activity != crate::session_ops::Activity::Idle {
+            return Ok(SessionRelease::Busy);
+        }
+        self.close_started.add_permits(1);
+        if self.block_close.load(Ordering::SeqCst) {
+            self.close_release.acquire().await.unwrap().forget();
+        }
+        lock(&self.closed_targets).push(target);
+        self.closed.fetch_add(1, Ordering::SeqCst);
+        Ok(SessionRelease::Released(
+            if self.fail_after_close.load(Ordering::SeqCst) {
+                Err(Fault::new("after_close", "A post-release observer failed"))
+            } else {
+                Ok(())
+            },
+        ))
     }
     fn listen(&self, target: &Arc<Target>, event: Listener) -> Result<(), Fault> {
         lock(&target.listeners).push(event);
@@ -563,4 +619,190 @@ async fn sign_in_callback_is_bound_to_live_target_state_and_consumed_before_poll
     service.drop_peer("peer").await.unwrap();
     device.disconnect_for_test();
     host.disconnect_for_test();
+}
+
+#[tokio::test]
+async fn captured_session_follows_rekey_but_never_closes_a_replacement() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("old"), &host)
+        .await
+        .unwrap();
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    let original = captured.holders[0].runtime.target().clone();
+    service.disconnected(&owner, &host);
+    let (_new_device, new_host, _new_keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("new"), &new_host)
+        .await
+        .unwrap();
+    service
+        .close_session_ticket(&captured.holders[0].runtime)
+        .await
+        .unwrap();
+    assert!(Arc::ptr_eq(&lock(&effects.closed_targets)[0], &original));
+    assert!(service.target("peer", "new").is_err());
+
+    lock(&effects.targets).remove("/session/one.jsonl");
+    service
+        .call(&owner, "tab.open", open("new"), &new_host)
+        .await
+        .unwrap();
+    let replacement = service.target("peer", "new").unwrap();
+    assert!(!Arc::ptr_eq(&original, &replacement));
+    assert_eq!(
+        service
+            .close_session_ticket(&captured.holders[0].runtime)
+            .await
+            .unwrap_err()
+            .code,
+        "session_changed"
+    );
+    assert!(Arc::ptr_eq(
+        &service.target("peer", "new").unwrap(),
+        &replacement
+    ));
+    assert_eq!(lock(&effects.closed_targets).len(), 1);
+}
+
+#[tokio::test]
+async fn captured_activity_reports_compaction_and_starting_without_closing() {
+    use crate::session_ops::{Activity, RuntimeState};
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("one"), &host)
+        .await
+        .unwrap();
+    let target = service.target("peer", "one").unwrap();
+    {
+        let mut snapshot = lock(&target.state);
+        snapshot.run = json!({"running":false,"compacting":true});
+        snapshot.status = "starting".into();
+    }
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    assert_eq!(captured.holders[0].activity, Activity::Compacting);
+    assert_eq!(captured.holders[0].state, RuntimeState::Starting);
+    assert_eq!(
+        service
+            .close_session_ticket(&captured.holders[0].runtime)
+            .await
+            .unwrap_err()
+            .code,
+        "session_running"
+    );
+    assert_eq!(effects.closed.load(Ordering::SeqCst), 0);
+    assert!(service.target("peer", "one").is_ok());
+}
+
+#[tokio::test]
+async fn failed_status_notification_does_not_skip_joining_the_captured_close() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("one"), &host)
+        .await
+        .unwrap();
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    effects.block_close.store(true, Ordering::SeqCst);
+    host.disconnect_for_test();
+    let closing = {
+        let service = Arc::clone(&service);
+        tokio::spawn(async move {
+            service
+                .close_session_ticket(&captured.holders[0].runtime)
+                .await
+        })
+    };
+    effects.close_started.acquire().await.unwrap().forget();
+    assert!(!closing.is_finished());
+    effects.close_release.add_permits(1);
+    assert!(closing.await.unwrap().is_err());
+    assert_eq!(effects.closed.load(Ordering::SeqCst), 1);
+    assert!(service.target("peer", "one").is_err());
+}
+
+#[tokio::test]
+async fn a_committed_close_error_still_forgets_the_exact_hosted_ticket() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("one"), &host)
+        .await
+        .unwrap();
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    effects.fail_after_close.store(true, Ordering::SeqCst);
+    let error = service
+        .close_session_ticket(&captured.holders[0].runtime)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "after_close");
+    assert_eq!(effects.closed.load(Ordering::SeqCst), 1);
+    assert!(service.target("peer", "one").is_err());
+}
+
+#[tokio::test]
+async fn failed_captured_notice_still_notifies_current_connections() {
+    let (service, _, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("one"), &host)
+        .await
+        .unwrap();
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    service
+        .close_session_ticket(&captured.holders[0].runtime)
+        .await
+        .unwrap();
+    host.disconnect_for_test();
+    let (other_device, other_host, _other_keep) = pair().await;
+    let mut events = other_device.events();
+    lock(&service.state)
+        .connections
+        .insert("other".into(), (other_host, json!({})));
+    assert!(
+        service
+            .notify_session_deleted("/session/one.jsonl", captured.notices)
+            .is_err()
+    );
+    let event = events.recv().await.unwrap();
+    assert_eq!(event.event, "host.sessionsDeleted");
+    assert_eq!(event.data, json!({"paths":["/session/one.jsonl"]}));
+}
+
+#[tokio::test]
+async fn runtime_await_keeps_the_previously_captured_target_across_rekey() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("old"), &host)
+        .await
+        .unwrap();
+    let original = service.target("peer", "old").unwrap();
+    effects.block_runtime.store(true, Ordering::SeqCst);
+    let capture = {
+        let service = Arc::clone(&service);
+        tokio::spawn(async move { service.capture_session("/session/one.jsonl").await })
+    };
+    effects.runtime_started.acquire().await.unwrap().forget();
+    service.disconnected(&owner, &host);
+    let (_device, new_host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("new"), &new_host)
+        .await
+        .unwrap();
+    effects.runtime_release.add_permits(1);
+    let captured = capture.await.unwrap().unwrap();
+    assert!(Arc::ptr_eq(captured.holders[0].runtime.target(), &original));
+    assert!(Arc::ptr_eq(
+        &service.target("peer", "new").unwrap(),
+        &original
+    ));
 }
