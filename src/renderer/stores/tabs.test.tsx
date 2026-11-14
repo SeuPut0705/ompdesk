@@ -55,6 +55,7 @@ import { useSubagentsStore } from "./subagents";
 import { READY_WAIT_CAP_MS, tabReady } from "./tab-ready-gate";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
+	acceptsTabViewFrame,
 	endTabSignIn,
 	isTabClosed,
 	pushTabExtensionUiRequest,
@@ -1651,6 +1652,47 @@ describe("retained execution view races", () => {
 		expect(sessionRuntimeStore<ComposerStore>("t2", "composer")?.getState().draft).toBe("work in reopened B");
 		expect(useTabsStore.getState().closedTabs.some(tab => tab.sessionPath === freshB.sessionPath)).toBe(false);
 	});
+
+	it.each(["deleted session", "exact close request"] as const)(
+		"keeps a replacement view while %s prepares the last-tab placeholder",
+		async kind => {
+			const initial = { ...oldView, shared: false, viewerCount: undefined };
+			const replacement = { ...newView, viewId: "pool/entry/view-2", shared: false, viewerCount: undefined };
+			omp.tabs.list.mockResolvedValue([initial]);
+			await useTabsStore.getState().reconcileTabs();
+			const oldRuntime = sessionRuntime("t1");
+			const spawnStarted = Promise.withResolvers<void>();
+			const spawned = Promise.withResolvers<IpcSpawnTabResult | null>();
+			omp.tabs.spawn.mockImplementationOnce(() => {
+				spawnStarted.resolve();
+				return spawned.promise;
+			});
+
+			const closing =
+				kind === "deleted session"
+					? useTabsStore.getState().closeDeletedSession(initial.sessionPath ?? "", "t1")
+					: useTabsStore.getState().applyAgentView({ tabId: "t1", how: "close", closeRequest: "one-use" });
+			await spawnStarted.promise;
+			expect(omp.tabs.spawn).toHaveBeenCalledWith(expect.objectContaining({ placeholder: true }));
+			omp.tabs.list.mockResolvedValue([replacement]);
+			await useTabsStore.getState().reconcileTabs();
+			const freshRuntime = sessionRuntime("t1");
+			expect(freshRuntime).not.toBeNull();
+			expect(freshRuntime).not.toBe(oldRuntime);
+			expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.viewId).toBe(replacement.viewId);
+			sessionRuntimeStore<ComposerStore>("t1", "composer")?.setState({ draft: "work in replacement view" });
+
+			spawned.resolve({ tabId: "start", cwd: "/workspace" });
+			await closing;
+
+			expect(omp.tabs.close).not.toHaveBeenCalledWith("t1");
+			expect(omp.tabs.close).not.toHaveBeenCalledWith("t1", "one-use");
+			expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.viewId).toBe(replacement.viewId);
+			expect(sessionRuntime("t1")).toBe(freshRuntime);
+			expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("work in replacement view");
+			expect(acceptsTabViewFrame("t1", replacement.viewId)).toBe(true);
+		},
+	);
 
 	it("keeps the second reopened view while an earlier deleted-session close is pending", async () => {
 		const remaining = tabInfo("t0", "/alpha");
