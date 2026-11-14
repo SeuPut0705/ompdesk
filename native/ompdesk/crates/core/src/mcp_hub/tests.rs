@@ -252,11 +252,14 @@ async fn session_http_preserves_descriptors_ids_cwd_env_and_stream_events() {
     assert_eq!(facts["marker"], "isolated");
     let event = stream.frame().await.unwrap().unwrap().into_data().unwrap();
     assert!(String::from_utf8_lossy(&event).contains("\"marker\":\"proof\""));
-    let pid = facts["pid"].as_u64().unwrap() as u32;
+    assert!(facts["pid"].is_u64());
     drop(stream);
     hub.shutdown().await.unwrap();
     #[cfg(unix)]
-    assert!(!crate::sys::alive(pid));
+    {
+        let pid = facts["pid"].as_u64().unwrap() as u32;
+        assert!(!crate::sys::alive(pid));
+    }
 }
 
 #[tokio::test]
@@ -267,7 +270,7 @@ async fn eof_joins_listener_and_child_and_unknown_sessions_are_not_reused() {
     let (_, call) = post(&hub, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"inspect","arguments":{}}}), Some(&session)).await;
     let facts: Value =
         serde_json::from_str(call["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    let pid = facts["pid"].as_u64().unwrap() as u32;
+    assert!(facts["pid"].is_u64());
     let response = request(
         &hub,
         Method::POST,
@@ -289,7 +292,10 @@ async fn eof_joins_listener_and_child_and_unknown_sessions_are_not_reused() {
     assert!(closed.is_err() || closed.unwrap() == 0);
     assert_listener_closed(&hub).await;
     #[cfg(unix)]
-    assert!(!crate::sys::alive(pid));
+    {
+        let pid = facts["pid"].as_u64().unwrap() as u32;
+        assert!(!crate::sys::alive(pid));
+    }
 }
 
 #[tokio::test]
@@ -398,7 +404,7 @@ async fn replacing_a_stream_keeps_the_same_rea_while_a_dropped_live_stream_close
     let (_, first) = post(&hub, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"inspect","arguments":{}}}), Some(&session)).await;
     let facts: Value =
         serde_json::from_str(first["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    let pid = facts["pid"].as_u64().unwrap() as u32;
+    assert!(facts["pid"].is_u64());
     let mut old = request(
         &hub,
         Method::GET,
@@ -453,7 +459,10 @@ async fn replacing_a_stream_keeps_the_same_rea_while_a_dropped_live_stream_close
         .unwrap()
         .unwrap();
     #[cfg(unix)]
-    assert!(!crate::sys::alive(pid));
+    {
+        let pid = facts["pid"].as_u64().unwrap() as u32;
+        assert!(!crate::sys::alive(pid));
+    }
     hub.shutdown().await.unwrap();
 }
 
