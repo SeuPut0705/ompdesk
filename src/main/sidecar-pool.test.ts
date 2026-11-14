@@ -461,7 +461,7 @@ describe("SidecarPool exact window-view leave", () => {
 			const { pool, owner, sidecar, entered, acknowledgement, sent } = await remoteProxy();
 			const beforeCommit = Promise.withResolvers<void>();
 			const authorize = Promise.withResolvers<() => boolean>();
-			const local = { dirty: false, draft: "", connected: true };
+			const local = { dirty: false, draft: "", connected: true, asking: false };
 			const identity = pool.viewIdentity(owner.win, "remote-proxy");
 			if (!identity) throw new Error("expected a relay view identity");
 			const closing: Promise<boolean> = Reflect.apply(pool.leaveWindowView, pool, [
@@ -469,7 +469,7 @@ describe("SidecarPool exact window-view leave", () => {
 				"remote-proxy",
 				identity,
 				SESSION,
-				() => !local.dirty && local.draft === "" && pool.openRequests(owner.win).length === 0,
+				() => !local.dirty && local.draft === "" && !local.asking,
 				async () => {
 					beforeCommit.resolve();
 					return authorize.promise;
@@ -489,12 +489,14 @@ describe("SidecarPool exact window-view leave", () => {
 			if (change === "dirty") local.dirty = true;
 			if (change === "draft") local.draft = "keep this draft";
 			if (change === "revoke") local.connected = false;
-			if (change === "ask")
+			if (change === "ask") {
+				local.asking = true;
 				sidecar.handleEvent({
 					rtab: "remote-proxy",
 					name: "extensionUi",
 					arg: { type: "extension_ui_request", id: "new-ask", method: "confirm", title: "Continue?", message: "" },
 				});
+			}
 			if (change === "person-turn") {
 				pool.notePrompted("remote-proxy");
 				sidecar.handleEvent({
