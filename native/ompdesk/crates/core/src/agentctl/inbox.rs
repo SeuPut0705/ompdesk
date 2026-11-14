@@ -410,6 +410,8 @@ pub(crate) struct InboxAcceptedDelivery {
     pub key: NativeInboxKey,
     /// The first accepted presentation's dispatch, unchanged by lost ACKs, rebinds or title changes.
     pub dispatch: Option<i64>,
+    /// Existing canonical receiver ownership, not provider consumption.
+    pub existing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -425,4 +427,39 @@ pub(crate) struct NativeInboxAcceptance {
     pub persistence: Persistence,
     pub receiver: InboxReceiver,
     pub deliveries: Vec<InboxAcceptedDelivery>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct NativeInboxLookup {
+    pub receiver: InboxReceiver,
+    pub entries: Vec<NativeInboxTransferEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "state",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub(crate) enum NativeInboxLookupResult {
+    Missing {
+        key: NativeInboxKey,
+    },
+    ExistingPending {
+        key: NativeInboxKey,
+        dispatch: Option<i64>,
+        intent: InboxIntent,
+    },
+    ExistingContextObserved {
+        key: NativeInboxKey,
+        dispatch: Option<i64>,
+        context_receipt: InboxContextReceipt,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct NativeInboxLookupReply {
+    pub receiver: InboxReceiver,
+    pub entries: Vec<NativeInboxLookupResult>,
 }

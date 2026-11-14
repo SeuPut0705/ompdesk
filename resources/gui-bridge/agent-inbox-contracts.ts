@@ -132,5 +132,5 @@ export interface NativeInboxReply {
 export interface NativeInboxAcceptance {
 	persistence: "disk" | "memory";
 	receiver: InboxReceiver;
-	deliveries: { key: NativeInboxKey; dispatch: number | null }[];
+	deliveries: { key: NativeInboxKey; dispatch: number | null; existing: boolean }[];
 }
