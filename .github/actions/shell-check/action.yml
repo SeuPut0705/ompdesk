@@ -23,6 +23,12 @@ runs:
       run: bun scripts/build-shell.ts --cargo clippy --locked --all-targets -- -D warnings
 
     - name: cargo test
+      id: tests
       if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
       shell: bash
       run: bun scripts/build-shell.ts --cargo test --locked
+
+    - name: Cargo staging and compiler child smoke
+      if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
+      shell: bash
+      run: bun scripts/shell-cargo-smoke.ts
