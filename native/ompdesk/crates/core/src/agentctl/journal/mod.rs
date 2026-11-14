@@ -111,7 +111,7 @@ pub(crate) fn write_text(file: &Path, text: &str, mode: Option<u32>) -> Result<(
 }
 
 /// A completed durable write is distinct from a store configured only in memory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Persistence {
     Disk,
