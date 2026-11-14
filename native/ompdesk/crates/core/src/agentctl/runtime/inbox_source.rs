@@ -321,15 +321,14 @@ impl Runtime {
             .find(|target| target.tab_id == tab_id)
             .ok_or_else(|| Fail::other("The inbox recipient is no longer open"))?;
         check_mail_target(&state, target)?;
-        if let Some(previous) = previous {
-            if previous.session_path != target.session_path
+        if let Some(previous) = previous
+            && (previous.session_path != target.session_path
                 || previous.device != target.device
-                || previous.runtime_instance != target.runtime_instance
-            {
-                return Err(Fail::other(
-                    "The inbox recipient runtime, path or device changed",
-                ));
-            }
+                || previous.runtime_instance != target.runtime_instance)
+        {
+            return Err(Fail::other(
+                "The inbox recipient runtime, path or device changed",
+            ));
         }
         Ok(target.clone())
     }

@@ -194,7 +194,10 @@ fn conflicting_identity_refuses_the_entire_new_batch_without_overwriting_origina
             )
             .is_err()
     );
-    assert_eq!(ledger.pending(&receiver).unwrap().1, [original.clone()]);
+    assert_eq!(
+        ledger.pending(&receiver).unwrap().1.as_slice(),
+        std::slice::from_ref(&original)
+    );
     ledger
         .reconcile(
             &receiver,

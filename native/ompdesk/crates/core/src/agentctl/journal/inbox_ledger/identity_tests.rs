@@ -24,7 +24,9 @@ fn retry_after_source_removal_and_receiver_restart_returns_first_dispatch_withou
     let before = receiver("before");
     let ledger = InboxLedger::new(Some(dir.file()));
     let original = request();
-    let first = ledger.keep(&before, &[original.clone()]).unwrap();
+    let first = ledger
+        .keep(&before, std::slice::from_ref(&original))
+        .unwrap();
     assert_eq!(first.persistence, Persistence::Disk);
     assert_eq!(first.deliveries[0].dispatch, Some(1));
     let mut retry = original.clone();
@@ -34,7 +36,10 @@ fn retry_after_source_removal_and_receiver_restart_returns_first_dispatch_withou
         content: InboxContent::Text("changed display name; d2".into()),
     };
     assert_eq!(ledger.keep(&before, &[retry.clone()]).unwrap(), first);
-    assert_eq!(ledger.pending(&before).unwrap().1, [original.clone()]);
+    assert_eq!(
+        ledger.pending(&before).unwrap().1.as_slice(),
+        std::slice::from_ref(&original)
+    );
     ledger
         .reconcile(&before, &receipt(&before, &[original]))
         .unwrap();
@@ -94,7 +99,9 @@ fn changed_logical_body_or_explicit_follow_up_conflicts_before_new_batch_members
     let ledger = InboxLedger::new(None);
     let receiver = receiver("current");
     let original = request();
-    ledger.keep(&receiver, &[original.clone()]).unwrap();
+    ledger
+        .keep(&receiver, std::slice::from_ref(&original))
+        .unwrap();
     let mut changed = original.clone();
     if let InboxLogicalPayload::Prompt { text } = &mut changed.logical.payload {
         *text = "different actual instructions".into();

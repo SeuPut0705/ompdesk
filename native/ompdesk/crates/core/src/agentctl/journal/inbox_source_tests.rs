@@ -101,7 +101,7 @@ fn producer_retry_and_restart_preserve_first_prompt_dispatch_and_reject_changed_
     retry.message = "new title: d2".into();
     retry.logical_message = Some(retry.message.clone());
     assert_eq!(outbox.keep(retry.clone()).unwrap(), Persistence::Disk);
-    assert_eq!(outbox.pending(), [original.clone()]);
+    assert_eq!(outbox.pending().as_slice(), std::slice::from_ref(&original));
     drop(outbox);
     let reopened = SendOutbox::new(Some(file));
     let InboxLogicalSource::Bound(source) = &mut retry.native_source else {
@@ -129,7 +129,7 @@ fn legacy_report_settlement_and_relanding_cannot_remove_or_mutate_native_source(
             files: Vec::new(),
         },
     );
-    assert_eq!(outbox.pending(), [original.clone()]);
+    assert_eq!(outbox.pending().as_slice(), std::slice::from_ref(&original));
     outbox.settle_native(&original);
     assert!(outbox.pending().is_empty());
 }
@@ -165,7 +165,7 @@ fn source_write_failure_is_not_disk_acceptance_and_restart_recovers_the_original
     std::fs::create_dir(&file).unwrap();
     let original = prompt();
     assert!(outbox.keep(original.clone()).is_err());
-    assert_eq!(outbox.pending(), [original.clone()]);
+    assert_eq!(outbox.pending().as_slice(), std::slice::from_ref(&original));
     std::fs::remove_dir(&file).unwrap();
     assert_eq!(outbox.persist_pending().unwrap(), Persistence::Disk);
     assert_eq!(SendOutbox::new(Some(file)).pending(), [original]);

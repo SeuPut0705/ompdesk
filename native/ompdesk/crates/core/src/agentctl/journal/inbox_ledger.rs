@@ -7,7 +7,9 @@ use std::sync::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 
 use super::attachments::{AttachedSet, UPLOAD_TTL_MS, sha256_hex};
-use super::{Clock, Persistence, persist_text, system_clock};
+#[cfg(test)]
+use super::system_clock;
+use super::{Clock, Persistence, persist_text};
 use crate::agentctl::inbox::{
     InboxAcceptedDelivery, InboxEvidence, InboxReceiver, NativeInboxAcceptance, NativeInboxKey,
     NativeInboxReply, NativeInboxTransferEntry,
@@ -42,7 +44,7 @@ struct Proof {
 #[serde(tag = "state", rename_all = "snake_case")]
 enum Delivery {
     Pending {
-        entry: NativeInboxTransferEntry,
+        entry: Box<NativeInboxTransferEntry>,
     },
     ContextObserved {
         proof: Proof,
@@ -158,6 +160,7 @@ fn fingerprint(entry: &NativeInboxTransferEntry) -> Result<String, String> {
 }
 
 impl InboxLedger {
+    #[cfg(test)]
     pub fn new(file: Option<PathBuf>) -> Self {
         Self::with_clock(file, system_clock())
     }
@@ -287,7 +290,7 @@ impl InboxLedger {
                     fingerprint: hash,
                     dispatch: entry.dispatch,
                     delivery: Delivery::Pending {
-                        entry: entry.clone(),
+                        entry: Box::new(entry.clone()),
                     },
                 });
                 entry.dispatch
@@ -329,7 +332,7 @@ impl InboxLedger {
                     return None;
                 }
                 match &record.delivery {
-                    Delivery::Pending { entry } => Some(entry.clone()),
+                    Delivery::Pending { entry } => Some(entry.as_ref().clone()),
                     Delivery::ContextObserved { .. } => None,
                 }
             })
@@ -421,11 +424,11 @@ impl InboxLedger {
         Ok(state
             .entries
             .iter()
-            .filter_map(|record| {
-                (matches!(record.delivery, Delivery::Pending { .. })
-                    && seen.insert(record.receiver.clone()))
-                .then(|| record.receiver.clone())
+            .filter(|record| {
+                matches!(record.delivery, Delivery::Pending { .. })
+                    && seen.insert(record.receiver.clone())
             })
+            .map(|record| record.receiver.clone())
             .collect())
     }
 
@@ -472,16 +475,17 @@ impl InboxLedger {
             .and_then(|keys| keys.get(key))
             .copied()
             .ok_or("Unknown native inbox materialization identity")?;
-        if let Delivery::Pending { entry } = &state.entries[position].delivery {
-            if entry.attachments.as_ref() != Some(attachments) {
-                let mut updated = entry.clone();
-                updated.attachments = Some(attachments.clone());
-                if fingerprint(&updated)? != state.entries[position].fingerprint {
-                    return Err("Native inbox materialization changed logical attachments".into());
-                }
-                state.entries[position].delivery = Delivery::Pending { entry: updated };
-                state.dirty = true;
+        let record = &mut state.entries[position];
+        if let Delivery::Pending { entry } = &mut record.delivery
+            && entry.attachments.as_ref() != Some(attachments)
+        {
+            let mut updated = entry.as_ref().clone();
+            updated.attachments = Some(attachments.clone());
+            if fingerprint(&updated)? != record.fingerprint {
+                return Err("Native inbox materialization changed logical attachments".into());
             }
+            **entry = updated;
+            state.dirty = true;
         }
         state.save()
     }

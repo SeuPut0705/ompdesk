@@ -154,15 +154,6 @@ pub(crate) enum InboxKind {
     Report,
 }
 
-impl InboxKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Prompt => "prompt",
-            Self::Report => "report",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct NativeInboxKey {
@@ -170,9 +161,10 @@ pub(crate) struct NativeInboxKey {
     pub delivery_id: String,
 }
 
+#[cfg(test)]
 impl NativeInboxKey {
     pub fn provider_id(&self) -> String {
-        serde_json::to_string(&(self.kind.as_str(), self.delivery_id.as_str()))
+        serde_json::to_string(&(self.kind, self.delivery_id.as_str()))
             .expect("a tuple of strings always serializes")
     }
 }
