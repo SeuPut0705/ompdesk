@@ -5,6 +5,8 @@
 //! `pnpm exec`, a path to the binary) or through a package script that is that one command (`bun run e2e` where
 //! `"e2e": "playwright test"`). Playwright's reporter also rides in the environment (`PW_TEST_REPORTER`), so a
 //! Playwright run inside any script is recorded. Anything else is a plain command: one result, its exit code.
+//! Only the executable behind a known launcher names the runner. Wrapper arguments such as `--kind vitest`
+//! never add test-runner flags to a plain command.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -95,20 +97,37 @@ fn base(token: &str) -> String {
 
 /// The runner a single command line invokes, if any.
 fn runner_in(tokens: &[String]) -> Option<Kind> {
-    for (at, token) in tokens.iter().enumerate() {
-        let next = tokens[at + 1..]
-            .iter()
-            .find(|t| !t.starts_with('-'))
-            .map(String::as_str);
-        match base(token).as_str() {
-            "playwright" if next == Some("test") => return Some(Kind::Playwright),
-            "vitest" => return Some(Kind::Vitest),
-            "jest" => return Some(Kind::Jest),
-            "cargo" if matches!(next, Some("test")) => return Some(Kind::Cargo),
-            _ => {}
+    let (program, args) = tokens.split_first()?;
+    let command = match base(program).as_str() {
+        "npx" | "bunx" | "node" => args,
+        "bun" if args.first().is_some_and(|a| a == "x") => &args[1..],
+        "bun" => args,
+        "npm" | "pnpm" | "yarn"
+            if args
+                .first()
+                .is_some_and(|a| matches!(a.as_str(), "exec" | "dlx")) =>
+        {
+            &args[1..]
         }
+        _ => tokens,
+    };
+    let command = if command.len() != tokens.len() {
+        let at = command
+            .iter()
+            .position(|a| !matches!(a.as_str(), "-y" | "--yes" | "--no-install" | "--"))
+            .unwrap_or(command.len());
+        &command[at..]
+    } else {
+        command
+    };
+    let (program, args) = command.split_first()?;
+    match base(program).as_str() {
+        "playwright" if args.first().is_some_and(|a| a == "test") => Some(Kind::Playwright),
+        "vitest" => Some(Kind::Vitest),
+        "jest" => Some(Kind::Jest),
+        "cargo" if args.first().is_some_and(|a| a == "test") => Some(Kind::Cargo),
+        _ => None,
     }
-    None
 }
 
 /// A package script that is one plain command (no `&&`, `;`, pipes, redirects or substitutions), split in words.
@@ -675,6 +694,14 @@ mod tests {
             detect(&argv("./scripts/release-check.sh"), &cwd).kind,
             Kind::Command
         );
+        for (command, kind) in [
+            ("npx --yes vitest run", Kind::Vitest),
+            ("npm exec -- jest", Kind::Jest),
+            ("bun x playwright test", Kind::Playwright),
+            ("node node_modules/vitest/vitest.mjs run", Kind::Vitest),
+        ] {
+            assert_eq!(detect(&argv(command), &cwd).kind, kind);
+        }
     }
 
     #[test]
@@ -711,6 +738,7 @@ mod tests {
             "node scripts/build-lock.js --kind jest -- tsc --noEmit",
             "python check.py vitest",
             "bun run unrelated vitest",
+            "npx --package vitest tsc --noEmit",
         ] {
             let command = argv(command);
             let detected = detect(&command, &dir);
