@@ -4,9 +4,9 @@
 //! session events stream as JSON lines; the terminal `prompt_result` ends the run, and the last assistant
 //! `message_end` carries the reply (`stream`).
 //!
-//! Main hands how to run with the request, as it does for git and gh (`model-setup-runner.ts`): the omp, its whole
-//! environment, the folder, the research model, the prompt and the run's budget. It names the run (`run`), checks
-//! what the page sent before and reads the plan out of the reply after (`src/shared/model-setup.ts`).
+//! `application::SetupRunner` consumes Machine's trusted runtime, validates the page request, builds the research
+//! prompt and parses the resulting plan natively. It shares this module's Research child/stream/teardown with the
+//! stdio models.setupRun endpoint. The benchmark leaf likewise calls stock omp rather than implementing benchmarks.
 //!
 //! `models.setupRun` answers once the omp started. From then on the run reports by events and `models.setupStop`
 //! asks it to end:
@@ -18,7 +18,13 @@
 //! and killed `KILL_GRACE` after that. The omp never outlives the core: `kill_on_drop`, the core's job object
 //! (Windows) and its process group (POSIX, which main kills) see to that.
 
+pub mod application;
+pub mod benchmark;
+pub mod plan;
+pub mod prompt;
 mod stream;
+#[cfg(all(test, unix))]
+pub(crate) mod test_rig;
 
 use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
