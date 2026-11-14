@@ -37,6 +37,31 @@ struct Head {
     bin: Option<usize>,
     cancel: Option<u64>,
     push: Option<String>,
+    #[serde(default, deserialize_with = "present_raw")]
+    ok: Option<Box<RawValue>>,
+    #[serde(default, deserialize_with = "present_raw")]
+    result: Option<Box<RawValue>>,
+    #[serde(default, deserialize_with = "present_raw")]
+    error: Option<Box<RawValue>>,
+}
+
+#[derive(Deserialize)]
+struct ReplyError {
+    code: String,
+    message: String,
+}
+
+pub type ResponsePayload = Result<(Box<RawValue>, Option<Vec<u8>>), (String, String)>;
+
+pub struct Response {
+    pub id: u64,
+    pub result: ResponsePayload,
+}
+
+fn present_raw<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Box<RawValue>>, D::Error> {
+    Box::<RawValue>::deserialize(deserializer).map(Some)
 }
 
 /// One line read: a request, a cancel of one, a push, or why it was skipped.
@@ -44,6 +69,7 @@ pub enum Incoming {
     Request(Request),
     Cancel(u64),
     Push(Push),
+    Reply(Response),
     Skipped(String),
 }
 
@@ -71,6 +97,30 @@ pub async fn read_request<R: AsyncBufRead + Unpin>(
         }
         None => None,
     };
+    if head.push.is_none()
+        && head.method.is_none()
+        && head.cancel.is_none()
+        && let Some(ok) = head.ok
+    {
+        let Some(id) = head.id else {
+            return Ok(Some(Incoming::Skipped(
+                "a reply without an integer id".into(),
+            )));
+        };
+        let invalid = || ("invalid_reply".into(), "Malformed native reply".into());
+        let result = match ok.get() {
+            "true" => head.result.map(|result| (result, bin)).ok_or_else(invalid),
+            "false" => match head
+                .error
+                .and_then(|error| serde_json::from_str::<ReplyError>(error.get()).ok())
+            {
+                Some(error) => Err((error.code, error.message)),
+                None => Err(invalid()),
+            },
+            _ => Err(invalid()),
+        };
+        return Ok(Some(Incoming::Reply(Response { id, result })));
+    }
     let params = match head.params {
         Some(params) => params,
         None => RawValue::from_string("null".into()).map_err(io::Error::other)?,
@@ -120,6 +170,20 @@ struct ResultHead<'a> {
 }
 
 #[derive(Serialize)]
+struct RequestHead<'a> {
+    id: u64,
+    method: &'a str,
+    params: &'a serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bin: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct CancelHead {
+    cancel: u64,
+}
+
+#[derive(Serialize)]
 struct ErrorHead<'a> {
     id: u64,
     ok: bool,
@@ -140,6 +204,30 @@ fn line<T: Serialize>(value: &T) -> Vec<u8> {
 }
 
 impl Frame {
+    pub fn request(
+        id: u64,
+        method: &str,
+        params: &serde_json::Value,
+        bin: Option<Vec<u8>>,
+    ) -> Frame {
+        Frame {
+            head: line(&RequestHead {
+                id,
+                method,
+                params,
+                bin: bin.as_ref().map(Vec::len),
+            }),
+            bin,
+        }
+    }
+
+    pub fn cancel(id: u64) -> Frame {
+        Frame {
+            head: line(&CancelHead { cancel: id }),
+            bin: None,
+        }
+    }
+
     /// The frame's JSON line and its `bin` tail (tests).
     #[cfg(test)]
     pub fn parts(&self) -> (&[u8], Option<&[u8]>) {
@@ -227,6 +315,7 @@ mod tests {
             out.push(match incoming {
                 Incoming::Request(r) => Ok((r.id, r.method, r.params.get().to_owned(), r.bin)),
                 Incoming::Cancel(id) => Err(format!("cancel {id}")),
+                Incoming::Reply(_) => Err("reply".into()),
                 Incoming::Push(p) => {
                     Err(format!("push {} {} {:?}", p.method, p.params.get(), p.bin))
                 }
@@ -276,6 +365,35 @@ mod tests {
             Err("push remote.send {\"link\":3} Some([123, 125])".into())
         );
         assert_eq!(frames[1], Err("push x null None".into()));
+    }
+
+    #[tokio::test]
+    async fn reads_native_reply_without_rewriting_raw_json_or_binary() {
+        let input = b"{\"id\":8,\"ok\":true,\"result\":{ \"n\":1e+02 },\"bin\":3}\n\x00\n\xff{\"id\":9,\"ok\":true,\"result\":null}\n";
+        let mut reader = tokio::io::BufReader::new(&input[..]);
+        let mut line = Vec::new();
+        let Some(Incoming::Reply(reply)) = read_request(&mut reader, &mut line).await.unwrap()
+        else {
+            panic!("expected reply");
+        };
+        assert_eq!(reply.id, 8);
+        let (result, bin) = reply.result.unwrap();
+        assert_eq!(result.get(), "{ \"n\":1e+02 }");
+        assert_eq!(bin, Some(vec![0, 10, 255]));
+        let Some(Incoming::Reply(reply)) = read_request(&mut reader, &mut line).await.unwrap()
+        else {
+            panic!("expected null reply");
+        };
+        assert_eq!(reply.result.unwrap().0.get(), "null");
+    }
+
+    #[tokio::test]
+    async fn legacy_requests_and_pushes_keep_precedence_over_extra_reply_fields() {
+        let frames =
+            read_all(b"{\"id\":1,\"method\":\"a\",\"ok\":true}\n{\"push\":\"b\",\"ok\":false}\n")
+                .await;
+        assert_eq!(frames[0], Ok((1, "a".into(), "null".into(), None)));
+        assert_eq!(frames[1], Err("push b null None".into()));
     }
 
     #[test]
