@@ -155,6 +155,41 @@ describe("single matrix-row inspection (selector fixtures, not TLC proofs)", () 
 		expect(fake.run).not.toHaveBeenCalled();
 	});
 
+	it.each(["configs", "implicit default"] as const)(
+		"refuses a synthesized %s row before tool preparation",
+		async kind => {
+			const f = fixture();
+			fs.writeFileSync(path.join(f.tla, "Fixture.cfg"), "SPECIFICATION Spec\nINVARIANT Fence\n");
+			fs.writeFileSync(
+				path.join(f.dir, "manifest.json"),
+				JSON.stringify({
+					version: 1,
+					models: [
+						{
+							id: model,
+							kind: "tla",
+							dir: "tla",
+							spec: "Fixture.tla",
+							covers: [],
+							...(kind === "configs" ? { configs: ["MC.cfg"] } : {}),
+						},
+					],
+				}),
+			);
+			const ordinary = await plan(f.base);
+			expect(ordinary.code).toBe(0);
+			expect(ordinary.value.units).toHaveLength(1);
+			const synthesized = `${model}/${ordinary.value.units[0].unit}`;
+			fake.prepare.mockClear();
+			expect(await main(["plan", ...f.base, "--inspect-unit", synthesized])).toBe(2);
+			expect(
+				await main(["run", ...f.base, "--inspect-unit", synthesized, "--units", synthesized, "--out", f.out]),
+			).toBe(2);
+			expect(fake.prepare).not.toHaveBeenCalled();
+			expect(fake.run).not.toHaveBeenCalled();
+		},
+	);
+
 	it("refuses invalid scope before preparing tools", async () => {
 		const f = fixture();
 		for (const args of [
