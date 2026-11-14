@@ -1,7 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { SessionViewHandle } from "../../shared/session-view";
-import { parseViewCloseFacts, type ViewCloseFacts, type ViewRoster } from "../agent-control/service";
+import {
+	parseViewCloseFacts,
+	type ViewAuthorization,
+	type ViewCloseFacts,
+	type ViewRoster,
+} from "../agent-control/service";
 import type { HostConnection } from "./host-server";
 
 export interface HostedViewControl {
@@ -24,7 +29,8 @@ const id = z.string().min(1).max(4096);
 const Handle = z.object({ viewHost: id, window: id, tabId: id, session: id, incarnation: id }).strict();
 const Token = z.string().regex(/^[a-f0-9]{64}$/);
 const Close = z.object({ handle: Handle, token: Token }).strict();
-const Answer = z.object({ handle: Handle, token: Token, nonce: Token }).strict();
+const Phase = z.enum(["initial", "final"]);
+const Answer = z.object({ handle: Handle, token: Token, nonce: Token, phase: Phase }).strict();
 
 function equal(a: unknown, b: unknown): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
@@ -52,16 +58,18 @@ interface PendingSource {
 	peer: string;
 	channel: ViewChannel;
 	handle: SessionViewHandle;
-	authorize: (facts: ViewCloseFacts) => Promise<void>;
+	authorization: ViewAuthorization;
 	reject: (error: unknown) => void;
-	approved: boolean;
-	challenged: boolean;
+	state: "initial" | "authorizing" | "authorized" | "validating" | "validated";
+	lastNonce: string | null;
+	work: Promise<void> | null;
 }
 interface PendingTarget {
 	peer: string;
 	conn: HostConnection;
 	handle: SessionViewHandle;
 	nonce: string;
+	state: "initial" | "authorized" | "final" | "confirmed";
 	resolve: () => void;
 	reject: (error: unknown) => void;
 	timer: NodeJS.Timeout;
@@ -86,7 +94,11 @@ export class ViewControl implements HostedViewControl {
 		readonly deps: {
 			deviceId: () => string;
 			listLocal: () => ViewCloseFacts[];
-			closeLocal: (handle: SessionViewHandle, authorized: ViewCloseFacts) => Promise<void>;
+			closeLocal: (
+				handle: SessionViewHandle,
+				authorized: ViewCloseFacts,
+				beforeCommit: () => Promise<() => boolean>,
+			) => Promise<void>;
 			remote: ViewTransport;
 			timeoutMs: number;
 		},
@@ -181,62 +193,114 @@ export class ViewControl implements HostedViewControl {
 		};
 	}
 
-	async close(raw: SessionViewHandle, authorize: (fresh: ViewCloseFacts) => Promise<void>): Promise<void> {
-		const handle = Handle.parse(raw);
-		if (typeof authorize !== "function") throw new Error("View authorization unavailable");
-		if (handle.viewHost === this.deps.deviceId()) {
-			const first = this.#fresh(handle);
-			await authorize(first);
-			const current = this.#fresh(handle);
-			if (!equal(first, current)) throw new Error("View changed during authorization");
-			await this.deps.closeLocal(handle, current);
-			return;
+	async close(raw: SessionViewHandle, authorization: ViewAuthorization): Promise<void> {
+		if (
+			!authorization ||
+			typeof authorization.authorize !== "function" ||
+			typeof authorization.validate !== "function" ||
+			typeof authorization.current !== "function" ||
+			typeof authorization.release !== "function"
+		) {
+			throw new Error("View authorization unavailable");
 		}
-		const channel = this.deps.remote.channel(handle.viewHost);
-		if (!channel) throw new Error("View host unavailable");
-		const key = token();
-		const { promise, reject } = Promise.withResolvers<never>();
-		this.#sources.set(key, {
-			peer: handle.viewHost,
-			channel,
-			handle,
-			authorize,
-			reject,
-			challenged: false,
-			approved: false,
-		});
+		let source: PendingSource | undefined;
+		let key: string | undefined;
 		try {
+			const handle = Handle.parse(raw);
+			if (handle.viewHost === this.deps.deviceId()) {
+				const first = this.#fresh(handle);
+				await authorization.authorize(first);
+				if (!authorization.current()) throw new Error("View authorization expired");
+				const current = this.#fresh(handle);
+				if (!equal(first, current)) throw new Error("View changed during authorization");
+				let committed = false;
+				let guardPassed = false;
+				await this.deps.closeLocal(handle, current, async () => {
+					if (committed) throw new Error("View authorization already used");
+					committed = true;
+					await authorization.validate();
+					if (!authorization.current()) throw new Error("View authorization expired");
+					this.#fresh(handle);
+					return () => {
+						guardPassed = authorization.current();
+						return guardPassed;
+					};
+				});
+				if (!committed || !guardPassed) throw new Error("View close was not confirmed");
+				return;
+			}
+			const channel = this.deps.remote.channel(handle.viewHost);
+			if (!channel) throw new Error("View host unavailable");
+			key = token();
+			const { promise, reject } = Promise.withResolvers<never>();
+			source = {
+				peer: handle.viewHost,
+				channel,
+				handle,
+				authorization,
+				reject,
+				state: "initial",
+				lastNonce: null,
+				work: null,
+			};
+			this.#sources.set(key, source);
 			const result = await Promise.race([
 				channel.request("views.close", { handle, token: key }, this.deps.timeoutMs),
 				promise,
 			]);
-			if (result !== "closed" || !this.#sources.get(key)?.approved) throw new Error("View close was not confirmed");
+			if (result !== "closed" || source.state !== "validated") throw new Error("View close was not confirmed");
 		} finally {
-			this.#sources.delete(key);
+			if (key) this.#sources.delete(key);
+			if (source?.work) {
+				void source.work
+					.then(
+						() => authorization.release(),
+						() => authorization.release(),
+					)
+					.catch(() => {});
+			} else {
+				await authorization.release();
+			}
 		}
 	}
 
 	async challenge(peer: string, identity: object, raw: unknown): Promise<void> {
-		const parsed = z.object({ handle: Handle, token: Token, nonce: Token, facts: z.unknown() }).strict().parse(raw);
+		const parsed = z
+			.object({ handle: Handle, token: Token, nonce: Token, phase: Phase, facts: z.unknown() })
+			.strict()
+			.parse(raw);
 		const source = this.#sources.get(parsed.token);
 		if (
 			!source ||
 			source.peer !== peer ||
 			source.channel.identity !== identity ||
-			source.challenged ||
-			!sameHandle(source.handle, parsed.handle)
+			!sameHandle(source.handle, parsed.handle) ||
+			source.lastNonce === parsed.nonce ||
+			(parsed.phase === "initial" ? source.state !== "initial" : source.state !== "authorized")
 		)
 			throw new Error("Unknown view challenge");
 		const fresh = facts(parsed.facts);
 		if (!sameHandle(fresh.handle, source.handle)) throw new Error("Invalid challenged view");
-		source.challenged = true;
+		source.lastNonce = parsed.nonce;
+		source.state = parsed.phase === "initial" ? "authorizing" : "validating";
 		try {
-			await source.authorize(fresh);
-			if (this.#sources.get(parsed.token) !== source) throw new Error("View challenge expired");
-			source.approved = true;
+			if (parsed.phase === "initial" && !source.authorization.current())
+				throw new Error("View authorization expired");
+			const work =
+				parsed.phase === "initial" ? source.authorization.authorize(fresh) : source.authorization.validate();
+			source.work = work;
+			try {
+				await work;
+			} finally {
+				if (source.work === work) source.work = null;
+			}
+			if (this.#sources.get(parsed.token) !== source || !source.authorization.current()) {
+				throw new Error("View challenge expired");
+			}
+			source.state = parsed.phase === "initial" ? "authorized" : "validated";
 			await source.channel.request(
 				"views.authorize",
-				{ handle: source.handle, token: parsed.token, nonce: parsed.nonce },
+				{ handle: source.handle, token: parsed.token, nonce: parsed.nonce, phase: parsed.phase },
 				this.deps.timeoutMs,
 			);
 		} catch (error) {
@@ -286,11 +350,11 @@ export class ViewControl implements HostedViewControl {
 				target.peer !== peerId ||
 				target.conn !== conn ||
 				target.nonce !== answer.nonce ||
-				!sameHandle(target.handle, answer.handle)
+				!sameHandle(target.handle, answer.handle) ||
+				(answer.phase === "initial" ? target.state !== "initial" : target.state !== "final")
 			)
 				throw new Error("Unknown view authorization");
-			this.#targets.delete(answer.token);
-			clearTimeout(target.timer);
+			target.state = answer.phase === "initial" ? "authorized" : "confirmed";
 			target.resolve();
 			return null;
 		}
@@ -303,20 +367,72 @@ export class ViewControl implements HostedViewControl {
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		const timer = setTimeout(() => {
 			this.#targets.delete(request.token);
-			reject(new Error("View authorization timed out"));
+			target.reject(new Error("View authorization timed out"));
 		}, this.deps.timeoutMs);
-		this.#targets.set(request.token, { peer: peerId, conn, handle: request.handle, nonce, resolve, reject, timer });
+		const target: PendingTarget = {
+			peer: peerId,
+			conn,
+			handle: request.handle,
+			nonce,
+			state: "initial",
+			resolve,
+			reject,
+			timer,
+		};
+		this.#targets.set(request.token, target);
 		try {
 			try {
-				conn.emit("views.challenge", { handle: request.handle, token: request.token, nonce, facts: initial });
+				conn.emit("views.challenge", {
+					handle: request.handle,
+					token: request.token,
+					nonce,
+					phase: "initial",
+					facts: initial,
+				});
 			} catch (error) {
 				reject(error);
 			}
 			await promise;
-			if (!this.#live.has(conn)) throw new Error("View connection closed");
+			if (!this.#live.has(conn) || this.#targets.get(request.token) !== target)
+				throw new Error("View connection closed");
 			const current = this.#fresh(request.handle);
 			if (!equal(initial, current)) throw new Error("View changed during authorization");
-			await this.deps.closeLocal(request.handle, current);
+			let guardPassed = false;
+			const confirmed = () =>
+				this.#live.has(conn) && this.#targets.get(request.token) === target && target.state === "confirmed";
+			await this.deps.closeLocal(request.handle, current, async () => {
+				if (target.state !== "authorized" || !this.#live.has(conn) || this.#targets.get(request.token) !== target) {
+					throw new Error("View authorization expired");
+				}
+				const finalFacts = this.#fresh(request.handle);
+				let finalNonce = token();
+				while (finalNonce === target.nonce) finalNonce = token();
+				const final = Promise.withResolvers<void>();
+				target.nonce = finalNonce;
+				target.state = "final";
+				target.resolve = final.resolve;
+				target.reject = final.reject;
+				try {
+					conn.emit("views.challenge", {
+						handle: request.handle,
+						token: request.token,
+						nonce: finalNonce,
+						phase: "final",
+						facts: finalFacts,
+					});
+				} catch (error) {
+					final.reject(error);
+				}
+				await final.promise;
+				if (!confirmed()) {
+					throw new Error("View authorization expired");
+				}
+				return () => {
+					guardPassed = confirmed();
+					return guardPassed;
+				};
+			});
+			if (!guardPassed || !confirmed()) throw new Error("View close was not confirmed");
 			return "closed";
 		} finally {
 			clearTimeout(timer);

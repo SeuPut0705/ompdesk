@@ -1493,7 +1493,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		surfaces: () => agentControl.viewSurfaces(remoteDevices.deviceId),
 		isWeb: win => isWebWindow(win.webContents.id),
 		timeoutMs: CARD_TIMEOUT_MS,
-		close: async (surface, stillClosable) => {
+		close: async (surface, stillClosable, beforeCommit) => {
 			const { handle, tab } = surface.facts;
 			if (!tab.sessionPath) return false;
 			const released = await sidecarPool.leaveWindowView(
@@ -1502,6 +1502,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				handle.incarnation,
 				tab.sessionPath,
 				stillClosable,
+				beforeCommit,
 			);
 			if (released) {
 				closeTabTerminals(surface.win.webContents.id, handle.tabId);
@@ -1513,7 +1514,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const viewControl = new ViewControl({
 		deviceId: () => remoteDevices.deviceId,
 		listLocal: () => localViews.list(),
-		closeLocal: (handle, facts) => localViews.close(handle, facts),
+		closeLocal: (handle, facts, beforeCommit) => localViews.close(handle, facts, beforeCommit),
 		remote: remoteDevices.viewTransport(),
 		timeoutMs: CARD_TIMEOUT_MS,
 	});

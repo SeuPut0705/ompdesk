@@ -121,7 +121,7 @@ import {
 	type Tombstones,
 	type ToolOutcome,
 	type Tuning,
-	type ViewCloseFacts,
+	type ViewAuthorization,
 	type ViewRoster,
 } from "./service";
 import type { LocalViewSurface } from "./view-host";
@@ -736,18 +736,51 @@ export class AgentControlRuntime {
 		return surfaces;
 	}
 
-	viewAuthorizer(callerTabId: string, localViewHost: string): (facts: ViewCloseFacts) => Promise<void> {
+	viewAuthorizer(callerTabId: string, localViewHost: string): ViewAuthorization {
+		const { pool, prefs } = this.#deps;
 		const win = this.#win(callerTabId);
-		const identity = win ? this.#deps.pool.viewIdentity(win, callerTabId) : null;
-		return async facts => {
-			const current = () =>
-				win &&
-				!win.isDestroyed() &&
-				identity !== null &&
-				this.#deps.pool.viewIdentity(win, callerTabId) === identity;
-			if (!current()) throw new Error("The original caller's view or turn is no longer available.");
-			await this.control.authorizeView(callerTabId, facts, localViewHost);
-			if (!current()) throw new Error("The original caller changed while the view close was authorized.");
+		const identity = win ? pool.viewIdentity(win, callerTabId) : null;
+		const full = agentControlFullEnabled(prefs.get(AGENT_CONTROL_FULL_PREF));
+		const manage = agentControlManageEnabled(prefs.get(AGENT_CONTROL_MANAGE_PREF));
+		let receipt: string | null = null;
+		let target: SessionViewHandle | undefined;
+		let released = false;
+		const current = () =>
+			!released &&
+			!!win &&
+			!win.isDestroyed() &&
+			identity !== null &&
+			pool.viewIdentity(win, callerTabId) === identity &&
+			this.#controlEnabled() &&
+			agentControlFullEnabled(prefs.get(AGENT_CONTROL_FULL_PREF)) === full &&
+			agentControlManageEnabled(prefs.get(AGENT_CONTROL_MANAGE_PREF)) === manage;
+		const release = async () => {
+			released = true;
+			const pending = receipt;
+			receipt = null;
+			if (pending !== null) await this.control.releaseViewAuthorization(pending);
+		};
+		return {
+			current,
+			release,
+			authorize: async facts => {
+				if (!current()) throw new Error("The original caller's view or turn is no longer available.");
+				const issued = await this.control.authorizeView(callerTabId, facts, localViewHost);
+				if (!current()) {
+					await this.control.releaseViewAuthorization(issued);
+					throw new Error("The original caller changed while the view close was authorized.");
+				}
+				receipt = issued;
+				target = facts.handle;
+			},
+			validate: async () => {
+				if (!current() || receipt === null || !target)
+					throw new Error("The original caller's view authorization is no longer available.");
+				const pending = receipt;
+				receipt = null;
+				await this.control.validateViewAuthorization(pending, target);
+				if (!current()) throw new Error("The original caller changed before the view close committed.");
+			},
 		};
 	}
 

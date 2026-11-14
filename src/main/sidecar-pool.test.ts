@@ -214,6 +214,7 @@ function fakePool(): { pool: SidecarPool; sidecars: FakeSidecar[] } {
 
 describe("SidecarPool exact window-view leave", () => {
 	const SESSION = "/sessions/exact-relay-close.jsonl";
+	const authorize = async () => () => true;
 
 	async function remoteProxy() {
 		const entered = Promise.withResolvers<void>();
@@ -284,15 +285,15 @@ describe("SidecarPool exact window-view leave", () => {
 		pool.attachViewer(viewer.win, "exact");
 		expect(pool.viewIdentity(viewer.win, "exact")).not.toBe(first);
 		if (!first) throw new Error("expected a view identity");
-		expect(await pool.leaveWindowView(viewer.win, "exact", first, SESSION, () => true)).toBe(false);
+		expect(await pool.leaveWindowView(viewer.win, "exact", first, SESSION, () => true, authorize)).toBe(false);
 		const attached = pool.viewIdentity(viewer.win, "exact");
 		if (!attached) throw new Error("expected a reattached view identity");
 		sidecars[0]?.emitSessionIdentity({ sessionId: "other", sessionFile: "/sessions/other.jsonl" });
 		sidecars[0]?.emitSessionIdentity({ sessionId: "same", sessionFile: SESSION });
-		expect(await pool.leaveWindowView(viewer.win, "exact", attached, SESSION, () => true)).toBe(false);
+		expect(await pool.leaveWindowView(viewer.win, "exact", attached, SESSION, () => true, authorize)).toBe(false);
 		const current = pool.viewIdentity(viewer.win, "exact");
 		if (!current) throw new Error("expected a current view identity");
-		expect(await pool.leaveWindowView(viewer.win, "exact", current, SESSION, () => false)).toBe(false);
+		expect(await pool.leaveWindowView(viewer.win, "exact", current, SESSION, () => false, authorize)).toBe(false);
 		expect(sidecars[0]?.disposed).toBe(false);
 	});
 
@@ -308,7 +309,7 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(pool.releaseTab("reused")).toBe(true);
 		pool.acquire("/a", owner.win, "reused", sessionPath);
 		expect(pool.viewIdentity(owner.win, "reused")).not.toBe(first);
-		expect(await pool.leaveWindowView(owner.win, "reused", first, sessionPath, () => true)).toBe(false);
+		expect(await pool.leaveWindowView(owner.win, "reused", first, sessionPath, () => true, authorize)).toBe(false);
 		expect(sidecars[1]?.disposed).toBe(false);
 	});
 
@@ -322,7 +323,7 @@ describe("SidecarPool exact window-view leave", () => {
 		const after = pool.viewIdentity(owner.win, "generation");
 		expect(after).not.toBeNull();
 		expect(after).not.toBe(first);
-		expect(await pool.leaveWindowView(owner.win, "generation", first, SESSION, () => true)).toBe(false);
+		expect(await pool.leaveWindowView(owner.win, "generation", first, SESSION, () => true, authorize)).toBe(false);
 		expect(sidecars[0]?.disposed).toBe(false);
 	});
 
@@ -339,7 +340,7 @@ describe("SidecarPool exact window-view leave", () => {
 		sidecar.emitStatus("ready");
 		const identity = pool.viewIdentity(owner.win, "retained");
 		if (!identity) throw new Error("expected an owner identity");
-		expect(await pool.leaveWindowView(owner.win, "retained", identity, SESSION, () => true)).toBe(true);
+		expect(await pool.leaveWindowView(owner.win, "retained", identity, SESSION, () => true, authorize)).toBe(true);
 		expect(pool.tabsForWindow(owner.win)).toEqual([]);
 		expect(pool.tabLayoutForWindow(owner.win)).toBeNull();
 		expect(pool.tabsForWindow(c.win).map(tab => tab.tabId)).toEqual(["retained"]);
@@ -358,11 +359,11 @@ describe("SidecarPool exact window-view leave", () => {
 		sidecar.emitAgentEvents(["agent_end"]);
 		const cIdentity = pool.viewIdentity(c.win, "retained");
 		if (!cIdentity) throw new Error("expected C's identity");
-		await pool.leaveWindowView(c.win, "retained", cIdentity, SESSION, () => true);
+		await pool.leaveWindowView(c.win, "retained", cIdentity, SESSION, () => true, authorize);
 		expect(sidecar.disposed).toBe(false);
 		const dIdentity = pool.viewIdentity(d.win, "retained");
 		if (!dIdentity) throw new Error("expected D's identity");
-		await pool.leaveWindowView(d.win, "retained", dIdentity, SESSION, () => true);
+		await pool.leaveWindowView(d.win, "retained", dIdentity, SESSION, () => true, authorize);
 		expect(sidecar.disposed).toBe(true);
 	});
 
@@ -378,7 +379,7 @@ describe("SidecarPool exact window-view leave", () => {
 		sidecar.emitStatus("ready");
 		const identity = pool.viewIdentity(owner.win, "remote-only");
 		if (!identity) throw new Error("expected an owner identity");
-		await pool.leaveWindowView(owner.win, "remote-only", identity, SESSION, () => true);
+		await pool.leaveWindowView(owner.win, "remote-only", identity, SESSION, () => true, authorize);
 		expect(pool.tabLayoutForWindow(owner.win)).toBeNull();
 		expect(pool.tabsForWindow(owner.win)).toEqual([]);
 		const cCalls: unknown[] = [];
@@ -410,6 +411,26 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(sidecars).toHaveLength(1);
 	});
 
+	it("keeps a hidden source alive if its last device leaves after a new run starts", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8351);
+		pool.acquire("/a", owner.win, "busy-hidden", SESSION);
+		const view = pool.viewForDevice(SESSION, { deviceId: "c", name: "C" }, "Host");
+		if (!view) throw new Error("expected C's view");
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected the source");
+		sidecar.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "busy-hidden");
+		if (!identity) throw new Error("expected the owner view");
+		expect(await pool.leaveWindowView(owner.win, "busy-hidden", identity, SESSION, () => true, authorize)).toBe(true);
+		sidecar.emitAgentEvents(["agent_start"]);
+		view.dispose();
+		expect(sidecar.disposed).toBe(false);
+		expect(pool.resumeFacts()).toMatchObject([{ tabId: "busy-hidden", running: true, ownerDetached: true }]);
+		sidecar.emitAgentEvents(["agent_end"]);
+		expect(sidecar.disposed).toBe(true);
+	});
+
 	it("refuses the last exact leave if new work started", async () => {
 		const { pool, sidecars } = fakePool();
 		const owner = fakeWindow(8401);
@@ -418,9 +439,9 @@ describe("SidecarPool exact window-view leave", () => {
 		const identity = pool.viewIdentity(owner.win, "busy-exact");
 		if (!identity) throw new Error("expected an owner identity");
 		sidecars[0]?.emitAgentEvents(["agent_start"]);
-		expect(await pool.leaveWindowView(owner.win, "busy-exact", identity, SESSION, () => true)).toBe(false);
+		expect(await pool.leaveWindowView(owner.win, "busy-exact", identity, SESSION, () => true, authorize)).toBe(false);
 		expect(sidecars[0]?.disposed).toBe(false);
-		expect(pool.viewIdentity(owner.win, "busy-exact")).toBe(identity);
+		expect(pool.viewIdentity(owner.win, "busy-exact")).not.toBe(identity);
 	});
 
 	it("revives a detached marker as one hidden source and allows C to join without restoring owner UI", async () => {
@@ -432,7 +453,7 @@ describe("SidecarPool exact window-view leave", () => {
 		first.sidecars[0]?.emitStatus("ready");
 		const identity = first.pool.viewIdentity(owner.win, "hidden-revive");
 		if (!identity) throw new Error("expected an owner identity");
-		await first.pool.leaveWindowView(owner.win, "hidden-revive", identity, SESSION, () => true);
+		await first.pool.leaveWindowView(owner.win, "hidden-revive", identity, SESSION, () => true, authorize);
 		first.sidecars[0]?.emitAgentEvents(["agent_start"]);
 		const marker = deriveMarkers(first.pool.resumeFacts(), [], 100)[0];
 		if (!marker) throw new Error("expected a marker");
@@ -530,19 +551,44 @@ describe("SidecarPool exact window-view leave", () => {
 		},
 	);
 
-	it("retains an attached proxy when the upstream leave rejects", async () => {
-		const { pool, owner, sidecar, entered, acknowledgement, sent } = await remoteProxy();
+	it("can read pool asks from the final local guard without a nested hub deadlock", async () => {
+		const { pool, owner, entered, acknowledgement, sent } = await remoteProxy();
 		const identity = pool.viewIdentity(owner.win, "remote-proxy");
 		if (!identity) throw new Error("expected a relay view identity");
-		const closing = pool.leaveWindowView(owner.win, "remote-proxy", identity, SESSION, () => true);
-		const rejected = expect(closing).rejects.toThrow("fixture leave refused");
+		const closing = pool.leaveWindowView(
+			owner.win,
+			"remote-proxy",
+			identity,
+			SESSION,
+			() => pool.openRequests(owner.win).length === 0,
+			authorize,
+		);
 		await entered.promise;
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		acknowledgement.resolve(null);
+		expect(await closing).toBe(true);
+		expect(sent).not.toContain("tab.close");
+	});
+
+	it("reports an unconfirmed upstream leave after the local view was removed", async () => {
+		const { pool, owner, entered, acknowledgement, sent } = await remoteProxy();
+		const identity = pool.viewIdentity(owner.win, "remote-proxy");
+		if (!identity) throw new Error("expected a relay view identity");
+		const closing = pool.leaveWindowView(owner.win, "remote-proxy", identity, SESSION, () => true, authorize);
+		const rejected = expect(closing).rejects.toMatchObject({
+			code: "remote_leave_unconfirmed",
+			localViewClosed: true,
+			cleanupUnconfirmed: true,
+			retryAvailable: false,
+			target: { device: "host-source", rtab: "remote-proxy", sessionPath: SESSION },
+		});
+		await entered.promise;
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
 		acknowledgement.reject(new Error("fixture leave refused"));
 		await rejected;
-		expect(pool.sidecarForTab(owner.win, "remote-proxy")).toBe(sidecar);
-		expect(sidecar.status).toBe("ready");
-		expect(sidecar.rpcClient).not.toBeNull();
+		expect(pool.sidecarForTab(owner.win, "remote-proxy")).toBeNull();
 		expect(sent).not.toContain("tab.close");
+		expect(sent.filter(method => method === "tab.open")).toHaveLength(1);
 	});
 });
 

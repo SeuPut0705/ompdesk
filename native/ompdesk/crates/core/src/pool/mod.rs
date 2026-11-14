@@ -331,17 +331,22 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
                 .and_then(|entry| entry.view_identity(p.i("win").unwrap_or(0)))
                 .map_or(Value::Null, Value::from)
         })),
-        "leaveWindowView" => later(async move {
+        "commitExactWindowView" => now(ctx.commit_exact_window_view(
+            p.i("win").unwrap_or(0),
+            &p.s("tab").unwrap_or_default(),
+            &p.s("identity").unwrap_or_default(),
+            &p.s("sessionPath").unwrap_or_default(),
+        )),
+        "finishExactWindowView" => later(async move {
             done(
-                ctx.leave_exact_window_view(
+                ctx.finish_exact_window_view(
                     token(&p)?,
-                    p.i("guard")?
-                        .try_into()
-                        .map_err(|_| Fault::new("bad_params", "Invalid view guard"))?,
                     p.i("win")?,
                     &p.s("tab")?,
-                    &p.s("identity")?,
-                    &p.s("sessionPath")?,
+                    p.i("seq")?.try_into().map_err(|_| Fault::new("bad_params", "Invalid sequence"))?,
+                    p.b("owner"),
+                    p.b("last"),
+                    p.b("remote"),
                 )
                 .await,
             )

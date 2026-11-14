@@ -52,7 +52,7 @@ use self::text::{call_intent, mutates, saved_id_of_path, stored_title};
 use self::tuning::Tuning;
 use self::types::{
     AgentMessage, ClosedChild, ControlTab, CostSplit, OpenOne, ReleasedSession, StoredSession,
-    Target, Tool, ToolOutcome,
+    SessionViewHandle, Target, Tool, ToolOutcome,
 };
 use self::util::{Flight, OrderedMap};
 use crate::agentctl::journal::attachments::AttachmentStore;
@@ -86,6 +86,16 @@ pub struct Nudge {
     pub ran: bool,
     /// Whether its opener has been told it still did not.
     pub told_opener: bool,
+}
+
+/// A source-side, one-use grant. The receiver never gets the caller's provenance or this receipt.
+pub struct ViewAuthorizationReceipt {
+    pub handle: SessionViewHandle,
+    pub caller: ControlTab,
+    pub person: bool,
+    pub full: bool,
+    pub manage: bool,
+    pub expires: std::time::Instant,
 }
 
 /// The newest dispatch queued as a follow-up behind a busy child's turn, until its transcript shows it.
@@ -165,6 +175,7 @@ pub struct Mem {
     pub last_spend: HashMap<String, Spend>,
     /// Closed children's last turns (`familyEdits`), by device, session file and close (`#closedTurns`).
     pub closed_turns: HashMap<String, Shared<Value>>,
+    pub view_authorizations: HashMap<String, ViewAuthorizationReceipt>,
 }
 
 /// A session inside a blocking wait main owns; counted until this drops, however the wait ends.
@@ -1187,6 +1198,19 @@ async fn call_method(call: Call) -> Result<Reply, Fault> {
                     )
                     .await,
             )
+        }
+        "validateViewAuthorization" => {
+            let handle: SessionViewHandle =
+                args_of(args.get("handle").cloned().unwrap_or(Value::Null), method)?;
+            reply(
+                control
+                    .validate_view_authorization(&text_arg(&args, "receipt", method)?, &handle)
+                    .await,
+            )
+        }
+        "releaseViewAuthorization" => {
+            control.release_view_authorization(&text_arg(&args, "receipt", method)?);
+            Reply::json(&())
         }
         "personTyped" => {
             // The note this may send reaches main before the call answers (main does not wait on it).

@@ -6546,7 +6546,9 @@ describe("closing one exact relay view", () => {
 		host.parents.set(handle.tabId, "source-a");
 		const service = control(host);
 		const view = facts({ looked: true });
-		await expect(service.authorizeView("source-a", view, "host-b")).resolves.toBeUndefined();
+		const localReceipt = await service.authorizeView("source-a", view, "host-b");
+		expect(localReceipt).toMatch(/^[a-f0-9]{64}$/);
+		await service.releaseViewAuthorization(localReceipt);
 		await expect(service.authorizeView("source-a", view, "host-a")).rejects.toThrow(
 			/not started by the user's own message/,
 		);
@@ -6707,13 +6709,20 @@ describe("closing one exact relay view", () => {
 					},
 				};
 				let shown = true;
-				const detach = vi.fn(async (selected: LocalViewSurface, guard: () => boolean) => {
-					if (!guard()) return false;
-					expect(selected.win).toBe(win);
-					expect(selected.facts.handle).toEqual(viewHandle);
-					shown = false;
-					return true;
-				});
+				const detach = vi.fn(
+					async (
+						selected: LocalViewSurface,
+						stillClosable: () => boolean,
+						beforeCommit: () => Promise<() => boolean>,
+					) => {
+						const guard = await beforeCommit();
+						if (!guard() || !stillClosable()) return false;
+						expect(selected.win).toBe(win);
+						expect(selected.facts.handle).toEqual(viewHandle);
+						shown = false;
+						return true;
+					},
+				);
 				const local: LocalViewHost = new LocalViewHost({
 					surfaces: () => (shown ? [surface] : []),
 					close: detach,
@@ -6734,7 +6743,7 @@ describe("closing one exact relay view", () => {
 					new ViewControl({
 						deviceId: () => id,
 						listLocal: () => local.list(),
-						closeLocal: (selected, authorized) => local.close(selected, authorized),
+						closeLocal: (selected, authorized, beforeCommit) => local.close(selected, authorized, beforeCommit),
 						remote: { peers: () => [], channel: () => null },
 						timeoutMs: 1_000,
 					}),
@@ -6787,7 +6796,7 @@ describe("closing one exact relay view", () => {
 						return channel;
 					},
 				},
-				timeoutMs: 100,
+				timeoutMs: 1_000,
 			});
 			const service = control(host);
 			const authorize = vi.fn((caller: string, fresh: ViewCloseFacts) =>
@@ -6795,8 +6804,25 @@ describe("closing one exact relay view", () => {
 			);
 			Object.assign(host, {
 				listViews: () => a.list(),
-				closeView: (caller: string, selected: SessionViewHandle) =>
-					a.close(selected, fresh => authorize(caller, fresh)),
+				closeView: (caller: string, selected: SessionViewHandle) => {
+					let receipt: string | undefined;
+					let active = true;
+					return a.close(selected, {
+						authorize: async fresh => {
+							receipt = await authorize(caller, fresh);
+						},
+						validate: async () => {
+							if (!receipt) throw new Error("Missing source authorization receipt");
+							await service.validateViewAuthorization(receipt, selected);
+						},
+						release: async () => {
+							if (receipt) await service.releaseViewAuthorization(receipt);
+							receipt = undefined;
+							active = false;
+						},
+						current: () => active,
+					});
+				},
 			});
 			try {
 				const listed = await service.run("source-a", T.list, { scope: "app" });

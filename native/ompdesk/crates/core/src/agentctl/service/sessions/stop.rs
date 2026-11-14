@@ -1,7 +1,8 @@
 //! `ompdesk_session_stop`: `#stop`, `#stopStored`, `#personTurn`, `#abort`, `#within`, `#deleteWhenIdle`,
 //! `#journalClose`, `#dropWorktree`, `#whenGone`, `#closeTab`, `#fated`, `#rememberClosed`.
 
-use std::time::Duration;
+use std::fmt::Write as _;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 
@@ -11,7 +12,7 @@ use crate::agentctl::rules::mail::{MailKind, delivery_for};
 use crate::agentctl::rules::tab_close::{
     TabCloseFacts, TabCloseStep, needs_person_turn, tab_close_step,
 };
-use crate::agentctl::service::AgentControl;
+use crate::agentctl::service::{AgentControl, ViewAuthorizationReceipt};
 use crate::agentctl::service::fail::{R, fail};
 use crate::agentctl::service::host::Deadline;
 use crate::agentctl::service::js::{number, one_line};
@@ -20,7 +21,8 @@ use crate::agentctl::service::text::{
     stored_title, waits,
 };
 use crate::agentctl::service::types::{
-    ControlTab, StopArgs, StoredSession, TabStatus, ViewCloseFacts, WorktreeRef, WorktreeRemoval,
+    ControlTab, SessionViewHandle, StopArgs, StoredSession, TabStatus, ViewCloseFacts, WorktreeRef,
+    WorktreeRemoval,
 };
 use crate::agentctl::service::util::join;
 
@@ -49,6 +51,22 @@ fn facts(tab: &ControlTab) -> TabCloseFacts {
         looked: tab.looked,
         user_touched: tab.user_touched,
     }
+}
+
+const VIEW_AUTHORIZATION_TTL: Duration = Duration::from_secs(30);
+
+fn same_caller_run(original: &ControlTab, current: &ControlTab) -> bool {
+    current.tab_id == original.tab_id
+        && current.session_path == original.session_path
+        && current.device == original.device
+        && current.status == original.status
+        && current.busy == original.busy
+        && current.busy_since == original.busy_since
+        && current.resuming == original.resuming
+}
+
+fn receipt_live(expires: Instant, now: Instant) -> bool {
+    now < expires
 }
 
 impl AgentControl {
@@ -272,7 +290,7 @@ impl AgentControl {
         caller_tab_id: &str,
         view: &ViewCloseFacts,
         local_view_host: &str,
-    ) -> R<()> {
+    ) -> R<String> {
         let state = self.host.state();
         if !state.enabled || !view.enabled {
             return fail(crate::agentctl::service::TURNED_OFF);
@@ -287,15 +305,7 @@ impl AgentControl {
         let Some(caller) = self.caller_of(&state, caller_tab_id, &tabs) else {
             return fail(crate::agentctl::service::TAB_GONE);
         };
-        let same_caller_run = |tab: &ControlTab| {
-            tab.tab_id == caller.tab_id
-                && tab.session_path == caller.session_path
-                && tab.device == caller.device
-                && tab.status == caller.status
-                && tab.busy == caller.busy
-                && tab.busy_since == caller.busy_since
-                && tab.resuming == caller.resuming
-        };
+        let matches_caller = |tab: &ControlTab| same_caller_run(&caller, tab);
         let target = &view.tab;
         if target.tab_id != view.handle.tab_id
             || saved_id_of_path(target.session_path.as_deref()).as_deref()
@@ -330,7 +340,7 @@ impl AgentControl {
         let Some(tabs) = state.tabs(caller_tab_id) else {
             return fail(crate::agentctl::service::TAB_GONE);
         };
-        if !tabs.iter().any(same_caller_run) {
+        if !tabs.iter().any(matches_caller) {
             return fail("The original caller's tab or run changed during view authorization.");
         }
         let local = view.handle.view_host == local_view_host
@@ -351,6 +361,7 @@ impl AgentControl {
         if !self.allowed(&caller, target, own, &mut by_person).await {
             return fail(in_use_refusal(target, flags));
         }
+        let source_grants = (state.full_enabled, state.manage_enabled);
         // Both authenticated hosts must grant elevated control; either host can require the original caller's card.
         if !self
             .confirm_stop(
@@ -368,17 +379,82 @@ impl AgentControl {
             return fail("The user declined the view close. Do not ask again unless they tell you to.");
         }
         let state = self.host.state();
-        if !state.enabled || !state.tabs.iter().any(same_caller_run) {
+        if !state.enabled
+            || (state.full_enabled, state.manage_enabled) != source_grants
+            || !state.tabs.iter().any(matches_caller)
+        {
             return fail("The original caller's tab or run changed, or its control tools are turned off.");
         }
         if self.person_turn_answer(&caller).await? != initial_person {
             return fail("The original caller's turn provenance changed during view authorization.");
         }
         let state = self.host.state();
-        if !state.enabled || !state.tabs.iter().any(same_caller_run) {
+        if !state.enabled
+            || (state.full_enabled, state.manage_enabled) != source_grants
+            || !state.tabs.iter().any(matches_caller)
+        {
             return fail("The original caller's tab or run changed, or its control tools are turned off.");
         }
+        let mut bytes = [0u8; 32];
+        crate::sys::random(&mut bytes).map_err(|error| {
+            crate::agentctl::service::fail::Fail::other(format!("no random bytes: {error}"))
+        })?;
+        let mut receipt = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            let _ = write!(&mut receipt, "{byte:02x}");
+        }
+        let now = Instant::now();
+        let mut mem = self.mem();
+        mem.view_authorizations
+            .retain(|_, grant| receipt_live(grant.expires, now));
+        if mem.view_authorizations.contains_key(&receipt) {
+            return fail("A view authorization receipt could not be issued safely.");
+        }
+        mem.view_authorizations.insert(
+            receipt.clone(),
+            ViewAuthorizationReceipt {
+                handle: view.handle.clone(),
+                caller,
+                person: initial_person,
+                full: source_grants.0,
+                manage: source_grants.1,
+                expires: now + VIEW_AUTHORIZATION_TTL,
+            },
+        );
+        Ok(receipt)
+    }
+
+    pub(in crate::agentctl::service) async fn validate_view_authorization(
+        &self,
+        receipt: &str,
+        handle: &SessionViewHandle,
+    ) -> R<()> {
+        let Some(grant) = self.mem().view_authorizations.remove(receipt) else {
+            return fail("View authorization is unavailable or already used.");
+        };
+        if grant.handle != *handle || !receipt_live(grant.expires, Instant::now()) {
+            return fail("View authorization expired or names another view.");
+        }
+        let valid_source = |state: &crate::agentctl::service::host::HostState| {
+            state.enabled
+                && state.full_enabled == grant.full
+                && state.manage_enabled == grant.manage
+                && state.tabs.iter().any(|tab| same_caller_run(&grant.caller, tab))
+        };
+        if !valid_source(&self.host.state()) {
+            return fail("The original caller or its control grants changed.");
+        }
+        if self.person_turn_answer(&grant.caller).await? != grant.person {
+            return fail("The original caller's turn provenance changed.");
+        }
+        if !receipt_live(grant.expires, Instant::now()) || !valid_source(&self.host.state()) {
+            return fail("View authorization expired or the original caller or its grants changed.");
+        }
         Ok(())
+    }
+
+    pub(in crate::agentctl::service) fn release_view_authorization(&self, receipt: &str) {
+        self.mem().view_authorizations.remove(receipt);
     }
 
     /// `#abort`: stock's abort, answered within `wait_ms` (true) or not yet (false); it is sent either way and never
@@ -775,5 +851,20 @@ impl AgentControl {
             None,
         );
         Ok(format!("Deleted {name}."))
+    }
+}
+
+#[cfg(test)]
+mod view_authorization_tests {
+    use super::{VIEW_AUTHORIZATION_TTL, receipt_live};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn view_receipt_expires_at_its_thirty_second_deadline() {
+        let issued = Instant::now();
+        let expires = issued + VIEW_AUTHORIZATION_TTL;
+        assert!(receipt_live(expires, issued + Duration::from_millis(29_999)));
+        assert!(!receipt_live(expires, issued + Duration::from_secs(30)));
+        assert!(!receipt_live(expires, issued + Duration::from_secs(31)));
     }
 }

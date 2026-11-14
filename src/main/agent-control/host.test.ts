@@ -2055,16 +2055,41 @@ describe("actual window view roster", () => {
 		if (!surface) throw new Error("missing source surface");
 		const entered = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
+		const drop = vi.spyOn(rig.runtime.control, "releaseViewAuthorization").mockResolvedValue(undefined);
 		vi.spyOn(rig.runtime.control, "authorizeView").mockImplementation(async () => {
 			entered.resolve();
 			await release.promise;
+			return "issued-receipt";
 		});
 		const authorize = rig.runtime.viewAuthorizer("main0001", "A");
-		const pending = authorize(surface.facts);
+		const pending = authorize.authorize(surface.facts);
 		const rejected = expect(pending).rejects.toThrow("changed");
 		await entered.promise;
 		lifetime = "different-turn-or-process";
 		release.resolve();
 		await rejected;
+		expect(drop).toHaveBeenCalledWith("issued-receipt");
+	});
+
+	it("releases a receipt issued after its source operation was canceled", async () => {
+		const rig = setup({ tabs: [{ tabId: "main0001", sessionPath: "/sessions/time_source.jsonl" }] });
+		const surface = rig.runtime.viewSurfaces("A")[0];
+		if (!surface) throw new Error("missing source surface");
+		const entered = Promise.withResolvers<void>();
+		const issue = Promise.withResolvers<string>();
+		vi.spyOn(rig.runtime.control, "authorizeView").mockImplementation(() => {
+			entered.resolve();
+			return issue.promise;
+		});
+		const drop = vi.spyOn(rig.runtime.control, "releaseViewAuthorization").mockResolvedValue(undefined);
+		const authorization = rig.runtime.viewAuthorizer("main0001", "A");
+		const pending = authorization.authorize(surface.facts);
+		const rejected = expect(pending).rejects.toThrow("changed");
+		await entered.promise;
+		await authorization.release();
+		issue.resolve("late-receipt");
+		await rejected;
+		expect(drop).toHaveBeenCalledExactlyOnceWith("late-receipt");
+		expect(authorization.current()).toBe(false);
 	});
 });

@@ -3566,7 +3566,7 @@ describe("LocalHostServices: a device opening a session another device's tab run
 		expect(deleteSession).not.toHaveBeenCalled();
 	});
 
-	it("refuses a switched session and refuses the last leave while execution is busy", async () => {
+	it("refuses a switched session and retains newly busy execution after its last view leaves", async () => {
 		const { services, sidecar, x: b, y: c } = await held();
 		const switched = await services
 			.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: "/s/old.jsonl" }, b)
@@ -3574,13 +3574,14 @@ describe("LocalHostServices: a device opening a session another device's tab run
 		expect(ipcErrorCode(switched)).toBe("invalid_session_path");
 		sidecar.emit("events", [{ type: "agent_start" }]);
 		await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b);
-		const busy = await services
-			.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c)
-			.catch((error: unknown) => error);
-		expect(ipcErrorCode(busy)).toBe("session_running");
+		expect(await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c)).toBeNull();
 		expect(sidecar.disposed).toBe(false);
+		expect(await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c)).toBeNull();
+		const mismatch = await services
+			.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: "/s/other.jsonl" }, c)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(mismatch)).toBe("invalid_session_path");
 		sidecar.emit("events", [{ type: "agent_end" }]);
-		await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c);
 		expect(sidecar.disposed).toBe(true);
 	});
 

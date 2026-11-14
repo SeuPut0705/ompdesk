@@ -145,6 +145,13 @@ export interface ViewRoster {
 	unavailable: { viewHost: string; reason: string }[];
 }
 
+export interface ViewAuthorization {
+	authorize(facts: ViewCloseFacts): Promise<void>;
+	validate(): Promise<void>;
+	release(): Promise<void>;
+	current(): boolean;
+}
+
 const viewKey = z.string().min(1).max(200);
 const viewText = z.string().max(65_536);
 const viewAskBase = { type: z.literal("extension_ui_request"), id: viewKey, timeout: z.number().optional() };
@@ -896,8 +903,16 @@ export class AgentControl {
 	}
 
 	/** Trusted main-only challenge callback. It authorizes, but never releases a view or changes a session. */
-	authorizeView(callerTabId: string, view: ViewCloseFacts, localViewHost: string): Promise<void> {
+	authorizeView(callerTabId: string, view: ViewCloseFacts, localViewHost: string): Promise<string> {
 		return this.#call("authorizeView", { callerTabId, view, localViewHost });
+	}
+
+	validateViewAuthorization(receipt: string, handle: SessionViewHandle): Promise<void> {
+		return this.#call("validateViewAuthorization", { receipt, handle });
+	}
+
+	releaseViewAuthorization(receipt: string): Promise<void> {
+		return this.#call("releaseViewAuthorization", { receipt });
 	}
 
 	/**

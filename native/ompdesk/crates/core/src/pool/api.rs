@@ -1546,7 +1546,7 @@ impl Ctx {
         if live {
             self.send_tab_lists(tab).await?;
             self.push(&json!({"k": "viewTargetChanged", "tab": tab}));
-            self.release_hidden_if_unused(tab, false).await?;
+            self.release_hidden_if_unused(tab, true).await?;
         }
         Ok(())
     }

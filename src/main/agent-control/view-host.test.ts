@@ -40,13 +40,17 @@ function setup(web = false) {
 		},
 	};
 	let surfaces = [surface];
-	const close = vi.fn(async (selected: LocalViewSurface, guard: () => boolean) => {
-		if (!guard()) return false;
-		surfaces = surfaces.filter(
-			item => item.win !== selected.win || item.facts.handle.incarnation !== selected.facts.handle.incarnation,
-		);
-		return true;
-	});
+	const beforeCommit = vi.fn(async () => () => true);
+	const close = vi.fn(
+		async (selected: LocalViewSurface, guard: () => boolean, prepare: () => Promise<() => boolean>) => {
+			const authorized = await prepare();
+			if (!guard() || !authorized()) return false;
+			surfaces = surfaces.filter(
+				item => item.win !== selected.win || item.facts.handle.incarnation !== selected.facts.handle.incarnation,
+			);
+			return true;
+		},
+	);
 	const host = new LocalViewHost({ surfaces: () => surfaces, close, isWeb: () => web, timeoutMs: 100 });
 	return {
 		host,
@@ -54,6 +58,7 @@ function setup(web = false) {
 		surface,
 		requests,
 		close,
+		beforeCommit,
 		setSurfaces: (rows: LocalViewSurface[]) => {
 			surfaces = rows;
 		},
@@ -65,7 +70,7 @@ afterEach(() => vi.useRealTimers());
 describe("one exact local view acknowledgement", () => {
 	it("only accepts the selected window's single-use acknowledgement and confirms actual removal", async () => {
 		const rig = setup();
-		const done = rig.host.close(rig.surface.facts.handle, rig.surface.facts);
+		const done = rig.host.close(rig.surface.facts.handle, rig.surface.facts, rig.beforeCommit);
 		const token = rig.requests[0]?.closeRequest;
 		expect(token).toBeTypeOf("string");
 		if (!token) throw new Error("missing close request");
@@ -83,7 +88,7 @@ describe("one exact local view acknowledgement", () => {
 		async change => {
 			const rig = setup();
 			rig.surface.facts.tab.userTouched = true;
-			const done = rig.host.close(rig.surface.facts.handle, structuredClone(rig.surface.facts));
+			const done = rig.host.close(rig.surface.facts.handle, structuredClone(rig.surface.facts), rig.beforeCommit);
 			const rejected = expect(done).rejects.toThrow("changed");
 			const token = rig.requests[0]?.closeRequest;
 			if (!token) throw new Error("missing close request");
@@ -109,7 +114,7 @@ describe("one exact local view acknowledgement", () => {
 			await resume.promise;
 			return guard();
 		});
-		const done = rig.host.close(rig.surface.facts.handle, structuredClone(rig.surface.facts));
+		const done = rig.host.close(rig.surface.facts.handle, structuredClone(rig.surface.facts), rig.beforeCommit);
 		const rejected = expect(done).rejects.toThrow("not closed");
 		await entered.promise;
 		rig.surface.facts.tab.busy = true;
@@ -121,14 +126,30 @@ describe("one exact local view acknowledgement", () => {
 	it("never treats a callback success with the exact surface still present as Closed", async () => {
 		const rig = setup(true);
 		rig.close.mockResolvedValue(true);
-		await expect(rig.host.close(rig.surface.facts.handle, rig.surface.facts)).rejects.toThrow("not closed");
+		await expect(rig.host.close(rig.surface.facts.handle, rig.surface.facts, rig.beforeCommit)).rejects.toThrow(
+			"not closed",
+		);
 		expect(rig.host.list()).toHaveLength(1);
+	});
+
+	it("keeps the selected surface when final source authorization refuses after renderer preparation", async () => {
+		const rig = setup();
+		rig.beforeCommit.mockRejectedValue(new Error("caller revoked"));
+		const done = rig.host.close(rig.surface.facts.handle, rig.surface.facts, rig.beforeCommit);
+		const rejected = expect(done).rejects.toThrow("caller revoked");
+		const token = rig.requests[0]?.closeRequest;
+		if (!token) throw new Error("missing close request");
+		expect(rig.beforeCommit).not.toHaveBeenCalled();
+		expect(await rig.host.complete(rig.win, "relay", token, false)).toBe(false);
+		await rejected;
+		expect(rig.beforeCommit).toHaveBeenCalledOnce();
+		expect(rig.host.list()).toEqual([rig.surface.facts]);
 	});
 
 	it("expires an unanswered request without a later release", async () => {
 		vi.useFakeTimers();
 		const rig = setup();
-		const done = rig.host.close(rig.surface.facts.handle, rig.surface.facts);
+		const done = rig.host.close(rig.surface.facts.handle, rig.surface.facts, rig.beforeCommit);
 		const rejected = expect(done).rejects.toThrow("did not confirm");
 		const token = rig.requests[0]?.closeRequest;
 		if (!token) throw new Error("missing close request");

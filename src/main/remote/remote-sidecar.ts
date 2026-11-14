@@ -67,6 +67,12 @@ export interface RemoteLink {
 	request<T>(method: string, params: unknown, timeoutMs?: number): Promise<T>;
 }
 
+export interface PreparedRemoteViewLeave {
+	readonly target: { device: string; rtab: string; sessionPath: string };
+	cancel(): void;
+	commit(): Promise<void>;
+}
+
 export interface RemoteSidecarOptions {
 	link: RemoteLink;
 	/** This tab's id; the host scopes it to this device. */
@@ -202,7 +208,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	#offlineShown = false;
 	#disposed = false;
 	#leftView = false;
-	#leftSessionPath: string | null = null;
+	#preparedLeave = false;
 	/** `tab.open` was sent at some point: the host may hold this tab, whatever the link says now. */
 	#openedOnce = false;
 	/** Replies to the host's tool and URI calls that found the link down. */
@@ -367,29 +373,40 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	/** The host's own account-rotation setting applies to the omp it runs; this machine's is not sent. */
 	syncAccountRotation(): void {}
 
-	/** Leave this exact host view without ending the execution another viewer retains. */
-	async leaveView(sessionPath: string): Promise<void> {
-		if (this.#leftView) {
-			if (this.#leftSessionPath === sessionPath) return;
-			throw codedError("invalid_session_path", "This view left a different session");
-		}
-		if (this.#disposed || !this.#opened) throw codedError("unknown_tab", "This view is no longer attached");
-		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
-		await this.#opened;
-		await this.#link.request("tab.leave", { rtab: this.#rtab, sessionPath });
-		this.#leftView = true;
-		this.#leftSessionPath = sessionPath;
-		this.#processAlive = false;
-		this.#wanted = false;
-		this.#opened = null;
-		this.#queuedReplies = [];
-		this.#endSignInRelay();
-		this.#setStatus("exited", {}, true);
+	/** Reserve disposal behavior without sending a request; cancel restores the ordinary attached proxy. */
+	prepareViewLeave(sessionPath: string): PreparedRemoteViewLeave {
+		if (this.#disposed || this.#leftView || this.#preparedLeave || !this.#openedOnce)
+			throw codedError("unknown_tab", "This view is no longer attached");
+		const link = this.#link;
+		const rtab = this.#rtab;
+		const target = { device: link.deviceId, rtab, sessionPath };
+		this.#preparedLeave = true;
+		let pending = true;
+		return {
+			target,
+			cancel: () => {
+				if (!pending) return;
+				pending = false;
+				this.#preparedLeave = false;
+			},
+			commit: async () => {
+				if (!pending) throw codedError("unknown_tab", "This leave is no longer prepared");
+				pending = false;
+				this.#preparedLeave = false;
+				this.#leftView = true;
+				this.#wanted = false;
+				this.#processAlive = false;
+				this.#queuedReplies = [];
+				this.#opened = null;
+				this.#endSignInRelay();
+				await link.request("tab.leave", { rtab, sessionPath });
+			},
+		};
 	}
 
 	dispose(): void {
 		if (this.#disposed) return;
-		if (this.#openedOnce && !this.#leftView && !this.#keepOnHost()) this.#closeOnHost();
+		if (this.#openedOnce && !this.#leftView && !this.#preparedLeave && !this.#keepOnHost()) this.#closeOnHost();
 		this.#endSignInRelay();
 		this.#disposed = true;
 		this.#settle(null);

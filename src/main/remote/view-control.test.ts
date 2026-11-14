@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { ViewCloseFacts } from "../agent-control/service";
+import type { ViewAuthorization, ViewCloseFacts } from "../agent-control/service";
 import type { HostConnection } from "./host-server";
 import { ViewControl, type ViewTransport } from "./view-control";
+
+function grant(authorize: (facts: ViewCloseFacts) => Promise<void> = async () => {}): ViewAuthorization {
+	return { authorize, validate: async () => {}, current: () => true, release: async () => {} };
+}
 
 function view(host: string, incarnation = "first"): ViewCloseFacts {
 	return {
@@ -23,7 +27,7 @@ function view(host: string, incarnation = "first"): ViewCloseFacts {
 	};
 }
 
-function network(beforeCommitGate?: Promise<void>, onChallenge?: (data: unknown) => void) {
+function network(beforeCommitGate?: Promise<void>, onChallenge?: (data: unknown) => void, onPrepare?: () => void) {
 	const controls = new Map<string, ViewControl>();
 	const rows = new Map<string, ViewCloseFacts[]>([
 		["A", []],
@@ -71,7 +75,10 @@ function network(beforeCommitGate?: Promise<void>, onChallenge?: (data: unknown)
 				deviceId: () => id,
 				listLocal: () => rows.get(id) ?? [],
 				closeLocal: async (handle, ...args: unknown[]) => {
-					if (id === "B" && beforeCommitGate) await beforeCommitGate;
+					if (id === "B") {
+						onPrepare?.();
+						if (beforeCommitGate) await beforeCommitGate;
+					}
 					const beforeCommit = args[1];
 					if (typeof beforeCommit === "function") {
 						const current = await beforeCommit();
@@ -103,7 +110,7 @@ describe("view control", () => {
 		const a = rig.controls.get("A")!;
 		expect((await a.list()).views.map(item => item.handle.viewHost)).toEqual(["B", "C"]);
 		const authorize = vi.fn(async () => {});
-		await a.close(view("B").handle, authorize);
+		await a.close(view("B").handle, grant(authorize));
 		expect(authorize).toHaveBeenCalledOnce();
 		expect(rig.rows.get("B")).toEqual([]);
 		expect(rig.rows.get("C")).toEqual([view("C")]);
@@ -140,13 +147,16 @@ describe("view control", () => {
 		const rig = network();
 		const a = rig.controls.get("A")!;
 		await expect(
-			a.close(view("B").handle, async () => {
-				throw new Error("denied");
-			}),
+			a.close(
+				view("B").handle,
+				grant(async () => {
+					throw new Error("denied");
+				}),
+			),
 		).rejects.toThrow("denied");
 		expect(rig.rows.get("B")).toEqual([view("B")]);
 		rig.rows.set("B", [view("B", "second")]);
-		await expect(a.close(view("B").handle, async () => {})).rejects.toThrow();
+		await expect(a.close(view("B").handle, grant())).rejects.toThrow();
 		expect(rig.rows.get("B")).toEqual([view("B", "second")]);
 	});
 
@@ -157,21 +167,59 @@ describe("view control", () => {
 		expect(rig.rows.get("B")).toEqual([view("B")]);
 	});
 
+	it("allows renderer preparation to stop showing the target before final validation", async () => {
+		const rig = network(undefined, undefined, () => {
+			rig.rows.set("B", [{ ...view("B"), tab: { ...view("B").tab, looked: false } }]);
+		});
+		rig.rows.set("B", [{ ...view("B"), tab: { ...view("B").tab, looked: true } }]);
+		await rig.controls.get("A")!.close(view("B").handle, grant());
+		expect(rig.rows.get("B")).toEqual([]);
+		expect(rig.rows.get("C")).toEqual([view("C")]);
+	});
+
 	it("rejects changes while authorization is pending", async () => {
 		const rig = network();
 		const a = rig.controls.get("A")!;
 		await expect(
-			a.close(view("B").handle, async () => {
-				rig.rows.set("B", [view("B", "second")]);
-			}),
+			a.close(
+				view("B").handle,
+				grant(async () => {
+					rig.rows.set("B", [view("B", "second")]);
+				}),
+			),
 		).rejects.toThrow();
 		expect(rig.rows.get("B")).toEqual([view("B", "second")]);
+	});
+
+	it("revalidates a local caller at the same commit boundary", async () => {
+		const ready = Promise.withResolvers<void>();
+		const prepared = Promise.withResolvers<void>();
+		const rig = network(ready.promise, undefined, prepared.resolve);
+		let active = true;
+		const authorization: ViewAuthorization = {
+			authorize: vi.fn(async () => {}),
+			validate: vi.fn(async () => {
+				if (!active) throw new Error("caller revoked");
+			}),
+			current: () => active,
+			release: vi.fn(async () => {}),
+		};
+		const closing = rig.controls.get("B")!.close(view("B").handle, authorization);
+		const denied = expect(closing).rejects.toThrow("caller revoked");
+		await Promise.race([prepared.promise, closing]);
+		active = false;
+		ready.resolve();
+		await denied;
+		expect(authorization.validate).toHaveBeenCalledOnce();
+		expect(authorization.release).toHaveBeenCalledOnce();
+		expect(rig.rows.get("B")).toEqual([view("B")]);
 	});
 
 	it("revalidates the original caller after the renderer is ready to commit", async () => {
 		const ready = Promise.withResolvers<void>();
 		const initiallyAuthorized = Promise.withResolvers<void>();
-		const rig = network(ready.promise);
+		const prepared = Promise.withResolvers<void>();
+		const rig = network(ready.promise, undefined, prepared.resolve);
 		let active = true;
 		const authorize = vi.fn(async () => {
 			initiallyAuthorized.resolve();
@@ -192,6 +240,7 @@ describe("view control", () => {
 		]);
 		const denied = expect(closing).rejects.toThrow("caller revoked");
 		await Promise.race([initiallyAuthorized.promise, closing]);
+		await Promise.race([prepared.promise, closing]);
 		active = false;
 		ready.resolve();
 		await denied;
@@ -239,9 +288,14 @@ describe("view control", () => {
 		const a = rig.controls.get("A")!;
 		const b = rig.controls.get("B")!;
 		const gate = Promise.withResolvers<void>();
-		const closing = a.close(view("B").handle, () => gate.promise);
+		const closing = a.close(
+			view("B").handle,
+			grant(() => gate.promise),
+		);
 		const challenge = rig.challenges[0]!;
-		const parsed = z.object({ token: z.string(), nonce: z.string() }).parse(challenge.data);
+		const parsed = z
+			.object({ token: z.string(), nonce: z.string(), phase: z.enum(["initial", "final"]) })
+			.parse(challenge.data);
 		const answer = { ...parsed, handle: view("B").handle };
 		const conn = rig.channels.get("A:B")!.conn;
 		await expect(b.call("C", "views.authorize", answer, conn)).rejects.toThrow();
@@ -259,7 +313,10 @@ describe("view control", () => {
 		const a = rig.controls.get("A")!;
 		const b = rig.controls.get("B")!;
 		const gate = Promise.withResolvers<void>();
-		const closing = a.close(view("B").handle, () => gate.promise);
+		const closing = a.close(
+			view("B").handle,
+			grant(() => gate.promise),
+		);
 		const conn = rig.channels.get("A:B")!.conn;
 		b.disconnected("A", conn);
 		gate.resolve();
@@ -267,10 +324,38 @@ describe("view control", () => {
 		expect(rig.rows.get("B")).toEqual([view("B")]);
 	});
 
+	it("releases a receipt produced after the source connection drops", async () => {
+		const rig = network();
+		const a = rig.controls.get("A")!;
+		const gate = Promise.withResolvers<void>();
+		const released = Promise.withResolvers<void>();
+		const authorization: ViewAuthorization = {
+			authorize: vi.fn(() => gate.promise),
+			validate: vi.fn(async () => {}),
+			current: () => true,
+			release: vi.fn(async () => {
+				released.resolve();
+			}),
+		};
+		const closing = a.close(view("B").handle, authorization);
+		const denied = expect(closing).rejects.toThrow("connection closed");
+		const identity = rig.channels.get("A:B")!.identity;
+		a.dropIdentity("B", identity);
+		await denied;
+		expect(authorization.release).not.toHaveBeenCalled();
+		gate.resolve();
+		await released.promise;
+		expect(authorization.release).toHaveBeenCalledOnce();
+		expect(rig.rows.get("B")).toEqual([view("B")]);
+	});
+
 	it("expires an unanswered challenge without closing the view", async () => {
 		const rig = network();
 		const gate = Promise.withResolvers<void>();
-		const closing = rig.controls.get("A")!.close(view("B").handle, () => gate.promise);
+		const closing = rig.controls.get("A")!.close(
+			view("B").handle,
+			grant(() => gate.promise),
+		);
 		const result = expect(closing).rejects.toThrow("timed out");
 		await vi.advanceTimersByTimeAsync(1000);
 		await result;
@@ -334,7 +419,9 @@ describe("view control", () => {
 		b = new ViewControl({
 			deviceId: () => "B",
 			listLocal: () => visible,
-			closeLocal: async () => {
+			closeLocal: async (_handle, _facts, beforeCommit) => {
+				const current = await beforeCommit();
+				if (!current()) throw new Error("view authorization expired");
 				visible = [];
 			},
 			remote: { peers: () => [], channel: () => null },
@@ -343,7 +430,7 @@ describe("view control", () => {
 		a.connected("B", incoming);
 		b.connectedOutgoing(outgoing);
 		expect((await a.list()).views).toEqual([view("B")]);
-		await a.close(view("B").handle, async () => {});
+		await a.close(view("B").handle, grant());
 		expect(visible).toEqual([]);
 	});
 
@@ -357,6 +444,6 @@ describe("view control", () => {
 			remote: { peers: () => ["B"], channel: () => ({ identity: {}, request: async () => "closed" }) },
 			timeoutMs: 1000,
 		});
-		await expect(control.close(view("B").handle, async () => {})).rejects.toThrow("not confirmed");
+		await expect(control.close(view("B").handle, grant())).rejects.toThrow("not confirmed");
 	});
 });

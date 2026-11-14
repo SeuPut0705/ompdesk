@@ -591,6 +591,7 @@ export class LocalHostServices implements HostServices {
 	readonly #graceMs: number;
 	readonly #tabs = new Map<string, HostTab>();
 	readonly #leftTabs = new Set<string>();
+	readonly #leftReceipts = new Map<string, string>();
 	/** Moves a device's command has on its way, by `resumeId` (turn-resume.ts `trackMove`). */
 	readonly #moves = new MovesInFlight();
 	/** Files a device sends in parts (`host.files.uploadPart`), by device and upload id, until the last part lands. */
@@ -1761,17 +1762,19 @@ export class LocalHostServices implements HostServices {
 	}
 
 	#leave(peer: PeerInfo, rtab: string, sessionPath: string, conn: HostConnection): void {
+		const key = this.#key(peer.deviceId, rtab);
+		const previous = this.#leftReceipts.get(key);
+		if (previous !== undefined) {
+			if (previous !== sessionPath) throw codedError("invalid_session_path", "This view left a different session");
+			return;
+		}
 		const tab = this.#tab(peer, rtab);
 		if (tab.conn !== conn) throw codedError("unknown_tab", "This connection no longer owns that view");
 		if (tab.sessionFile !== sessionPath)
 			throw codedError("invalid_session_path", "The view no longer shows that session");
-		const source = typeof tab.viewing === "object" ? tab.viewing : tab;
-		const remaining = tab.viewing ? source.views.size - 1 + (source.ownerDetached ? 0 : 1) : source.views.size;
-		if (tab.viewing !== "window" && remaining === 0 && runBusy(source.run))
-			throw codedError("session_running", "This session is still running");
-		const key = this.#key(peer.deviceId, rtab);
 		this.#leftTabs.add(key);
-		if (tab.viewing || tab.views.size === 0) {
+		this.#leftReceipts.set(key, sessionPath);
+		if (tab.viewing || (tab.views.size === 0 && !runBusy(tab.run))) {
 			this.#closeTab(key);
 			return;
 		}
@@ -1792,7 +1795,8 @@ export class LocalHostServices implements HostServices {
 	#viewLeft(tab: HostTab, view: HostedTabView): void {
 		tab.views.delete(view);
 		if (this.#tabs.get(this.#key(tab.peerId, tab.rtab)) !== tab) return;
-		if (tab.ownerDetached && tab.views.size === 0) this.#closeTab(this.#key(tab.peerId, tab.rtab));
+		if (tab.ownerDetached && tab.views.size === 0 && !runBusy(tab.run))
+			this.#closeTab(this.#key(tab.peerId, tab.rtab));
 		else this.#routeDetachedCalls(tab, view);
 	}
 

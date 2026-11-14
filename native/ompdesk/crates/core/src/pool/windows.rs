@@ -533,116 +533,32 @@ impl Ctx {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn leave_exact_window_view(
+    pub(super) fn commit_exact_window_view(
         &self,
-        token: u64,
-        guard: u64,
         win: i64,
         tab: &str,
         identity: &str,
         session_path: &str,
-    ) -> R<()> {
-        let allowed = self
-            .ask("viewLeaveAllowed", json!({"guard": guard, "tab": tab}))
-            .await?;
-        if allowed.as_bool() != Some(true) {
-            self.settle_ok(token, Value::from(false));
-            return Ok(());
-        }
-        let last = self.with(|pool| {
-            let entry = pool.entry_mut(tab)?;
+    ) -> Value {
+        self.with(|pool| {
+            let Some(entry) = pool.entry(tab) else {
+                return Value::Null;
+            };
             if entry.leave_pending
                 || entry.view_identity(win).as_deref() != Some(identity)
                 || entry.session_file.as_deref() != Some(session_path)
+                || pool.request_owners.values().any(|owner| *owner == entry.seq)
             {
-                return None;
+                return Value::Null;
             }
-            let last = entry.viewers.len() + usize::from(!entry.owner_detached)
+            let last = entry.viewers.len()
+                + usize::from(!entry.owner_detached)
                 + entry.device_views.len()
                 == 1;
             if last && entry.busy() {
-                return None;
+                return Value::Null;
             }
-            entry.leave_pending = true;
-            Some((last, entry.seq))
-        });
-        let Some((was_last, seq)) = last else {
-            self.settle_ok(token, Value::from(false));
-            return Ok(());
-        };
-        let source = if was_last {
-            let result = self.out.ask_later(
-                "leaveSourceView",
-                &json!({"guard": guard, "tab": tab, "sessionPath": session_path}),
-            ).await;
-            match result {
-                Ok(source) => source,
-                Err(error) => {
-                    self.with(|pool| {
-                        if let Some(entry) = pool.entry_mut(tab).filter(|entry| entry.seq == seq) {
-                            entry.leave_pending = false;
-                        }
-                    });
-                    self.settle_err(token, Some(&error.code), &error.message);
-                    return Ok(());
-                }
-            }
-        } else {
-            Value::from(true)
-        };
-        let permitted = if source.as_bool() == Some(true) {
-            self.ask("viewLeaveAllowed", json!({"guard": guard, "tab": tab}))
-                .await
-                .map(|value| value.as_bool() == Some(true))
-        } else {
-            Ok(false)
-        };
-        let permitted = match permitted {
-            Ok(permitted) => permitted,
-            Err(error) => {
-                self.with(|pool| {
-                    if let Some(entry) = pool.entry_mut(tab).filter(|entry| entry.seq == seq) {
-                        entry.leave_pending = false;
-                    }
-                });
-                self.settle_err(token, Some(&error.code), &error.message);
-                return Ok(());
-            }
-        };
-        if !permitted {
-            self.with(|pool| {
-                if let Some(entry) = pool.entry_mut(tab).filter(|entry| entry.seq == seq) {
-                    entry.leave_pending = false;
-                }
-            });
-            self.settle_ok(token, Value::from(false));
-            return Ok(());
-        }
-        enum Step {
-            Refused,
-            Release,
-            Left(u64, bool),
-        }
-        let step = self.with(|pool| {
-            let Some(entry) = pool.entry_mut(tab) else {
-                return Step::Refused;
-            };
-            if entry.seq != seq {
-                return Step::Refused;
-            }
-            entry.leave_pending = false;
-            if entry.view_identity(win).as_deref() != Some(identity)
-                || entry.session_file.as_deref() != Some(session_path)
-            {
-                return Step::Refused;
-            }
-            let last = entry.viewers.len() + usize::from(!entry.owner_detached)
-                + entry.device_views.len()
-                == 1;
-            if last {
-                return if entry.busy() || !was_last { Step::Refused } else { Step::Release };
-            }
+            let entry = pool.entry_mut(tab).expect("entry checked above");
             let owner = !entry.owner_detached && entry.win_id == win;
             if owner {
                 entry.owner_detached = true;
@@ -650,36 +566,52 @@ impl Ctx {
                 entry.viewers.retain(|viewer| *viewer != win);
             }
             entry.view_generations.remove(&win);
-            Step::Left(entry.seq, owner)
-        });
-        match step {
-            Step::Refused => {
-                self.settle_ok(token, Value::from(false));
-                return Ok(());
-            }
-            Step::Release => {
-                self.release_entry(tab).await?;
-            }
-            Step::Left(seq, owner) => {
-                self.not_when_closed(
-                    win,
-                    if owner { Closer::Entry(seq) } else { Closer::Viewer(seq, win) },
-                );
-                if owner {
-                    self.push(&json!({"k": "ownerDetached", "tab": tab}));
-                }
-                self.unwire_full(tab, win);
-                self.leave_window_view(tab, win).await?;
-                self.forget_drafts(tab, win).await?;
-                self.forget_subagent_level(tab, super::state::LevelKey::Window(win)).await?;
-                self.push(&json!({"k": "viewTargetChanged", "tab": tab}));
-                self.on_running_change().await?;
-                self.send_tab_lists(tab).await?;
-            }
+            entry.leave_pending = true;
+            json!({"seq": entry.seq, "owner": owner, "last": last})
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn finish_exact_window_view(
+        &self,
+        token: u64,
+        win: i64,
+        tab: &str,
+        seq: u64,
+        owner: bool,
+        last: bool,
+        remote: bool,
+    ) -> R<()> {
+        let present = self.with(|pool| pool.entry(tab).is_some_and(|entry| entry.seq == seq));
+        if !present {
+            self.settle_ok(token, Value::Null);
+            return Ok(());
         }
+        self.not_when_closed(
+            win,
+            if owner { Closer::Entry(seq) } else { Closer::Viewer(seq, win) },
+        );
+        if owner {
+            self.push(&json!({"k": "ownerDetached", "tab": tab}));
+        }
+        self.unwire_full(tab, win);
+        self.leave_window_view(tab, win).await?;
+        self.forget_drafts(tab, win).await?;
+        self.forget_subagent_level(tab, super::state::LevelKey::Window(win)).await?;
+        self.push(&json!({"k": "viewTargetChanged", "tab": tab}));
+        self.on_running_change().await?;
+        self.send_tab_lists(tab).await?;
         self.send_tab_list(win, Some(&[tab.to_string()]), None).await?;
         self.notify_window_tabs_changed(win).await?;
-        self.settle_ok(token, Value::from(true));
+        self.with(|pool| {
+            if let Some(entry) = pool.entry_mut(tab).filter(|entry| entry.seq == seq) {
+                entry.leave_pending = false;
+            }
+        });
+        if last {
+            self.release_hidden_if_unused(tab, !remote).await?;
+        }
+        self.settle_ok(token, Value::Null);
         Ok(())
     }
 
@@ -787,7 +719,7 @@ impl Ctx {
             self.notify_window_tabs_changed(win).await?;
         }
         self.push(&json!({"k": "viewTargetChanged", "tab": tab}));
-        self.release_hidden_if_unused(tab, false).await?;
+        self.release_hidden_if_unused(tab, true).await?;
         Ok(())
     }
 

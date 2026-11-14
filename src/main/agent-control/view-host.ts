@@ -15,11 +15,16 @@ interface PendingClose {
 	reject(error: Error): void;
 	timer: NodeJS.Timeout;
 	started: boolean;
+	beforeCommit(): Promise<() => boolean>;
 }
 
 export interface LocalViewHostDeps {
 	surfaces(): LocalViewSurface[];
-	close(surface: LocalViewSurface, stillClosable: () => boolean): Promise<boolean>;
+	close(
+		surface: LocalViewSurface,
+		stillClosable: () => boolean,
+		beforeCommit: () => Promise<() => boolean>,
+	): Promise<boolean>;
 	isWeb(win: ClientWindow): boolean;
 	timeoutMs: number;
 }
@@ -53,12 +58,16 @@ export class LocalViewHost {
 		return current.tab.sessionPath === initial.tab.sessionPath;
 	}
 
-	async close(handle: SessionViewHandle, authorized: ViewCloseFacts): Promise<void> {
+	async close(
+		handle: SessionViewHandle,
+		authorized: ViewCloseFacts,
+		beforeCommit: () => Promise<() => boolean>,
+	): Promise<void> {
 		const surface = this.#find(handle);
 		if (!surface || !sameView(authorized.handle, handle) || !this.#permitted(authorized))
 			throw new Error("That view changed or is no longer safe to close. List its views again.");
 		if (this.#deps.isWeb(surface.win)) {
-			await this.#release(surface, authorized);
+			await this.#release(surface, authorized, beforeCommit);
 			return;
 		}
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -73,6 +82,7 @@ export class LocalViewHost {
 			reject,
 			timer,
 			started: false,
+			beforeCommit,
 		});
 		try {
 			surface.win.webContents.send(AGENT_CONTROL_VIEW, {
@@ -88,9 +98,13 @@ export class LocalViewHost {
 		await promise;
 	}
 
-	async #release(surface: LocalViewSurface, authorized: ViewCloseFacts): Promise<void> {
+	async #release(
+		surface: LocalViewSurface,
+		authorized: ViewCloseFacts,
+		beforeCommit: () => Promise<() => boolean>,
+	): Promise<void> {
 		if (!this.#permitted(authorized)) throw new Error("That view changed before it could close.");
-		const released = await this.#deps.close(surface, () => this.#permitted(authorized));
+		const released = await this.#deps.close(surface, () => this.#permitted(authorized), beforeCommit);
 		if (!released || this.#find(authorized.handle)) throw new Error("The selected view was not closed.");
 	}
 
@@ -107,7 +121,7 @@ export class LocalViewHost {
 			return false;
 		}
 		try {
-			await this.#release(pending.surface, pending.surface.facts);
+			await this.#release(pending.surface, pending.surface.facts, pending.beforeCommit);
 			pending.resolve();
 			return true;
 		} catch (error) {

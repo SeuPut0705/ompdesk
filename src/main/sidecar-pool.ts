@@ -93,7 +93,7 @@ import type { WindowTabFact } from "./quit-guard";
 import { AGENT_REVIEW_EVENT } from "./remote/app-protocol";
 import { HostedTabView } from "./remote/hosted-view";
 import type { TabHolder } from "./remote/protocol";
-import { RemoteSidecar } from "./remote/remote-sidecar";
+import { type PreparedRemoteViewLeave, RemoteSidecar } from "./remote/remote-sidecar";
 import type { SessionSummaries, SummaryFacts, SummarySource } from "./session-summaries";
 import type { SettleWatch } from "./settle-watch";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -409,7 +409,6 @@ export class SidecarPool {
 	readonly #viewIds = new WeakMap<HostedTabView, number>();
 	#nextView = 0;
 	readonly #viewSources = new WeakMap<HostedTabView, string>();
-	readonly #viewLeaveGuards = new Map<number, () => boolean>();
 	#viewEpoch = 0;
 	/** The one retry object per `auto_retry_start` the resume rules compare by identity: tab → the object handed out. */
 	readonly #retries = new Map<string, { id: number; retry: { errorMessage: string } }>();
@@ -714,15 +713,6 @@ export class SidecarPool {
 		this.#summaryRead = null;
 		const tab = item.tab as string;
 		switch (q) {
-			case "viewLeaveAllowed":
-				return this.#viewLeaveGuards.get(item.guard as number)?.() === true;
-			case "leaveSourceView": {
-				const handle = this.#live(tab);
-				if (!handle || this.#viewLeaveGuards.get(item.guard as number)?.() !== true) return false;
-				if (handle.sidecar instanceof RemoteSidecar)
-					return handle.sidecar.leaveView(item.sessionPath as string).then(() => true);
-				return true;
-			}
 			case "blocked": {
 				const sessionPath = (item.sessionPath as string | null) ?? undefined;
 				// A session the user deleted never comes back as a tab, whoever asks (a layout, a marker, a reopen);
@@ -1433,21 +1423,55 @@ export class SidecarPool {
 		expectedIdentity: string,
 		expectedSessionPath: string,
 		stillClosable: () => boolean,
+		beforeCommit: () => Promise<() => boolean>,
 	): Promise<boolean> {
 		if (!stillClosable() || this.viewIdentity(win, tabId) !== expectedIdentity) return false;
-		const guard = ++this.#token;
-		this.#viewLeaveGuards.set(guard, stillClosable);
+		let committed: { seq: number; owner: boolean; last: boolean } | null;
+		let prepared: PreparedRemoteViewLeave | undefined;
 		try {
-			return await this.#later<boolean>("leaveWindowView", {
-				guard,
+			const current = await beforeCommit();
+			if (!stillClosable() || !current() || this.viewIdentity(win, tabId) !== expectedIdentity) return false;
+			const sidecar = this.#live(tabId)?.sidecar;
+			prepared = sidecar instanceof RemoteSidecar ? sidecar.prepareViewLeave(expectedSessionPath) : undefined;
+			committed = this.#call("commitExactWindowView", {
 				win: this.#windowId(win),
 				tab: tabId,
 				identity: expectedIdentity.slice(expectedIdentity.indexOf("/") + 1),
 				sessionPath: expectedSessionPath,
 			});
-		} finally {
-			this.#viewLeaveGuards.delete(guard);
+		} catch (error) {
+			prepared?.cancel();
+			throw error;
 		}
+		if (!committed) {
+			prepared?.cancel();
+			return false;
+		}
+		const upstream = prepared && committed.last ? prepared.commit() : Promise.resolve();
+		if (!committed.last) prepared?.cancel();
+		const cleanup = this.#later<void>("finishExactWindowView", {
+			win: this.#windowId(win),
+			tab: tabId,
+			...committed,
+			remote: prepared !== undefined,
+		});
+		const [remoteResult, cleanupResult] = await Promise.allSettled([upstream, cleanup]);
+		if (remoteResult.status === "rejected" || cleanupResult.status === "rejected") {
+			const cause =
+				remoteResult.status === "rejected"
+					? remoteResult.reason
+					: cleanupResult.status === "rejected"
+						? cleanupResult.reason
+						: undefined;
+			throw Object.assign(new Error("The local view closed, but its cleanup was not confirmed", { cause }), {
+				code: "remote_leave_unconfirmed",
+				localViewClosed: true,
+				cleanupUnconfirmed: true,
+				retryAvailable: false,
+				...(prepared && committed.last ? { target: prepared.target } : {}),
+			});
+		}
+		return true;
 	}
 
 	reviveDetached(marker: ResumeMarker): string | null {
