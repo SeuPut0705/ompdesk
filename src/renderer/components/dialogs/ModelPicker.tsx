@@ -89,6 +89,7 @@ export function ModelPicker() {
 
 	const [query, setQuery] = useState("");
 	const [openRouterExpanded, setOpenRouterExpanded] = useState(false);
+	const [releaseDates, setReleaseDates] = useState<ReadonlyMap<string, number>>(() => new Map());
 	const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
 	const [switching, setSwitching] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -124,6 +125,14 @@ export function ModelPicker() {
 			]);
 			if (version !== requestVersion.current) return;
 			setLoading(false);
+			if (modelsResult.status === "fulfilled") {
+				const dates = new Map<string, number>();
+				for (const model of modelsResult.value.models) {
+					if (model.provider === "openrouter" && model.releasedAt !== undefined)
+						dates.set(model.id, model.releasedAt);
+				}
+				setReleaseDates(dates);
+			}
 			const providersOk = providersResult.status === "fulfilled" && providersResult.value.success;
 			if (providersOk) {
 				const data = providersResult.value.data as { providers?: LoginProvider[] } | undefined;
@@ -216,10 +225,10 @@ export function ModelPicker() {
 				models:
 					provider === "openrouter"
 						? [...models].sort((a, b) => {
-								const aDate =
-									typeof a.releasedAt === "number" && Number.isFinite(a.releasedAt) ? a.releasedAt : -Infinity;
-								const bDate =
-									typeof b.releasedAt === "number" && Number.isFinite(b.releasedAt) ? b.releasedAt : -Infinity;
+								const aRelease = releaseDates.get(a.id) ?? a.releasedAt;
+								const bRelease = releaseDates.get(b.id) ?? b.releasedAt;
+								const aDate = typeof aRelease === "number" && Number.isFinite(aRelease) ? aRelease : -Infinity;
+								const bDate = typeof bRelease === "number" && Number.isFinite(bRelease) ? bRelease : -Infinity;
 								return bDate === aDate ? 0 : bDate > aDate ? 1 : -1;
 							})
 						: models,
@@ -236,7 +245,16 @@ export function ModelPicker() {
 			...(recent.length > 0 ? [{ id: RECENT_GROUP, provider: null, models: recent, collapsed: false }] : []),
 			...byProvider,
 		];
-	}, [availableModels, current, nameByProvider, namedProviders, openRouterExpanded, query, recentSelectors]);
+	}, [
+		availableModels,
+		current,
+		nameByProvider,
+		namedProviders,
+		openRouterExpanded,
+		query,
+		recentSelectors,
+		releaseDates,
+	]);
 
 	// Flat row order (group order → in-group order) for keyboard navigation; a
 	// recent model also listed under its provider is a separate row.

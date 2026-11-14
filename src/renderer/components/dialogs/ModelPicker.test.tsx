@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ModelInfo } from "../../../shared/rpc-types";
+import type { AvailableModelsResult, ModelInfo } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
@@ -51,16 +51,17 @@ const MODELS = [
 let container: HTMLElement;
 let root: Root;
 
-async function mount(models: ModelInfo[] = MODELS): Promise<void> {
+async function mount(models: ModelInfo[] = MODELS, catalogRead?: Promise<AvailableModelsResult>): Promise<void> {
 	useSessionStore.setState({ status: "ready" });
 	useModelStore.setState({
 		availableModels: models,
-		refreshAvailableModels: async () => ({
-			models,
-			discoveryStates: [],
-			refreshPending: false,
-			generation: 1,
-		}),
+		refreshAvailableModels: async () =>
+			catalogRead ?? {
+				models,
+				discoveryStates: [],
+				refreshPending: false,
+				generation: 1,
+			},
 	});
 	useUiStore.setState({ modelPickerOpen: true });
 	container = document.createElement("div") as unknown as HTMLElement;
@@ -247,6 +248,30 @@ describe("ModelPicker OpenRouter group", () => {
 			}),
 		);
 	};
+
+	it("keeps release ordering across raw catalog pushes and a late dated read without restoring removed models", async () => {
+		const response = Promise.withResolvers<AvailableModelsResult>();
+		const raw = routerModels.map(model => ({ provider: model.provider, id: model.id, name: model.name }));
+		await mount([...MODELS, ...raw], response.promise);
+		await act(async () => disclosure().click());
+		await act(async () => useModelStore.setState({ availableModels: [raw[1], raw[3], raw[4]] }));
+		await act(async () =>
+			response.resolve({
+				models: routerModels,
+				discoveryStates: [],
+				refreshPending: false,
+				generation: 1,
+			}),
+		);
+		expect(rows("openrouter")).toEqual(["New B", "Old", "Unknown B"]);
+		await act(async () =>
+			useModelStore.setState({
+				availableModels: [raw[1], { provider: "anthropic", id: "new-b", name: "Other provider" }, raw[4]],
+			}),
+		);
+		expect(rows("openrouter")).toEqual(["New B", "Old"]);
+		expect(rows("anthropic")).toEqual(["Other provider"]);
+	});
 
 	it("folds initially, sorts only OpenRouter, and resets on reopening", async () => {
 		recent = { selectors: [] };
