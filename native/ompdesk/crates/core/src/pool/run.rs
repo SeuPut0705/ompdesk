@@ -6,6 +6,10 @@
 //! Times are milliseconds on the clock of the one who asks (`now`): main sends its `Date.now()` with each call, so the
 //! tests' fake clock is the clock of the rules here too.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_OUTCOME: AtomicU64 = AtomicU64::new(1);
+
 use serde_json::{Map, Value, json};
 
 /// The open retry saga's latest attempt (`IpcRetrySaga`): the four fields the event carried, and when it began.
@@ -221,6 +225,8 @@ pub(crate) struct Tracking {
     pub run: RunState,
     /// How the last finished run ended; cleared when the next run starts.
     pub last_run: Option<Value>,
+    /// Native object identity, retained across reads and never included in the page's JSON.
+    pub last_run_id: Option<u64>,
     /// The user pressed Stop since the run began. Cleared by the next agent_start.
     pub stopped: bool,
     /// Stock's auto-retry waiting for its next attempt: `errorMessage`, and the serial of its `auto_retry_start`.
@@ -242,6 +248,7 @@ impl Tracking {
         match event["type"].as_str() {
             Some("agent_start") => {
                 self.last_run = None;
+                self.last_run_id = None;
                 self.stopped = false;
                 self.retry = None;
             }
@@ -256,6 +263,7 @@ impl Tracking {
                 if ended && event.get("isTerminal").and_then(Value::as_bool) != Some(false) =>
             {
                 self.last_run = Some(run_outcome(event.get("messages")));
+                self.last_run_id = Some(NEXT_OUTCOME.fetch_add(1, Ordering::Relaxed));
             }
             Some("auto_retry_end") => {
                 self.retry = None;
@@ -266,6 +274,7 @@ impl Tracking {
                         outcome.insert("errorMessage".into(), error.clone());
                     }
                     self.last_run = Some(Value::Object(outcome));
+                    self.last_run_id = Some(NEXT_OUTCOME.fetch_add(1, Ordering::Relaxed));
                 }
             }
             _ => {}
@@ -417,5 +426,28 @@ mod tests {
         let first = tracking.retry.as_ref().map(|retry| retry.serial);
         tracking.track(&start, 2, &mut serial);
         assert_ne!(first, tracking.retry.as_ref().map(|retry| retry.serial));
+    }
+
+    #[test]
+    fn repeated_idle_reads_keep_identity_but_equal_new_outcomes_do_not() {
+        let mut tracking = Tracking::default();
+        let mut serial = 0;
+        let start = json!({"type": "agent_start"});
+        let end = json!({"type": "agent_end", "messages": []});
+        tracking.track(&start, 1, &mut serial);
+        tracking.track(&end, 2, &mut serial);
+        let first = tracking
+            .last_run_id
+            .expect("a finished outcome has identity");
+        let value = tracking.last_run.clone();
+        tracking.run.settle(true, 3);
+        assert_eq!(tracking.clone().last_run_id, Some(first));
+        tracking.track(&json!({"type": "auto_compaction_end"}), 4, &mut serial);
+        assert_eq!(tracking.last_run_id, Some(first));
+        tracking.track(&start, 5, &mut serial);
+        assert_eq!(tracking.last_run_id, None);
+        tracking.track(&end, 6, &mut serial);
+        assert_eq!(tracking.last_run, value);
+        assert!(tracking.last_run_id.unwrap() > first);
     }
 }

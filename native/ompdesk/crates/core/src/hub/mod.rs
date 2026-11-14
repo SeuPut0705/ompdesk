@@ -30,6 +30,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::task::{Context, Wake, Waker};
 
@@ -42,6 +43,8 @@ use tokio::sync::{Notify, mpsc, oneshot};
 use crate::server::Fault;
 
 mod listen;
+#[cfg(test)]
+mod native_tests;
 mod probe;
 #[cfg(test)]
 mod tests;
@@ -258,6 +261,8 @@ struct Conn {
 struct Instance {
     kind: &'static Kind,
     conn: ConnId,
+    generation: u64,
+    native: Option<Rc<dyn NativeSink>>,
 }
 
 #[derive(Default)]
@@ -267,7 +272,10 @@ struct Hub {
     instances: HashMap<u64, Instance>,
     /// Asks waiting for main, with the instance that asked: its close fails them.
     asks: HashMap<u64, (u64, oneshot::Sender<Result<Value, Fault>>)>,
+    native_cancels: HashMap<u64, oneshot::Sender<()>>,
     next_ask: u64,
+    next_generation: u64,
+    native_pending: Vec<NativeDelivery>,
 }
 
 thread_local! {
@@ -294,6 +302,110 @@ struct ItemsData<'a> {
 struct ErrorBody<'a> {
     code: &'a str,
     message: &'a str,
+}
+
+/// Receives native output on the hub thread, after the current job and its microtasks.
+pub trait NativeSink {
+    fn item(&self, item: Value);
+    fn ask(
+        &self,
+        question: String,
+        payload: Value,
+        sync: bool,
+    ) -> LocalFuture<Result<Value, Fault>>;
+}
+
+enum NativeDelivery {
+    Item(Out, Value),
+    Ask(Out, u64, String, Value, bool),
+}
+
+/// Binds an existing kind to an in-process sink. Call only on the hub thread.
+/// The initializer may retain `out`; a failure closes the binding and its pending asks.
+pub fn bind_native(
+    id: u64,
+    kind: &'static Kind,
+    sink: Rc<dyn NativeSink>,
+    init: impl FnOnce(Out) -> Result<(), Fault>,
+) -> Result<Out, Fault> {
+    let out = with_hub(|hub| {
+        if hub.instances.contains_key(&id) {
+            return Err(Fault::new(
+                "instance_open",
+                format!("Instance {id} is already open"),
+            ));
+        }
+        hub.next_generation += 1;
+        let out = Out {
+            id,
+            generation: hub.next_generation,
+        };
+        hub.instances.insert(
+            id,
+            Instance {
+                kind,
+                conn: 0,
+                generation: out.generation,
+                native: Some(sink),
+            },
+        );
+        Ok(out)
+    })?;
+    if let Err(fault) = init(out) {
+        out.close();
+        return Err(fault);
+    }
+    Ok(out)
+}
+
+fn flush_native() {
+    let pending = with_hub(|hub| std::mem::take(&mut hub.native_pending));
+    for delivery in pending {
+        let out = match &delivery {
+            NativeDelivery::Item(out, _) | NativeDelivery::Ask(out, ..) => *out,
+        };
+        let sink = with_hub(|hub| {
+            hub.instances
+                .get(&out.id)
+                .filter(|instance| instance.generation == out.generation)
+                .and_then(|instance| instance.native.clone())
+        });
+        let Some(sink) = sink else { continue };
+        match delivery {
+            NativeDelivery::Item(_, item) => sink.item(item),
+            NativeDelivery::Ask(_, ask, question, payload, sync) => {
+                let future = sink.ask(question, payload, sync);
+                let (cancel, cancelled) = oneshot::channel();
+                let registered = with_hub(|hub| {
+                    if hub.asks.contains_key(&ask) {
+                        hub.native_cancels.insert(ask, cancel);
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if registered {
+                    spawn(async move {
+                        tokio::select! {
+                            result = future => {
+                                let waiting = with_hub(|hub| {
+                                    hub.native_cancels.remove(&ask);
+                                    hub.asks.remove(&ask)
+                                });
+                                if let Some((_, waiting)) = waiting {
+                                    let _ = waiting.send(result);
+                                }
+                            }
+                            _ = cancelled => {}
+                        }
+                    });
+                }
+            }
+        }
+    }
+    if with_hub(|hub| !hub.native_pending.is_empty()) {
+        READY.notify.notify_one();
+    }
 }
 
 /// Writes what every connection is owed.
@@ -336,6 +448,7 @@ fn flush() {
             }
         }
     });
+    flush_native();
 }
 
 fn answer(conn: ConnId, id: u64, result: Result<Value, Fault>) {
@@ -350,6 +463,7 @@ fn answer(conn: ConnId, id: u64, result: Result<Value, Fault>) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Out {
     id: u64,
+    generation: u64,
 }
 
 impl Out {
@@ -359,7 +473,18 @@ impl Out {
 
     /// Whether the instance is still open.
     pub fn open(self) -> bool {
-        with_hub(|hub| hub.instances.contains_key(&self.id))
+        with_hub(|hub| {
+            hub.instances
+                .get(&self.id)
+                .is_some_and(|instance| instance.generation == self.generation)
+        })
+    }
+
+    /// Closes this binding, without affecting a later instance with the same id.
+    pub fn close(self) {
+        if self.open() {
+            close_instance(self.id);
+        }
     }
 
     /// Queues `item` (an object with a `k`) after everything this connection is owed so far.
@@ -372,9 +497,18 @@ impl Out {
             }
         };
         with_hub(|hub| {
-            let Some(conn) = hub.instances.get(&self.id).map(|instance| instance.conn) else {
+            let Some(instance) = hub
+                .instances
+                .get(&self.id)
+                .filter(|instance| instance.generation == self.generation)
+            else {
                 return;
             };
+            if instance.native.is_some() {
+                hub.native_pending.push(NativeDelivery::Item(self, value));
+                return;
+            }
+            let conn = instance.conn;
             let Some(conn) = hub.conns.get_mut(&conn) else {
                 return;
             };
@@ -423,16 +557,52 @@ impl Out {
                 });
             }
         };
-        let ask = with_hub(|hub| {
+        let queued = with_hub(|hub| {
+            let (native, conn) = hub
+                .instances
+                .get(&self.id)
+                .filter(|instance| instance.generation == self.generation)
+                .map(|instance| (instance.native.is_some(), instance.conn))?;
+            if !native && !hub.conns.contains_key(&conn) {
+                return None;
+            }
             hub.next_ask += 1;
-            hub.asks.insert(hub.next_ask, (self.id, answer));
-            hub.next_ask
+            let ask = hub.next_ask;
+            hub.asks.insert(ask, (self.id, answer));
+            if native {
+                hub.native_pending.push(NativeDelivery::Ask(
+                    self,
+                    ask,
+                    q.to_owned(),
+                    Value::Object(item),
+                    sync,
+                ));
+            } else {
+                item.insert("k".into(), Value::from("ask"));
+                item.insert("ask".into(), Value::from(ask));
+                item.insert("q".into(), Value::from(q));
+                item.insert("sync".into(), Value::from(sync));
+                let conn = hub.conns.get_mut(&conn)?;
+                match conn.pending.last_mut() {
+                    Some(Line::Items { to, items }) if *to == self.id => {
+                        items.push(Value::Object(item))
+                    }
+                    _ => conn.pending.push(Line::Items {
+                        to: self.id,
+                        items: vec![Value::Object(item)],
+                    }),
+                }
+            }
+            Some(())
         });
-        item.insert("k".into(), Value::from("ask"));
-        item.insert("ask".into(), Value::from(ask));
-        item.insert("q".into(), Value::from(q));
-        item.insert("sync".into(), Value::from(sync));
-        self.push(&Value::Object(item));
+        if queued.is_none() {
+            return Box::pin(async {
+                Err(Fault::new(
+                    "closed",
+                    "The instance closed before main answered",
+                ))
+            });
+        }
         Box::pin(async move {
             answered.await.unwrap_or_else(|_| {
                 Err(Fault::new(
@@ -452,6 +622,17 @@ fn kind_of(name: &str) -> Option<&'static Kind> {
 fn close_instance(id: u64) {
     let instance = with_hub(|hub| {
         // Dropping an ask's sender fails it: nobody will answer for an instance that is gone.
+        hub.native_pending.retain(|delivery| match delivery {
+            NativeDelivery::Item(out, _) | NativeDelivery::Ask(out, ..) => out.id != id,
+        });
+        let cancelled: Vec<_> = hub
+            .asks
+            .iter()
+            .filter_map(|(ask, (asker, _))| (*asker == id).then_some(*ask))
+            .collect();
+        for ask in cancelled {
+            hub.native_cancels.remove(&ask);
+        }
         hub.asks.retain(|_, (asker, _)| *asker != id);
         hub.instances.remove(&id)
     });
@@ -564,9 +745,34 @@ fn open(conn: ConnId, params: &RawValue) -> Result<Value, Fault> {
             format!("Instance {id} is already open"),
         ));
     }
-    with_hub(|hub| hub.instances.insert(id, Instance { kind, conn }));
-    if let Err(fault) = (kind.open)(id, &params.opts, Out { id }) {
-        with_hub(|hub| hub.instances.remove(&id));
+    let out = with_hub(|hub| {
+        hub.next_generation += 1;
+        let out = Out {
+            id,
+            generation: hub.next_generation,
+        };
+        hub.instances.insert(
+            id,
+            Instance {
+                kind,
+                conn,
+                generation: out.generation,
+                native: None,
+            },
+        );
+        out
+    });
+    if let Err(fault) = (kind.open)(id, &params.opts, out) {
+        with_hub(|hub| {
+            if hub
+                .instances
+                .get(&id)
+                .is_some_and(|instance| instance.generation == out.generation)
+            {
+                hub.asks.retain(|_, (asker, _)| *asker != id);
+                hub.instances.remove(&id);
+            }
+        });
         return Err(fault);
     }
     Ok(Value::Null)

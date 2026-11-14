@@ -29,7 +29,7 @@ pub const KILL_GRACE: Duration = Duration::from_secs(2);
 const STDERR_KEPT: usize = 64 * 1024;
 
 /// How a process runs, as main hands it over with every request.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Runner {
     pub(crate) bin: String,

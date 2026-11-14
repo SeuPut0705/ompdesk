@@ -41,6 +41,7 @@ pub struct Exit {
 /// A started omp: its shared handle and the pipes the lane reads.
 pub struct Started {
     pub proc: Arc<Proc>,
+    pub receipt: watch::Receiver<Option<Result<(), crate::server::Fault>>>,
     pub stdout: ChildStdout,
     pub stderr: ChildStderr,
 }
@@ -161,6 +162,7 @@ pub fn start(
     tokio::spawn(write_stdin(stdin, written));
     let (signals, mut asked) = mpsc::unbounded_channel::<Signal>();
     let (exit, exited) = watch::channel(false);
+    let (receipt, received) = watch::channel(None);
     tokio::spawn(async move {
         let status = loop {
             tokio::select! {
@@ -169,17 +171,27 @@ pub fn start(
             }
         };
         let info = match status {
-            Ok(status) => exit_of(status),
-            Err(_) => Exit {
-                code: Some(1),
-                signal: None,
-            },
+            Ok(status) => {
+                receipt.send_replace(Some(Ok(())));
+                exit.send_replace(true);
+                exit_of(status)
+            }
+            Err(error) => {
+                receipt.send_replace(Some(Err(crate::server::Fault::new(
+                    "child_wait_failed",
+                    error.to_string(),
+                ))));
+                Exit {
+                    code: Some(1),
+                    signal: None,
+                }
+            }
         };
-        exit.send_replace(true);
         on_exit(info);
     });
     Ok(Started {
         proc: Proc::new(pid, exited, lines, signals, timing),
+        receipt: received,
         stdout,
         stderr,
     })

@@ -257,7 +257,7 @@ pub async fn add_named(
 
 #[derive(Serialize)]
 pub struct Removal {
-    primary: String,
+    pub(super) primary: String,
 }
 
 /// Before `path` (a real path under the worktree root, main's guard) is removed: it is a checkout root, git lists it
@@ -362,10 +362,10 @@ pub async fn remove(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Lifecycle {
-    path: String,
-    branch: String,
-    source_cwd: String,
-    base_commit: String,
+    pub(super) path: String,
+    pub(super) branch: String,
+    pub(super) source_cwd: String,
+    pub(super) base_commit: String,
 }
 
 /// Whether `dir` is itself a checkout root (a parent repository does not count).
@@ -384,16 +384,16 @@ async fn is_checkout_root(git: &Git, dir: &str) -> Result<bool, Fault> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct State {
-    dirty: bool,
-    moved: bool,
-    off_branch: bool,
+    pub(super) dirty: bool,
+    pub(super) moved: bool,
+    pub(super) off_branch: bool,
 }
 
 #[derive(Serialize)]
 pub struct Snapshot {
-    state: State,
-    fingerprint: String,
-    present: bool,
+    pub(super) state: State,
+    pub(super) fingerprint: String,
+    pub(super) present: bool,
 }
 
 /// One value per part, each followed by a NUL; only ever compared with this process's own answers.
@@ -491,8 +491,8 @@ pub async fn snapshot(git: &Git, worktree: &Lifecycle) -> Result<Snapshot, Fault
 
 #[derive(Serialize)]
 pub struct SessionRemoval {
-    primary: String,
-    present: bool,
+    pub(super) primary: String,
+    pub(super) present: bool,
 }
 
 /// Before a session worktree is removed: the main checkout of its source (whose lock the removal takes) and whether
