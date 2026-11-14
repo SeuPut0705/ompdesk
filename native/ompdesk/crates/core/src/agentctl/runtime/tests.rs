@@ -1492,7 +1492,7 @@ async fn immediate_delivery_rechecks_binding_after_spawn_before_its_first_poll()
         crate::ports::apply_state(control.host.port(), 1, &switched.to_string()).unwrap();
         sending.await.unwrap();
         assert!(told_of(&told, "mail").is_empty());
-        assert_eq!(outbox.pending(), [entry.clone()]);
+        assert_eq!(outbox.pending().as_slice(), std::slice::from_ref(&entry));
         let mut restored = state(if authenticated {
             Vec::new()
         } else {
