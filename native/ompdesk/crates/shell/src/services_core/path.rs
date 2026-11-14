@@ -61,18 +61,17 @@ fn normalize(path: &Path) -> PathBuf {
 fn join_workspace(root: &Path, target: &Path) -> PathBuf {
     // Windows' C:relative resolves against the supplied workspace on that drive, not the process's cwd.
     #[cfg(windows)]
-    if let Some(Component::Prefix(prefix)) = target.components().next() {
-        if !target.has_root()
-            && root.components().next().is_some_and(|part| {
-                part.as_os_str()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(&prefix.as_os_str().to_string_lossy())
-            })
-        {
-            let mut remainder = target.components();
-            remainder.next();
-            return root.join(remainder.as_path());
-        }
+    if let Some(Component::Prefix(prefix)) = target.components().next()
+        && !target.has_root()
+        && root.components().next().is_some_and(|part| {
+            part.as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&prefix.as_os_str().to_string_lossy())
+        })
+    {
+        let mut remainder = target.components();
+        remainder.next();
+        return root.join(remainder.as_path());
     }
     root.join(target)
 }

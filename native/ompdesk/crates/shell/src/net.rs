@@ -547,15 +547,23 @@ pub fn resolve_host(call: Call) {
         Err(message) => return call.err("invalid", message),
     };
     let partition = call.str("partition").unwrap_or_default();
-    resolve_in_partition(host_name, usage, partition, Box::new(move |result| {
-        match result {
+    resolve_in_partition(
+        host_name,
+        usage,
+        partition,
+        Box::new(move |result| match result {
             Ok(addresses) => call.ok(netmap::endpoints_json(&addresses)),
             Err(message) => call.err("failed", message),
-        }
-    }));
+        }),
+    );
 }
 
-fn resolve_in_partition(host_name: String, usage: CacheUsage, partition: String, answer: ResolveAnswer) {
+fn resolve_in_partition(
+    host_name: String,
+    usage: CacheUsage,
+    partition: String,
+    answer: ResolveAnswer,
+) {
     if host_name.trim().is_empty() {
         return answer(Err("boot.resolveHost needs a host".into()));
     }

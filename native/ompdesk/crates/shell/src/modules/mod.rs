@@ -23,9 +23,9 @@ use crate::host::{self, Call};
 pub mod updater;
 use crate::log::log;
 
+pub mod boot;
 pub mod chrome;
 pub mod services;
-pub mod boot;
 /// A moved subsystem. One unit struct per module; its state lives in the module's own statics.
 pub trait Module: Sync {
     /// The namespace it owns (`shell_core::namespaces::check_modules` rules).
@@ -57,7 +57,13 @@ pub trait Module: Sync {
 /// The registration list: one line per moved module, in the order `ready` runs. Batch SX's slices each add theirs
 /// (PROTOCOL.md §15.1): `&chrome::Chrome`, `&preview::Preview`, `&services::Services`, `&updater::Updater`,
 /// `&boot::Boot`.
-static MODULES: &[&dyn Module] = &[&boot::Boot, &chrome::Chrome, &preview::Preview, &services::Services, &updater::Updater];
+static MODULES: &[&dyn Module] = &[
+    &boot::Boot,
+    &chrome::Chrome,
+    &preview::Preview,
+    &services::Services,
+    &updater::Updater,
+];
 
 /// What a module may do on the wire, scoped to its namespace: every name it emits or asks is `<namespace>.<name>`.
 #[derive(Clone, Copy)]
