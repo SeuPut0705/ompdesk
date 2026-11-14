@@ -1,0 +1,9 @@
+# Session delete safety projections
+
+This source-only model separates the five safety predicates of `../session-delete-fences/tla/SessionDeleteFences.tla` into open, list, and restore projections. Each retains the full delete state machine, including both delete instances, independent count releases, failure, and the distinct removal, notification, tombstone, and acknowledgement steps. `CORRESPONDENCE.md` states the required trace and predicate obligations.
+
+The baseline configurations retain `Scopes = {local, global}`, `Opens = {o1, o2}`, `Deletes = {d1, d2}`, `Slots = {r1, r2}`, `InvalidateReads = TRUE`, and `RecheckOpen = TRUE`. The open negative changes only `RecheckOpen` to `FALSE`; it is expected to violate `NoOpenDuringDelete`, not to pass. No run has established that outcome here. No fairness, symmetry, additional actor bound, state constraint, or timeout change is introduced.
+
+The list model retains separate source-read start and finish, renderer answer and finish, snapshot, and reconnect actions. It retains wanted generations, captured generations and connections, and both delete notification and acknowledgement effects. The original late-reply diagnostic observers are omitted only from this safety model. The original reachability scenario remains unchanged.
+
+The original scope and exclusions in `../session-delete-fences/SCOPE.md` apply, including the one saved ID, abstract storage, assumed shared-source freshness, and absence of network delivery and ordering details, crash behavior, and operating-system durability. No liveness or production correspondence follows from these projections alone. The original hosted run `43573249638` remains a failed, unstamped artifact. No whole-original-model pass, performance improvement, mutation coverage, or completed check is claimed.
