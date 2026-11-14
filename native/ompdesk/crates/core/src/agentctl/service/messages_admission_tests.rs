@@ -202,3 +202,85 @@ async fn unknown_outside_parent_is_rejected_without_event_or_inbox_delivery() {
 async fn outside_parent_event_sink_errors_are_returned_to_the_reporter() {
     check_outside(9_337, true, true).await;
 }
+
+async fn parent_change_while_reading_journal(id: u64, remove_parent: bool) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use super::super::AgentControl;
+
+    let holder = Arc::new(Mutex::new(None::<AgentControl>));
+    let journal_entered = Arc::new(AtomicBool::new(false));
+    let callback_control = holder.clone();
+    let callback_entered = journal_entered.clone();
+    let (control, asked, mut deliveries, _fixture) = native_rig(
+        id,
+        snapshot(true, false),
+        Caps::default(),
+        &Files::default(),
+        Tuning::default(),
+        move |method, args| {
+            if method == "command"
+                && args["tabId"] == "target"
+                && args["command"]["type"] == "get_transcript_page"
+            {
+                let held = callback_control.lock().unwrap();
+                let control = held.as_ref().unwrap();
+                let mut changed = snapshot(false, false);
+                if !remove_parent {
+                    changed["parents"] = json!({ "target": { "callerTabId": "another-opener" } });
+                }
+                crate::ports::apply_state(control.host.port(), 1, &changed.to_string()).unwrap();
+                callback_entered.store(true, Ordering::SeqCst);
+            }
+            replies(method, args)
+        },
+    );
+    *holder.lock().unwrap() = Some(control.clone());
+    let initial = control.host.state();
+    assert!(
+        control
+            .opened_by(&initial, "sender", &initial.tabs("sender").unwrap())
+            .iter()
+            .any(|tab| tab == "target")
+    );
+    let result = control
+        .run(
+            "sender",
+            "ompdesk_session_send",
+            json!({ "session": "target", "message": "do not admit after reparent", "request_id": "parent-boundary", "delivery": "follow_up" }),
+            None,
+        )
+        .await;
+    assert!(journal_entered.load(Ordering::SeqCst));
+    let current = control.host.state();
+    assert_ne!(current.parent_of("target"), initial.parent_of("target"));
+    assert!(
+        control
+            .opened_by(&current, "sender", &current.tabs("sender").unwrap())
+            .iter()
+            .any(|tab| tab == "target")
+    );
+    assert!(result.is_error, "{}", result.text);
+    assert!(control.send_outbox.as_ref().unwrap().pending().is_empty());
+    assert!(control.host.outbox().unwrap().pending().is_empty());
+    assert!(asked.lock().unwrap().iter().all(|(method, _)| {
+        method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
+    }));
+    assert!(matches!(
+        deliveries.try_recv(),
+        Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+    ));
+    holder.lock().unwrap().take();
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn reparent_during_journal_read_refuses_even_when_opened_by_remembers_the_tab() {
+    parent_change_while_reading_journal(9_338, false).await;
+}
+
+#[tokio::test]
+async fn parent_removal_during_journal_read_refuses_even_when_opened_by_remembers_the_tab() {
+    parent_change_while_reading_journal(9_339, true).await;
+}
