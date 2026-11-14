@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::future::Future;
 use std::pin::Pin;
 
 use serde::{Deserialize, Serialize};
@@ -10,43 +9,136 @@ pub type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Platform { Darwin, Win32, Other }
+pub enum Platform {
+    Darwin,
+    Win32,
+    Other,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Item { Bun, Git, Omp, Gh, Node, AgentDesktop, Tailscale }
+pub enum Item {
+    Bun,
+    Git,
+    Omp,
+    Gh,
+    Node,
+    AgentDesktop,
+    Tailscale,
+}
 
 impl Item {
-    pub const ALL: [Item; 7] = [Self::Bun, Self::Git, Self::Omp, Self::Gh, Self::Node, Self::AgentDesktop, Self::Tailscale];
-    pub fn name(self) -> &'static str { match self { Self::Bun => "bun", Self::Git => "git", Self::Omp => "omp", Self::Gh => "gh", Self::Node => "node", Self::AgentDesktop => "agent-desktop", Self::Tailscale => "tailscale" } }
-    pub fn required(self, platform: Platform) -> bool { matches!(self, Self::Bun | Self::Omp) || (self == Self::Git && platform == Platform::Win32) }
-    pub fn automatic(self) -> bool { self != Self::Tailscale }
+    pub const ALL: [Item; 7] = [
+        Self::Bun,
+        Self::Git,
+        Self::Omp,
+        Self::Gh,
+        Self::Node,
+        Self::AgentDesktop,
+        Self::Tailscale,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Bun => "bun",
+            Self::Git => "git",
+            Self::Omp => "omp",
+            Self::Gh => "gh",
+            Self::Node => "node",
+            Self::AgentDesktop => "agent-desktop",
+            Self::Tailscale => "tailscale",
+        }
+    }
+    pub fn required(self, platform: Platform) -> bool {
+        matches!(self, Self::Bun | Self::Omp) || (self == Self::Git && platform == Platform::Win32)
+    }
+    pub fn automatic(self) -> bool {
+        self != Self::Tailscale
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Presence {
-    Present { version: Option<String>, path: Option<String>, #[serde(flatten)] extra: BTreeMap<String, Value> },
+    Present {
+        version: Option<String>,
+        path: Option<String>,
+        #[serde(flatten)]
+        extra: BTreeMap<String, Value>,
+    },
     Missing,
-    Outdated { version: String, minimum: String, path: Option<String> },
-    Broken { detail: String, path: Option<String> },
+    Outdated {
+        version: String,
+        minimum: String,
+        path: Option<String>,
+    },
+    Broken {
+        detail: String,
+        path: Option<String>,
+    },
 }
 
 impl Presence {
-    pub fn present(&self) -> bool { matches!(self, Self::Present { .. }) }
-    pub fn version(&self) -> Option<&str> { match self { Self::Present { version, .. } => version.as_deref(), Self::Outdated { version, .. } => Some(version), Self::Missing | Self::Broken { .. } => None } }
+    pub fn present(&self) -> bool {
+        matches!(self, Self::Present { .. })
+    }
+    pub fn version(&self) -> Option<&str> {
+        match self {
+            Self::Present { version, .. } => version.as_deref(),
+            Self::Outdated { version, .. } => Some(version),
+            Self::Missing | Self::Broken { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Phase { Checking, Present, Queued, Running, Failed, Cancelled, Requested, Unavailable, Backoff, Idle }
+pub enum Phase {
+    Checking,
+    Present,
+    Queued,
+    Running,
+    Failed,
+    Cancelled,
+    Requested,
+    Unavailable,
+    Backoff,
+    Idle,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Method { BunScript, BunUpgrade, BunGlobal, AgentDesktopArchive, OmpUpdate, PortableGit, XcodeSelect, Brew, Winget, Archive, TailscaleZip, TailscaleMsi }
+pub enum Method {
+    BunScript,
+    BunUpgrade,
+    BunGlobal,
+    AgentDesktopArchive,
+    OmpUpdate,
+    PortableGit,
+    XcodeSelect,
+    Brew,
+    Winget,
+    Archive,
+    TailscaleZip,
+    TailscaleMsi,
+}
 
 impl Method {
-    pub fn name(self) -> &'static str { match self { Self::BunScript => "bun-script", Self::BunUpgrade => "bun-upgrade", Self::BunGlobal => "bun-global", Self::AgentDesktopArchive => "agent-desktop-archive", Self::OmpUpdate => "omp-update", Self::PortableGit => "portable-git", Self::XcodeSelect => "xcode-select", Self::Brew => "brew", Self::Winget => "winget", Self::Archive => "archive", Self::TailscaleZip => "tailscale-zip", Self::TailscaleMsi => "tailscale-msi" } }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::BunScript => "bun-script",
+            Self::BunUpgrade => "bun-upgrade",
+            Self::BunGlobal => "bun-global",
+            Self::AgentDesktopArchive => "agent-desktop-archive",
+            Self::OmpUpdate => "omp-update",
+            Self::PortableGit => "portable-git",
+            Self::XcodeSelect => "xcode-select",
+            Self::Brew => "brew",
+            Self::Winget => "winget",
+            Self::Archive => "archive",
+            Self::TailscaleZip => "tailscale-zip",
+            Self::TailscaleMsi => "tailscale-msi",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -74,7 +166,11 @@ pub struct PlanContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct PlanDownload { pub url: String, pub sha256: String, pub file: String }
+pub struct PlanDownload {
+    pub url: String,
+    pub sha256: String,
+    pub file: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct InstallPlan {
@@ -107,15 +203,29 @@ pub struct Failure {
 }
 
 impl Failure {
-    pub fn new(reason: &str, detail: impl Into<Option<String>>) -> Self { Self { reason: reason.to_owned(), detail: detail.into(), exit_code: None } }
+    pub fn new(reason: &str, detail: impl Into<Option<String>>) -> Self {
+        Self {
+            reason: reason.to_owned(),
+            detail: detail.into(),
+            exit_code: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct DownloadProgress { pub received: u64, pub total: Option<u64> }
+pub struct DownloadProgress {
+    pub received: u64,
+    pub total: Option<u64>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Progress { pub step: usize, pub steps: usize, pub started_at: f64, pub download: Option<DownloadProgress> }
+pub struct Progress {
+    pub step: usize,
+    pub steps: usize,
+    pub started_at: f64,
+    pub download: Option<DownloadProgress>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,16 +247,35 @@ pub struct ItemState {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct State { pub platform: Platform, pub automatic: bool, pub omp_ready: bool, pub required_running: bool, pub items: Vec<ItemState> }
+pub struct State {
+    pub platform: Platform,
+    pub automatic: bool,
+    pub omp_ready: bool,
+    pub required_running: bool,
+    pub items: Vec<ItemState>,
+}
 
 /// Native machine services supply these capabilities; neither page JSON nor a core request constructs them.
 pub trait Host: Send + Sync + 'static {
+    fn update_environment(&self, omp: &str) -> Boxed<'_, Result<Environment, String>>;
+    fn compiled_omp(&self, file: &std::path::Path) -> bool;
+    fn bun_minimum(&self, manifest: &Value) -> Option<String>;
+    fn is_newer(&self, latest: &str, installed: Option<&str>) -> bool;
     fn detect(&self) -> Boxed<'_, Result<Detection, String>>;
     fn environment(&self) -> Boxed<'_, Result<Environment, String>>;
     fn refresh_path(&self) -> Boxed<'_, Result<(), String>>;
+    fn before_omp_update(&self) -> Boxed<'_, Result<(), String>>;
     fn omp_ready(&self);
     fn before_optional(&self) -> Boxed<'_, ()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RunOutcome { Succeeded, Cancelled, Failed { reason: &'static str, exit_code: Option<i32>, detail: Option<String> } }
+pub enum RunOutcome {
+    Succeeded,
+    Cancelled,
+    Failed {
+        reason: &'static str,
+        exit_code: Option<i32>,
+        detail: Option<String>,
+    },
+}

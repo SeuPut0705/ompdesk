@@ -13,10 +13,17 @@
 //! - `mirror` is a test's server on 127.0.0.1 standing in for every host (`net::routed`).
 
 mod archives;
+pub mod compiled;
 mod download;
+mod ledger;
 mod net;
+pub mod plans;
+pub mod runner;
+mod scripts;
+pub mod service;
 #[cfg(test)]
 mod tests;
+pub mod types;
 
 use serde::Deserialize;
 
