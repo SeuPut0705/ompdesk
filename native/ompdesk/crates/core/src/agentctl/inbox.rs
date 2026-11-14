@@ -51,6 +51,7 @@ pub(crate) struct InboxLogicalMessage {
     pub producer: InboxAddress,
     pub target: InboxAddress,
     pub request_id: Option<String>,
+    /// Requested semantics stay in the fingerprint; the first derived entry may only defer immediate delivery.
     pub intent: InboxIntent,
     pub trigger_turn: bool,
     pub payload: InboxLogicalPayload,
@@ -81,7 +82,10 @@ impl InboxLogicalMessage {
             || self.target.session_path.is_empty()
             || self.request_id.as_ref().is_some_and(String::is_empty)
             || kind != entry.payload.kind()
-            || self.intent != entry.intent
+            || matches!(
+                (self.intent, entry.intent),
+                (InboxIntent::FollowUp, InboxIntent::Immediate)
+            )
             || self.trigger_turn != entry.trigger_turn
             || entry.legacy
         {

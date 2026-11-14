@@ -7,7 +7,6 @@
 use serde_json::{Map, Value, json};
 use tokio::time::Instant;
 
-use super::AgentControl;
 use super::fail::{Fail, R, fail, unanswered_text};
 use super::host::{Deadline, HostState};
 use super::js::{one_line, trim, trim_start};
@@ -21,6 +20,7 @@ use super::text::{
 };
 use super::types::{AnswerArgs, ControlTab, ReportArgs, SendArgs, UiRequest};
 use super::wrap::wrap_agent_message;
+use super::{AgentControl, QueuedFollowUp};
 use crate::agentctl::journal::attachments::Resolved;
 use crate::agentctl::journal::pending_cleanups::CleanupAction;
 use crate::agentctl::journal::send_outbox::{
@@ -339,11 +339,23 @@ impl AgentControl {
             self.mailbox.seed(&target.tab_id, marks.dispatch);
         }
         self.host.fresh().await?;
+        let state = self.host.state();
         let (current_producer, current_recipient) =
-            inbox_source::addresses(&self.host.state(), caller, target)?;
+            inbox_source::addresses(&state, caller, target)?;
         if current_producer != logical.producer || current_recipient != logical.target {
             return fail("The logical source or recipient changed before source persistence");
         }
+        let current = state
+            .tabs
+            .iter()
+            .chain(state.mail_targets.iter())
+            .find(|current| current.tab_id == target.tab_id)
+            .ok_or_else(|| Fail::other("The message recipient is no longer current"))?;
+        let card_open = !current.asks.is_empty();
+        let immediate = !follow_up && !card_open;
+        let was_blocked = self.is_blocked(&target.tab_id);
+        let arrivals_before = self.arrivals(&target.tab_id);
+        let running = current.busy || was_blocked;
         let dispatch = own_child.then(|| {
             format!(
                 "d{}",
@@ -374,10 +386,10 @@ impl AgentControl {
             logical.producer.session_path.clone(),
             args.message.clone(),
             message.clone(),
-            if follow_up {
-                StreamingBehavior::FollowUp
-            } else {
+            if immediate {
                 StreamingBehavior::Steer
+            } else {
+                StreamingBehavior::FollowUp
             },
             self.now(),
         );
@@ -385,6 +397,7 @@ impl AgentControl {
         entry.logical_message = Some(message);
         entry.native_source = InboxLogicalSource::Bound(logical);
         entry.from_device = Some(producer.device_id);
+        let attachment_summary = carried.set.summary();
         if carried.count > 0 {
             entry.attachments = Some(carried.set);
         }
@@ -415,15 +428,52 @@ impl AgentControl {
                 .and_then(|dispatch| u64::try_from(dispatch).ok())
         {
             self.mailbox.accept_dispatch(&target.tab_id, dispatch);
+            let id = format!("d{dispatch}");
+            if running
+                && !immediate
+                && self.mailbox.current(&target.tab_id).as_deref() == Some(id.as_str())
+            {
+                self.mem().queued_follow_up.insert(
+                    target.tab_id.clone(),
+                    QueuedFollowUp {
+                        n: dispatch,
+                        id,
+                        from: caller.tab_id.clone(),
+                    },
+                );
+            }
         }
         let dispatch = accepted
             .dispatch
             .map(|dispatch| format!(" Dispatch d{dispatch}: it reports back with ompdesk_report."))
             .unwrap_or_default();
-        let receipt = format!(
+        let mut receipt = format!(
             "Sent to {}: the receiving native journal accepted disk responsibility; actual provider-context receipt is separate.{dispatch}",
             named(target)
         );
+        let how = if card_open {
+            format!(
+                "it is {}, so this is queued behind that card, which stays open, and it reads this once the user has answered and its turn goes on",
+                self.state_line(&state, current, &SessionState::default())
+            )
+        } else if was_blocked && self.arrivals(&target.tab_id) != arrivals_before {
+            "it is inside a blocking ompdesk_session_result wait, which returns now with a note"
+                .to_owned()
+        } else if follow_up {
+            "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)".to_owned()
+        } else {
+            String::new()
+        };
+        if !how.is_empty() {
+            receipt.push(' ');
+            receipt.push_str(&how);
+            receipt.push('.');
+        }
+        if !attachment_summary.is_empty() {
+            receipt.push(' ');
+            receipt.push_str(&attachment_summary);
+            receipt.push('.');
+        }
         Ok(receipt)
     }
 

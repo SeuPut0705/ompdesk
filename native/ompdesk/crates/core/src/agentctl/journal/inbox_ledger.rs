@@ -11,8 +11,8 @@ use super::attachments::{AttachedSet, UPLOAD_TTL_MS, sha256_hex};
 use super::system_clock;
 use super::{Clock, Persistence, persist_text};
 use crate::agentctl::inbox::{
-    InboxAcceptedDelivery, InboxEvidence, InboxReceiver, NativeInboxAcceptance, NativeInboxKey,
-    NativeInboxReply, NativeInboxTransferEntry,
+    InboxAcceptedDelivery, InboxEvidence, InboxIntent, InboxReceiver, NativeInboxAcceptance,
+    NativeInboxKey, NativeInboxReply, NativeInboxTransferEntry,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -142,7 +142,7 @@ impl State {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Ownership {
-    Pending,
+    Pending { intent: InboxIntent },
     ContextObserved,
 }
 
@@ -365,6 +365,10 @@ impl InboxLedger {
                 let (kind, delivery_id) = serde_json::from_str(id)
                     .map_err(|error| format!("Invalid native inbox context identity: {error}"))?;
                 let key = NativeInboxKey { kind, delivery_id };
+                // A well-formed receipt from an earlier bridge incarnation is journal history, not current proof.
+                if receipt.instance != receiver.instance {
+                    continue;
+                }
                 if let Some(position) = state.index.get(&address).and_then(|keys| keys.get(&key)) {
                     observed.entry(*position).or_insert_with(|| Proof {
                         request_id: receipt.request_id.clone(),
@@ -408,7 +412,9 @@ impl InboxLedger {
             let key = entry.entry.key();
             if let Some(record) = state.existing(&address, &key, &fingerprint(entry)?)? {
                 let ownership = match &record.delivery {
-                    Delivery::Pending { .. } => Ownership::Pending,
+                    Delivery::Pending { entry } => Ownership::Pending {
+                        intent: entry.entry.intent,
+                    },
                     Delivery::ContextObserved { .. } => Ownership::ContextObserved,
                 };
                 known.insert(key, ownership);

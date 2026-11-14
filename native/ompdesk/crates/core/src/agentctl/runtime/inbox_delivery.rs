@@ -6,12 +6,14 @@ use serde::Deserialize;
 
 use super::{Runtime, check_mail_target, fault_of, runtime_of};
 use crate::agentctl::inbox::{
-    InboxBlock, InboxContent, InboxPayload, InboxReceiver, InboxRoute, NativeInboxAcceptance,
-    NativeInboxRequest, NativeInboxTransfer,
+    InboxBlock, InboxContent, InboxIntent, InboxPayload, InboxReceiver, InboxRoute,
+    NativeInboxAcceptance, NativeInboxRequest, NativeInboxTransfer,
 };
 use crate::agentctl::journal::Persistence;
 use crate::agentctl::journal::attachments::with_attached;
+use crate::agentctl::journal::inbox_ledger::Ownership;
 use crate::agentctl::service::host::HostState;
+use crate::agentctl::service::types::ControlTab;
 use crate::server::{Call, Fault, Registry, Reply};
 
 #[derive(Deserialize)]
@@ -115,12 +117,12 @@ impl Runtime {
         }
     }
 
-    fn inbox_target(
-        state: &HostState,
+    fn inbox_target<'a>(
+        state: &'a HostState,
         tab_id: &str,
         receiver: &InboxReceiver,
         expected_runtime_instance: &str,
-    ) -> Result<(), Fault> {
+    ) -> Result<&'a ControlTab, Fault> {
         let target = state
             .tabs
             .iter()
@@ -144,7 +146,7 @@ impl Runtime {
                 "The receiving native runtime, path or device changed",
             ));
         }
-        Ok(())
+        Ok(target)
     }
 
     fn inbox_admission(&self, params: &AcceptParams) -> Result<(), Fault> {
@@ -256,7 +258,8 @@ impl Runtime {
         }
         let receiver = &params.transfer.receiver;
         let _lane = inbox.lane(receiver).await;
-        self.check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
+        let status = self
+            .check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
             .await?;
         self.inbox_admission(&params)?;
         for entry in &params.transfer.entries {
@@ -265,7 +268,13 @@ impl Runtime {
                 .validate(&entry.entry)
                 .map_err(|error| Fault::new("inbox_logical", error))?;
         }
-        let owned = inbox
+        if !status.receipts.is_empty() {
+            inbox
+                .ledger
+                .reconcile(receiver, &status)
+                .map_err(|error| Fault::new("inbox_receipt_not_saved", error))?;
+        }
+        let mut owned = inbox
             .ledger
             .known(receiver, &params.transfer.entries)
             .map_err(|error| Fault::new("inbox_conflict", error))?;
@@ -281,9 +290,20 @@ impl Runtime {
         )
         .await
         .map_err(|error| Fault::new("inbox_attachment", error))?;
-        self.check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
+        let status = self
+            .check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
             .await?;
         self.inbox_admission(&params)?;
+        if !status.receipts.is_empty() {
+            inbox
+                .ledger
+                .reconcile(receiver, &status)
+                .map_err(|error| Fault::new("inbox_receipt_not_saved", error))?;
+            owned = inbox
+                .ledger
+                .known(receiver, &params.transfer.entries)
+                .map_err(|error| Fault::new("inbox_conflict", error))?;
+        }
         let accepted = inbox.ledger.keep(receiver, &imported.transfer.entries);
         // Promote even failed in-memory keeps before releasing the import pin. write_kept owns disk-full retries.
         let retained = inbox.refresh_retention();
@@ -292,14 +312,30 @@ impl Runtime {
         if imported.persistence == Some(Persistence::Memory) {
             accepted.persistence = Persistence::Memory;
         }
-        Self::inbox_target(
-            &self.host().state(),
+        let state = self.host().state();
+        let current = Self::inbox_target(
+            &state,
             &params.tab_id,
             receiver,
             &params.expected_runtime_instance,
         )?;
         drop(imported.pin);
         if accepted.persistence == Persistence::Disk {
+            // Waking a native blocking wait is not evidence that a provider consumed this input.
+            if current.asks.is_empty()
+                && imported
+                    .transfer
+                    .entries
+                    .iter()
+                    .zip(&accepted.deliveries)
+                    .any(|(entry, delivery)| match owned.get(&delivery.key) {
+                        Some(Ownership::ContextObserved) => false,
+                        Some(Ownership::Pending { intent }) => *intent == InboxIntent::Immediate,
+                        None => entry.entry.intent == InboxIntent::Immediate,
+                    })
+            {
+                self.control.arrive(&params.tab_id);
+            }
             let runtime = self.clone();
             let tab = params.tab_id;
             let receiver = receiver.clone();
