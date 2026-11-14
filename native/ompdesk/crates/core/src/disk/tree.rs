@@ -288,7 +288,16 @@ pub fn write_atomic_if(
         next_temp()
     ));
     let written = (|| {
-        let mut staged = fs::File::create(&temp).map_err(|error| fault(&error, "open", &temp))?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        let mut staged = options
+            .open(&temp)
+            .map_err(|error| fault(&error, "open", &temp))?;
         #[cfg(all(test, unix))]
         test_support::created(file, &staged);
         staged
