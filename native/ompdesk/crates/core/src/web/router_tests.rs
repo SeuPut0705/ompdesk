@@ -70,6 +70,63 @@ fn makes_a_joined_text_once_for_the_same_pushes() {
 }
 
 #[test]
+fn preserves_view_identity_when_coalescing_same_view_batches() {
+    let queue: Vec<_> = ["first", "second"]
+        .into_iter()
+        .map(|kind| {
+            Pushed::new(
+                BATCH.into(),
+                Some(
+                    RawValue::from_string(
+                        json!({"tabId":"retained","viewId":"view-B","payload":[{"type":kind}]})
+                            .to_string(),
+                    )
+                    .unwrap(),
+                ),
+            )
+        })
+        .collect();
+    let output = coalesce(&queue, BATCH);
+    assert_eq!(output.len(), 1);
+    let value: Value = serde_json::from_str(&output[0].data_text(BATCH).unwrap()).unwrap();
+    assert_eq!(value["viewId"], "view-B");
+    assert_eq!(
+        value["payload"],
+        json!([{"type":"first"},{"type":"second"}])
+    );
+}
+
+#[test]
+fn separates_reopened_views_of_the_same_execution() {
+    let queue: Vec<_> = ["view-A", "view-B"]
+        .into_iter()
+        .map(|view| {
+            Pushed::new(
+                BATCH.into(),
+                Some(
+                    RawValue::from_string(
+                        json!({"tabId":"retained","viewId":view,"payload":[{"type":view}]})
+                            .to_string(),
+                    )
+                    .unwrap(),
+                ),
+            )
+        })
+        .collect();
+    let output: Vec<Value> = coalesce(&queue, BATCH)
+        .iter()
+        .map(|item| serde_json::from_str(&item.data_text(BATCH).unwrap()).unwrap())
+        .collect();
+    assert_eq!(
+        output,
+        vec![
+            json!({"tabId":"retained","viewId":"view-A","payload":[{"type":"view-A"}]}),
+            json!({"tabId":"retained","viewId":"view-B","payload":[{"type":"view-B"}]}),
+        ]
+    );
+}
+
+#[test]
 fn reads_frames_as_the_schema_did() {
     let call = Frame::parse(r#"{"t":"inv","id":7,"ch":"c","a":[1,{"x":"\ud83d"}],"extra":1}"#);
     assert!(matches!(call, Some(Frame::Call { id: Some(7), .. })));

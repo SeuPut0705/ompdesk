@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import { WEB_DEVICES_CHANGED, WEB_DEVICES_LIST, WEB_PAIRING_REQUEST } from "../../shared/mobile-web";
+import { createOmpApi, type OmpTransport } from "../../shared/omp-api";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { WEB_PERMISSIONS, WEB_PROTOCOL_VERSION, type WebPermission } from "../../shared/web-protocol";
 import { BlobStore } from "./blobs";
@@ -568,6 +569,66 @@ describe("events", () => {
 		const batch = sent[0]?.d as { tabId: string; payload: Extract<AgentSessionEvent, { type: "message_update" }>[] };
 		expect(batch.payload).toHaveLength(1);
 		expect(batch.payload[0]?.assistantMessageEvent).toMatchObject({ type: "text_delta", delta: "Hello world" });
+	});
+
+	it("preserves the original view binding of merged batches for the phone consumer", async () => {
+		const r = await rig();
+		const win = r.windows.windowFor("dev1");
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-B", payload: [text("new")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-B", payload: [text(" work")] });
+		await r.host.flush();
+		const listeners = new Map<string, (data: unknown) => void>();
+		const errors: unknown[] = [];
+		const transport: OmpTransport = {
+			invoke: async () => {
+				throw new Error("This consumer does not invoke commands");
+			},
+			send: (_channel, ...args) => {
+				errors.push(args);
+			},
+			on: (channel, listener) => {
+				listeners.set(channel, listener);
+				return () => {
+					listeners.delete(channel);
+				};
+			},
+		};
+		const received: { viewId: string; tabId: string; events: AgentSessionEvent[] }[] = [];
+		createOmpApi(transport).events.onTabBatch((events, tabId, viewId) => received.push({ events, tabId, viewId }));
+		for (const frame of r.socket.frames("evt")) listeners.get(frame.ch)?.(frame.d);
+		expect(received).toEqual([
+			{
+				tabId: "a",
+				viewId: "view-B",
+				events: [
+					expect.objectContaining({ assistantMessageEvent: expect.objectContaining({ delta: "new work" }) }),
+				],
+			},
+		]);
+		expect(errors).toEqual([]);
+	});
+
+	it("separates retired and reopened view batches before the phone consumer", async () => {
+		const r = await rig();
+		const win = r.windows.windowFor("dev1");
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-A", payload: [text("old")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-B", payload: [text("new")] });
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-B", payload: [text(" work")] });
+		await r.host.flush();
+		expect(r.socket.frames("evt").map(frame => frame.d)).toEqual([
+			{
+				tabId: "a",
+				viewId: "view-A",
+				payload: [expect.objectContaining({ assistantMessageEvent: expect.objectContaining({ delta: "old" }) })],
+			},
+			{
+				tabId: "a",
+				viewId: "view-B",
+				payload: [
+					expect.objectContaining({ assistantMessageEvent: expect.objectContaining({ delta: "new work" }) }),
+				],
+			},
+		]);
 	});
 
 	it("writes a streamed push's data once for every connection that sends it, and other pushes for each", async () => {
