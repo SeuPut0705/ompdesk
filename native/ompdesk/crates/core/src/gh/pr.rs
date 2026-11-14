@@ -589,12 +589,12 @@ async fn resolve_rev(tools: &Tools, root: &str, name: &str) -> Result<String, Fa
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftFacts {
-    root: String,
-    base: String,
-    head: String,
-    commits: Vec<String>,
-    files: Vec<String>,
-    diff_stat: String,
+    pub(crate) root: String,
+    pub(crate) base: String,
+    pub(crate) head: String,
+    pub(crate) commits: Vec<String>,
+    pub(crate) files: Vec<String>,
+    pub(crate) diff_stat: String,
 }
 
 pub async fn draft_facts(
