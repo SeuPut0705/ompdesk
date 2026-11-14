@@ -30,6 +30,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sy
 # JavaScript listed them); the CLI crate asks for it too, so every build of the workspace already had it.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value", "float_roundtrip", "preserve_order"] }
+# The existing native memory policy shares the YAML parser already used by native/memory.
+serde-saphyr = { version = "1.3", default-features = false, features = ["deserialize", "serialize"] }
 # Native MIME decoding follows the WHATWG TextDecoder labels used by routine mail sources.
 encoding_rs = "0.8.35"
 # Structured provider edits must retain comments and unrelated YAML nodes.
