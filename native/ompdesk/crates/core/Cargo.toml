@@ -30,6 +30,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sy
 # JavaScript listed them); the CLI crate asks for it too, so every build of the workspace already had it.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value", "float_roundtrip", "preserve_order"] }
+# Structured provider edits must retain comments and unrelated YAML nodes.
+yaml-edit = { version = "=0.3.6", default-features = false }
+# Diagnostics preserve ECMAScript lookaround and non-Unicode UTF-16 matching.
+regress = { version = "=0.12.0", features = ["utf16"] }
+# Session dumps reuse the existing flate2 zlib-rs backend for ZIP compression.
+zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2"] }
 # Listings sort as the page's `Intl.Collator(locale, { numeric: true })` does: ICU's collation, same algorithm and data.
 icu_collator = "2"
 # The folder picker's filter lowercases as `toLocaleLowerCase()` does (Turkish, Azeri and Lithuanian rules included).
