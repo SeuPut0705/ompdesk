@@ -491,6 +491,7 @@ pub mod native;
 
 pub mod claims;
 pub use claims::{Folder, RemovalClaims, RemovalGuard};
+pub mod manual;
 
 #[cfg(test)]
 mod tests;
