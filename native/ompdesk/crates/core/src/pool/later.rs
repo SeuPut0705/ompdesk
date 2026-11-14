@@ -29,7 +29,7 @@ impl Ctx {
         self.push(&json!({"k": "turnStop", "tab": tab, "command": "abort_and_restore_queue", "by": "session-delete"}));
         // Its queued messages go too: they would start the next turn on a session about to be deleted.
         self.push(
-            &json!({"k": "command", "tab": tab, "command": {"type": "abort_and_restore_queue"}}),
+            &json!({"k": "command", "tab": tab, "incarnation": seq, "command": {"type": "abort_and_restore_queue"}}),
         );
         let done = self.with(|pool| {
             let settled = stop_settled(pool, &tab, seq);
@@ -268,12 +268,12 @@ impl Ctx {
         command: &Value,
         device: Option<&str>,
     ) -> R<()> {
-        let tab = self.with(|pool| {
+        let target = self.with(|pool| {
             pool.owner_entry(device, path)
                 .filter(|entry| entry.status == "ready")
-                .map(|entry| entry.tab_id.clone())
+                .map(|entry| (entry.tab_id.clone(), entry.seq))
         });
-        let Some(tab) = tab else {
+        let Some((tab, seq)) = target else {
             self.settle_ok(token, Value::Null);
             return Ok(());
         };
@@ -282,7 +282,10 @@ impl Ctx {
         super::spawn(async move {
             match ctx
                 .out
-                .ask_later("rpc", &json!({"tab": tab, "command": command}))
+                .ask_later(
+                    "rpc",
+                    &json!({"tab": tab, "incarnation": seq, "command": command}),
+                )
                 .await
             {
                 Ok(response) => ctx.settle_ok(token, response),

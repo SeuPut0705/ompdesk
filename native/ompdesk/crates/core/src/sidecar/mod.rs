@@ -25,11 +25,13 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::server::{Answer, Call, Events, Fault, Registry, Reply};
 
+pub mod application;
 pub mod bridge;
 mod frames;
 mod lane;
 mod launch;
 mod messages;
+pub mod native;
 mod process;
 mod queue;
 mod stop;
@@ -111,6 +113,7 @@ pub struct LaneEvent {
     pub name: String,
     pub data: Value,
     pub bin: Option<std::sync::Arc<[u8]>>,
+    pub generation: u64,
 }
 
 /// How many subscriptions are open: with none, a lane's events cost nothing more.
@@ -131,7 +134,7 @@ pub fn subscribe(tab: &str) -> mpsc::UnboundedReceiver<LaneEvent> {
 }
 
 /// Hands a lane's event to the tab's subscribers (`lane.rs` calls it beside every send to main).
-pub(crate) fn tap(tab: &str, name: &str, data: &Value, bin: Option<&[u8]>) {
+pub(crate) fn tap(tab: &str, name: &str, data: &Value, bin: Option<&[u8]>, generation: u64) {
     if TAPPED.load(std::sync::atomic::Ordering::SeqCst) == 0 {
         return;
     }
@@ -143,6 +146,7 @@ pub(crate) fn tap(tab: &str, name: &str, data: &Value, bin: Option<&[u8]>) {
         name: name.to_owned(),
         data: data.clone(),
         bin: bin.map(std::sync::Arc::from),
+        generation,
     };
     let before = senders.len();
     senders.retain(|sender| sender.send(event.clone()).is_ok());
@@ -433,30 +437,42 @@ fn open(call: Call) -> Answer {
         Ok(params) => params,
         Err(fault) => return failed(fault),
     };
-    let (reply, answer) = oneshot::channel();
-    {
-        let mut tabs = locked(&TABS);
-        if tabs.closed.contains(&params.tab) {
-            return failed(Fault::new("tab_closed", "The tab was disposed"));
-        }
-        let (tab, seq) = (params.tab.clone(), params.seq);
-        let entry = tabs.live.entry(tab).or_default();
-        if entry.inbox.is_some() {
-            return failed(Fault::new("tab_open", "The tab already has a lane"));
-        }
-        // A request the previous numbering left behind is stale.
-        entry.buffer.retain(|at, _| *at > seq);
-        entry.inbox = Some(lane::Lane::open(params, call.events.clone(), reply));
-        entry.events = Some(call.events.clone());
-        entry.next = Some(seq + 1);
-        entry.drain();
-    }
+    let answer = match open_native(params, call.events) {
+        Ok(answer) => answer,
+        Err(fault) => return failed(fault),
+    };
     Box::pin(async move {
         match answer.await {
             Ok(Ok(())) | Err(_) => Reply::json(&Done {}),
             Ok(Err(fault)) => Err(fault),
         }
     })
+}
+
+/// The same lane setup for native application callers, without a Registry request or a second lane engine.
+pub(crate) fn open_native(
+    params: OpenParams,
+    events: Events,
+) -> Result<oneshot::Receiver<Result<(), Fault>>, Fault> {
+    let (reply, answer) = oneshot::channel();
+    {
+        let mut tabs = locked(&TABS);
+        if tabs.closed.contains(&params.tab) {
+            return Err(Fault::new("tab_closed", "The tab was disposed"));
+        }
+        let (tab, seq) = (params.tab.clone(), params.seq);
+        let entry = tabs.live.entry(tab).or_default();
+        if entry.inbox.is_some() {
+            return Err(Fault::new("tab_open", "The tab already has a lane"));
+        }
+        // A request the previous numbering left behind is stale.
+        entry.buffer.retain(|at, _| *at > seq);
+        entry.inbox = Some(lane::Lane::open(params, events.clone(), reply));
+        entry.events = Some(events);
+        entry.next = Some(seq + 1);
+        entry.drain();
+    }
+    Ok(answer)
 }
 
 // ---- the answers to the lane's asks -------------------------------------------------------------------------------
