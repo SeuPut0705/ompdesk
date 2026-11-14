@@ -570,6 +570,17 @@ impl<H: Host> Service<H> {
         tab: &str,
         source: Arc<H::Sidecar>,
     ) -> EffectFuture<'static, Result<(), Fault>> {
+        self.release_execution_captured(callers, owner, tab, source, None)
+    }
+
+    fn release_execution_captured(
+        &self,
+        callers: Arc<Callers>,
+        owner: &Owner,
+        tab: &str,
+        source: Arc<H::Sidecar>,
+        incarnation: Option<u64>,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
         let owner = owner.clone();
         let tab = tab.to_owned();
         let app = Arc::clone(&self.app);
@@ -577,6 +588,16 @@ impl<H: Host> Service<H> {
             Box::pin(async move {
                 let (win, seq) = callers.admit_execution(&owner, &tab, None, || {
                     let win = execution_source(&ctx, &app, &tab, &source, None)?;
+                    if incarnation.is_some_and(|expected| {
+                        !ctx.with(|pool| {
+                            pool.entry(&tab).is_some_and(|entry| entry.seq == expected)
+                        })
+                    }) {
+                        return Err(Fault::new(
+                            "tab_stale",
+                            "The captured execution has changed",
+                        ));
+                    }
                     let seq = ctx.take_entry(&tab).ok_or_else(|| {
                         Fault::new("tab_stale", "The execution's tab is no longer open")
                     })?;

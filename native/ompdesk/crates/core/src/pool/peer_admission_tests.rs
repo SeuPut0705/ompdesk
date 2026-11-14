@@ -14,6 +14,26 @@ impl crate::sidecar::native::Sink for Recorded {
     }
 }
 
+fn lane_config(tab: String) -> SidecarConfig {
+    SidecarConfig {
+        tab,
+        seq: 0,
+        cwd: std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+        fresh: true,
+        event_filter: Vec::new(),
+        bridge: false,
+        ledger_file: None,
+        start_slow_ms: None,
+        entry_id_timeout_ms: None,
+        tuning: None,
+        session_path: None,
+        is_new: Some(true),
+    }
+}
+
 #[tokio::test]
 async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_current_run() {
     let callers = Arc::new(Callers::new(64));
@@ -39,7 +59,10 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
     .unwrap();
     pool.call(
         "seed",
-        json!({"tabs":[{"tab":"peer:original:rtab","win":0,"status":"asleep"}]}),
+        json!({"tabs":[
+            {"tab":"peer:original:rtab","win":0,"status":"asleep"},
+            {"tab":"peer:original:dormant","win":0,"status":"asleep"}
+        ]}),
         false,
     )
     .await
@@ -47,23 +70,7 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
     let (events, _keep_output, _frames) = crate::server::Events::capture();
     let (record, mut recorded) = mpsc::unbounded_channel();
     let (source, held) = SidecarService::new(
-        SidecarConfig {
-            tab: format!("native-peer-capture-{}", std::process::id()),
-            seq: 0,
-            cwd: std::env::current_dir()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned(),
-            fresh: true,
-            event_filter: Vec::new(),
-            bridge: false,
-            ledger_file: None,
-            start_slow_ms: None,
-            entry_id_timeout_ms: None,
-            tuning: None,
-            session_path: None,
-            is_new: Some(true),
-        },
+        lane_config(format!("native-peer-capture-{}", std::process::id())),
         events,
         Arc::new(Recorded(record)),
         Arc::new(DirectSpawn),
@@ -73,6 +80,21 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
         super::super::super::HandleKey::Tab("peer:original:rtab".into()),
         super::super::super::Handle {
             sidecar: Arc::clone(&source),
+            device: None,
+        },
+    );
+    let (dormant_events, _keep_dormant, _dormant_frames) = crate::server::Events::capture();
+    let (dormant, dormant_held) = SidecarService::new(
+        lane_config(format!("native-peer-dormant-{}", std::process::id())),
+        dormant_events,
+        Arc::new(SidecarSink),
+        Arc::new(DirectSpawn),
+    )
+    .unwrap();
+    app.handles().insert(
+        super::super::super::HandleKey::Tab("peer:original:dormant".into()),
+        super::super::super::Handle {
+            sidecar: Arc::clone(&dormant),
             device: None,
         },
     );
@@ -89,6 +111,10 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
         .unwrap();
     let execution = callers.execution_owner("peer:original:rtab").unwrap();
     callers.finish_execution_reservation(reservation, true);
+    let dormant_reservation = callers
+        .reserve_execution(&admitted.owner, "peer:original:dormant", 0)
+        .unwrap();
+    callers.finish_execution_reservation(dormant_reservation, true);
     let run_source = Arc::clone(&source);
     let run_first = first.clone();
     let run_next = next.clone();
@@ -162,6 +188,27 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
         let cleanup = pool.execution_selected(&target).await.unwrap();
         assert_eq!(cleanup.generation, current.generation);
         assert!(Arc::ptr_eq(&cleanup.sidecar, &run_source));
+        let dormant_target = pool
+            .peer_execution_target(&rejoined.owner, &run_next, "peer:original:dormant")
+            .await
+            .unwrap();
+        let incarnation = dormant_target.incarnation();
+        pool.execute(false, move |ctx, _| {
+            ctx.with(|pool| pool.entry_mut("peer:original:dormant").unwrap().seq = incarnation + 1);
+            Outcome::Now(Ok(Value::Null))
+        })
+        .await
+        .unwrap();
+        assert!(pool.release_peer_execution(&dormant_target).await.is_err());
+        pool.execute(false, move |ctx, _| {
+            ctx.with(|pool| pool.entry_mut("peer:original:dormant").unwrap().seq = incarnation);
+            Outcome::Now(Ok(Value::Null))
+        })
+        .await
+        .unwrap();
+        pool.release_peer_execution(&dormant_target).await.unwrap();
+        assert!(pool.execution_selected(&dormant_target).await.is_err());
+        assert_eq!(run_source.facts()["processAlive"], true);
         assert!(callers.retire_execution(&execution));
         assert!(
             pool.peer_execution_command(
@@ -178,6 +225,8 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
     .await;
     source.dispose(std::time::Duration::ZERO);
     held.await.unwrap();
+    dormant.dispose(std::time::Duration::ZERO);
+    dormant_held.await.unwrap();
     for connection in [&first, &first_remote, &next, &next_remote] {
         let mut changes = connection.changes();
         connection.disconnect_for_test();

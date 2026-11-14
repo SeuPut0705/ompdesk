@@ -32,6 +32,9 @@ impl<S: Sidecar + ?Sized> ExecutionTarget<S> {
     pub fn tab(&self) -> &str {
         &self.0.tab
     }
+    pub fn incarnation(&self) -> u64 {
+        self.0.incarnation
+    }
     pub fn source(&self) -> &Arc<S> {
         &self.0.source
     }
@@ -71,6 +74,19 @@ fn selected<H: Host>(
 }
 
 impl<H: Host> Service<H> {
+    pub fn release_peer_execution(
+        &self,
+        target: &ExecutionTarget<H::Sidecar>,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
+        self.release_execution_captured(
+            Arc::clone(&self.callers),
+            &target.0.owner,
+            &target.0.tab,
+            Arc::clone(&target.0.source),
+            Some(target.0.incarnation),
+        )
+    }
+
     /// Internal cleanup capability. The original execution remains admitted after its presentation link closes.
     pub fn execution_selected(
         &self,
