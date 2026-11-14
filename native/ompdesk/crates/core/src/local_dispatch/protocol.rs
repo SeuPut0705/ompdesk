@@ -35,12 +35,16 @@ pub struct RpcResponse {
     pub id: Option<String>,
     pub command: String,
     pub success: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "present_data", skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+}
+
+fn present_data<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
 }
 
 /// Only the explicit local error variant exposes a code in a local RPC response. A core/bridge error's internal
@@ -56,6 +60,16 @@ impl CommandError {
         Self::Local { code: code.into(), message: message.into() }
     }
 }
+
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Local { message, .. } | Self::Other(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for CommandError {}
 
 impl From<Fault> for CommandError {
     fn from(fault: Fault) -> Self {

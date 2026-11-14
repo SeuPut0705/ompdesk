@@ -3,19 +3,24 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use serde_json::Value;
 
 use crate::pool::application::Sidecar;
 use crate::server::Fault;
 
+pub mod authoring;
 pub mod composer;
 pub mod delivery;
+pub mod extensions;
+pub mod live;
+pub mod metadata;
 pub mod modes;
 pub mod policy;
 pub mod protocol;
 pub mod provider_files;
+pub mod provider_input;
 pub mod provider_yaml;
 pub mod providers;
 pub mod queue;
@@ -26,6 +31,14 @@ pub mod transcript;
 use protocol::{RpcCommand, RpcResponse};
 use session::Session;
 
+/// Host-owned resolved version and pre-rendered canonical templates. Neither is taken from RPC command data.
+pub struct Config {
+    pub version: Arc<str>,
+    pub templates: Arc<[authoring::Template]>,
+}
+
+static METADATA: LazyLock<metadata::Metadata> = LazyLock::new(metadata::Metadata::default);
+
 #[derive(Clone, Copy)]
 pub enum Area {
     Composer,
@@ -33,6 +46,10 @@ pub enum Area {
     Modes,
     Settings,
     Transcript,
+    Metadata,
+    Extensions,
+    Authoring,
+    Live,
 }
 
 pub struct CommandTable(HashMap<&'static str, Area>);
@@ -57,6 +74,10 @@ impl CommandTable {
             ("modes", Area::Modes, modes::COMMANDS),
             ("settings", Area::Settings, settings::COMMANDS),
             ("transcript", Area::Transcript, transcript::COMMANDS),
+            ("metadata", Area::Metadata, metadata::COMMANDS),
+            ("extensions", Area::Extensions, extensions::COMMANDS),
+            ("authoring", Area::Authoring, authoring::COMMANDS),
+            ("live", Area::Live, live::COMMANDS),
         ])
     }
 }
@@ -72,16 +93,16 @@ struct Spawn<S: Sidecar<Error = Fault> + ?Sized> {
 /// Each spawn replaces only its local projection/cache state. Authority and source ownership remain Base's.
 pub struct Commands<S: Sidecar<Error = Fault> + ?Sized> {
     source: Arc<S>,
-    version: Arc<str>,
+    config: Config,
     table: CommandTable,
     spawn: Mutex<Arc<Spawn<S>>>,
     next: AtomicU64,
 }
 
 impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
-    pub fn new(source: Arc<S>, version: Arc<str>) -> Result<Self, Fault> {
-        let spawn = Arc::new(Self::spawn(Arc::clone(&source), Arc::clone(&version)));
-        Ok(Self { source, version, table: CommandTable::builtin()?, spawn: Mutex::new(spawn), next: AtomicU64::new(0) })
+    pub fn new(source: Arc<S>, config: Config) -> Result<Self, Fault> {
+        let spawn = Arc::new(Self::spawn(Arc::clone(&source), Arc::clone(&config.version)));
+        Ok(Self { source, config, table: CommandTable::builtin()?, spawn: Mutex::new(spawn), next: AtomicU64::new(0) })
     }
 
     fn spawn(source: Arc<S>, version: Arc<str>) -> Spawn<S> {
@@ -91,7 +112,7 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
     fn current(&self) -> Arc<Spawn<S>> {
         let mut spawn = self.spawn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if spawn.generation != self.source.generation() {
-            *spawn = Arc::new(Self::spawn(Arc::clone(&self.source), Arc::clone(&self.version)));
+            *spawn = Arc::new(Self::spawn(Arc::clone(&self.source), Arc::clone(&self.config.version)));
         }
         Arc::clone(&spawn)
     }
@@ -120,6 +141,10 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
             Area::Modes => modes::handle(&command, &spawn.session).await,
             Area::Settings => settings::handle(&command, &spawn.session).await,
             Area::Transcript => spawn.transcript.handle(&command, &spawn.session).await,
+            Area::Metadata => METADATA.handle(&command).await,
+            Area::Extensions => extensions::handle(&command, &spawn.session).await,
+            Area::Authoring => authoring::handle(&command, &spawn.session, &self.config.templates).await,
+            Area::Live => live::handle(&command, &spawn.session).await,
         };
         self.source.before_response();
         serde_json::to_value(RpcResponse::local(&command, result)).map_err(|error| Fault::new("internal", error.to_string()))

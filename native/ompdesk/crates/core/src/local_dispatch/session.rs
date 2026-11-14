@@ -51,8 +51,12 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Session<S> {
     }
 
     pub async fn bridge(&self, method: &str, params: Value) -> Result<Value, CommandError> {
+        self.bridge_optional(method, Some(params)).await
+    }
+
+    pub async fn bridge_optional(&self, method: &str, params: Option<Value>) -> Result<Value, CommandError> {
         self.ensure_current()?;
-        self.source.bridge(method.to_owned(), Some(params), None).await.map_err(Into::into)
+        self.source.bridge(method.to_owned(), params, None).await.map_err(Into::into)
     }
 
     pub async fn stock(&self, command: Value) -> Result<Value, CommandError> {
