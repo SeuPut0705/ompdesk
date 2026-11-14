@@ -109,6 +109,18 @@ async fn native_commands_flush_before_reply_and_close_waits_for_the_real_child()
         "the ordered stream flush happens before the stock answer becomes visible"
     );
     service.barrier().await.unwrap();
+    let generation = crate::pool::application::Sidecar::generation(service.as_ref());
+    service.restart(None, None);
+    let stale_stock = service.stock_for_generation(
+        generation,
+        json!({"type": "get_state"}),
+        Some(Duration::from_secs(2)),
+    );
+    let stale_bridge = service.bridge_for_generation(generation, "stale".into(), None, None);
+    let stale_send = service.send_for_generation(generation, json!({"type": "stale"}));
+    assert!(stale_stock.await.is_err());
+    assert!(stale_bridge.await.is_err());
+    assert!(stale_send.await.is_err());
     let exited = service.when_exited();
     service.dispose(Duration::ZERO);
     exited.await.unwrap();

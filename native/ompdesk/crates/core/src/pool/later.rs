@@ -12,6 +12,17 @@ impl Ctx {
     /// tab's run has ended, never on a timer; at once when nothing runs there. Fails `session_running` if the run has
     /// not ended after `STOP_SESSION_WAIT_MS` (`stop_timeout`).
     pub(super) async fn stop_session(&self, token: u64, path: &str, device: Option<&str>) -> R<()> {
+        self.stop_session_generation(token, path, device, None)
+            .await
+    }
+
+    pub(super) async fn stop_session_generation(
+        &self,
+        token: u64,
+        path: &str,
+        device: Option<&str>,
+        generation: Option<u64>,
+    ) -> R<()> {
         let found = self.with(|pool| {
             pool.owner_entry(device, path)
                 .filter(|entry| entry.busy())
@@ -29,7 +40,7 @@ impl Ctx {
         self.push(&json!({"k": "turnStop", "tab": tab, "command": "abort_and_restore_queue", "by": "session-delete"}));
         // Its queued messages go too: they would start the next turn on a session about to be deleted.
         self.push(
-            &json!({"k": "command", "tab": tab, "incarnation": seq, "command": {"type": "abort_and_restore_queue"}}),
+            &json!({"k": "command", "tab": tab, "incarnation": seq, "generation": generation, "command": {"type": "abort_and_restore_queue"}}),
         );
         let done = self.with(|pool| {
             let settled = stop_settled(pool, &tab, seq);

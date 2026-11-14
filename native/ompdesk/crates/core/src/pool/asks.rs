@@ -20,13 +20,20 @@ pub trait Collaborators: Host {
     fn deleted_add(&self, session: &str, device: Option<&str>);
     fn self_device(&self) -> Option<String>;
     fn snowflake(&self) -> String;
-    fn running_changed(&self);
+    fn running_changed(&self) -> Result<(), ErrorOf<Self>>;
     fn session_files_changed(&self);
-    fn window_tabs_changed(&self, window: i64, layout: Value);
+    fn window_tabs_changed(&self, window: i64, layout: Value) -> Result<(), ErrorOf<Self>>;
     fn exiting(&self, key: String) -> EffectFuture<'_, Result<(), ErrorOf<Self>>>;
     fn command(
         &self,
         sidecar: Arc<Self::Sidecar>,
+        command: Value,
+    ) -> EffectFuture<'static, Result<Value, ErrorOf<Self>>>;
+    /// Enqueues the host's command against this exact Lane generation before returning.
+    fn command_for_generation(
+        &self,
+        sidecar: Arc<Self::Sidecar>,
+        generation: u64,
         command: Value,
     ) -> EffectFuture<'static, Result<Value, ErrorOf<Self>>>;
 }
@@ -123,12 +130,16 @@ impl<H: Collaborators> Application<H> {
                 Ok(Value::Null)
             }
             "dispose" => {
-                self.dispose(
+                let incarnation = item["incarnation"].as_u64();
+                if !self.dispose(
                     tab,
-                    item["incarnation"].as_u64(),
+                    incarnation,
                     item["ownerKey"].as_str().map(str::to_owned),
                     item["hosted"] == true,
-                );
+                ) && incarnation.is_some()
+                {
+                    return Err(self.host.error("The detached sidecar was not found".into()));
+                }
                 Ok(Value::Null)
             }
             "disposeSidecars" => {
@@ -172,7 +183,7 @@ impl<H: Collaborators> Application<H> {
             "selfDevice" => Ok(self.host.self_device().map_or(Value::Null, Value::from)),
             "snowflake" => Ok(Value::from(self.host.snowflake())),
             "onRunningChange" => {
-                self.host.running_changed();
+                self.host.running_changed()?;
                 Ok(Value::Null)
             }
             "onSessionFilesChanged" => {
@@ -183,7 +194,7 @@ impl<H: Collaborators> Application<H> {
                 self.host.window_tabs_changed(
                     item["win"].as_i64().unwrap_or_default(),
                     item["layout"].clone(),
-                );
+                )?;
                 Ok(Value::Null)
             }
             "exiting" => {

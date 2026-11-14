@@ -78,6 +78,7 @@ pub enum Command {
     Cwd(String),
     Gate,
     Stock {
+        generation: Option<u64>,
         seq: u64,
         command: Box<RawValue>,
         timeout: Option<Duration>,
@@ -85,6 +86,7 @@ pub enum Command {
     },
     Send(Box<RawValue>),
     Bridge {
+        generation: Option<u64>,
         method: String,
         params: Option<Box<RawValue>>,
         timeout: Option<Duration>,
@@ -93,6 +95,11 @@ pub enum Command {
     Barrier(u64, oneshot::Sender<()>),
     WhenExited(oneshot::Sender<()>),
     NativeWhenExited(oneshot::Sender<Result<(), Fault>>),
+    GuardedSend {
+        generation: u64,
+        frame: Box<RawValue>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
 }
 
 impl Command {
@@ -107,6 +114,9 @@ impl Command {
             }
             Command::Barrier(_, reply) | Command::WhenExited(reply) => {
                 let _ = reply.send(());
+            }
+            Command::GuardedSend { reply, .. } => {
+                let _ = reply.send(Err(disconnected()));
             }
             _ => {}
         }
@@ -816,6 +826,30 @@ impl Lane {
 
     fn command(&mut self, command: Command) {
         match command {
+            Command::GuardedSend {
+                generation,
+                frame,
+                reply,
+            } => {
+                if !self.is_live(generation) {
+                    let _ = reply.send(Err(disconnected()));
+                    return;
+                }
+                let mut line = frame.get().as_bytes().to_vec();
+                line.push(b'\n');
+                let result = self
+                    .running
+                    .as_ref()
+                    .ok_or_else(disconnected)
+                    .and_then(|running| {
+                        running
+                            .proc
+                            .stdin
+                            .send(StdinMsg::Line(line))
+                            .map_err(|_| disconnected())
+                    });
+                let _ = reply.send(result);
+            }
             Command::Start => self.start(),
             Command::Restart {
                 cwd,
@@ -827,22 +861,34 @@ impl Lane {
             Command::Cwd(cwd) => self.cwd = cwd,
             Command::Gate => self.start_gate = true,
             Command::Stock {
+                generation,
                 seq,
                 command,
                 timeout,
                 reply,
-            } => self.stock(seq, &command, timeout, reply),
+            } => {
+                if generation.is_some_and(|generation| !self.is_live(generation)) {
+                    let _ = reply.send(Err(disconnected()));
+                    return;
+                }
+                self.stock(seq, &command, timeout, reply);
+            }
             Command::Send(frame) => {
                 let mut line = frame.get().as_bytes().to_vec();
                 line.push(b'\n');
                 self.write_line(line);
             }
             Command::Bridge {
+                generation,
                 method,
                 params,
                 timeout,
                 reply,
             } => {
+                if generation.is_some_and(|generation| !self.is_live(generation)) {
+                    let _ = reply.send(Err(disconnected()));
+                    return;
+                }
                 let Some(running) = &self.running else {
                     let _ = reply.send(Err(no_bridge()));
                     return;

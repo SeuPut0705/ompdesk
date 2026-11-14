@@ -242,8 +242,51 @@ impl Service {
         Ok(())
     }
 
+    pub fn send_for_generation(
+        &self,
+        generation: u64,
+        frame: Value,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
+        let frame = match serde_json::value::to_raw_value(&frame) {
+            Ok(frame) => frame,
+            Err(error) => {
+                return Box::pin(
+                    async move { Err(Fault::new("invalid_params", error.to_string())) },
+                );
+            }
+        };
+        let (reply, answer) = oneshot::channel();
+        self.send(
+            Command::GuardedSend {
+                generation,
+                frame,
+                reply,
+            },
+            false,
+        );
+        Box::pin(async move { answer.await.map_err(|_| disconnected())? })
+    }
+
     pub fn stock(
         &self,
+        command: Value,
+        timeout: Option<Duration>,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        self.stock_with_generation(None, command, timeout)
+    }
+
+    pub fn stock_for_generation(
+        &self,
+        generation: u64,
+        command: Value,
+        timeout: Option<Duration>,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        self.stock_with_generation(Some(generation), command, timeout)
+    }
+
+    fn stock_with_generation(
+        &self,
+        generation: Option<u64>,
         command: Value,
         timeout: Option<Duration>,
     ) -> EffectFuture<'static, Result<Value, Fault>> {
@@ -263,6 +306,7 @@ impl Service {
             &self.tab,
             seq,
             Command::Stock {
+                generation,
                 seq,
                 command,
                 timeout,
@@ -292,6 +336,26 @@ impl Service {
         params: Option<Value>,
         timeout: Option<Duration>,
     ) -> EffectFuture<'static, Result<Value, Fault>> {
+        self.bridge_with_generation(None, method, params, timeout)
+    }
+
+    pub fn bridge_for_generation(
+        &self,
+        generation: u64,
+        method: String,
+        params: Option<Value>,
+        timeout: Option<Duration>,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        self.bridge_with_generation(Some(generation), method, params, timeout)
+    }
+
+    fn bridge_with_generation(
+        &self,
+        generation: Option<u64>,
+        method: String,
+        params: Option<Value>,
+        timeout: Option<Duration>,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
         let params = match params
             .map(|params| serde_json::value::to_raw_value(&params))
             .transpose()
@@ -306,6 +370,7 @@ impl Service {
         let (reply, answer) = oneshot::channel();
         self.send(
             Command::Bridge {
+                generation,
                 method,
                 params,
                 timeout,
@@ -490,6 +555,35 @@ impl crate::pool::application::Sidecar for Service {
     }
     fn stock(&self, command: Value) -> EffectFuture<'static, Result<Value, Fault>> {
         Service::stock(self, command, Some(Duration::from_secs(8)))
+    }
+    fn send_for_generation(
+        &self,
+        generation: u64,
+        frame: Value,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
+        Service::send_for_generation(self, generation, frame)
+    }
+    fn stock_for_generation(
+        &self,
+        generation: u64,
+        command: Value,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        Service::stock_for_generation(self, generation, command, Some(Duration::from_secs(8)))
+    }
+    fn bridge_for_generation(
+        &self,
+        generation: u64,
+        method: String,
+        params: Option<Value>,
+        timeout_ms: Option<u64>,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        Service::bridge_for_generation(
+            self,
+            generation,
+            method,
+            params,
+            timeout_ms.map(Duration::from_millis),
+        )
     }
     fn bridge(
         &self,

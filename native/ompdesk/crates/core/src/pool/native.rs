@@ -47,6 +47,7 @@ pub struct Selected<S: Sidecar + ?Sized> {
     pub device: Option<String>,
     pub window: i64,
     pub session_file: Option<String>,
+    pub generation: u64,
     pub sidecar: Arc<S>,
 }
 
@@ -56,6 +57,7 @@ pub struct SessionTarget<S: Sidecar + ?Sized> {
     pub device: Option<String>,
     pub session_file: String,
     pub incarnation: u64,
+    pub generation: u64,
     pub sidecar: Arc<S>,
 }
 
@@ -67,6 +69,7 @@ impl<S: Sidecar + ?Sized> Clone for SessionTarget<S> {
             device: self.device.clone(),
             session_file: self.session_file.clone(),
             incarnation: self.incarnation,
+            generation: self.generation,
             sidecar: Arc::clone(&self.sidecar),
         }
     }
@@ -156,7 +159,14 @@ impl<H: Host> NativeSink for Sink<H> {
         }
         if item["k"] == "command" && item["incarnation"].as_u64().is_some() {
             if let Some(sidecar) = self.incarnation_sidecar(&item) {
-                let work = self.app.host.command(sidecar, item["command"].clone());
+                let work = match item["generation"].as_u64() {
+                    Some(generation) => self.app.host.command_for_generation(
+                        sidecar,
+                        generation,
+                        item["command"].clone(),
+                    ),
+                    None => self.app.host.command(sidecar, item["command"].clone()),
+                };
                 hub::spawn(async move {
                     let _ = work.await;
                 });
@@ -389,11 +399,43 @@ impl<H: Host> Service<H> {
         Box::pin(async move { Ok(work.await? == Value::Bool(true)) })
     }
 
+    pub fn stock_if_live(
+        &self,
+        owner: &Owner,
+        tab: &str,
+        source: Arc<H::Sidecar>,
+        generation: u64,
+        command: Value,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        let owner = owner.clone();
+        let tab = tab.to_owned();
+        let app = Arc::clone(&self.app);
+        self.execute(false, move |ctx, _| {
+            if let Err(error) = app.host.authorize_tab(&owner, &tab) {
+                return Outcome::Now(Err(error));
+            }
+            let live = ctx.with(|pool| pool.entry(&tab).is_some());
+            if !live
+                || !app
+                    .sidecar(&tab)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &source))
+            {
+                return Outcome::Now(Err(Fault::new(
+                    "tab_stale",
+                    "The tab's sidecar has changed",
+                )));
+            }
+            let request = source.stock_for_generation(generation, command);
+            Outcome::Later(Box::pin(request))
+        })
+    }
+
     pub fn bridge_if_live(
         &self,
         owner: &Owner,
         tab: &str,
         source: Arc<H::Sidecar>,
+        generation: u64,
         method: String,
         params: Option<Value>,
         timeout_ms: Option<u64>,
@@ -416,7 +458,7 @@ impl<H: Host> Service<H> {
                     "The tab's sidecar has changed",
                 )));
             }
-            let request = source.bridge(method, params, timeout_ms);
+            let request = source.bridge_for_generation(generation, method, params, timeout_ms);
             Outcome::Later(Box::pin(request))
         })
     }
@@ -708,6 +750,7 @@ impl<H: Host> Service<H> {
                     device: selected.device,
                     window: selected.window,
                     session_file: selected.session_file,
+                    generation: sidecar.generation(),
                     sidecar,
                 }))
             })();
@@ -753,12 +796,14 @@ impl<H: Host> Service<H> {
                 let sidecar = app.sidecar(&tab).ok_or_else(|| {
                     Fault::new("tab_unknown", "The session's sidecar is not open")
                 })?;
+                let generation = sidecar.generation();
                 Ok(Some(SessionTarget {
                     tab,
                     window,
                     device,
                     session_file: path,
                     incarnation,
+                    generation,
                     sidecar,
                 }))
             })();
@@ -780,14 +825,23 @@ impl<H: Host> Service<H> {
                 if ctx.with(|pool| pool.entry(&target.tab).is_some_and(|entry| entry.busy())) {
                     return Ok(Value::Bool(false));
                 }
-                if !ctx.release_entry(&target.tab).await? {
+                let Some((mut result, disposed)) = ctx.release_entry_detail(&target.tab).await
+                else {
                     return Err(Fault::new("tab_stale", "The session's tab is not open"));
+                };
+                if result.is_ok() {
+                    result = ctx.notify_window_tabs_changed(target.window).await;
                 }
-                ctx.notify_window_tabs_changed(target.window).await?;
-                ctx.send_tab_list(target.window, Some(std::slice::from_ref(&target.tab)), None)
-                    .await?;
-                app.host.when_released(target.tab, target.sidecar).await?;
-                Ok(Value::Bool(true))
+                if result.is_ok() {
+                    result = ctx
+                        .send_tab_list(target.window, Some(std::slice::from_ref(&target.tab)), None)
+                        .await;
+                }
+                if disposed {
+                    let receipt = app.host.when_released(target.tab, target.sidecar).await;
+                    result = result.and(receipt);
+                }
+                result.map(|()| Value::Bool(true))
             }))
         });
         Box::pin(async move { Ok(work.await? == Value::Bool(true)) })
@@ -804,8 +858,13 @@ impl<H: Host> Service<H> {
         let work = self.execute(true, move |ctx, token| {
             Outcome::Later(Box::pin(async move {
                 check_target(&ctx, &app, &owner, &target)?;
-                ctx.stop_session(token, &target.session_file, target.device.as_deref())
-                    .await?;
+                ctx.stop_session_generation(
+                    token,
+                    &target.session_file,
+                    target.device.as_deref(),
+                    Some(target.generation),
+                )
+                .await?;
                 Ok(Value::Null)
             }))
         });
@@ -831,7 +890,9 @@ impl<H: Host> Service<H> {
             }) {
                 return Outcome::Now(Ok(Value::Null));
             }
-            let command = app.host.command(target.sidecar, command);
+            let command =
+                app.host
+                    .command_for_generation(target.sidecar, target.generation, command);
             Outcome::Later(Box::pin(command))
         })
     }
@@ -879,7 +940,6 @@ impl<H: Host> Service<H> {
     ) -> Result<EffectFuture<'static, Result<Value, Fault>>, Fault> {
         let window = self.app.host.window_for(owner)?;
         let source = self.source(owner, &tab)?;
-        let released_tab = tab.clone();
         let expected = Arc::clone(&source);
         let owner = owner.clone();
         let checked_app = Arc::clone(&self.app);
@@ -890,26 +950,28 @@ impl<H: Host> Service<H> {
                     .sidecar(&tab)
                     .is_some_and(|current| Arc::ptr_eq(&current, &expected))
                 {
-                    return Ok(json!({"closed": false, "owner": false}));
+                    return Ok(Value::Bool(false));
                 }
                 let owns =
                     ctx.with(|pool| pool.entry(&tab).is_some_and(|entry| entry.win_id == window));
-                let closed = if owns {
-                    ctx.release_tab(&tab).await?
+                if owns {
+                    let Some((mut result, disposed)) = ctx.release_entry_detail(&tab).await else {
+                        return Ok(Value::Bool(false));
+                    };
+                    if result.is_ok() {
+                        result = ctx.notify_window_tabs_changed(window).await;
+                    }
+                    if disposed {
+                        let receipt = checked_app.host.when_released(tab, expected).await;
+                        result = result.and(receipt);
+                    }
+                    result.map(|()| Value::Bool(true))
                 } else {
-                    ctx.detach_viewer(window, &tab).await?
-                };
-                Ok(json!({"closed": closed, "owner": owns}))
+                    Ok(Value::Bool(ctx.detach_viewer(window, &tab).await?))
+                }
             }))
         });
-        let app = Arc::clone(&self.app);
-        Ok(Box::pin(async move {
-            let result = closed.await?;
-            if result["owner"] == true && result["closed"] == true {
-                app.host.when_released(released_tab, source).await?;
-            }
-            Ok(result["closed"].clone())
-        }))
+        Ok(closed)
     }
 
     pub fn answer(
