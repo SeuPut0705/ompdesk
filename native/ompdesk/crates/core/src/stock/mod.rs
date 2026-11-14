@@ -233,9 +233,9 @@ impl LaunchSource {
     }
 }
 static LANES: LazyLock<Mutex<HashMap<(String, Worker), Entry>>> = LazyLock::new(Default::default);
+type StoppingWorkers = HashMap<u64, (String, LaunchSource, watch::Receiver<bool>)>;
 /// Removed lanes keep their host ownership until every worker they started has exited.
-static STOPPING: LazyLock<Mutex<HashMap<u64, (String, LaunchSource, watch::Receiver<bool>)>>> =
-    LazyLock::new(Default::default);
+static STOPPING: LazyLock<Mutex<StoppingWorkers>> = LazyLock::new(Default::default);
 /// Names requests and starts: one sequence, so no two of either share a number in this process.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
