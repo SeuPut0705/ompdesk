@@ -49,6 +49,7 @@ import {
 } from "../../resources/gui-bridge/restart-core";
 import { type ForkEntry, forkCut } from "../../resources/gui-bridge/session-fork-core";
 import { transcriptPageMessages, transcriptRunStart } from "../../resources/gui-bridge/transcript-page";
+import { blockedAccountUsage } from "../../src/renderer/dev-harness/fixture-usage";
 import { REPLY_SHOWCASE } from "../../src/renderer/dev-harness/reply-showcase";
 import type {
 	AgentMessage,
@@ -516,6 +517,8 @@ export function runRpcUi(): void {
 	 * replaces it.
 	 */
 	const ownerUsage = (): Array<Record<string, unknown>> | undefined => {
+		if (process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "blocked")
+			return blockedAccountUsage().map(report => ({ ...report }));
 		if (process.env.OMP_GUI_TEST_USAGE_ACCOUNTS !== "many") return undefined;
 		const now = Date.now();
 		const HOUR = 3_600_000;

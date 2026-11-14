@@ -1047,7 +1047,10 @@ export const SURFACES: readonly Surface[] = [
 		ready: "[data-rail-pin='usage'] [data-usage-account]",
 		// Parity only, and only over a host whose fake omp reports those accounts (`OMP_GUI_TEST_USAGE_ACCOUNTS=many`).
 		when: () => false,
-		parity: { session: "work", available: () => process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "many" },
+		parity: {
+			session: "work",
+			available: () => ["many", "blocked"].includes(process.env.OMP_GUI_TEST_USAGE_ACCOUNTS ?? ""),
+		},
 	},
 	{
 		id: "sidebar-usage-end",
@@ -1061,7 +1064,10 @@ export const SURFACES: readonly Surface[] = [
 		},
 		ready: "[data-rail-pin='usage'] [data-usage-account]",
 		when: () => false,
-		parity: { session: "work", available: () => process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "many" },
+		parity: {
+			session: "work",
+			available: () => ["many", "blocked"].includes(process.env.OMP_GUI_TEST_USAGE_ACCOUNTS ?? ""),
+		},
 	},
 	{
 		id: "sidebar-family",
