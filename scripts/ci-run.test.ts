@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { execFile } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { promisify } from "node:util";
+import { afterEach, describe, expect, it } from "vitest";
 import { asksForMac, decide, hubArgs, type LaneRun, laneOf, parseArgs, readGate, refAllowed, route } from "./ci-run";
 
 const run = (id: number, workflow: string, branch: string, ...statuses: string[]): LaneRun => ({
@@ -187,5 +192,80 @@ describe("ci-run direct dispatch: the workflows' queue rules", () => {
 		expect(decide({ ...args, replace: true }, "mine", "mine", full)).toMatchObject({ go: true });
 		const held = laneOf([run(1, "ci", "a", "in_progress")], mine);
 		expect(decide(args, "mine", "mine", held)).toMatchObject({ go: true, note: expect.stringContaining("run 1") });
+	});
+});
+
+const dispatchDirs: string[] = [];
+afterEach(() => {
+	for (const dir of dispatchDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// PATH stand-ins are POSIX executables; the same dispatch/parser code runs on Windows without these shell fixtures.
+describe.skipIf(process.platform === "win32")("ci-run dispatch receipt consumer", () => {
+	const execute = promisify(execFile);
+	function fixture() {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-dispatch-receipt-"));
+		dispatchDirs.push(dir);
+		fs.writeFileSync(
+			path.join(dir, "ompdesk"),
+			"#!/bin/sh\necho 'ompdesk: unknown command \"checks\"' >&2\nexit 2\n",
+			{ mode: 0o755 },
+		);
+		fs.writeFileSync(
+			path.join(dir, "gh"),
+			`#!/bin/sh
+printf '%s\\n' "$*" >> "$DISPATCH_TRACE"
+for arg do
+  case "$arg" in
+    */dispatches)
+      if [ "$EMPTY_RECEIPT" = yes ]; then echo '{}'; else
+        printf '{"workflow_run_id":%s,"html_url":"https://github.com/test/repo/actions/runs/%s"}\\n' "$OWN_RUN" "$OWN_RUN"
+      fi
+      exit 0 ;;
+  esac
+done
+if [ "$1 $2" = 'run list' ]; then
+  echo '[{"databaseId":999999,"createdAt":"2099-01-01T00:00:00Z","headSha":"other","url":"https://github.com/test/repo/actions/runs/999999"}]'
+else
+  echo '{}'
+fi
+`,
+			{ mode: 0o755 },
+		);
+		return {
+			dir,
+			start: (id: number, empty = false) =>
+				execute(
+					"bun",
+					[path.resolve("scripts/ci-run.ts"), "formal", "--ref", "concurrent-dispatch", "-f", "only=unit"],
+					{
+						env: {
+							...process.env,
+							PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`,
+							OWN_RUN: String(id),
+							DISPATCH_TRACE: path.join(dir, `trace-${id}`),
+							EMPTY_RECEIPT: empty ? "yes" : "no",
+						},
+					},
+				),
+		};
+	}
+
+	it("keeps two concurrent dispatches on the same ref attached to their own returned run IDs", async () => {
+		const { start } = fixture();
+		const [first, second] = await Promise.all([start(101), start(202)]);
+		expect(first.stdout).toContain("watch it once: bun scripts/watch-run.ts 101");
+		expect(second.stdout).toContain("watch it once: bun scripts/watch-run.ts 202");
+		expect(first.stdout + second.stdout).not.toContain("watch it once: bun scripts/watch-run.ts 999999");
+	});
+
+	it("retains an unconfirmed dispatch without selecting a recent candidate or dispatching again", async () => {
+		const { start, dir } = fixture();
+		await expect(start(303, true)).rejects.toMatchObject({
+			code: 1,
+			stderr: expect.stringContaining("unconfirmed"),
+		});
+		const trace = fs.readFileSync(path.join(dir, "trace-303"), "utf8").trim().split("\n");
+		expect(trace.filter(line => line.includes("/dispatches"))).toHaveLength(1);
 	});
 });

@@ -290,7 +290,7 @@ function accountLoad(): string {
  * No hub took it: the run goes out as `gh workflow run` would send it, with one line saying the hub was not used, under
  * the workflows' queue rules (MAC_REFS, queue-gate.yml on the branch, the macOS lane's waiting request).
  */
-async function dispatchDirectly(args: CiRunArgs, ref: string, why: string): Promise<number> {
+function dispatchDirectly(args: CiRunArgs, ref: string, why: string): number {
 	console.log(`ci-run: the checks hub was not used (${why}); dispatching directly.`);
 	if (!gh(["api", `repos/{owner}/{repo}/git/ref/heads/${ref}`]).ok) fail(`${ref} is not pushed: push it first`, 2);
 	if (
@@ -323,13 +323,35 @@ async function dispatchDirectly(args: CiRunArgs, ref: string, why: string): Prom
 		if (decision.note) console.log(decision.note);
 		break;
 	}
-	const fields = Object.entries(args.inputs).flatMap(([key, value]) => ["-f", `${key}=${value}`]);
-	const started = Date.now();
-	const dispatched = gh(["workflow", "run", `${args.workflow}.yml`, "--ref", ref, ...fields]);
-	if (!dispatched.ok) fail(`gh workflow run failed: ${dispatched.err}`, 1);
-	for (let attempt = 0; attempt < 10; attempt++) {
-		await Bun.sleep(2_000);
-		const listed = gh([
+	// API 2026-03-10 returns this dispatch's run ID; a recent run on the same ref is never a receipt.
+	const fields = Object.entries(args.inputs).flatMap(([key, value]) => ["-f", `inputs[${key}]=${value}`]);
+	const dispatched = gh([
+		"api",
+		"--method",
+		"POST",
+		`repos/{owner}/{repo}/actions/workflows/${args.workflow}.yml/dispatches`,
+		"-H",
+		"Accept:application/vnd.github+json",
+		"-H",
+		"X-GitHub-Api-Version:2026-03-10",
+		"-f",
+		`ref=${ref}`,
+		...fields,
+	]);
+	let id: number | undefined;
+	if (dispatched.ok) {
+		try {
+			const receipt: unknown = JSON.parse(dispatched.out);
+			if (receipt && typeof receipt === "object" && "workflow_run_id" in receipt) {
+				const returned = receipt.workflow_run_id;
+				if (typeof returned === "number" && Number.isSafeInteger(returned) && returned > 0) id = returned;
+			}
+		} catch {
+			// A lost or malformed response does not prove that GitHub refused the dispatch.
+		}
+	}
+	if (id === undefined) {
+		const candidates = gh([
 			"run",
 			"list",
 			"--workflow",
@@ -341,22 +363,14 @@ async function dispatchDirectly(args: CiRunArgs, ref: string, why: string): Prom
 			"--limit",
 			"5",
 			"--json",
-			"databaseId,createdAt,url",
+			"databaseId,displayTitle,headSha,url",
 		]);
-		const rows = listed.ok
-			? (JSON.parse(listed.out) as { databaseId: number; createdAt: string; url: string }[])
-			: [];
-		const mine = rows.find(row => Date.parse(row.createdAt) >= started - 5_000);
-		if (mine) {
-			console.log(
-				`dispatched ${args.workflow}.yml on ${ref}: ${mine.url}\nwatch it once: bun scripts/watch-run.ts ${mine.databaseId}`,
-			);
-			return 0;
-		}
+		fail(
+			`dispatch outcome is unconfirmed; it may have started. Do not dispatch it again automatically.${dispatched.err ? ` ${dispatched.err}` : ""}\nCandidates (not attributed): ${candidates.ok ? candidates.out.trim() : candidates.err}`,
+			1,
+		);
 	}
-	console.log(
-		`dispatched ${args.workflow}.yml on ${ref}; the run is not listed yet (gh run list --workflow ${args.workflow}.yml --branch ${ref})`,
-	);
+	console.log(`dispatched ${args.workflow}.yml on ${ref}: run ${id}\nwatch it once: bun scripts/watch-run.ts ${id}`);
 	return 0;
 }
 
