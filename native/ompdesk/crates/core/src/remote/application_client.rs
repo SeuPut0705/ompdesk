@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 
 use super::events::decoder::Decoder;
 use super::events::delta::{ReadDecoder, encoded_read_key};
@@ -403,8 +403,9 @@ impl State {
         let link = self.link.clone();
         let inbox = self.inbox.clone();
         let epoch = self.epoch;
+        let closes = Arc::clone(&self.closes);
         tokio::spawn(async move {
-            let result = link.request("tab.open", params, REQUEST).await;
+            let result = closes.open(&link, params).await;
             let _ = inbox.send(Input::Opened(epoch, result));
         });
     }
@@ -980,8 +981,48 @@ pub struct PendingTabCloses(Mutex<Closes>);
 struct Closes {
     serial: u64,
     tabs: HashMap<String, u64>,
+    turns: HashMap<String, Arc<AsyncMutex<()>>>,
+}
+struct CloseTurn<'a> {
+    pending: &'a PendingTabCloses,
+    rtab: &'a str,
+    gate: Arc<AsyncMutex<()>>,
+}
+impl Drop for CloseTurn<'_> {
+    fn drop(&mut self) {
+        let mut pending = self.pending.0.lock().unwrap_or_else(|p| p.into_inner());
+        if Arc::strong_count(&self.gate) == 2 {
+            pending.turns.remove(self.rtab);
+        }
+    }
 }
 impl PendingTabCloses {
+    fn turn<'a>(&'a self, rtab: &'a str) -> CloseTurn<'a> {
+        let mut pending = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let gate = match pending.turns.get(rtab) {
+            Some(gate) => Arc::clone(gate),
+            None => {
+                let gate = Arc::new(AsyncMutex::new(()));
+                pending.turns.insert(rtab.to_owned(), Arc::clone(&gate));
+                gate
+            }
+        };
+        CloseTurn {
+            pending: self,
+            rtab,
+            gate,
+        }
+    }
+    async fn open(&self, link: &RemoteRequests, params: Value) -> Result<Value, RemoteError> {
+        let rtab = params["rtab"]
+            .as_str()
+            .ok_or_else(|| Fault::new("invalid_params", "Invalid rtab"))?
+            .to_owned();
+        let turn = self.turn(&rtab);
+        let _held = turn.gate.lock().await;
+        self.cancel(&rtab);
+        link.request("tab.open", params, REQUEST).await
+    }
     pub fn defer(&self, rtab: String) {
         let mut pending = self.0.lock().unwrap_or_else(|p| p.into_inner());
         pending.serial += 1;
@@ -1003,6 +1044,18 @@ impl PendingTabCloses {
             .tabs
             .clone();
         for (rtab, serial) in pending {
+            let turn = self.turn(&rtab);
+            let _held = turn.gate.lock().await;
+            if self
+                .0
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .tabs
+                .get(&rtab)
+                != Some(&serial)
+            {
+                continue;
+            }
             let result = link
                 .request("tab.close", json!({"rtab":rtab}), REQUEST)
                 .await;

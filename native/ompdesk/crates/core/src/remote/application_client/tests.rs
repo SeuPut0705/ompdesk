@@ -339,3 +339,45 @@ async fn reopening_a_later_snapshot_row_cancels_its_unsent_close() {
     device.disconnect_for_test();
     host.disconnect_for_test();
 }
+
+#[tokio::test]
+async fn reopening_waits_for_its_inflight_close_without_blocking_another_tab() {
+    let (device, host, _keep) = pair().await;
+    let mut incoming = host.take_requests().unwrap();
+    let closes = PendingTabCloses::default();
+    closes.defer("same".into());
+    let flush = closes.flush(&device);
+    tokio::pin!(flush);
+    let close = tokio::select! {
+        close = incoming.recv() => close.unwrap(),
+        () = &mut flush => panic!("No close was sent"),
+    };
+    closes.cancel("same");
+    let reopen = closes.open(&device, json!({"rtab":"same"}));
+    tokio::pin!(reopen);
+    std::future::poll_fn(|cx| {
+        assert!(reopen.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(incoming.try_recv().is_err());
+    let other = closes.open(&device, json!({"rtab":"other"}));
+    let serve = async {
+        let unrelated = incoming.recv().await.unwrap();
+        assert_eq!(unrelated.method, "tab.open");
+        assert_eq!(unrelated.params["rtab"], "other");
+        host.answer(unrelated.id, Ok(json!({"attached":true})))
+            .unwrap();
+        host.answer(close.id, Ok(Value::Null)).unwrap();
+        let reopened = incoming.recv().await.unwrap();
+        assert_eq!(reopened.method, "tab.open");
+        assert_eq!(reopened.params["rtab"], "same");
+        host.answer(reopened.id, Ok(json!({"attached":false})))
+            .unwrap();
+    };
+    let ((), reopened, unrelated, ()) = tokio::join!(flush, reopen, other, serve);
+    assert_eq!(reopened.unwrap()["attached"], false);
+    assert_eq!(unrelated.unwrap()["attached"], true);
+    device.disconnect_for_test();
+    host.disconnect_for_test();
+}
