@@ -159,6 +159,7 @@ fn call_journal_replays_the_typescripts() {
     }
 }
 
+#[cfg(unix)]
 fn send_entry(value: &Value) -> OutboxSend {
     super::send_outbox::parse_entry(value).unwrap()
 }
@@ -358,6 +359,7 @@ fn mail(id: &str) -> OutboxMail {
     }
 }
 
+#[cfg(unix)]
 fn fixed(now: f64) -> Clock {
     Arc::new(move || now)
 }
