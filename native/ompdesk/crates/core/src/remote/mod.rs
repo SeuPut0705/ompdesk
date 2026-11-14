@@ -14,8 +14,10 @@
 //! encoding's methods are `events`'.
 
 pub mod address;
+pub mod application_host;
 pub mod codec;
 pub mod crypto;
+pub mod delivery;
 pub mod devices;
 mod dial;
 pub mod events;
@@ -23,9 +25,12 @@ mod handshake;
 mod host;
 pub mod identity;
 mod link;
+pub mod quota;
+pub mod requests;
 pub mod store;
 pub mod tailnet;
 pub mod traffic;
+pub mod uploads;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -57,6 +62,8 @@ struct State {
     asks: HashMap<u64, oneshot::Sender<Value>>,
     /// Core-side code told when a link ends (a reconnecting client), registered before the link runs.
     enders: HashMap<u64, Box<dyn FnOnce(Reason) + Send>>,
+    /// Native consumers installed at the authenticated connection handoff.
+    applications: HashMap<u64, std::sync::Weak<requests::Inner>>,
 }
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(Mutex::default);
@@ -89,6 +96,7 @@ pub(crate) fn on_link_end(id: u64, ended: impl FnOnce(Reason) + Send + 'static) 
 
 /// A link's task ended with `reason`.
 pub(crate) fn link_ended(id: u64, reason: Reason) {
+    requests::closed(id);
     let ender = state().enders.remove(&id);
     if let Some(ender) = ender {
         ender(reason);
