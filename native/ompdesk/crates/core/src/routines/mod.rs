@@ -12,9 +12,9 @@
 
 mod files;
 pub(crate) mod github;
-pub(crate) mod text;
 pub mod imap;
 pub mod runtime;
+pub(crate) mod text;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
