@@ -1,6 +1,7 @@
 //! App-owned MCP HTTP service. Stock omp still discovers the mounted roots and owns MCP OAuth.
 //! There is no policy worker: this listener, its sessions and REA children live with the native app.
 
+pub mod local;
 mod memory;
 pub mod policy;
 pub mod rea;
