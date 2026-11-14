@@ -14,7 +14,8 @@ import type {
 	SidecarStatus,
 } from "../shared/rpc-types";
 import { unsavedSessionKey } from "../shared/session-summary";
-import { core } from "./core/process";
+import { hub } from "./core/hub";
+import { core, CoreError } from "./core/process";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { RemoteSidecar } from "./remote/remote-sidecar";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -596,6 +597,39 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(pool.sidecarForTab(owner.win, "remote-proxy")).toBeNull();
 		expect(sent).not.toContain("tab.close");
 		expect(sent.filter(method => method === "tab.open")).toHaveLength(1);
+	});
+
+	it("never replays an exact view commit after losing its core answer", async () => {
+		const { pool, owner, sidecar, acknowledgement, sent } = await remoteProxy();
+		const identity = pool.viewIdentity(owner.win, "remote-proxy");
+		if (!identity) throw new Error("expected a relay view identity");
+		const sharedHub = hub();
+		const originalCall = sharedHub.call.bind(sharedHub);
+		let commits = 0;
+		const spy = vi
+			.spyOn(sharedHub, "call")
+			.mockImplementation(<T>(to: number, method: string, params?: unknown): T => {
+				if (method === "commitExactWindowView") {
+					commits++;
+					if (commits === 1) {
+						core().abandon("fixture loses exact view commit answer");
+						throw new CoreError("hub_lost", "fixture commit outcome unknown");
+					}
+				}
+				return originalCall<T>(to, method, params);
+			});
+		try {
+			acknowledgement.resolve(null);
+			await expect(
+				pool.leaveWindowView(owner.win, "remote-proxy", identity, SESSION, () => true, authorize),
+			).rejects.toMatchObject({ code: "view_commit_unconfirmed", commitOutcome: "unknown" });
+			expect(commits).toBe(1);
+			expect(sent).not.toContain("tab.leave");
+			expect(sent).not.toContain("tab.close");
+			expect(pool.sidecarForTab(owner.win, "remote-proxy")).toBe(sidecar);
+		} finally {
+			spy.mockRestore();
+		}
 	});
 });
 

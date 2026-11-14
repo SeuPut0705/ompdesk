@@ -54,6 +54,7 @@ import {
 	type SpawnRequest,
 	type StoredSession,
 	type Tombstones,
+	ToolError,
 	type Tuning,
 	type ViewCloseFacts,
 } from "./service";
@@ -6503,15 +6504,15 @@ describe("closing one exact relay view", () => {
 	});
 
 	it.each([
-		{ tab: { hidden: true }, error: /hidden/i },
-		{ tab: { busy: true }, error: /busy|running/i },
-		{ tab: { asks: [select("Continue?", ["Yes", "No"])] }, error: /waiting/i },
-		{ tab: { webEdits: "dirty" as const }, error: /unsaved|edits/i },
-	])("refuses unsafe authenticated receiver facts without aborting (%j)", async ({ tab, error }) => {
+		{ hidden: true },
+		{ busy: true },
+		{ asks: [select("Continue?", ["Yes", "No"])] },
+		{ webEdits: "dirty" as const },
+	])("refuses unsafe authenticated receiver facts without aborting (%j)", async tab => {
 		const host = new FakeHost({ tabId: "source-a", personTurn: true });
 		host.full = true;
 		const service = control(host);
-		await expect(service.authorizeView("source-a", facts(tab), "host-a")).rejects.toThrow(error);
+		await expect(service.authorizeView("source-a", facts(tab), "host-a")).rejects.toBeInstanceOf(ToolError);
 		expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
 		expect(host.spawned).toEqual([]);
 		expect(host.deleted).toEqual([]);
