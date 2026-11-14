@@ -143,3 +143,7 @@ impl<P: Host> HostedTargets<P> {
 fn path_changed() -> Fault {
     Fault::new("session_changed", "The captured execution does not own the expected session")
 }
+
+#[cfg(test)]
+#[path = "hosted_targets_tests.rs"]
+mod tests;
