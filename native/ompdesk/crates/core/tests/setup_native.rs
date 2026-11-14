@@ -331,7 +331,7 @@ async fn manual_retry_bypasses_daily_backoff_and_launch_limit() {
 }
 
 #[tokio::test]
-async fn runner_releases_inherited_pipes_after_isolated_installer_exits() {
+async fn isolated_runner_reports_file_output_and_removes_log() {
     let fixture = Fixture::new("isolated");
     let scope = Scope::detached();
     let runner = Runner::new(
@@ -527,4 +527,219 @@ async fn partially_failed_git_aslr_fix_keeps_the_exact_undo_record() {
         Prior::On
     );
     service.dispose();
+}
+
+#[tokio::test]
+async fn dropping_runner_future_cancels_and_reaps_before_scope_is_released() {
+    let fixture = Fixture::new("drop-runner");
+    let pipe = fixture.root.join("ready");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(fixture.root.join("block-bun"), "").unwrap();
+    let ready = tokio::task::spawn_blocking(move || std::fs::read_to_string(pipe).unwrap());
+    let runner = Runner::new(
+        PathBuf::from(env!("CARGO_BIN_EXE_ompdesk-core")),
+        fixture.root.join("scratch"),
+    );
+    let (scope, gone) = Scope::watched();
+    let held = scope.clone();
+    let spec = plans::command(
+        &fixture.root.join("installer").to_string_lossy(),
+        &["bun", "drop"],
+        Platform::Darwin,
+    );
+    let env = BTreeMap::from([
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        (
+            "ROOT".to_owned(),
+            fixture.root.to_string_lossy().into_owned(),
+        ),
+    ]);
+    let work =
+        tokio::spawn(async move { runner.run(&spec, &env, &held, Arc::new(|_| {}), None).await });
+    assert_eq!(ready.await.unwrap().trim(), "started");
+    work.abort();
+    assert!(work.await.unwrap_err().is_cancelled());
+    drop(scope);
+    gone.wait().await;
+    assert!(fixture.root.join("stopped").exists());
+}
+
+#[tokio::test]
+async fn capture_separates_streams_and_drains_past_each_cap_without_stopping() {
+    use ompdesk_core::setup::runner::CaptureOptions;
+    let fixture = Fixture::new("capture");
+    let scratch = fixture.root.join("scratch");
+    let runner = Runner::new(
+        PathBuf::from(env!("CARGO_BIN_EXE_ompdesk-core")),
+        scratch.clone(),
+    );
+    let spec = plans::command(
+        "/bin/sh",
+        &[
+            "-c",
+            "cat; printf stdout-tail; printf error-tail >&2; touch \"$ROOT/drained\"",
+        ],
+        Platform::Darwin,
+    );
+    let env = BTreeMap::from([
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        (
+            "ROOT".to_owned(),
+            fixture.root.to_string_lossy().into_owned(),
+        ),
+    ]);
+    let captured = runner
+        .capture(
+            spec,
+            env,
+            Scope::detached(),
+            CaptureOptions {
+                cwd: Some(fixture.root.clone()),
+                input: b"input payload".to_vec(),
+                timeout: std::time::Duration::from_secs(30),
+                max_bytes: 5,
+            },
+        )
+        .await;
+    assert_eq!(captured.outcome, RunOutcome::Succeeded);
+    assert_eq!(captured.stdout, b"input");
+    assert_eq!(captured.stderr, b"error");
+    assert!(captured.stdout_truncated && captured.stderr_truncated);
+    assert!(!captured.timed_out);
+    assert!(fixture.root.join("drained").exists());
+    assert_eq!(std::fs::read_dir(scratch).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn capture_timeout_ends_tree_before_removing_its_input_file() {
+    use ompdesk_core::setup::runner::CaptureOptions;
+    use std::time::Duration;
+    let fixture = Fixture::new("capture-timeout");
+    let pipe = fixture.root.join("ready");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(fixture.root.join("block-bun"), "").unwrap();
+    let ready = tokio::task::spawn_blocking(move || std::fs::read_to_string(pipe).unwrap());
+    let runner = Runner::new(
+        PathBuf::from(env!("CARGO_BIN_EXE_ompdesk-core")),
+        fixture.root.join("scratch"),
+    );
+    let spec = plans::command(
+        &fixture.root.join("installer").to_string_lossy(),
+        &["bun", "timeout"],
+        Platform::Darwin,
+    );
+    let env = BTreeMap::from([
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        (
+            "ROOT".to_owned(),
+            fixture.root.to_string_lossy().into_owned(),
+        ),
+    ]);
+    let work = tokio::spawn(async move {
+        runner
+            .capture(
+                spec,
+                env,
+                Scope::detached(),
+                CaptureOptions {
+                    cwd: None,
+                    input: b"timeout-input".to_vec(),
+                    timeout: Duration::from_secs(180),
+                    max_bytes: 1024,
+                },
+            )
+            .await
+    });
+    assert_eq!(ready.await.unwrap().trim(), "started");
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(181)).await;
+    let captured = work.await.unwrap();
+    tokio::time::resume();
+    assert!(captured.timed_out);
+    assert!(matches!(captured.outcome, RunOutcome::Failed { .. }));
+    assert!(fixture.root.join("stopped").exists());
+    assert_eq!(
+        std::fs::read_dir(fixture.root.join("scratch"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn dropped_capture_keeps_input_until_the_supervised_tree_has_exited() {
+    use ompdesk_core::setup::runner::CaptureOptions;
+    let fixture = Fixture::new("capture-drop");
+    let pipe = fixture.root.join("ready");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let ready = tokio::task::spawn_blocking(move || std::fs::read_to_string(pipe).unwrap());
+    let script = fixture.root.join("capture-installer");
+    executable(
+        &script,
+        "#!/bin/sh\npath=\"$(find \"$ROOT/scratch\" -type f -name 'input-*')\"\ntrap 'test -f \"$path\" && echo kept > \"$ROOT/input-kept\"; exit 1' TERM INT\necho started > \"$ROOT/ready\"\nsleep 60 &\nwait $!\n",
+    );
+    let runner = Runner::new(
+        PathBuf::from(env!("CARGO_BIN_EXE_ompdesk-core")),
+        fixture.root.join("scratch"),
+    );
+    let spec = plans::command(&script.to_string_lossy(), &[], Platform::Darwin);
+    let env = BTreeMap::from([
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        (
+            "ROOT".to_owned(),
+            fixture.root.to_string_lossy().into_owned(),
+        ),
+    ]);
+    let (scope, gone) = Scope::watched();
+    let held = scope.clone();
+    let work = tokio::spawn(async move {
+        runner
+            .capture(
+                spec,
+                env,
+                held,
+                CaptureOptions {
+                    cwd: None,
+                    input: b"kept-through-exit".to_vec(),
+                    timeout: std::time::Duration::from_secs(180),
+                    max_bytes: 1024,
+                },
+            )
+            .await
+    });
+    assert_eq!(ready.await.unwrap().trim(), "started");
+    work.abort();
+    assert!(work.await.unwrap_err().is_cancelled());
+    drop(scope);
+    gone.wait().await;
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("input-kept"))
+            .unwrap()
+            .trim(),
+        "kept"
+    );
+    assert_eq!(
+        std::fs::read_dir(fixture.root.join("scratch"))
+            .unwrap()
+            .count(),
+        0
+    );
 }
