@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use ompdesk_app_contract::Owner;
 
-use crate::local_dispatch::{protocol::{CommandResult, RpcCommand}, session::Session};
+use crate::local_dispatch::{
+    protocol::{CommandResult, RpcCommand},
+    session::Session,
+};
 use crate::pool::application::native::{Host, Service as NativePool};
 use crate::run::Runner;
 use crate::server::Scope;
@@ -39,23 +42,64 @@ impl<H: Host> Service<H> {
 
     /// `owner` and `session` are captured by the authenticated dispatcher after whole-command
     /// execution-host routing, never reconstructed from the page's parameters.
-    pub async fn execute(&self, owner: &Owner, session: &Session<H::Sidecar>,
-        scope: Scope, command: &RpcCommand,
+    pub async fn execute(
+        &self,
+        owner: &Owner,
+        session: &Session<H::Sidecar>,
+        scope: Scope,
+        command: &RpcCommand,
     ) -> CommandResult {
         let params = &command.params;
         let result = match command.kind.as_str() {
-            "worktree_create" => checkout::create(session, self.config.git.clone(),
-                &self.config.preparation, scope, params).await?,
-            "worktree_remove" => checkout::remove(session, self.config.git.clone(), scope, params).await?,
-            "get_orphan_worktrees" => orphans::list(&self.pool, owner, session,
-                self.config.git.clone(), scope).await?,
-            "remove_orphan_worktree" => orphans::remove(Arc::clone(&self.pool), owner.clone(),
-                session.clone(), self.config.git.clone(), scope, Arc::clone(&self.config.saved),
-                Arc::clone(&self.config.claims), command.string("path").unwrap_or("").to_owned()).await?,
-            "get_saved_worktrees" => saved::list_for_repo(&self.config.saved,
-                self.config.git.clone(), scope, &session.cwd()).await?,
-            "restore_saved_worktree" => saved::restore(&self.config.saved, self.config.git.clone(),
-                &self.config.preparation, scope, &session.cwd(), command.string("savedId").unwrap_or("")).await?,
+            "worktree_create" => {
+                checkout::create(
+                    session,
+                    self.config.git.clone(),
+                    &self.config.preparation,
+                    scope,
+                    params,
+                )
+                .await?
+            }
+            "worktree_remove" => {
+                checkout::remove(session, self.config.git.clone(), scope, params).await?
+            }
+            "get_orphan_worktrees" => {
+                orphans::list(&self.pool, owner, session, self.config.git.clone(), scope).await?
+            }
+            "remove_orphan_worktree" => {
+                orphans::remove(
+                    Arc::clone(&self.pool),
+                    owner.clone(),
+                    session.clone(),
+                    self.config.git.clone(),
+                    scope,
+                    Arc::clone(&self.config.saved),
+                    Arc::clone(&self.config.claims),
+                    command.string("path").unwrap_or("").to_owned(),
+                )
+                .await?
+            }
+            "get_saved_worktrees" => {
+                saved::list_for_repo(
+                    &self.config.saved,
+                    self.config.git.clone(),
+                    scope,
+                    &session.cwd(),
+                )
+                .await?
+            }
+            "restore_saved_worktree" => {
+                saved::restore(
+                    &self.config.saved,
+                    self.config.git.clone(),
+                    &self.config.preparation,
+                    scope,
+                    &session.cwd(),
+                    command.string("savedId").unwrap_or(""),
+                )
+                .await?
+            }
             _ => return Ok(None),
         };
         Ok(Some(result))

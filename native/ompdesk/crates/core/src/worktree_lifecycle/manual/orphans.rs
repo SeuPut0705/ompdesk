@@ -6,7 +6,10 @@ use serde_json::{Value, json};
 use crate::fs::disk;
 use crate::git::{orphans, read, repo_lock, run::Git};
 use crate::local_dispatch::{protocol::CommandError, session::Session};
-use crate::pool::application::{Sidecar, native::{Host, Service as NativePool}};
+use crate::pool::application::{
+    Sidecar,
+    native::{Host, Service as NativePool},
+};
 use crate::run::Runner;
 use crate::server::{Fault, Scope};
 use crate::worktree_lifecycle::{Folder, RemovalClaims};
@@ -21,7 +24,9 @@ struct Listing {
 
 fn command_fault(fault: Fault) -> CommandError {
     match fault.code.as_ref() {
-        "not_a_repo" | "in_use" | "not_orphan" | "not_removable" => CommandError::local(fault.code.to_string(), fault.message),
+        "not_a_repo" | "in_use" | "not_orphan" | "not_removable" => {
+            CommandError::local(fault.code.to_string(), fault.message)
+        }
         _ => fault.into(),
     }
 }
@@ -29,44 +34,90 @@ fn command_fault(fault: Fault) -> CommandError {
 async fn primary(runner: &Runner, scope: Scope, cwd: &str) -> Result<String, Fault> {
     let git = Git::new(runner.clone(), scope);
     if read::repo_root(&git, cwd).await?.is_none() {
-        return Err(Fault::new("not_a_repo", format!("Not a git repository: {cwd}")));
+        return Err(Fault::new(
+            "not_a_repo",
+            format!("Not a git repository: {cwd}"),
+        ));
     }
     read::primary_root(&git, cwd).await
 }
 
 async fn listing<S: Sidecar<Error = Fault> + ?Sized + 'static>(
-    session: &Session<S>, runner: Runner, scope: Scope, primary: &str,
-    folders: Vec<Folder>, only: Option<String>,
+    session: &Session<S>,
+    runner: Runner,
+    scope: Scope,
+    primary: &str,
+    folders: Vec<Folder>,
+    only: Option<String>,
 ) -> Result<Listing, Fault> {
-    let location = checkout::location(session, primary).await
+    let location = checkout::location(session, primary)
+        .await
         .map_err(|error| Fault::new("worktree_bridge", error.to_string()))?;
     let root = location.root;
     let resolve = root.clone();
-    let actual_root = read::blocking(move || disk::realpath(&resolve).ok().map(|path| disk::spelled(&path))).await?;
+    let actual_root = read::blocking(move || {
+        disk::realpath(&resolve)
+            .ok()
+            .map(|path| disk::spelled(&path))
+    })
+    .await?;
     let Some(actual_root) = actual_root else {
-        return Ok(Listing { root, worktrees: Vec::new(), in_use: Vec::new() });
+        return Ok(Listing {
+            root,
+            worktrees: Vec::new(),
+            in_use: Vec::new(),
+        });
     };
     let git = Git::new(runner, scope);
-    let candidates = orphans::candidates(&git, primary, Some(actual_root),
-        folders.into_iter().map(|folder| folder.path().to_owned()).collect(), only).await?;
+    let candidates = orphans::candidates(
+        &git,
+        primary,
+        Some(actual_root),
+        folders
+            .into_iter()
+            .map(|folder| folder.path().to_owned())
+            .collect(),
+        only,
+    )
+    .await?;
     let worktrees = orphans::inspect(&git, primary, &candidates.candidates).await?;
-    Ok(Listing { root, worktrees, in_use: candidates.in_use })
+    Ok(Listing {
+        root,
+        worktrees,
+        in_use: candidates.in_use,
+    })
 }
 
-pub async fn list<H: Host>(pool: &NativePool<H>, owner: &Owner,
-    session: &Session<H::Sidecar>, runner: Runner, scope: Scope,
+pub async fn list<H: Host>(
+    pool: &NativePool<H>,
+    owner: &Owner,
+    session: &Session<H::Sidecar>,
+    runner: Runner,
+    scope: Scope,
 ) -> Result<Value, CommandError> {
-    let primary = primary(&runner, scope.clone(), &session.cwd()).await.map_err(command_fault)?;
+    let primary = primary(&runner, scope.clone(), &session.cwd())
+        .await
+        .map_err(command_fault)?;
     let folders = pool.worktree_folders(owner).await?;
-    let found = listing(session, runner, scope, &primary, folders, None).await.map_err(command_fault)?;
+    let found = listing(session, runner, scope, &primary, folders, None)
+        .await
+        .map_err(command_fault)?;
     Ok(json!({"root":found.root,"worktrees":found.worktrees}))
 }
 
-pub async fn remove<H: Host>(pool: Arc<NativePool<H>>, owner: Owner,
-    session: Session<H::Sidecar>, runner: Runner, scope: Scope,
-    store: Arc<saved::SavedStore>, claims: Arc<RemovalClaims>, path: String,
+pub async fn remove<H: Host>(
+    pool: Arc<NativePool<H>>,
+    owner: Owner,
+    session: Session<H::Sidecar>,
+    runner: Runner,
+    scope: Scope,
+    store: Arc<saved::SavedStore>,
+    claims: Arc<RemovalClaims>,
+    path: String,
 ) -> Result<Value, CommandError> {
-    let primary = primary(&runner, scope.clone(), &session.cwd()).await.map_err(command_fault)?;
+    let primary = primary(&runner, scope.clone(), &session.cwd())
+        .await
+        .map_err(command_fault)?;
     let locked_primary = primary.clone();
     repo_lock::run(&primary, scope, move |scope| async move {
         let wanted = if path.is_empty() { String::new() } else { Folder::resolve(path.clone()).await?.path().to_owned() };

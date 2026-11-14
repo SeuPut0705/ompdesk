@@ -2,7 +2,13 @@ use super::secret_in;
 
 #[test]
 fn names_and_incomplete_reads_are_private() {
-    for path in [".env", "folder/ID_ED25519.pub", "credentials.json", "some-secret.txt", "x.p12"] {
+    for path in [
+        ".env",
+        "folder/ID_ED25519.pub",
+        "credentials.json",
+        "some-secret.txt",
+        "x.p12",
+    ] {
         assert!(secret_in(path, b"ordinary", true), "{path}");
     }
     assert!(secret_in("ordinary.txt", b"ordinary", false));
@@ -21,16 +27,33 @@ fn detects_credential_markers_but_not_inert_fields() {
     ] {
         assert!(secret_in("data.txt", bytes, true), "{:?}", bytes);
     }
-    for bytes in [&b"tokens=42"[..], &b"password=false"[..], &b"password=<secret>"[..], &b"<secret> <token>"[..]] {
+    for bytes in [
+        &b"tokens=42"[..],
+        &b"password=false"[..],
+        &b"password=<secret>"[..],
+        &b"<secret> <token>"[..],
+    ] {
         assert!(!secret_in("data.txt", bytes, true), "{:?}", bytes);
     }
 }
 
 #[test]
 fn replacement_order_counts_new_markers_not_just_matches() {
-    assert!(!secret_in("x", b"-----BEGIN KEY-----<secret>-----END KEY-----", true));
-    assert!(!secret_in("x", b"-----BEGIN KEY-----<token> <secret>-----END KEY-----", true));
-    assert!(secret_in("x", b"token=ghp_abcdefghijklmnopqrstuvwxyz", true));
+    assert!(!secret_in(
+        "x",
+        b"-----BEGIN KEY-----<secret>-----END KEY-----",
+        true
+    ));
+    assert!(!secret_in(
+        "x",
+        b"-----BEGIN KEY-----<token> <secret>-----END KEY-----",
+        true
+    ));
+    assert!(secret_in(
+        "x",
+        b"token=ghp_abcdefghijklmnopqrstuvwxyz",
+        true
+    ));
     assert!(secret_in("x", b"Bearer\xa0abcdefgh", true));
 }
 
