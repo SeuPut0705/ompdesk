@@ -436,7 +436,9 @@ mod tests {
         let end = json!({"type": "agent_end", "messages": []});
         tracking.track(&start, 1, &mut serial);
         tracking.track(&end, 2, &mut serial);
-        let first = tracking.last_run_id.expect("a finished outcome has identity");
+        let first = tracking
+            .last_run_id
+            .expect("a finished outcome has identity");
         let value = tracking.last_run.clone();
         tracking.run.settle(true, 3);
         assert_eq!(tracking.clone().last_run_id, Some(first));
