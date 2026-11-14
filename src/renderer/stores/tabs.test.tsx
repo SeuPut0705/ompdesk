@@ -1656,8 +1656,8 @@ describe("retained execution view races", () => {
 	it.each(["deleted session", "exact close request"] as const)(
 		"keeps a replacement view while %s prepares the last-tab placeholder",
 		async kind => {
-			const initial = { ...oldView, shared: false, viewerCount: undefined };
-			const replacement = { ...newView, viewId: "pool/entry/view-2", shared: false, viewerCount: undefined };
+			const initial = { ...oldView, shared: undefined, viewerCount: undefined };
+			const replacement = { ...newView, viewId: "pool/entry/view-2", shared: undefined, viewerCount: undefined };
 			omp.tabs.list.mockResolvedValue([initial]);
 			await useTabsStore.getState().reconcileTabs();
 			const oldRuntime = sessionRuntime("t1");
