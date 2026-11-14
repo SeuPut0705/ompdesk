@@ -1,0 +1,81 @@
+{
+  "runs": [
+    {
+      "name": "lifecycle",
+      "config": "MC.cfg",
+      "expect": "pass"
+    },
+    {
+      "name": "double-exit",
+      "config": "MC.cfg",
+      "constants": {
+        "BugDoubleExit": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "SingleCleanupOwner"
+    },
+    {
+      "name": "early-remove",
+      "config": "MC.cfg",
+      "constants": {
+        "BugEarlyRemove": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "NoRemoveWhileOmpAlive"
+    },
+    {
+      "name": "late-bind",
+      "config": "MC.cfg",
+      "constants": {
+        "BugLateBind": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "NoBindAfterClose"
+    },
+    {
+      "name": "changed-fingerprint",
+      "config": "MC.cfg",
+      "constants": {
+        "BugSkipFingerprint": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "OnlyApprovedFingerprint"
+    },
+    {
+      "name": "revoked-owner",
+      "config": "MC.cfg",
+      "constants": {
+        "BugUnauthorizedCreate": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "NoUnauthorizedCreate"
+    },
+    {
+      "name": "closed-window-question",
+      "config": "MC.cfg",
+      "constants": {
+        "BugDeadWindowQuestion": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "NoUnanswerableQuestion"
+    },
+    {
+      "name": "late-quit-policy",
+      "config": "MC.cfg",
+      "constants": {
+        "BugSkipLateRefresh": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "QuitUsesFinalPolicy"
+    },
+    {
+      "name": "lost-bind-error",
+      "config": "MC.cfg",
+      "constants": {
+        "BugLoseBindError": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "NoLostCreatedWorktree"
+    }
+  ]
+}

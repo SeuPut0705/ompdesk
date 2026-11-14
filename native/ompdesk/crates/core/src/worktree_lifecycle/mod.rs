@@ -1,7 +1,7 @@
 //! Per-session worktrees. Stock owns settings, eligibility and creation through its live bridge;
 //! this runtime owns the tab's start gate, questions and one cleanup owner across close and quit.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -13,7 +13,8 @@ use tokio::sync::{Notify, oneshot};
 
 use crate::server::Fault;
 
-pub type Work<T> = Pin<Box<dyn Future<Output = Result<T, Fault>> + Send>>;
+pub type Effect<'a, T> = Pin<Box<dyn Future<Output = Result<T, Fault>> + Send + 'a>>;
+pub type Work<T> = Effect<'static, T>;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -76,12 +77,16 @@ pub enum Notice {
 
 pub enum UiEvent { Prompts(Vec<Prompt>), Notice(Notice) }
 
+/// Base supplies both values from its authenticated window registry. A recycled id is not the old window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Window { pub id: i64, pub incarnation: u64 }
+
 /// These are pool facts, not page arguments. In particular an existing worktree binding is never adopted.
 #[derive(Clone, Debug)]
 pub struct Spawn {
     pub owner: Owner,
     pub tab: String,
-    pub window: u64,
+    pub window: Window,
     pub cwd: String,
     pub agent: bool,
     pub fresh: bool,
@@ -104,17 +109,19 @@ impl Spawn {
 /// they must not decide onStart/onExit, ask whether to create/remove, or issue application authority.
 pub trait Host: Send + Sync + 'static {
     type Source: Send + Sync + ?Sized + 'static;
-    fn windows(&self) -> Vec<u64>;
+    fn windows(&self) -> Vec<Window>;
     /// Delivery must enqueue synchronously and must not reenter this lifecycle.
-    fn send(&self, window: u64, event: UiEvent);
+    fn send(&self, window: Window, event: UiEvent);
     fn connected(&self, source: &Arc<Self::Source>) -> bool;
-    fn bridge(&self, source: &Arc<Self::Source>, method: &str, params: Option<Value>) -> Work<Value>;
+    fn settings(&self, source: &Arc<Self::Source>) -> Work<Value>;
+    /// Base admits this mutation and queues stock's create atomically against owner/source revocation.
+    fn create(&self, spawn: &Spawn, source: &Arc<Self::Source>, params: Option<Value>) -> Work<Value>;
     fn branch_prefix(&self) -> Option<String>;
     /// Atomic against pool release. A false answer never attaches the worktree to a different incarnation.
     fn bind(&self, spawn: &Spawn, source: &Arc<Self::Source>, binding: Value) -> Work<bool>;
-    fn inspect(&self, worktree: &Worktree) -> Work<Snapshot>;
+    fn inspect<'a>(&'a self, worktree: &'a Worktree) -> Effect<'a, Snapshot>;
     /// Existing canonical-root guard and repository lock surround the native session removal effect.
-    fn remove(&self, worktree: &Worktree, moved: bool) -> Work<()>;
+    fn remove<'a>(&'a self, worktree: &'a Worktree, moved: bool) -> Effect<'a, ()>;
     fn stop_turn(&self, source: &Arc<Self::Source>) -> Work<()>;
     /// Must capture the exact pool disposal's exit future before releasing the tab.
     fn release(&self, spawn: &Spawn, source: &Arc<Self::Source>) -> Work<()>;
@@ -138,12 +145,13 @@ enum StartPhase { Settings, Asking, Creating, Closed }
 
 struct Start<S: ?Sized> { owner: Owner, source: Arc<S>, phase: StartPhase, exited: Option<Work<()>> }
 struct Owned<S: ?Sized> { spawn: Spawn, source: Arc<S>, worktree: Worktree, policy: Mutex<OnExit> }
-struct Question { window: u64, tab: Option<String>, body: Prompt, answer: oneshot::Sender<bool> }
+struct Question { window: Window, tab: Option<String>, body: Prompt, answer: oneshot::Sender<bool> }
 
 struct State<S: ?Sized> {
     starts: HashMap<String, Arc<Mutex<Start<S>>>>,
     owned: HashMap<String, Arc<Owned<S>>>,
     questions: HashMap<u64, Question>,
+    closed_windows: HashSet<Window>,
     next_question: u64,
     tasks: usize,
     finalizing: bool,
@@ -151,12 +159,13 @@ struct State<S: ?Sized> {
 
 impl<S: ?Sized> Default for State<S> {
     fn default() -> Self {
-        Self { starts: HashMap::new(), owned: HashMap::new(), questions: HashMap::new(),
+        Self { starts: HashMap::new(), owned: HashMap::new(), questions: HashMap::new(), closed_windows: HashSet::new(),
             next_question: 0, tasks: 0, finalizing: false }
     }
 }
 
-enum Exit { Quit, Released(Option<Work<()>>) }
+enum Exit { Quit, Released(Work<()>) }
+enum Completion { Bound, AwaitRelease, Released(Work<()>), Finalize }
 
 pub struct Lifecycle<H: Host> { host: Arc<H>, config: Config, state: Mutex<State<H::Source>>, settled: Notify }
 
@@ -202,8 +211,7 @@ impl<H: Host> Lifecycle<H> {
     }
 
     async fn settings(&self, source: &Arc<H::Source>, timeout: Duration) -> Option<Settings> {
-        let value = tokio::time::timeout(timeout, self.host.bridge(
-            source, "worktree_lifecycle_settings", None)).await.ok()?.ok()?;
+        let value = tokio::time::timeout(timeout, self.host.settings(source)).await.ok()?.ok()?;
         serde_json::from_value(value).ok()
     }
 
@@ -225,7 +233,7 @@ impl<H: Host> Lifecycle<H> {
             start.phase = StartPhase::Creating;
         }
         let params = self.host.branch_prefix().filter(|s| !s.is_empty()).map(|prefix| json!({"branchPrefix":prefix}));
-        let created = self.host.bridge(source, "worktree_lifecycle_create", params).await
+        let created = self.host.create(spawn, source, params).await
             .and_then(|value| serde_json::from_value::<Worktree>(value)
                 .map_err(|_| Fault::new("invalid_worktree", "omp returned an unexpected worktree")))
             .and_then(|worktree| if worktree.valid() { Ok(worktree) } else {
@@ -254,25 +262,34 @@ impl<H: Host> Lifecycle<H> {
                 }
             }
         } else { false };
-        // The hub's binding await may have raced release. It must not publish a new cleanup owner afterward.
-        let bound = {
+        let completion = {
             let mut state = lock(&self.state);
-            if bound && lock(start).phase != StartPhase::Closed && !state.finalizing {
+            let mut starting = lock(start);
+            if let Some(exited) = starting.exited.take() {
+                Completion::Released(exited)
+            } else {
                 state.owned.insert(spawn.tab.clone(), owned.clone());
-                true
-            } else { false }
+                if state.finalizing { Completion::Finalize }
+                else if bound && starting.phase != StartPhase::Closed { Completion::Bound }
+                else { Completion::AwaitRelease }
+            }
         };
-        if bound { return Some(owned.worktree.path.clone()); }
-        let exited = lock(start).exited.take();
-        let quit = lock(&self.state).finalizing && exited.is_none();
-        self.exit(owned, if quit { Exit::Quit } else { Exit::Released(exited) }).await;
+        match completion {
+            Completion::Bound => return Some(owned.worktree.path.clone()),
+            Completion::Released(exited) => self.exit(owned, Exit::Released(exited)).await,
+            Completion::Finalize => self.finalize_one(owned).await,
+            Completion::AwaitRelease => {}
+        }
         None
     }
 
     pub async fn refresh_exit_policy(&self, tab: &str) {
         let owned = lock(&self.state).owned.get(tab).cloned();
-        if let Some(owned) = owned
-            && let Some(settings) = self.settings(&owned.source, self.config.exit_settings).await {
+        if let Some(owned) = owned { self.refresh_owned(&owned).await; }
+    }
+
+    async fn refresh_owned(&self, owned: &Owned<H::Source>) {
+        if let Some(settings) = self.settings(&owned.source, self.config.exit_settings).await {
             *lock(&owned.policy) = settings.on_exit;
         }
     }
@@ -299,7 +316,7 @@ impl<H: Host> Lifecycle<H> {
             owned
         };
         self.withdraw_tab(tab);
-        if let Some(owned) = owned {
+        if let (Some(owned), Some(exited)) = (owned, exited) {
             let this = self.clone();
             tokio::spawn(async move {
                 this.exit(owned, Exit::Released(exited)).await;
@@ -325,22 +342,26 @@ impl<H: Host> Lifecycle<H> {
         for owned in owned.into_iter().flatten() {
             let this = self.clone();
             tokio::spawn(async move {
-                this.withdraw_tab(&owned.spawn.tab);
-                let _ = this.host.stop_turn(&owned.source).await;
-                this.refresh_exit_policy(&owned.spawn.tab).await;
-                let taken = {
-                    let mut state = lock(&this.state);
-                    if state.owned.get(&owned.spawn.tab).is_some_and(|entry| Arc::ptr_eq(entry, &owned)) {
-                        state.owned.remove(&owned.spawn.tab);
-                        true
-                    } else { false }
-                };
-                if taken { this.exit(owned, Exit::Quit).await; }
+                this.finalize_one(owned).await;
                 lock(&this.state).tasks -= 1;
                 this.settled.notify_waiters();
             });
         }
         self.settle().await;
+    }
+
+    async fn finalize_one(&self, owned: Arc<Owned<H::Source>>) {
+        self.withdraw_tab(&owned.spawn.tab);
+        let _ = self.host.stop_turn(&owned.source).await;
+        self.refresh_owned(&owned).await;
+        let taken = {
+            let mut state = lock(&self.state);
+            if state.owned.get(&owned.spawn.tab).is_some_and(|entry| Arc::ptr_eq(entry, &owned)) {
+                state.owned.remove(&owned.spawn.tab);
+                true
+            } else { false }
+        };
+        if taken { self.exit(owned, Exit::Quit).await; }
     }
 
     pub async fn settle(&self) {
@@ -381,9 +402,6 @@ impl<H: Host> Lifecycle<H> {
         let quit = matches!(&exit, Exit::Quit);
         // Quit plans while the windows exist, ordinary close waits for the captured disposal before inspecting.
         if let Exit::Released(exited) = exit {
-            let exited = exited.unwrap_or_else(|| Box::pin(async {
-                Err(Fault::new("exit_unavailable", "The released omp's exit was not captured"))
-            }));
             if !self.wait_exit(&owned, exited).await { return; }
         }
         let Some(approved) = self.plan(&owned).await else { return };
@@ -403,21 +421,22 @@ impl<H: Host> Lifecycle<H> {
         self.notice(owned.spawn.window, Notice::RemoveFailed { path: owned.worktree.path.clone(), message: error.message });
     }
 
-    fn target(&self, preferred: u64) -> Option<u64> {
+    fn target(&self, preferred: Window) -> Option<Window> {
         let live = self.host.windows();
         live.contains(&preferred).then_some(preferred).or_else(|| live.first().copied())
     }
 
-    fn notice(&self, window: u64, body: Notice) {
+    fn notice(&self, window: Window, body: Notice) {
         if let Some(window) = self.target(window) { self.host.send(window, UiEvent::Notice(body)); }
         else { eprintln!("[worktree-lifecycle] {body:?}"); }
     }
 
-    async fn ask(&self, window: u64, tab: Option<&str>, body: PromptBody) -> bool {
+    async fn ask(&self, window: Window, tab: Option<&str>, body: PromptBody) -> bool {
         let Some(window) = self.target(window) else { return false };
         let (answer, receiver) = oneshot::channel();
         let id = {
             let mut state = lock(&self.state);
+            if state.closed_windows.contains(&window) { return false; }
             // Close may have withdrawn this start between its phase change and inserting the question.
             if tab.is_some_and(|tab| state.starts.get(tab).is_some_and(|s| lock(s).phase == StartPhase::Closed)) {
                 return false;
@@ -435,22 +454,22 @@ impl<H: Host> Lifecycle<H> {
         result
     }
 
-    pub fn prompts(&self, window: u64) -> Vec<Prompt> {
+    pub fn prompts(&self, window: Window) -> Vec<Prompt> {
         Self::prompt_list(&lock(&self.state), window)
     }
 
-    fn prompt_list(state: &State<H::Source>, window: u64) -> Vec<Prompt> {
+    fn prompt_list(state: &State<H::Source>, window: Window) -> Vec<Prompt> {
         let mut questions = state.questions.iter().filter(|(_, q)| q.window == window).collect::<Vec<_>>();
         questions.sort_by_key(|(id, _)| **id);
         questions.into_iter().map(|(_, q)| q.body.clone()).collect()
     }
 
-    pub fn answer(&self, window: u64, id: &str, accept: bool) -> bool {
+    pub fn answer(&self, window: Window, id: &str, accept: bool) -> bool {
         id.strip_prefix("wt-").and_then(|id| id.parse().ok())
             .is_some_and(|id| self.resolve(window, id, accept))
     }
 
-    fn resolve(&self, window: u64, id: u64, accept: bool) -> bool {
+    fn resolve(&self, window: Window, id: u64, accept: bool) -> bool {
         let question = {
             let mut state = lock(&self.state);
             if !state.questions.get(&id).is_some_and(|q| q.window == window) { return false; }
@@ -461,14 +480,17 @@ impl<H: Host> Lifecycle<H> {
         true
     }
 
-    pub fn window_closed(&self, window: u64) { self.withdraw(|q| q.window == window); }
+    pub fn window_closed(&self, window: Window) {
+        lock(&self.state).closed_windows.insert(window);
+        self.withdraw(|q| q.window == window);
+    }
     fn withdraw_tab(&self, tab: &str) { self.withdraw(|q| q.tab.as_deref() == Some(tab)); }
     fn withdraw(&self, matches: impl Fn(&Question) -> bool) {
         let questions = lock(&self.state).questions.iter().filter(|(_, q)| matches(q))
             .map(|(id, q)| (*id, q.window)).collect::<Vec<_>>();
         for (id, window) in questions { self.resolve(window, id, false); }
     }
-    fn push(&self, window: u64) {
+    fn push(&self, window: Window) {
         let state = lock(&self.state);
         if self.host.windows().contains(&window) {
             self.host.send(window, UiEvent::Prompts(Self::prompt_list(&state, window)));
@@ -476,5 +498,9 @@ impl<H: Host> Lifecycle<H> {
     }
 }
 
+pub mod native;
+
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, unix))]
+mod native_tests;

@@ -1,0 +1,75 @@
+{
+  "checker": {
+    "kind": "tlc",
+    "config": "MC.cfg"
+  },
+  "properties": [
+    "SingleCleanupOwner",
+    "NoRemoveWhileOmpAlive",
+    "NoBindAfterClose",
+    "OnlyApprovedFingerprint",
+    "NoUnauthorizedCreate",
+    "NoUnanswerableQuestion",
+    "QuitUsesFinalPolicy",
+    "NoLostCreatedWorktree"
+  ],
+  "mutations": [
+    {
+      "name": "double-cleanup-owner",
+      "why": "Quit takes an exit already claimed by close",
+      "search": "BugDoubleExit /\\ s.cleanup = \"close\"",
+      "replace": "TRUE /\\ s.cleanup = \"close\"",
+      "breaks": "SingleCleanupOwner"
+    },
+    {
+      "name": "remove-live-omp",
+      "why": "Remove before the captured disposal exits",
+      "search": "(~s.ompAlive \\/ BugEarlyRemove)",
+      "replace": "TRUE",
+      "breaks": "NoRemoveWhileOmpAlive"
+    },
+    {
+      "name": "bind-closed-tab",
+      "why": "Late creation binds a closed tab",
+      "search": "!.boundAfterClose = s.closed /\\ BugLateBind",
+      "replace": "!.boundAfterClose = s.closed",
+      "breaks": "NoBindAfterClose"
+    },
+    {
+      "name": "ignore-fingerprint",
+      "why": "Remove changed files after approval",
+      "search": "(~s.changed \\/ BugSkipFingerprint)",
+      "replace": "TRUE",
+      "breaks": "OnlyApprovedFingerprint"
+    },
+    {
+      "name": "owner-revoked-before-create",
+      "why": "Connected source is incorrectly accepted after owner revocation",
+      "search": "s.ownerLive \\/ BugUnauthorizedCreate",
+      "replace": "TRUE",
+      "breaks": "NoUnauthorizedCreate"
+    },
+    {
+      "name": "register-closed-window-question",
+      "why": "Window selection is stale by question registration",
+      "search": "s.windowLive \\/ BugDeadWindowQuestion",
+      "replace": "TRUE",
+      "all": true,
+      "breaks": "NoUnanswerableQuestion"
+    },
+    {
+      "name": "skip-late-quit-refresh",
+      "why": "A worktree created during quit keeps its stale onStart exit policy",
+      "search": "BugSkipLateRefresh /\\ s.lateOwned",
+      "replace": "s.lateOwned",
+      "breaks": "QuitUsesFinalPolicy"
+    },
+    {
+      "name": "forget-bind-error-owner",
+      "why": "A failed binding drops cleanup before the source really exits",
+      "search": "BugLoseBindError /\\ s.bindingFailed",
+      "replace": "s.bindingFailed",
+      "breaks": "NoLostCreatedWorktree"
+    }
+  ]
+}
