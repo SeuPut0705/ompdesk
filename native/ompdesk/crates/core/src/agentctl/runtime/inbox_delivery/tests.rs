@@ -319,7 +319,7 @@ fn policy_rig(
         move |method, _| match method {
             "state" => Ok(Value::Null),
             "inboxStatus" => Ok(serde_json::to_value(&*status.lock().unwrap()).unwrap()),
-            "deliverInbox" => Err("__hold__".into()),
+            "deliverInbox" => Err("The receiving bridge is unavailable".into()),
             other => Err(format!("unexpected {other}")),
         },
     );
