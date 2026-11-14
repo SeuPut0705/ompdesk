@@ -5656,8 +5656,10 @@ async function bootstrapMcpBridge(pi: any): Promise<void> {
 "#
 }
 
-/// The one import `resources/gui-bridge/memory-prompt.ts` makes; the extension embeds the redactor above it instead.
 const OMP_SHARED_PROMPT_IMPORT: &str = "import { redactDiagnosticsText } from \"./redactor\";";
+const OMP_SHARED_POLICY_IMPORT: &str = "import { memoryPromptFacts } from \"./memory-policy\";";
+const OMP_SHARED_WASM_IMPORT: &str =
+    "import { MEMORY_POLICY_WASM_BASE64 } from \"./memory-policy-wasm\";";
 
 fn build_omp_extension(
     server_url: &str,
@@ -6064,20 +6066,28 @@ export default function AiMemoryExtension(api: any): void {{
     add_hook_spooling(body).expect("generated TS integration lost its hook-spool anchors")
 }
 
-/// OMPdesk's own TypeScript the omp extension carries, in one module scope with the template: the shared redactor,
-/// then `resources/gui-bridge/memory-prompt.ts` without its import of it.
+/// Offline terminal capture embeds the same Rust policy bytes used by native upkeep.
 fn omp_shared_modules() -> String {
     const REDACTOR: &str = include_str!("../../../../../../resources/gui-bridge/redactor.ts");
     const MEMORY_PROMPT: &str = include_str!("../../../../../../resources/gui-bridge/memory-prompt.ts");
+    const POLICY: &str = include_str!("../../../../../../resources/gui-bridge/memory-policy.ts");
+    const WASM: &str = include_str!("../../../../../../resources/gui-bridge/memory-policy-wasm.ts");
+    let mut prompt = MEMORY_PROMPT.to_owned();
+    for import in [OMP_SHARED_PROMPT_IMPORT, OMP_SHARED_POLICY_IMPORT] {
+        assert_eq!(
+            prompt.matches(import).count(),
+            1,
+            "memory prompt import changed"
+        );
+        prompt = prompt.replacen(import, "", 1);
+    }
     assert_eq!(
-        MEMORY_PROMPT.matches(OMP_SHARED_PROMPT_IMPORT).count(),
+        POLICY.matches(OMP_SHARED_WASM_IMPORT).count(),
         1,
-        "resources/gui-bridge/memory-prompt.ts must import the redactor exactly once and nothing else"
+        "memory policy import changed"
     );
-    format!(
-        "{REDACTOR}\n{}",
-        MEMORY_PROMPT.replacen(OMP_SHARED_PROMPT_IMPORT, "", 1)
-    )
+    let policy = POLICY.replacen(OMP_SHARED_WASM_IMPORT, "", 1);
+    format!("{WASM}\n{policy}\n{REDACTOR}\n{prompt}")
 }
 
 fn render_agent(
@@ -12241,13 +12251,6 @@ model = "gpt-5"
     #[test]
     fn omp_extension_names_prompts_and_keeps_children_out_of_handoffs() {
         let extension = build_omp_extension("http://127.0.0.1:49374", None, None, "denylist");
-        // The shared module (resources/gui-bridge/memory-prompt.ts) is embedded byte for byte but for its one import line.
-        let prompt = include_str!("../../../../../../resources/gui-bridge/memory-prompt.ts").replacen(
-            OMP_SHARED_PROMPT_IMPORT,
-            "",
-            1,
-        );
-        assert!(extension.contains(&prompt));
         assert!(extension.contains("export function promptTitle("));
         // The first prompt of a session names it; every payload of a child carries its marker.
         assert!(extension.contains("...(title ? { promptTitle: title } : {}),"));

@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildMemoryPolicy } from "./build-memory-policy";
 import { cargoEnv, cargoPath, rustcPath } from "./cargo";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -35,8 +36,8 @@ export const BIN_ROOT = path.join(REPO_ROOT, "resources", "ai-memory-bin");
 export const BUILD_MANIFEST = "ai-memory.build.json";
 export const BINARIES: Record<string, string> = { "darwin-arm64": "ai-memory", "win32-x64": "ai-memory.exe" };
 /** OMPdesk's own files the memory CLI compiles in (install_hooks.rs `include_str!`), outside native/memory. */
-export const EMBEDDED_SOURCES = ["memory-prompt.ts", "redactor.ts"].map(name =>
-	path.join(REPO_ROOT, "resources", "gui-bridge", name),
+export const EMBEDDED_SOURCES = ["memory-prompt.ts", "redactor.ts", "memory-policy.ts", "memory-policy-wasm.ts"].map(
+	name => path.join(REPO_ROOT, "resources", "gui-bridge", name),
 );
 
 export interface BuildRecord {
@@ -98,6 +99,7 @@ if (import.meta.main) {
 		upstreamTag: string;
 		upstreamCommit: string;
 	};
+	buildMemoryPolicy(process.argv.includes("--check"));
 	const embedded = createHash("sha256");
 	for (const file of EMBEDDED_SOURCES) embedded.update(fs.readFileSync(file));
 	const embeddedSha256 = embedded.digest("hex");
