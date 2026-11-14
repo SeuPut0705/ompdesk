@@ -146,7 +146,7 @@ function mainError(details: NonNullable<InspectorResult["exceptionDetails"]>): E
 }
 
 /** A client of Node's inspector: `Runtime.evaluate` only. */
-class Inspector {
+export class Inspector {
 	readonly #socket: WebSocket;
 	readonly #pending = new Map<number, PromiseWithResolvers<unknown>>();
 	#next = 1;
