@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::application::omp_cli;
 
-use crate::git::{read, repo_lock, run::Git, scm, unlanded};
+use crate::git::{read, repo_lock, run::Git, scm, triggers, unlanded};
 use crate::pool::application::Sidecar;
 use crate::run::Runner;
 use crate::server::{Fault, Scope};
@@ -16,6 +16,7 @@ pub const COMMANDS: &[&str] = &[
     "git_stage", "git_unstage", "git_discard", "git_commit", "git_commit_message", "git_last_commit_message",
     "git_undo_commit", "git_remote", "git_stash", "git_operation", "git_branches",
     "git_branch", "git_log", "git_commit_detail", "git_commit_diff", "git_history_action",
+    "autopilot_branch_status",
 ];
 
 const SLOW_MS: u64 = 300_000;
@@ -84,8 +85,29 @@ async fn remove_fresh(root: String, discarded: scm::Discarded, scope: Scope) -> 
     }).await.map_err(|error| Fault::new("internal", error.to_string()))?
 }
 
+fn branch_ref<'a>(input: Option<&'a Value>, what: &str) -> Result<&'a str, CommandError> {
+    input.and_then(Value::as_str).filter(|value| {
+        !value.is_empty() && !value.starts_with('-') && !value.contains("..")
+            && !value.chars().any(crate::fs::order::is_js_space)
+    }).ok_or_else(|| CommandError::local("invalid_ref", format!("Invalid {what}.")))
+}
+
 pub async fn handle<S: Sidecar<Error = Fault> + ?Sized + 'static>(command: &RpcCommand, session: &Session<S>, runner: Option<&Runner>, omp: &omp_cli::Service, scope: Scope) -> CommandResult {
     let cwd = session.cwd();
+    if command.kind == "autopilot_branch_status" {
+        let root = command.string("root").filter(|root| !root.is_empty())
+            .ok_or_else(|| CommandError::local("invalid_root", "Invalid root."))?;
+        let base = branch_ref(command.params.get("base"), "base branch")?;
+        let branch = branch_ref(command.params.get("branch"), "branch")?;
+        let runner = runner.cloned().ok_or_else(|| CommandError::local(
+            "git_failed", format!("Could not compare {branch} with {base}: git failed"),
+        ))?;
+        let result = triggers::branch_status(&Git::new(runner, scope), root, base, branch).await
+            .map_err(|fault| CommandError::local("git_failed", if fault.code == "git_failed" {
+                fault.message
+            } else { format!("Could not compare {branch} with {base}: git failed") }))?;
+        return value(result).map_err(Into::into);
+    }
     if command.kind == "get_git_diff" && !safe_path(command.string("path").unwrap_or("")) {
         return Err(CommandError::Other("Invalid repository-relative path".into()));
     }
@@ -214,4 +236,27 @@ pub async fn handle<S: Sidecar<Error = Fault> + ?Sized + 'static>(command: &RpcC
         "invalid_path" | "invalid_name" | "git_failed" | "nothing_staged" | "no_remote" | "detached_head" | "push_rejected" | "branch_checked_out" | "dirty_worktree" | "commit_pushed" => scm_error(error),
         _ => CommandError::local("git_failed", error.message),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn branch_comparison_rejects_range_options_and_javascript_whitespace() {
+        for name in ["", "-topic", "a..b", "a b", "topic\u{feff}"] {
+            assert_eq!(
+                branch_ref(Some(&Value::from(name)), "base branch").unwrap_err(),
+                CommandError::local("invalid_ref", "Invalid base branch."),
+            );
+        }
+        for name in ["topic/name", "release.v2", "topic\u{85}"] {
+            let input = Value::from(name);
+            assert_eq!(branch_ref(Some(&input), "branch").unwrap(), name);
+        }
+        assert_eq!(
+            branch_ref(None, "branch").unwrap_err(),
+            CommandError::local("invalid_ref", "Invalid branch."),
+        );
+    }
 }

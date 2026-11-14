@@ -55,7 +55,7 @@ async fn set_goal<S: Sidecar<Error=Fault> + ?Sized + 'static>(c: &RpcCommand, s:
         let result = s.stock(json!({"type":"goal","op":action})).await?;
         return Ok(with_limit(s, project(&result)).await);
     }
-    let objective = c.string("objective").unwrap_or("").trim();
+    let objective = crate::fs::order::js_trim(c.string("objective").unwrap_or(""));
     let budget = c.params.get("tokenBudget");
     let limit = c.params.get("timeLimitMinutes").filter(|v| v.is_number() || v.is_null());
     if !objective.is_empty() {
@@ -137,11 +137,35 @@ pub async fn handle<S: Sidecar<Error=Fault> + ?Sized + 'static>(c: &RpcCommand, 
         "get_advisor_stats" => s.bridge("advisor_stats", json!({})).await?,
         "prompt_origin_set" => s.bridge("prompt_origin_set", json!({"origin":{"deviceId":text(&p["origin"]["deviceId"],1,256)?,"name":text(&p["origin"]["name"],1,256)?},"text":text(&p["text"],0,usize::MAX)?})).await?,
         "typed_prompt" => s.bridge("typed_prompt", json!({"text":text(&p["text"],0,usize::MAX)?,"steer":bool_value(&p["steer"])?})).await?,
-        "desktop_slot_bridge" => { let method = c.string("method").filter(|v| ["desktop_slot.grant","desktop_slot.revoke"].contains(v)).ok_or_else(|| CommandError::local("invalid_method", format!("{} is not a desktop slot method.", c.string("method").unwrap_or("undefined"))))?; s.bridge(method, p.get("params").cloned().unwrap_or(Value::Null)).await? },
+        "desktop_slot_bridge" => {
+            let method = c.string("method").filter(|v| ["desktop_slot.grant","desktop_slot.revoke"].contains(v))
+                .ok_or_else(|| CommandError::local("invalid_method", format!("{} is not a desktop slot method.",
+                    c.params.get("method").map(crate::control::js::string_of_value).unwrap_or_else(|| "undefined".into()))))?;
+            s.bridge_optional(method, p.get("params").cloned()).await?
+        },
         "get_directories" => s.bridge("workspace.directories", json!({})).await?,
-        "add_directory" | "remove_directory" => { let raw = c.string("path").ok_or_else(|| CommandError::Other("path must be a non-empty string".into()))?; if raw.trim().is_empty() { return Err(CommandError::Other("path must be a non-empty string".into())); } if raw.contains(['\r','\n','\0']) { return Err(CommandError::Other("path must not contain line breaks or NUL".into())); } s.bridge(if c.kind == "add_directory" { "workspace.add_directory" } else { "workspace.remove_directory" }, json!({"path":raw.trim()})).await? },
+        "add_directory" | "remove_directory" => {
+            let raw = c.string("path").ok_or_else(|| CommandError::Other("path must be a non-empty string".into()))?;
+            let path = crate::fs::order::js_trim(raw);
+            if path.is_empty() { return Err(CommandError::Other("path must be a non-empty string".into())); }
+            if raw.contains(['\r','\n','\0']) { return Err(CommandError::Other("path must not contain line breaks or NUL".into())); }
+            s.bridge(if c.kind == "add_directory" { "workspace.add_directory" } else { "workspace.remove_directory" }, json!({"path":path})).await?
+        },
         "agent_control_confirm" => { let r = s.bridge("agent_control.confirm", json!({"title":text(&p["title"],1,200)?,"message":text(&p["message"],1,2000)?})).await?; json!({"approved":r["approved"] == true}) },
-        "agent_control_attachment" => { let path = p.get("path"); let image = p.get("image"); let params = match (path,image) { (Some(v),None) => { let path = text(v,0,usize::MAX)?.trim(); if path.is_empty() || path.encode_utf16().count() > 4096 { return Err(invalid()); } json!({"path":path}) }, (None,Some(v)) if v.as_u64().is_some_and(|n| n >= 1) => json!({"image":v}), _ => return Err(invalid()) }; s.bridge("agent_control.attachment",params).await? },
+        "agent_control_attachment" => {
+            let path = p.get("path");
+            let image = p.get("image");
+            let params = match (path,image) {
+                (Some(v),None) => {
+                    let path = crate::fs::order::js_trim(text(v,0,usize::MAX)?);
+                    if path.is_empty() || path.encode_utf16().count() > 4096 { return Err(invalid()); }
+                    json!({"path":path})
+                },
+                (None,Some(v)) if v.as_f64().is_some_and(|n| n >= 1.0 && n.fract() == 0.0) => json!({"image":v}),
+                _ => return Err(invalid()),
+            };
+            s.bridge("agent_control.attachment",params).await?
+        },
         "agent_control_note" | "agent_control_worker" => { let (key,max,method) = if c.kind == "agent_control_note" { ("text",500,"agent_control.note") } else { ("from",200,"agent_control.worker") }; let v = text(&p[key],1,max)?; let mut params = Map::new(); params.insert(key.into(), json!(v)); s.bridge(method,Value::Object(params)).await?; json!({}) },
         "agent_control_turn" => { let r = s.bridge("agent_control.turn",json!({})).await?; json!({"person":r["person"] == true}) },
         "agent_control_judge" => s.bridge("agent_control.judge",json!({"system":text(&p["system"],1,20000)?,"user":text(&p["user"],1,200000)?})).await?,
