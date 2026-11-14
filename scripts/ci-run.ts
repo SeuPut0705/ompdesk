@@ -183,13 +183,11 @@ function readLane(replacing: { workflow: string; branch: string }): Lane {
 }
 
 /**
- * The runner caps every workflow of this repo shares, in one place (the docs say "this account's caps" and point here):
- * the personal account's 40 jobs and 5 macOS at once. seuoffice moved to the org seuput-inc, so today this repo is the
- * only user; `siblings` (OMPDESK_CI_SIBLINGS, comma separated) names another repo of the account if one lands here later
- * (read-only: no policy of this repo can reserve slots against it).
+ * Historical personal-account reference values, not verified organization limits.
+ * `siblings` names additional repositories to inspect, without claiming the list is complete.
  */
 export const RUNNER_LIMITS = {
-	owner: "SeuPut0705",
+	owner: "seuput-inc",
 	jobs: 40,
 	macos: 5,
 	siblings: (process.env.OMPDESK_CI_SIBLINGS ?? "").split(",").filter(Boolean),
@@ -205,7 +203,7 @@ function accountLoad(): string {
 	const parts = [here, ...RUNNER_LIMITS.siblings]
 		.filter(Boolean)
 		.map(repo => `${repo} ${count(repo, "in_progress")} running, ${count(repo, "queued")} queued runs`);
-	return `${RUNNER_LIMITS.owner} (${RUNNER_LIMITS.jobs} jobs and ${RUNNER_LIMITS.macos} macOS at once, shared by this account's repos): ${parts.join("; ")}`;
+	return `${RUNNER_LIMITS.owner} (listed repositories only; organization runner limits unverified): ${parts.join("; ")}`;
 }
 
 async function main(argv: string[]): Promise<number> {
