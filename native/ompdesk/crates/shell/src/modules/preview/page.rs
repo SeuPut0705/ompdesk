@@ -289,6 +289,9 @@ pub fn capture(
     done: impl FnOnce(Option<Vec<u8>>) + 'static,
 ) {
     let shoot = move |clip: Option<(f64, f64, f64, f64)>| {
+        if clip.is_none() && scale != 1.0 {
+            return done(None);
+        }
         let mut params = json!({ "format": "png", "fromSurface": true });
         if let Some((x, y, width, height)) = clip {
             params["clip"] =

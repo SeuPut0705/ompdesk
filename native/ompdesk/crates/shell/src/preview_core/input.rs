@@ -511,6 +511,138 @@ pub fn virtual_key(key_code: &str) -> i32 {
     }
 }
 
+/// CEF's macOS keyboard path builds an NSEvent from these fields, not from `windows_key_code`. Zero characters mean a
+/// modifier-only event there. Native key positions are Carbon's ANSI-US `kVK_*` constants (HIToolbox/Events.h).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MacKey {
+    pub native_code: i32,
+    pub character: u16,
+    pub unmodified_character: u16,
+}
+
+pub fn mac_key(key_code: &str, modifiers: &[Modifier]) -> MacKey {
+    let virtual_code = virtual_key(key_code);
+    let native_code = match virtual_code {
+        0x41 => 0x00,
+        0x53 => 0x01,
+        0x44 => 0x02,
+        0x46 => 0x03,
+        0x48 => 0x04,
+        0x47 => 0x05,
+        0x5A => 0x06,
+        0x58 => 0x07,
+        0x43 => 0x08,
+        0x56 => 0x09,
+        0x42 => 0x0B,
+        0x51 => 0x0C,
+        0x57 => 0x0D,
+        0x45 => 0x0E,
+        0x52 => 0x0F,
+        0x59 => 0x10,
+        0x54 => 0x11,
+        0x31 => 0x12,
+        0x32 => 0x13,
+        0x33 => 0x14,
+        0x34 => 0x15,
+        0x36 => 0x16,
+        0x35 => 0x17,
+        0xBB => 0x18,
+        0x39 => 0x19,
+        0x37 => 0x1A,
+        0xBD => 0x1B,
+        0x38 => 0x1C,
+        0x30 => 0x1D,
+        0xDD => 0x1E,
+        0x4F => 0x1F,
+        0x55 => 0x20,
+        0xDB => 0x21,
+        0x49 => 0x22,
+        0x50 => 0x23,
+        0x0D => 0x24,
+        0x4C => 0x25,
+        0x4A => 0x26,
+        0xDE => 0x27,
+        0x4B => 0x28,
+        0xBA => 0x29,
+        0xDC => 0x2A,
+        0xBC => 0x2B,
+        0xBF => 0x2C,
+        0x4E => 0x2D,
+        0x4D => 0x2E,
+        0xBE => 0x2F,
+        0x09 => 0x30,
+        0x20 => 0x31,
+        0xC0 => 0x32,
+        0x08 => 0x33,
+        0x1B => 0x35,
+        0x80 => 0x40,
+        0x81 => 0x4F,
+        0x82 => 0x50,
+        0x83 => 0x5A,
+        0x74 => 0x60,
+        0x75 => 0x61,
+        0x76 => 0x62,
+        0x72 => 0x63,
+        0x77 => 0x64,
+        0x78 => 0x65,
+        0x7A => 0x67,
+        0x7C => 0x69,
+        0x7F => 0x6A,
+        0x7D => 0x6B,
+        0x79 => 0x6D,
+        0x7B => 0x6F,
+        0x7E => 0x71,
+        0x2D => 0x72,
+        0x24 => 0x73,
+        0x21 => 0x74,
+        0x2E => 0x75,
+        0x73 => 0x76,
+        0x23 => 0x77,
+        0x71 => 0x78,
+        0x22 => 0x79,
+        0x70 => 0x7A,
+        0x25 => 0x7B,
+        0x27 => 0x7C,
+        0x28 => 0x7D,
+        0x26 => 0x7E,
+        _ => 0xFF,
+    };
+    let character = match key_code {
+        "Enter" => 0x0D,
+        "Tab" => 0x09,
+        "Backspace" => 0x7F,
+        "Escape" => 0x1B,
+        "Space" => 0x20,
+        "Up" => 0xF700,
+        "Down" => 0xF701,
+        "Left" => 0xF702,
+        "Right" => 0xF703,
+        "Insert" => 0xF727,
+        "Delete" => 0xF728,
+        "Home" => 0xF729,
+        "End" => 0xF72B,
+        "PageUp" => 0xF72C,
+        "PageDown" => 0xF72D,
+        _ if is_function_key(key_code) => 0xF704 + (virtual_code - 0x70) as u16,
+        _ => key_code.encode_utf16().next().unwrap_or(0),
+    };
+    // The wire carries KeyboardEvent.key, which already includes Shift's character. NSEvent's
+    // charactersIgnoringModifiers keeps Shift too; only the control character below differs.
+    let unmodified_character = character;
+    let character = if modifiers.contains(&Modifier::Control)
+        && (b'a' as u16..=b'z' as u16).contains(&unmodified_character)
+    {
+        unmodified_character - b'a' as u16 + 1
+    } else {
+        character
+    };
+    MacKey {
+        native_code,
+        character,
+        unmodified_character,
+    }
+}
+
 /// A DOM wheel delta as the page's: opposite sign, capped, and a zero stays a plain zero.
 fn flip_wheel(delta: f64) -> f64 {
     if delta == 0.0 {
@@ -1175,5 +1307,42 @@ mod tests {
         ] {
             assert_eq!(virtual_key(key), want, "{key:?}");
         }
+    }
+
+    #[test]
+    fn mac_keys_have_positions_and_characters_for_real_key_events() {
+        for (key, native, character) in [
+            ("a", 0x00, b'a' as u16),
+            ("z", 0x06, b'z' as u16),
+            ("!", 0x12, b'!' as u16),
+            ("Enter", 0x24, 0x0D),
+            ("Backspace", 0x33, 0x7F),
+            ("Delete", 0x75, 0xF728),
+            ("Left", 0x7B, 0xF702),
+            ("Up", 0x7E, 0xF700),
+            ("F1", 0x7A, 0xF704),
+            ("F20", 0x5A, 0xF717),
+            ("한", 0xFF, 0xD55C),
+        ] {
+            let event = mac_key(key, &[]);
+            assert_eq!(event.native_code, native, "{key}");
+            assert_eq!(event.character, character, "{key}");
+            assert_ne!(
+                event.unmodified_character, 0,
+                "{key}: must not become FlagsChanged"
+            );
+        }
+    }
+
+    #[test]
+    fn mac_shortcuts_keep_the_key_and_only_control_changes_its_character() {
+        assert_eq!(mac_key("a", &[Modifier::Meta]).character, b'a' as u16);
+        let shifted = mac_key("A", &[Modifier::Meta, Modifier::Shift]);
+        assert_eq!(shifted.native_code, 0);
+        assert_eq!(shifted.character, b'A' as u16);
+        assert_eq!(shifted.unmodified_character, b'A' as u16);
+        let control = mac_key("a", &[Modifier::Control]);
+        assert_eq!(control.character, 1);
+        assert_eq!(control.unmodified_character, b'a' as u16);
     }
 }

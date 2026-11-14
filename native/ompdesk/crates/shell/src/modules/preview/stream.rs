@@ -472,7 +472,7 @@ fn key_event(kind: KeyEventType, key_code: &str, modifiers: &[Modifier]) -> KeyE
     } else {
         0
     };
-    KeyEvent {
+    let mut event = KeyEvent {
         type_: kind,
         modifiers: modifier_flags(modifiers),
         windows_key_code: if typed {
@@ -483,7 +483,14 @@ fn key_event(kind: KeyEventType, key_code: &str, modifiers: &[Modifier]) -> KeyE
         character,
         unmodified_character: character,
         ..Default::default()
+    };
+    if cfg!(target_os = "macos") {
+        let native = input::mac_key(key_code, modifiers);
+        event.native_key_code = native.native_code;
+        event.character = native.character;
+        event.unmodified_character = native.unmodified_character;
     }
+    event
 }
 
 /// One event of the viewer's input as the page's browser host takes it. The events are trusted: browser-process input,

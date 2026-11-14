@@ -372,6 +372,12 @@ fn look_again(id: u64) {
     crate::ui::post_delayed(CAPTURE_POLL_MS as i64, move || poll_capture(id));
 }
 
+fn capture_still_shown(id: u64, wc_id: u64) -> bool {
+    capture_of(id).is_some_and(|(visual, version, ..)| {
+        shown_visual_page(&visual, version).is_some_and(|(_, page)| page.borrow().wc_id == wc_id)
+    })
+}
+
 /// The page had `CHECK_SETTLE_MS` to paint its last frame: a reload, a newer version or a tab switch during it starts
 /// the wait again.
 fn settled(id: u64, wc_id: u64) {
@@ -389,12 +395,24 @@ fn settled(id: u64, wc_id: u64) {
     crate::ui::post_delayed(allowed.ceil() as i64, move || finish_capture(id, None));
     // The picture is taken at the bound `judge_image` holds it to: only ever one within it.
     cef_page::viewport_size(wc_id, move |size| {
+        // Metrics and capture are separate CEF turns. A newer visual, hidden tab or expired check must not send
+        // another document's pixels to the judge, or fall back to an unbounded screenshot when metrics fail.
+        if !capture_still_shown(id, wc_id) {
+            return finish_capture(id, None);
+        }
+        let Some((width, height)) = size else {
+            return finish_capture(id, None);
+        };
         let factor = cef_page::zoom_factor(wc_id);
-        let scale = size
-            .map(|(w, h)| shell_core::preview_core::js::max(w, h) * factor)
-            .filter(|longer| *longer > f64::from(PREVIEW_CHECK_IMAGE_MAX))
-            .map_or(1.0, |longer| f64::from(PREVIEW_CHECK_IMAGE_MAX) / longer);
-        cef_page::capture(wc_id, None, scale, move |png| finish_capture(id, png));
+        let longer = width.max(height) * factor;
+        if !longer.is_finite() || longer <= 0.0 {
+            return finish_capture(id, None);
+        }
+        let scale = (f64::from(PREVIEW_CHECK_IMAGE_MAX) / longer).min(1.0);
+        cef_page::capture(wc_id, None, scale, move |png| {
+            let png = png.filter(|_| capture_still_shown(id, wc_id));
+            finish_capture(id, png);
+        });
     });
 }
 

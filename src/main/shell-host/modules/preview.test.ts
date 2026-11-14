@@ -16,6 +16,7 @@ import {
 	PREVIEW_COMMAND,
 	PREVIEW_STATE,
 	PREVIEW_STREAM_INPUT,
+	PREVIEW_STREAM_PDF,
 	PREVIEW_STREAM_POLL,
 	PREVIEW_VISUAL,
 	type PreviewRequest,
@@ -138,12 +139,22 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 	const tunnel: { socket: RelaySocket | null } = { socket: null };
 	const remoteTabs = new Set<string>();
 	const viewers: Viewer[] = [];
+	const requests: string[] = [];
 	let nextViewer = 0;
 
 	const PAGES: Record<string, string> = {
 		"/": "<!doctype html><title>Fixture</title><p>hello</p>",
 		"/popup": `<!doctype html><title>Popup source</title><a id=go target=_blank href="/second" style="${BOX}">go</a>`,
 		"/second": "<!doctype html><title>Second page</title><p>second</p>",
+		"/keyboard": `<!doctype html><title>Keyboard</title><input style="${BOX}" value="seed">
+<script>
+const field = document.querySelector('input');
+field.onfocus = () => document.title = 'focused';
+field.oninput = () => document.title = 'value:' + field.value;
+field.onkeydown = e => {
+  if (e.key === 'ArrowLeft') document.title = [e.key, e.code, e.isTrusted].join(':');
+};
+</script>`,
 	};
 
 	beforeAll(async () => {
@@ -151,6 +162,7 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 		project = await mkdtemp(path.join(os.tmpdir(), "preview-parity-"));
 		server = createServer((request, response) => {
 			const body = PAGES[request.url ?? "/"];
+			requests.push(request.url ?? "/");
 			response.writeHead(body ? 200 : 404, { "content-type": "text/html" });
 			response.end(body ?? "");
 		});
@@ -266,6 +278,52 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 		expect(first.frame).not.toBeNull();
 		return id;
 	};
+
+	it("types committed Unicode and edits it through trusted platform keys", async () => {
+		const win = viewer();
+		await lay(win);
+		await loaded(win, `${origin}/keyboard`);
+		await tapUntil(win, () => win.last?.title === "focused");
+		input(
+			win,
+			{ t: "key", key: "a", mods: [process.platform === "darwin" ? "meta" : "control"] },
+			{ t: "text", text: "a한글😀" },
+		);
+		await until("the committed text", () => win.last?.title === "value:a한글😀");
+		input(win, { t: "key", key: "Backspace" });
+		await until("Backspace to edit the field", () => win.last?.title === "value:a한글");
+		input(win, { t: "key", key: "ArrowLeft" });
+		await until("the trusted arrow key", () => win.last?.title?.startsWith("ArrowLeft:"));
+		if (process.platform === "darwin") expect(win.last?.title).toBe("ArrowLeft:ArrowLeft:true");
+		else expect(win.last?.title).toMatch(/^ArrowLeft:.*:true$/);
+	}, 60_000);
+
+	it("prints the phone page as a PDF and refuses bytes over the link's budget", async () => {
+		const win = viewer();
+		await lay(win);
+		await loaded(win, `${origin}/`);
+		const printed = (await ipc.invoke(PREVIEW_STREAM_PDF, caller(win), [])) as {
+			name: string;
+			base64: string;
+		};
+		expect(printed.name).toBe("Fixture.pdf");
+		expect(Buffer.from(printed.base64, "base64").subarray(0, 5).toString()).toBe("%PDF-");
+		const module = shellModule<PreviewSpec>("preview", () => shell.client);
+		await expect(module.request("pdf", { owner: { key: win.webContents.id }, maxBytes: 1 })).rejects.toThrow(
+			"too large to send over this link",
+		);
+	}, 60_000);
+
+	it("does not send a visual's image request to a network endpoint", async () => {
+		const win = viewer();
+		const sink = `/visual-egress-${win.webContents.id}`;
+		await openVisual(
+			win,
+			`<!doctype html><title>Waiting</title><img src="${origin}${sink}" onerror="document.title='blocked'">`,
+		);
+		await until("the image to be refused", () => win.last?.title === "blocked");
+		expect(requests).not.toContain(sink);
+	}, 60_000);
 
 	it("keeps one set of pages per owner until it is disposed, and shows the empty preview after", async () => {
 		const win = viewer();
@@ -473,10 +531,15 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 			},
 		});
 		/** The agent opens a visual on a laid-out surface; the window shows it when told (the tab is in front). */
-		async function open(win: Viewer, rig: JudgeRig, args: object, { shown }: { shown: boolean }) {
+		async function open(
+			win: Viewer,
+			rig: JudgeRig,
+			args: object,
+			{ shown, bounds = SURFACE }: { shown: boolean; bounds?: typeof SURFACE },
+		) {
 			prefs.judge = true;
 			prefs.active = "tab";
-			await lay(win);
+			await ask(win, { action: "layout", bounds, visible: true, dpr: 1 });
 			if (shown)
 				win.onVisual = event => {
 					void ask(win, { action: "showVisual", tabId: event.tabId, visualId: event.visualId });
@@ -489,16 +552,18 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 		it("tells the agent the page shows an error, hands the judge the page's own PNG, and flags that page", async () => {
 			const win = viewer();
 			const rig = judged("error");
-			const result = await open(win, rig, PAGE, { shown: true });
+			const result = await open(win, rig, PAGE, {
+				shown: true,
+				bounds: { ...SURFACE, width: 1400, height: 1600 },
+			});
 			expect(result.isError).toBe(false);
 			expect(result.text).toContain("Preview check: the page shows an error message.");
 			const picture = rig.commands.find(command => command.type === "judge_preview_check")?.image;
 			expect(picture?.mimeType).toBe("image/png");
-			expect(
-				Buffer.from(picture?.data ?? "", "base64")
-					.subarray(0, 4)
-					.toString("latin1"),
-			).toBe("\x89PNG");
+			const png = Buffer.from(picture?.data ?? "", "base64");
+			expect(png.subarray(0, 4).toString("latin1")).toBe("\x89PNG");
+			expect(png.readUInt32BE(16)).toBeLessThanOrEqual(1280);
+			expect(png.readUInt32BE(20)).toBeLessThanOrEqual(1280);
 			await until("the notice", () => win.last?.notice?.kind === "check");
 			expect(win.last?.notice).toEqual({ kind: "check", problem: "error" });
 		}, 90_000);
