@@ -4,6 +4,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageLimit, UsageReport } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useTabsStore } from "../../../stores/tabs";
@@ -26,8 +27,10 @@ Reflect.set(window, "omp", {
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
 
+// The renderer module graph loads only after the fake window.omp transport exists.
 const { createRoot } = await import("react-dom/client");
 const { SidebarUsage } = await import("./SidebarUsage");
+const { UsageQuotas } = await import("../../insights/UsageQuotas");
 
 let root: Root;
 let container: HTMLElement;
@@ -70,7 +73,7 @@ function fourAndFour(): UsageReport[] {
 	];
 }
 
-async function mount(list: UsageReport[]): Promise<Element | null> {
+async function mount(list: UsageReport[], insights = false): Promise<Element | null> {
 	useSessionStore.setState({ status: "ready" });
 	reports = list;
 	useTabsStore.setState({
@@ -81,17 +84,8 @@ async function mount(list: UsageReport[]): Promise<Element | null> {
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<SidebarUsage />
-			</I18nProvider>,
-		),
-	);
-	await act(async () => {
-		await new Promise(resolve => setTimeout(resolve, 20));
-	});
-	return container.querySelector(".omp-sidebar-usage");
+	await act(async () => root.render(<I18nProvider>{insights ? <UsageQuotas /> : <SidebarUsage />}</I18nProvider>));
+	return insights ? container : container.querySelector(".omp-sidebar-usage");
 }
 
 const row = (block: Element | null, id: number) => block?.querySelector(`[data-usage-account="${id}"]`) ?? null;
@@ -102,9 +96,73 @@ afterEach(async () => {
 	useSidebarFolds.getState().reset();
 	useSessionStore.getState().reset();
 	vi.restoreAllMocks();
+	useModelStore.setState({ providers: [] });
 });
 
 describe("SidebarUsage", () => {
+	it("retains stock note-only balances, request counts and quota states without provider explanation sentences", async () => {
+		useModelStore.setState({
+			providers: [
+				{ id: "devin", name: "Devin", authenticated: true, loginAvailable: false, disabled: false, modelCount: 1 },
+			],
+		});
+		const block = await mount(
+			[
+				report("devin", 1, "devin@example.com", {
+					limits: [],
+					notes: ["Overage balance: $12.50", "A provider explanation sentence."],
+				}),
+				report("github-copilot", 2, "copilot@example.com", {
+					limits: [
+						{
+							id: "copilot:premium",
+							label: "Premium requests",
+							used: 24,
+							limit: 100,
+							unit: "requests",
+							notes: ["Overage requests: 17"],
+						},
+						{ id: "copilot:completions", label: "Completions", notes: ["Unlimited"] },
+					],
+				}),
+				report("minimax-code", 3, "minimax@example.com", { limits: [], notes: ["Requests: 23/100"] }),
+			],
+			true,
+		);
+		const value = (key: string) => block?.querySelector(`[data-usage-fact="usage.note.${key}"] dd`)?.textContent;
+		expect(value("overageBalance")).toBe("$12.50");
+		expect(value("overageRequests")).toBe("17");
+		expect(value("requests")).toBe("23/100");
+		expect(value("unlimited")).toBe("∞");
+		expect(block?.textContent).not.toContain("A provider explanation sentence.");
+		expect(
+			block?.querySelector('[role="progressbar"][aria-label="Premium requests"]')?.getAttribute("aria-valuenow"),
+		).toBe("0.24");
+	});
+
+	it("keeps five window names beside their own values when the provider needs several bands", async () => {
+		const block = await mount([
+			report("anthropic", 1, "five@example.com", {
+				limits: [
+					...limits("anthropic", 0.2, 0.3, 0.4),
+					gauge("anthropic:7d:opus", "Claude 7 Day (Opus)", 0.5, 90),
+					gauge("anthropic:7d:sonnet", "Claude 7 Day (Sonnet)", 0.6, 90),
+				],
+			}),
+		]);
+		const values = [...(row(block, 1)?.querySelectorAll(".omp-usage-gauge") ?? [])].map(cell => [
+			cell.querySelector("[data-usage-label]")?.textContent,
+			cell.querySelector("[data-usage-percent]")?.textContent,
+		]);
+		expect(values).toEqual([
+			["5H", "20%"],
+			["7D", "30%"],
+			["Fable", "40%"],
+			["Opus", "50%"],
+			["Sonnet", "60%"],
+		]);
+		expect(row(block, 1)?.querySelectorAll(".omp-usage-gauge-reset")).toHaveLength(5);
+	});
 	it("lists every account of every provider, grouped by provider with its count", async () => {
 		const block = await mount(fourAndFour());
 		const groups = [...(block?.querySelectorAll("[data-provider-row]") ?? [])];

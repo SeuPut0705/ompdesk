@@ -76,18 +76,18 @@ function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers:
 			}}
 			group={groupOf(group.provider, providers)}
 		>
-			<li aria-hidden className="omp-sidebar-usage-columns">
-				<span />
-				<div
-					style={{ gridTemplateColumns: `repeat(${Math.min(columns.length, MAX_USAGE_COLUMNS)}, minmax(0, 1fr))` }}
-				>
-					{columns.map(column => (
-						<span key={column}>
-							{shortWindowLabel(headings.find(entry => gaugeColumn(entry.limit) === column)!.limit)}
-						</span>
-					))}
-				</div>
-			</li>
+			{columns.length <= MAX_USAGE_COLUMNS && (
+				<li aria-hidden className="omp-sidebar-usage-columns">
+					<span />
+					<div style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}>
+						{columns.map(column => (
+							<span key={column}>
+								{shortWindowLabel(headings.find(entry => gaugeColumn(entry.limit) === column)!.limit)}
+							</span>
+						))}
+					</div>
+				</li>
+			)}
 			{group.accounts.map(({ report, inUse }, index) => {
 				const source = sources[index] as AccountQuotaSource;
 				return (

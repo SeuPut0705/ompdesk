@@ -264,3 +264,18 @@ html[data-input="touch"] .omp-sidebar-usage [data-provider-head] {
 	font-size: var(--sc-font-xs);
 	line-height: 16px;
 }
+
+.omp-sidebar-usage .omp-usage-gauges[data-stacked-labels] .omp-usage-gauge-bar {
+	height: auto;
+	min-height: 32px;
+}
+
+.omp-sidebar-usage .omp-usage-gauges[data-stacked-labels] .omp-usage-gauge-text {
+	height: auto;
+	min-height: 32px;
+	flex-direction: column;
+	gap: 0;
+	white-space: normal;
+	text-align: center;
+	overflow-wrap: anywhere;
+}

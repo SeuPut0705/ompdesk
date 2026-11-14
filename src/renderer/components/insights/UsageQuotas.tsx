@@ -53,6 +53,37 @@ const STATUS_KEY: Record<string, string> = {
 	warning: "usage.status.warning",
 };
 
+// Stock's devin, github-copilot and minimax-code usage providers put these figures only in notes.
+// The renderer cannot import stock; retain the figures without rendering provider explanation sentences.
+const NOTE_FACTS: readonly [RegExp, string, string][] = [
+	[/^Overage balance: \$(-?\d+(?:\.\d+)?)$/, "usage.note.overageBalance", "$"],
+	[/^Overage requests: (\d+)$/, "usage.note.overageRequests", ""],
+	[/^Requests: (\d+\/\d+)$/, "usage.note.requests", ""],
+	[/^Unlimited$/, "usage.note.unlimited", "∞"],
+	[/^Requests deprioritized after a rate-limit burst\.$/, "usage.note.deprioritized", "↓"],
+];
+
+function NoteFacts({ notes, t }: { notes: readonly string[] | undefined; t: Translate }) {
+	const facts =
+		notes?.flatMap(note => {
+			for (const [pattern, key, prefix] of NOTE_FACTS) {
+				const match = pattern.exec(note);
+				if (match) return [{ key, value: `${prefix}${match[1] ?? ""}` }];
+			}
+			return [];
+		}) ?? [];
+	return facts.length > 0 ? (
+		<dl className="flex flex-wrap gap-x-4 gap-y-1 text-sc-sm text-(--sc-text-secondary)">
+			{facts.map(({ key, value }) => (
+				<div className="flex gap-1.5" data-usage-fact={key} key={`${key}:${value}`}>
+					<dt>{t(key)}</dt>
+					<dd className="tabular-nums">{value}</dd>
+				</div>
+			))}
+		</dl>
+	) : null;
+}
+
 function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: number }) {
 	const fraction = limit.usedFraction ?? (limit.used !== undefined && limit.limit ? limit.used / limit.limit : 0);
 	const countdown = resetCountdown(limit.resetsAt, t, now);
@@ -80,6 +111,7 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 				</div>
 			</div>
 			<ProgressBar ariaLabel={label} value={fraction} valueText="" />
+			<NoteFacts notes={limit.notes} t={t} />
 		</li>
 	);
 }
@@ -137,6 +169,7 @@ function ProviderReportCard({
 						))}
 				</span>
 			</header>
+			<NoteFacts notes={report.notes} t={t} />
 			{limits.length > 0 && (
 				<ul className="flex flex-col divide-y divide-(--sc-divider)">
 					{limits.map(limit => (

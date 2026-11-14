@@ -105,6 +105,69 @@ test("the narrow sidebar shows all three accounts and resets together above Sett
 			expect(end.bottom, "the last account's reset line clears the scroller edge").toBeLessThanOrEqual(end.cap);
 			await page.screenshot({ path: test.info().outputPath(`sidebar-usage-${height}-end.png`) });
 		}
+		await page.goto(`http://127.0.0.1:${port}/harness.html?theme=dark&lang=ko&usage=windows&platform=darwin`);
+		await expect(block.getByRole("progressbar")).toHaveCount(14);
+		await expect(block.locator(".omp-usage-gauge-reset")).toHaveCount(14);
+		const wideLast = block.locator("[data-usage-account]").last();
+		await wideLast.scrollIntoViewIfNeeded();
+		const identities = await wideLast.locator(".omp-usage-gauge").evaluateAll(cells =>
+			cells.map(cell => {
+				const label = cell.querySelector("[data-usage-label]");
+				const value = cell.querySelector("[data-usage-percent]");
+				const labelBox = label?.getBoundingClientRect();
+				const valueBox = value?.getBoundingClientRect();
+				const box =
+					cell.querySelector(".omp-usage-gauge-bar")?.getBoundingClientRect() ?? cell.getBoundingClientRect();
+				return {
+					label: label?.textContent,
+					value: value?.textContent,
+					connected: Boolean(
+						labelBox &&
+							valueBox &&
+							labelBox.bottom <= valueBox.top + 0.5 &&
+							labelBox.top >= box.top &&
+							valueBox.bottom <= box.bottom &&
+							labelBox.left >= box.left &&
+							labelBox.right <= box.right &&
+							valueBox.left >= box.left &&
+							valueBox.right <= box.right,
+					),
+				};
+			}),
+		);
+		expect(identities.map(({ label, value }) => [label, value])).toEqual([
+			["5H", "4%"],
+			["7D", "31%"],
+			["Fable", "22%"],
+			["Opus", "25%"],
+			["Sonnet", "50%"],
+		]);
+		expect(
+			identities.every(cell => cell.connected),
+			"every wrapped window keeps its own title above its value",
+		).toBe(true);
+		await page.screenshot({ path: test.info().outputPath("sidebar-usage-five-windows.png") });
+
+		await page.goto(
+			`http://127.0.0.1:${port}/harness.html?theme=dark&lang=ko&usage=figures&platform=darwin&rail=all`,
+		);
+		await page.locator('button[data-destination="insights"]').click();
+		await page.getByRole("tab", { name: "사용량", exact: true }).click();
+		await expect(page.locator('[data-usage-fact="usage.note.overageBalance"] dd')).toHaveText("$12.50");
+		await expect(page.locator('[data-usage-fact="usage.note.overageRequests"] dd')).toHaveText("17");
+		await expect(page.getByRole("tab", { name: "사용량", exact: true })).toHaveAttribute("aria-selected", "true");
+		await page.evaluate(async () => {
+			await Promise.all(
+				document
+					.getAnimations()
+					.filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+					.map(animation => animation.finished.catch(() => undefined)),
+			);
+			const frame = Promise.withResolvers<void>();
+			requestAnimationFrame(() => frame.resolve());
+			await frame.promise;
+		});
+		await page.screenshot({ path: test.info().outputPath("usage-note-figures.png") });
 	} finally {
 		await browser.close();
 		await server.close();

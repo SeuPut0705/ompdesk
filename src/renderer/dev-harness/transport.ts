@@ -34,7 +34,7 @@ import {
 	type PreviewStreamPoll,
 	type PreviewStreamPollRequest,
 } from "../../shared/preview";
-import type { RpcCommand, RpcContextReportResult, SettingsSchemaResult } from "../../shared/rpc-types";
+import type { RpcCommand, RpcContextReportResult, SettingsSchemaResult, UsageReport } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
 import { readSidebarPrefs, SIDEBAR_PREFS_KEY, type SidebarChange, sidebarPatch } from "../../shared/sidebar-prefs";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../../shared/sidebar-projects";
@@ -94,7 +94,7 @@ import {
 } from "./fixture-settings";
 import { PLAN_FILE_PATH, PLAN_MARKDOWN, SESSION_TREE } from "./fixture-sheets";
 import { statsAnswer } from "./fixture-stats";
-import { blockedAccountUsage } from "./fixture-usage";
+import { blockedAccountUsage, manyWindowUsage, usageFigureReports } from "./fixture-usage";
 import { diskCareState, orphanWorktrees, savedWorktreeRestore, savedWorktrees } from "./fixture-work-tree";
 import { createHarnessSummaries, type HarnessSummaries } from "./summaries";
 
@@ -109,9 +109,14 @@ const FIRST_RUN = new URLSearchParams(location.search).get("firstrun") === "1";
 const ACCOUNTS = new URLSearchParams(location.search).get("accounts") === "1";
 /** `?jobs=tree`: Background tasks lists subagents' jobs nested under them (./fixture-jobs.ts). */
 const JOBS_TREE = new URLSearchParams(location.search).get("jobs") === "tree";
-/** `?usage=blocked|similar`: three Claude accounts; similar uses matching long ID prefixes. */
-const USAGE_VARIANT = new URLSearchParams(location.search).get("usage");
-const BLOCKED_USAGE = USAGE_VARIANT === "blocked" || USAGE_VARIANT === "similar";
+/** Sample usage records, selected only by this harness page's query. */
+const USAGE_FIXTURES: Record<string, () => UsageReport[]> = {
+	blocked: blockedAccountUsage,
+	similar: () => blockedAccountUsage(Date.now(), true),
+	windows: manyWindowUsage,
+	figures: usageFigureReports,
+};
+const usageFixture = USAGE_FIXTURES[new URLSearchParams(location.search).get("usage") ?? ""];
 const FIRST_RUN_PROVIDERS = [
 	["anthropic", "Anthropic (Claude Pro/Max)"],
 	["cerebras", "Cerebras"],
@@ -450,11 +455,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_usage":
 				return respond(
 					command,
-					BLOCKED_USAGE
-						? { reports: blockedAccountUsage(Date.now(), USAGE_VARIANT === "similar") }
-						: BOARD_BUSY
-							? boardUsage()
-							: { reports: [] },
+					usageFixture ? { reports: usageFixture() } : BOARD_BUSY ? boardUsage() : { reports: [] },
 				);
 			case "get_orphan_worktrees":
 				return respond(command, orphanWorktrees());
