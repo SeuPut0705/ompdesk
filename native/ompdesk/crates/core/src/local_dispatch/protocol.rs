@@ -79,6 +79,20 @@ impl From<Fault> for CommandError {
 
 pub type CommandResult = Result<Option<Value>, CommandError>;
 
+/// The one stock response decoder for local adapters and captured pool/hosted session operations. A failed
+/// stock frame is an ordinary command error, not a successful data value or an explicit LocalCommandError.
+pub fn stock_data(mut response: Value) -> Result<Value, CommandError> {
+    if response["success"] == true {
+        Ok(response.get_mut("data").map(Value::take).unwrap_or(Value::Null))
+    } else {
+        let message = match response.get_mut("error").map(Value::take) {
+            Some(Value::String(message)) => message,
+            _ => "RPC command failed".to_owned(),
+        };
+        Err(CommandError::Other(message))
+    }
+}
+
 impl RpcResponse {
     pub fn local(command: &RpcCommand, result: CommandResult) -> Self {
         let mut response = Self {
@@ -111,6 +125,19 @@ impl RpcResponse {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn failed_stock_rename_stays_failed_without_promoting_its_internal_code() {
+        let command: RpcCommand = serde_json::from_value(json!({"type":"set_session_name","id":"page-rename"})).unwrap();
+        let result = stock_data(json!({"type":"response","command":"set_session_name","success":false,
+            "error":"Rename refused","code":"internal_stock_code","data":{"name":"not applied"}}));
+        assert_eq!(serde_json::to_value(RpcResponse::local(&command, result.map(Some))).unwrap(),
+            json!({"id":"page-rename","type":"response","command":"set_session_name","success":false,"error":"Rename refused"}));
+        assert_eq!(stock_data(json!({"success":false,"error":7})), Err(CommandError::Other("RPC command failed".into())));
+        assert_eq!(stock_data(json!({"success":true,"data":null})), Ok(Value::Null));
+        assert_eq!(stock_data(json!({"success":true})), Ok(Value::Null));
+        assert_eq!(stock_data(json!({"success":true,"data":{"name":"Applied"}})), Ok(json!({"name":"Applied"})));
+    }
 
     #[test]
     fn local_errors_expose_only_explicit_local_codes_and_keep_null_distinct_from_absent() {
