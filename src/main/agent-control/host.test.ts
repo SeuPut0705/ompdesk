@@ -99,7 +99,7 @@ function setup(
 		/** What happens while a release awaits (`closeWindowTab`'s exit-policy read), before it asks again. */
 		duringRelease?: (fileEdits: FileEditReports) => void;
 		/** The tab holding each session file (`sessionOwner`). */
-		owners?: Record<string, string>;
+		owners?: Record<string, string | { tabId: string; winId: number | null }>;
 		/** The front window sessions are opened in without a tab of their own (`outsideWindow`). */
 		outsideWindow?: boolean;
 		/** What the caller's omp answers `agent_control_attachment` for each path (`agent_control.attachment`). */
@@ -174,8 +174,8 @@ function setup(
 			},
 			tabWindows: () => [win, ...(otherTabs.length ? [win2] : []), ...(webTabs.length ? [webWin] : [])],
 			sessionOwner: sessionPath => {
-				const tabId = options.owners?.[sessionPath];
-				return tabId ? { tabId, winId: win.webContents.id } : null;
+				const owner = options.owners?.[sessionPath];
+				return typeof owner === "string" ? { tabId: owner, winId: win.webContents.id } : (owner ?? null);
 			},
 			whenTabExited: async () => {},
 			viewIdentity: (target, tabId) => `${target.webContents.id}:${tabId}:surface`,
@@ -1018,6 +1018,48 @@ describe("AgentControlRuntime", () => {
 			// Sent again: the view this computer holds now takes it, no second view.
 			await runtime.run(win, "main0001", T.send, { session: "s-main", message: "and the worktrees" });
 			expect(spawned).toHaveLength(1);
+		});
+
+		function heldWithoutView() {
+			const world = setup({
+				tabs: [{ tabId: "main0001" }, { tabId: "old00001", sessionPath: "/s/old.jsonl" }],
+				owners: { "/s/held.jsonl": { tabId: "busy0002", winId: null } },
+				sessions: { list: async () => [row("/s", "held") as never], search: async () => [], read: async () => [] as never },
+			});
+			world.deps.spawnTab = async (_win, payload) => {
+				world.spawned.push(payload);
+				world.tabs.push({
+					tabId: "busy0002",
+					cwd: "/s",
+					status: "ready",
+					kind: "agent",
+					sessionPath: "/s/held.jsonl",
+					openedBy: "old00001",
+				});
+				return { tabId: "busy0002", attached: true };
+			};
+			return world;
+		}
+
+		it("reopens a windowless retained session without taking its child custody", async () => {
+			const { runtime, win, spawned, openers } = heldWithoutView();
+			const opened = await runtime.run(win, "main0001", T.open, { reopen: "held" });
+			expect(opened.isError, opened.text).toBe(false);
+			expect(opened.text).toContain("busy0002");
+			expect(spawned).toHaveLength(1);
+			expect(openers).not.toHaveBeenCalled();
+			expect(runtime.parentOf("busy0002")).not.toEqual({ callerTabId: "main0001" });
+			const mine = await runtime.run(win, "main0001", T.list, { scope: "app", mine: true });
+			expect(mine.text).toMatch(/^0 sessions/);
+		});
+
+		it("refuses throwaway for a windowless retained session before attaching it", async () => {
+			const { runtime, win, spawned, openers } = heldWithoutView();
+			const opened = await runtime.run(win, "main0001", T.open, { reopen: "held", throwaway: true });
+			expect(opened.isError).toBe(true);
+			expect(opened.text).toContain("throwaway");
+			expect(spawned).toHaveLength(0);
+			expect(openers).not.toHaveBeenCalled();
 		});
 
 		it("reopens that session as a view of the tab that holds it, not as the caller's child", async () => {

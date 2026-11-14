@@ -709,6 +709,23 @@ describe("tabs store switch", () => {
 		expect(omp.tabs.spawn).toHaveBeenCalledTimes(1);
 	});
 
+	it("reopens a previously closed view of a retained execution using the same tab id", async () => {
+		seedTabs();
+		await useTabsStore.getState().closeTab("t1");
+		expect(isTabClosed("t1")).toBe(true);
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t1", attached: true });
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/alpha"), active: true, visible: true },
+			{ ...tabInfo("t1", "/beta", "running"), sessionPath: "/sessions/retained.jsonl" },
+			tabInfo("t2", "/gamma"),
+		]);
+		expect(await useTabsStore.getState().openTab({ sessionPath: "/sessions/retained.jsonl" })).toBe("t1");
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(useTabsStore.getState().tabs.filter(tab => tab.id === "t1")).toHaveLength(1);
+		expect(useTabsStore.getState().tabs.some(tab => tab.id === "t0")).toBe(true);
+		expect(isTabClosed("t1")).toBe(false);
+	});
+
 	it("fires SET_ACTIVE_TAB before hydrating from the target sidecar", async () => {
 		seedTabs();
 
