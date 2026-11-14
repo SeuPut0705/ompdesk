@@ -34,6 +34,7 @@ pub mod routines;
 mod run;
 pub mod schedules;
 pub mod server;
+pub mod session_ops;
 pub mod sessions;
 pub mod setup;
 pub mod sidecar;
