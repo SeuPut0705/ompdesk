@@ -12,8 +12,7 @@
  * every provider and account listed is. A provider with one credential (API key, env) is the
  * header alone, with its detail and any abnormal-state badges on the same line.
  * `data-provider-row` is on the group, `data-provider-account` on each account row.
- * The sidebar's usage block draws the same two components `compact` (layout/sidebar/SidebarUsage.tsx): a head that
- * folds its accounts (`fold`), no ⋯ (`menu` absent), the address wrapped whole, and a `reason` line under the quota.
+ * The sidebar reuses these components with compact account rows and shared quota headings.
  */
 
 import { MoreHorizontal, Plus } from "lucide-react";
@@ -197,7 +196,6 @@ export function ConnectedRow({
 	menu,
 	busy = false,
 	compact = false,
-	reason,
 	rowProps,
 }: {
 	/** The account: an email or id. */
@@ -221,26 +219,24 @@ export function ConnectedRow({
 	menu?: ContextMenuItem[];
 	/** An action is running for this row. */
 	busy?: boolean;
-	/** A list too narrow for a row to give its account a line of its own: the address wraps whole instead of ending in an ellipsis. */
+	/** Shared-column account row for the sidebar. */
 	compact?: boolean;
-	/** One line of why the session is on this account, under the quota (the rotation's reason); nothing when absent. */
-	reason?: ReactNode;
 	rowProps?: DataAttributes;
 }) {
 	const t = useT();
 	return (
-		<li {...rowProps} className={`@container ${compact ? "py-1" : "py-1.5"}`}>
+		<li
+			{...rowProps}
+			aria-label={compact ? accountTitle : undefined}
+			className={`@container ${compact ? "omp-account-compact" : "py-1.5"}`}
+		>
 			<div
 				className={`flex flex-wrap items-start gap-x-3 gap-y-1.5 pr-2.5 ${compact ? "pl-6" : "pl-[calc(0.625rem+1.25rem+0.625rem)]"}`}
 			>
 				<span
-					className={`order-1 flex ${compact ? "min-h-6 flex-wrap" : "min-h-(--sc-control-sm)"} min-w-0 flex-1 basis-24 items-center gap-x-2 gap-y-0.5`}
+					className={`order-1 flex ${compact ? "flex-col items-start" : "min-h-(--sc-control-sm) items-center"} min-w-0 flex-1 basis-24 gap-x-2 gap-y-0.5`}
 				>
-					<span
-						className={`min-w-0 text-sc-sm text-(--sc-text) ${compact ? "[overflow-wrap:anywhere]" : "truncate"}`}
-						data-account-label
-						title={accountTitle}
-					>
+					<span className="min-w-0 truncate text-sc-sm text-(--sc-text)" data-account-label title={accountTitle}>
 						{account}
 						{accountSuffix && (
 							<span className="text-(--sc-text-muted)" data-account-suffix>
@@ -284,11 +280,6 @@ export function ConnectedRow({
 						label={t("providers.row.actions", { name: actionName ?? account })}
 						menu={menu}
 					/>
-				)}
-				{reason && (
-					<span className="order-6 basis-full text-sc-xs break-words text-(--sc-text-muted)" data-account-reason>
-						{reason}
-					</span>
 				)}
 			</div>
 		</li>

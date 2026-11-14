@@ -77,6 +77,7 @@ export function UsageGauges({
 	limits,
 	resets = false,
 	compact = false,
+	sharedLabels = false,
 	columns,
 	tracks,
 	session,
@@ -84,6 +85,8 @@ export function UsageGauges({
 	limits: readonly UsageLimit[];
 	resets?: boolean;
 	compact?: boolean;
+	/** Window names are in the provider's shared header; reset units omit spaces. */
+	sharedLabels?: boolean;
 	/** `gaugeColumns` of the provider's accounts: every window, each in its column. */
 	columns?: readonly string[];
 	/** With `columns`: the grid's column count, when a list of several providers shares one wider than this one's. */
@@ -118,6 +121,8 @@ export function UsageGauges({
 				}
 				const { limit, fraction } = slot;
 				const percent = Math.round(Math.min(1, fraction) * 100);
+				const resetAt =
+					sharedLabels && limit.resetsAt !== undefined ? new Date(limit.resetsAt).toISOString() : undefined;
 				return (
 					<span
 						className="omp-usage-gauge"
@@ -137,18 +142,22 @@ export function UsageGauges({
 						>
 							<span className="omp-usage-gauge-fill" style={{ transform: `scaleX(${percent / 100})` }} />
 							<span aria-hidden className="omp-usage-gauge-text">
-								<span data-usage-label>{shortWindowLabel(limit)}</span>
+								{!sharedLabels && <span data-usage-label>{shortWindowLabel(limit)}</span>}
 								<span data-usage-percent>{percent}%</span>
 							</span>
 						</span>
 						{resets && limit.resetsAt !== undefined ? (
 							<span
-								aria-label={resetText(limit.resetsAt, t, now) ?? undefined}
+								aria-label={[resetText(limit.resetsAt, t, now), resetAt].filter(Boolean).join(" · ")}
 								className="omp-usage-gauge-reset"
 								role="img"
-								title={resetText(limit.resetsAt, t, now) ?? undefined}
+								title={resetAt ?? resetText(limit.resetsAt, t, now) ?? undefined}
 							>
-								{limit.resetsAt > now ? `↻ ${formatSpanCompact(limit.resetsAt - now)}` : "↻"}
+								{limit.resetsAt > now
+									? sharedLabels
+										? formatSpanCompact(limit.resetsAt - now).replaceAll(" ", "")
+										: `↻ ${formatSpanCompact(limit.resetsAt - now)}`
+									: "↻"}
 							</span>
 						) : resets ? (
 							<span className="omp-usage-gauge-reset" />

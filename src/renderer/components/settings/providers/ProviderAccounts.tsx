@@ -286,7 +286,7 @@ export function ProviderAccountRows({
 				<ConnectedRow
 					account={names[index]?.address ?? account.label}
 					accountSuffix={names[index]?.suffix}
-					accountTitle={[account.label, account.detail].filter(Boolean).join("\n")}
+					accountTitle={account.label}
 					actionName={`${fullName} ${[names[index]?.address, names[index]?.suffix].filter(Boolean).join(" ")}`}
 					badges={<AccountBadges account={account} />}
 					pass={

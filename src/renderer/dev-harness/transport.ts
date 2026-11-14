@@ -109,8 +109,9 @@ const FIRST_RUN = new URLSearchParams(location.search).get("firstrun") === "1";
 const ACCOUNTS = new URLSearchParams(location.search).get("accounts") === "1";
 /** `?jobs=tree`: Background tasks lists subagents' jobs nested under them (./fixture-jobs.ts). */
 const JOBS_TREE = new URLSearchParams(location.search).get("jobs") === "tree";
-/** `?usage=blocked`: the sidebar usage block of the owner's 0.128.0 report (./fixture-usage.ts). */
-const BLOCKED_USAGE = new URLSearchParams(location.search).get("usage") === "blocked";
+/** `?usage=blocked|similar`: three Claude accounts; similar uses matching long ID prefixes. */
+const USAGE_VARIANT = new URLSearchParams(location.search).get("usage");
+const BLOCKED_USAGE = USAGE_VARIANT === "blocked" || USAGE_VARIANT === "similar";
 const FIRST_RUN_PROVIDERS = [
 	["anthropic", "Anthropic (Claude Pro/Max)"],
 	["cerebras", "Cerebras"],
@@ -449,7 +450,11 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_usage":
 				return respond(
 					command,
-					BLOCKED_USAGE ? { reports: blockedAccountUsage() } : BOARD_BUSY ? boardUsage() : { reports: [] },
+					BLOCKED_USAGE
+						? { reports: blockedAccountUsage(Date.now(), USAGE_VARIANT === "similar") }
+						: BOARD_BUSY
+							? boardUsage()
+							: { reports: [] },
 				);
 			case "get_orphan_worktrees":
 				return respond(command, orphanWorktrees());

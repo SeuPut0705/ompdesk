@@ -51,6 +51,14 @@ export function accountNames(labels: readonly string[]): { address: string; suff
 	});
 }
 
+/** Short local identifiers; a stable row number distinguishes matching prefixes and duplicate sign-ins. */
+export function shortAccountNames(labels: readonly string[]): string[] {
+	return labels.map((label, index) => {
+		const stem = bareEmail(label).split("@")[0] || label;
+		return `${stem.slice(0, 4)}·${index + 1}`;
+	});
+}
+
 /** How the account stands: out of room (a gauge at its limit, or omp skipping it), running low, or fine. */
 export function accountStanding(account: AccountQuotaSource): "limited" | "low" | "ok" {
 	const gauges = accountGauges(quotaLimits(account));
@@ -68,6 +76,7 @@ export function QuotaCell({
 	columns,
 	tracks,
 	compact = false,
+	sharedLabels = false,
 	now,
 }: {
 	account: AccountQuotaSource;
@@ -75,6 +84,7 @@ export function QuotaCell({
 	tracks: number;
 	/** Slim bars with small type (`UsageGauges compact`): the sidebar's width. */
 	compact?: boolean;
+	sharedLabels?: boolean;
 	now: number;
 }) {
 	const t = useT();
@@ -94,15 +104,45 @@ export function QuotaCell({
 			data-quota-updated={account.fetchedAt === undefined ? undefined : formatClock(account.fetchedAt)}
 			title={title}
 		>
-			<UsageGauges columns={columns} compact={compact} limits={limits} resets tracks={tracks} />
+			<UsageGauges
+				columns={columns}
+				compact={compact}
+				limits={limits}
+				resets
+				sharedLabels={sharedLabels}
+				tracks={tracks}
+			/>
 		</div>
 	);
 }
 
 /** In use, and what no gauge of the row says: skipped after a limit, or low, with no window at or near its end. */
-export function AccountBadges({ account }: { account: AccountQuotaSource }) {
+export function AccountBadges({ account, compact = false }: { account: AccountQuotaSource; compact?: boolean }) {
 	const t = useT();
 	const gauges = accountGauges(quotaLimits(account));
+	if (compact) {
+		const limited = accountStanding(account) === "limited";
+		return account.inUse || limited ? (
+			<span
+				aria-label={[
+					account.inUse ? t("providers.accounts.inUse") : null,
+					limited ? t("providers.accounts.limited") : null,
+				]
+					.filter(Boolean)
+					.join(" · ")}
+				className={`omp-account-state ${limited ? "text-(--sc-warning)" : "text-(--sc-success)"}`}
+			>
+				{limited ? (
+					<>
+						{account.inUse && <span aria-hidden>● </span>}
+						{t("usage.limitedShort")}
+					</>
+				) : (
+					t("providers.accounts.inUse")
+				)}
+			</span>
+		) : null;
+	}
 	return (
 		<>
 			{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}

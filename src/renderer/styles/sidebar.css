@@ -182,33 +182,85 @@ html[data-input="touch"] .omp-session-sidebar [data-device-group] > div:first-ch
 
 .omp-sidebar-usage-groups {
 	min-height: 0;
-	padding-bottom: var(--sc-space-2);
+	padding-bottom: 2px;
 	overflow-y: auto;
 	overscroll-behavior: contain;
 }
 
+.omp-sidebar-usage [data-provider-row] {
+	padding-block: 0;
+}
+
+.omp-sidebar-usage [data-provider-head] {
+	min-height: 24px;
+	padding-inline: 8px;
+}
+
+.omp-sidebar-usage-columns,
+.omp-account-compact > div {
+	display: grid;
+	grid-template-columns: 60px minmax(0, 1fr);
+	gap: 4px;
+	padding-inline: 8px;
+}
+
+.omp-sidebar-usage-columns > div {
+	display: grid;
+	gap: 4px;
+	text-align: center;
+	font-size: var(--sc-font-xs);
+	line-height: 16px;
+	color: var(--sc-text-muted);
+}
+
+.omp-account-compact {
+	padding-block: 1px;
+}
+
+.omp-account-compact > div > * {
+	min-width: 0;
+	order: initial;
+}
+
+.omp-account-compact [data-account-label] {
+	max-width: 100%;
+	font-size: var(--sc-font-xs);
+	line-height: 16px;
+}
+
+.omp-account-state {
+	white-space: nowrap;
+	font-size: var(--sc-font-xs);
+	line-height: 14px;
+}
 /* A finger folds a provider by its head: a touch row tall (the other sidebar headers' 36 px). */
 html[data-input="touch"] .omp-sidebar-usage [data-provider-head] {
 	min-height: var(--sc-row-touch);
 }
 
-/* Keep each window in its provider's column even at the 220px sidebar minimum. Stacking the name over the
-   percentage inside a bar needs less width than "Fable 100%" and avoids a second row of gauges per account. */
-.omp-sidebar-usage .omp-usage-gauges[data-compact] .omp-usage-gauge-bar {
-	height: 32px;
+.omp-sidebar-usage .omp-usage-gauges[data-compact] {
+	gap: 4px;
 }
 
-.omp-sidebar-usage .omp-usage-gauge-text {
-	flex-direction: column;
-	justify-content: center;
+.omp-sidebar-usage .omp-usage-gauge {
 	gap: 0;
-	padding-inline: 2px;
-	line-height: 14px;
+}
+
+.omp-sidebar-usage .omp-usage-gauges[data-compact] .omp-usage-gauge-bar {
+	height: 16px;
+}
+
+.omp-sidebar-usage .omp-usage-gauges[data-compact] .omp-usage-gauge-text {
+	justify-content: center;
+	padding-inline: 0;
+	font-size: var(--sc-font-xs);
+	line-height: 16px;
 }
 
 .omp-sidebar-usage .omp-usage-gauge-reset {
-	font-size: var(--sc-font-2xs);
 	padding-inline: 0;
 	overflow: visible;
-	white-space: normal;
+	text-align: center;
+	font-size: var(--sc-font-xs);
+	line-height: 16px;
 }

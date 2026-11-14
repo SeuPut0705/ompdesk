@@ -1,7 +1,7 @@
 /**
  * Insights › Usage: provider quota reports — one card per stored account
  * (several sign-ins of one provider each get their own) with limit bars,
- * reset countdowns, how old each report is and provider notes. Reports come
+ * reset countdowns and how old each report is. Reports come
  * from stock's usage cache through the tab's one usage poll
  * (hooks/use-usage-reports.ts): read when the page mounts, when it shows
  * another session tab, and live while it is open; the explicit refresh
@@ -19,7 +19,6 @@ import { formatClock, formatSpan } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { usageLimitLabel } from "../../lib/usage-labels";
-import { rotationReason } from "../../lib/usage-rotation";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -54,19 +53,6 @@ const STATUS_KEY: Record<string, string> = {
 	warning: "usage.status.warning",
 };
 
-function Notes({ notes }: { notes: string[] | undefined }) {
-	if (!notes || notes.length === 0) return null;
-	return (
-		<ul className="flex flex-col gap-0.5">
-			{notes.map(note => (
-				<li className="text-sc-xs text-(--sc-text-muted)" key={note}>
-					{note}
-				</li>
-			))}
-		</ul>
-	);
-}
-
 function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: number }) {
 	const fraction = limit.usedFraction ?? (limit.used !== undefined && limit.limit ? limit.used / limit.limit : 0);
 	const countdown = resetCountdown(limit.resetsAt, t, now);
@@ -94,7 +80,6 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 				</div>
 			</div>
 			<ProgressBar ariaLabel={label} value={fraction} valueText="" />
-			<Notes notes={limit.notes} />
 		</li>
 	);
 }
@@ -113,7 +98,6 @@ function ProviderReportCard({
 	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
 }) {
 	const limits = Array.isArray(report.limits) ? report.limits : [];
-	const reason = report.active ? rotationReason(report.rotation, t) : null;
 	// Stock's provider display name (the catalog's login names); the id when the catalog has none.
 	const providerName = useModelStore(
 		state => state.providers.find(provider => provider.id === report.provider)?.name ?? report.provider,
@@ -153,16 +137,6 @@ function ProviderReportCard({
 						))}
 				</span>
 			</header>
-			{reason && (
-				<p
-					className="text-sc-xs break-words text-(--sc-text-muted)"
-					data-usage-rotation={report.rotation?.why}
-					title={report.rotation ? formatClock(report.rotation.at) : undefined}
-				>
-					{reason}
-				</p>
-			)}
-			<Notes notes={report.notes} />
 			{limits.length > 0 && (
 				<ul className="flex flex-col divide-y divide-(--sc-divider)">
 					{limits.map(limit => (
