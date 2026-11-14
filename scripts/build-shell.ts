@@ -287,7 +287,11 @@ function vsTools(): { cmakeBin: string; ninjaBin: string; include: string } {
 	return { cmakeBin, ninjaBin, include };
 }
 
-/** A drive letter that points at the crate's folder for the length of `run`: the wrapper's paths then fit MAX_PATH. */
+export function shellCargoMount(shellDir: string = SHELL_DIR): { root: string; cwd: string } {
+	return { root: path.dirname(shellDir), cwd: path.basename(shellDir) };
+}
+
+/** Preserve sibling path dependencies while shortening the shell workspace's paths for CEF's wrapper. */
 async function withSubst<T>(run: (cwd: string) => Promise<T>): Promise<T> {
 	if (process.platform !== "win32") return run(SHELL_DIR);
 	let letter = "";
@@ -298,9 +302,10 @@ async function withSubst<T>(run: (cwd: string) => Promise<T>): Promise<T> {
 		}
 	}
 	if (!letter) throw new BuildError("no free drive letter for subst.");
-	execFileSync("subst", [`${letter}:`, SHELL_DIR]);
+	const mount = shellCargoMount();
+	execFileSync("subst", [`${letter}:`, mount.root]);
 	try {
-		return await run(`${letter}:\\`);
+		return await run(path.win32.join(`${letter}:\\`, mount.cwd));
 	} finally {
 		spawnSync("subst", [`${letter}:`, "/d"]);
 	}
@@ -346,7 +351,7 @@ async function runCargo(
  * Builds `cef-dll-sys` first with INCLUDE set on Windows, so any later command finds its compiled wrapper cached.
  */
 export async function cargoInShell(args: string[], options: { quiet?: boolean } = {}): Promise<void> {
-	const cargo = cargoPath();
+	const cargo = cargoPath(SHELL_DIR);
 	if (!cargo)
 		throw new BuildError(
 			"Rust is not installed (no `cargo` on PATH or in ~/.cargo/bin). Install it from https://rustup.rs (the toolchain in native/ompdesk/rust-toolchain.toml is picked up automatically).",
