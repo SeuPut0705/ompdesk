@@ -25,19 +25,21 @@ pub(crate) fn strictly_inside(root: &Path, child: &Path) -> bool {
 pub struct Folder(String);
 
 impl Folder {
-    /// Resolve before entering the hub. Missing folders retain Node's lexical absolute spelling.
-    pub async fn resolve(path: String) -> Result<Self, Fault> {
-        read::blocking(move || {
-            let resolved = disk::realpath(&path).map(|path| disk::spelled(&path));
-            match resolved {
-                Ok(path) => Ok(Self(path)),
-                Err(_) => {
-                    let cwd = std::env::current_dir()
-                        .map_err(|error| Fault::new("io", error.to_string()))?;
-                    Ok(Self(read::resolve(&disk::spelled(&cwd), &path)))
-                }
+    /// Missing folders retain Node's lexical absolute spelling.
+    /// Base calls this only inside the atomic current-folder/claim admission.
+    pub(crate) fn resolve_now(path: &str) -> Result<Self, Fault> {
+        match disk::realpath(path).map(|path| disk::spelled(&path)) {
+            Ok(path) => Ok(Self(path)),
+            Err(_) => {
+                let cwd = std::env::current_dir()
+                    .map_err(|error| Fault::new("io", error.to_string()))?;
+                Ok(Self(read::resolve(&disk::spelled(&cwd), path)))
             }
-        }).await?
+        }
+    }
+
+    pub async fn resolve(path: String) -> Result<Self, Fault> {
+        read::blocking(move || Self::resolve_now(&path)).await?
     }
 
     pub fn path(&self) -> &str { &self.0 }
