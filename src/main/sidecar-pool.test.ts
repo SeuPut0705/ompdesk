@@ -371,15 +371,6 @@ describe("SidecarPool exact window-view leave", () => {
 		const identity = pool.viewIdentity(owner.win, "local-reused");
 		if (!identity) throw new Error("expected an owner view identity");
 		const closing = pool.leaveWindowView(owner.win, "local-reused", identity, SESSION, () => true, authorize);
-		let settled = false;
-		void closing.then(
-			() => {
-				settled = true;
-			},
-			() => {
-				settled = true;
-			},
-		);
 		await Promise.resolve();
 		await Promise.resolve();
 		hub().barrier();
@@ -389,13 +380,10 @@ describe("SidecarPool exact window-view leave", () => {
 		const replacement = sidecars[1];
 		if (!replacement) throw new Error("expected a replacement sidecar");
 		original.exited.resolve();
-		for (let i = 0; i < 5; i++) await Promise.resolve();
-		const settledAfterOriginalExit = settled;
-		replacement.exited.resolve();
 		expect(await closing).toBe(true);
-		expect(settledAfterOriginalExit).toBe(true);
 		expect(replacement.disposed).toBe(false);
 		expect(pool.tabsForWindow(owner.win).map(tab => tab.tabId)).toEqual(["local-reused"]);
+		replacement.exited.resolve();
 	});
 
 	it("confirms an owner view leaving without waiting for or disposing the surviving viewer's sidecar", async () => {
