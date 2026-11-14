@@ -140,8 +140,7 @@ pub async fn handle<S: Sidecar<Error = Fault> + ?Sized + 'static>(command: &RpcC
     match command.kind.as_str() {
         "git_commit_message" => {
             let staged = scm::staged(&git, &root).await.map_err(scm_error)?;
-            let staged = serde_json::to_value(staged).map_err(|e| CommandError::Other(e.to_string()))?;
-            if staged["staged"] != Value::Bool(true) {
+            if !staged.is_staged() {
                 return Err(CommandError::local("nothing_staged", "Stage changes first"));
             }
             let output = omp.run(omp_cli::Command {

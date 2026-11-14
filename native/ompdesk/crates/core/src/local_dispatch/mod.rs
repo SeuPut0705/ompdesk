@@ -16,6 +16,7 @@ pub mod cli_commands;
 pub mod composer;
 pub mod delivery;
 pub mod extensions;
+pub mod fingerprints;
 pub mod git_commands;
 pub mod github_commands;
 pub mod live;
@@ -45,6 +46,7 @@ pub struct Config {
     pub omp: Arc<crate::application::omp_cli::Service>,
     pub git: Option<crate::run::Runner>,
     pub gh: Option<crate::run::Runner>,
+    pub fingerprints: Arc<fingerprints::Service>,
 }
 
 static METADATA: LazyLock<metadata::Metadata> = LazyLock::new(metadata::Metadata::default);
@@ -66,6 +68,7 @@ pub enum Area {
     Git,
     Github,
     Cli,
+    Fingerprint,
 }
 
 pub struct CommandTable(HashMap<&'static str, Area>);
@@ -99,6 +102,7 @@ impl CommandTable {
             ("git", Area::Git, git_commands::COMMANDS),
             ("github", Area::Github, github_commands::COMMANDS),
             ("cli", Area::Cli, cli_commands::COMMANDS),
+            ("fingerprint", Area::Fingerprint, &["get_git_fingerprint"]),
         ])
     }
 }
@@ -193,6 +197,7 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
             Area::Git => git_commands::handle(&command, &session, self.config.git.as_ref(), &self.config.omp, scope).await,
             Area::Github => github_commands::handle(&command, &session, self.config.git.as_ref(), self.config.gh.as_ref(), &self.config.omp, scope).await,
             Area::Cli => cli_commands::handle(&command, &session, &self.config.omp, scope).await,
+            Area::Fingerprint => self.config.fingerprints.read(&session.cwd(), command.string("root"), scope).await.map(Some).map_err(Into::into),
         };
         self.source.before_response();
         serde_json::to_value(RpcResponse::local(&command, result)).map_err(|error| Fault::new("internal", error.to_string()))
