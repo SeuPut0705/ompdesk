@@ -74,8 +74,14 @@ fn failure_text(error: Option<&str>) -> String {
 }
 
 impl Host {
+    pub(crate) fn attachment_store(
+        &self,
+    ) -> &Arc<crate::agentctl::journal::attachments::AttachmentStore> {
+        &self.attachments
+    }
+
     /// The pictures a stored message carries, as stock `images`; one whose bytes are gone is a `Problem`.
-    pub(super) async fn stored_images_p(
+    pub(crate) async fn stored_images_p(
         &self,
         set: Option<&AttachedSet>,
     ) -> Result<Vec<Value>, Problem> {
@@ -688,6 +694,19 @@ impl AgentControl {
 
     /// The attachments no owed message names go (an entry being made is safe: the store keeps what is young).
     pub fn sweep_attachments(&self) -> usize {
+        let readable = self
+            .send_outbox
+            .as_ref()
+            .map_or(Ok(()), |outbox| outbox.verify_readable())
+            .and_then(|()| {
+                self.host
+                    .outbox()
+                    .map_or(Ok(()), |outbox| outbox.verify_readable())
+            });
+        if let Err(error) = readable {
+            eprintln!("[agent-inbox] attachment sweep refused: {error}");
+            return 0;
+        }
         let mut keep = self
             .send_outbox
             .as_ref()
@@ -695,6 +714,15 @@ impl AgentControl {
             .unwrap_or_default();
         if let Some(outbox) = self.host.outbox() {
             keep.extend(outbox.attachment_shas());
+        }
+        if let Some(inbox) = &self.receiving_inbox {
+            match inbox.refresh_retention() {
+                Ok(shas) => keep.extend(shas),
+                Err(error) => {
+                    eprintln!("[agent-inbox] attachment sweep refused: {error}");
+                    return 0;
+                }
+            }
         }
         self.host.attachments.sweep(&keep)
     }

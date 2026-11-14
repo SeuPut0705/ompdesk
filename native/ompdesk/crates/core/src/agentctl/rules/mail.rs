@@ -95,6 +95,8 @@ pub struct Mail {
     pub instruction: Option<String>,
     /// What it carries besides text: pictures sent inline (by reference, bytes in the attachment store), files landed.
     pub attachments: Option<AttachedSet>,
+    /// Captured from authenticated caller/target facts before generated presentation/custody text is added.
+    pub(crate) native_source: Option<crate::agentctl::inbox::InboxAdmission>,
     pub at: f64,
 }
 
@@ -123,6 +125,7 @@ impl Mail {
             card: None,
             instruction: None,
             attachments: None,
+            native_source: None,
             at,
         }
     }
@@ -171,6 +174,15 @@ fn in_mail(value: &str) -> String {
 
 /// What the receiving model reads (the transcript draws `mail_details` instead).
 pub fn mail_text(mail: &Mail) -> String {
+    render_mail_text(mail, true)
+}
+
+/// The same report before destination-only attachment paths are materialized.
+pub fn mail_logical_text(mail: &Mail) -> String {
+    render_mail_text(mail, false)
+}
+
+fn render_mail_text(mail: &Mail, include_attachment_paths: bool) -> String {
     let title = mail
         .from_title
         .replace('"', "'")
@@ -191,12 +203,14 @@ pub fn mail_text(mail: &Mail) -> String {
     if let Some(files) = mail.files.as_ref().filter(|files| !files.is_empty()) {
         lines.push(in_mail(&format!("changed files: {}", files.join(", "))));
     }
-    for line in mail
-        .attachments
-        .iter()
-        .flat_map(AttachedSet::attached_lines)
-    {
-        lines.push(in_mail(&line));
+    if include_attachment_paths {
+        for line in mail
+            .attachments
+            .iter()
+            .flat_map(AttachedSet::attached_lines)
+        {
+            lines.push(in_mail(&line));
+        }
     }
     if let Some(checks) = mail.checks.as_ref().filter(|checks| !checks.is_empty()) {
         let listed: Vec<String> = checks
@@ -331,6 +345,19 @@ struct Tables {
     generations: u64,
 }
 
+fn activate_dispatch(tables: &mut Tables, child: &str, n: u64) {
+    if n <= tables.dispatch.get(child).copied().unwrap_or(0) {
+        return;
+    }
+    tables.dispatch.insert(child.to_owned(), n);
+    let prefix = format!("{child}>");
+    for (key, state) in &mut tables.state {
+        if key.starts_with(&prefix) {
+            state.waiting = false;
+        }
+    }
+}
+
 struct Inner {
     deliver: Deliver,
     coalesce: Duration,
@@ -411,14 +438,24 @@ impl Mailbox {
     pub fn dispatch(&self, child: &str) -> String {
         let mut tables = self.inner.tables();
         let n = tables.dispatch.get(child).copied().unwrap_or(0) + 1;
-        tables.dispatch.insert(child.to_owned(), n);
-        let prefix = format!("{child}>");
-        for (key, state) in tables.state.iter_mut() {
-            if key.starts_with(&prefix) {
-                state.waiting = false;
-            }
-        }
+        activate_dispatch(&mut tables, child, n);
         format!("d{n}")
+    }
+
+    pub fn candidate_dispatch(&self, child: &str, pending_floor: u64) -> u64 {
+        self.inner
+            .tables()
+            .dispatch
+            .get(child)
+            .copied()
+            .unwrap_or(0)
+            .max(pending_floor)
+            + 1
+    }
+
+    /// A retry activates the receiver's FIRST dispatch, never the discarded newly derived number.
+    pub fn accept_dispatch(&self, child: &str, n: u64) {
+        activate_dispatch(&mut self.inner.tables(), child, n);
     }
 
     pub fn current(&self, child: &str) -> Option<String> {
@@ -457,6 +494,27 @@ impl Mailbox {
     pub async fn post(&self, mail: Mail) -> Result<Posted, String> {
         let inner = &self.inner;
         let key = format!("{}>{}", mail.from, mail.to);
+        if let Some(source) = &mail.native_source {
+            // Even a locally seen ID reaches the native ledger for immutable-payload comparison first.
+            let identity = source.logical.delivery_id()?;
+            let mut stamped = mail.clone();
+            if let Some(current) = self.current(&mail.from) {
+                stamped.dispatch = Some(current);
+            }
+            (inner.deliver)(stamped.clone()).await?;
+            let mut tables = inner.tables();
+            if !tables.seen.insert(format!("native:{identity}")) {
+                return Ok(Posted::Duplicate);
+            }
+            tables.state.insert(
+                key,
+                MailState {
+                    last: stamped,
+                    waiting: matches!(mail.kind, Question | Blocked),
+                },
+            );
+            return Ok(Posted::Delivered);
+        }
         let stamped;
         {
             let mut tables = inner.tables();

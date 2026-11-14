@@ -51,6 +51,7 @@ fn mail_of(value: &Value) -> Mail {
         merged: value["merged"].as_u64(),
         card: value["card"].as_str().map(str::to_owned),
         attachments: None,
+        native_source: None,
         instruction: value["instruction"].as_str().map(str::to_owned),
         at: value["at"].as_f64().unwrap(),
     }

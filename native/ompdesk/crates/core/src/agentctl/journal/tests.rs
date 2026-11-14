@@ -345,6 +345,9 @@ fn mail(id: &str) -> OutboxMail {
         from_device: None,
         content: format!("<ompdesk-mail>{id}</ompdesk-mail>"),
         details: json!({"id": id, "kind": "done"}),
+        delivery_id: None,
+        logical_content: None,
+        native_source: crate::agentctl::inbox::InboxLogicalSource::Legacy,
         delivery: super::super::rules::mail::MailDelivery {
             trigger_turn: true,
             aside: true,
@@ -419,20 +422,25 @@ fn old_pending_reports_and_sends_survive_capacity_and_relaunch() {
 }
 
 #[test]
-fn a_damaged_mail_file_and_its_non_reports_are_ignored() {
+fn a_damaged_mail_file_or_unknown_row_is_retained_and_cannot_accept_or_redeliver() {
     let dir = Dir::new();
     let file = dir.file("mail-outbox.json");
-    let mut text = Value::Array(vec![
-        mail("ok").to_json(),
-        json!({"id": "no-path"}),
-        Value::Null,
-        json!("x"),
-    ]);
-    std::fs::write(&file, text.to_string()).unwrap();
-    assert_eq!(ids(&MailOutbox::new(Some(file.clone()))), ["ok"]);
-    text = json!("{not json");
-    std::fs::write(&file, text.as_str().unwrap()).unwrap();
-    assert!(MailOutbox::new(Some(file)).pending().is_empty());
+    for original in [
+        Value::Array(vec![
+            mail("ok").to_json(),
+            json!({"id":"no-path"}),
+            Value::Null,
+        ])
+        .to_string(),
+        "{not json".into(),
+    ] {
+        std::fs::write(&file, &original).unwrap();
+        let outbox = MailOutbox::new(Some(file.clone()));
+        assert!(outbox.verify_readable().is_err());
+        assert!(outbox.keep(mail("new")).is_err());
+        assert!(outbox.retry_failed_save().is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+    }
 }
 
 #[test]
@@ -820,10 +828,10 @@ async fn failed_disk_acceptance_keeps_pending_but_cannot_deliver_before_retry_sa
     let dir = Dir::new();
     let mail_file = dir.file("mail.json");
     let send_file = dir.file("send.json");
-    std::fs::create_dir(&mail_file).unwrap();
-    std::fs::create_dir(&send_file).unwrap();
     let mails = MailOutbox::new(Some(mail_file.clone()));
     let sends = SendOutbox::new(Some(send_file.clone()));
+    std::fs::create_dir(&mail_file).unwrap();
+    std::fs::create_dir(&send_file).unwrap();
     assert!(mails.keep(mail("a")).is_err());
     assert!(sends.keep(send(1)).is_err());
     assert_eq!(ids(&mails), ["a"]);
@@ -876,7 +884,19 @@ fn legacy_send_records_retain_valid_deliveries_without_reordering_duplicates() {
         .unwrap();
     let dir = Dir::new();
     let file = dir.file("legacy-sends.json");
-    std::fs::write(&file, case["initial"].as_str().unwrap()).unwrap();
+    let original = case["initial"].as_str().unwrap();
+    std::fs::write(&file, original).unwrap();
+    let ambiguous = SendOutbox::new(Some(file.clone()));
+    assert!(ambiguous.verify_readable().is_err());
+    assert!(ambiguous.keep(send(20)).is_err());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+    // Read compatibility of every valid old row remains separate from refusing to overwrite unknown data.
+    let old: Vec<Value> = serde_json::from_str(original).unwrap();
+    let valid: Vec<_> = old
+        .into_iter()
+        .filter(|row| super::send_outbox::parse_entry(row).is_some())
+        .collect();
+    std::fs::write(&file, Value::Array(valid).to_string()).unwrap();
     let outbox = SendOutbox::new(Some(file.clone()));
     let entries = outbox.pending();
     assert_eq!(

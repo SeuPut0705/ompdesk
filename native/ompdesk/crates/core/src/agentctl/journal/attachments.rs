@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Clock, js_number, object, string, system_clock};
+use super::{Clock, Persistence, js_number, object, string, system_clock};
 
 /// The most one attachment may weigh (its base64 is one frame inside the link's 16 MiB).
 pub const ATTACHMENT_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -325,6 +325,27 @@ pub struct AttachmentStore {
     dir: Option<PathBuf>,
     now: Clock,
     memory: Mutex<Held>,
+    pins: Mutex<HashMap<String, usize>>,
+}
+
+/// Keeps shared AttachmentStore bytes alive across import, ledger acceptance and materialization awaits.
+pub(crate) struct AttachmentPin {
+    store: Arc<AttachmentStore>,
+    shas: HashSet<String>,
+}
+
+impl Drop for AttachmentPin {
+    fn drop(&mut self) {
+        let mut pins = self.store.pins();
+        for sha in &self.shas {
+            if let Some(count) = pins.get_mut(sha) {
+                *count -= 1;
+                if *count == 0 {
+                    pins.remove(sha);
+                }
+            }
+        }
+    }
 }
 
 impl AttachmentStore {
@@ -337,6 +358,7 @@ impl AttachmentStore {
             dir,
             now,
             memory: Mutex::new(HashMap::new()),
+            pins: Mutex::new(HashMap::new()),
         }
     }
 
@@ -344,6 +366,46 @@ impl AttachmentStore {
         self.memory
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn pins(&self) -> std::sync::MutexGuard<'_, HashMap<String, usize>> {
+        self.pins
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn persistence(&self) -> Persistence {
+        if self.dir.is_some() {
+            Persistence::Disk
+        } else {
+            Persistence::Memory
+        }
+    }
+
+    /// Destination-local path only; callers verify and pin the referenced bytes before exposing it to stock.
+    pub(crate) fn file_path(&self, sha: &str) -> Option<PathBuf> {
+        is_sha(sha)
+            .then(|| self.dir.as_ref().map(|dir| dir.join(sha)))
+            .flatten()
+    }
+
+    pub(crate) fn pin<'a>(
+        self: &Arc<Self>,
+        shas: impl IntoIterator<Item = &'a str>,
+    ) -> Result<AttachmentPin, String> {
+        let shas: HashSet<String> = shas.into_iter().map(str::to_owned).collect();
+        if shas.iter().any(|sha| !is_sha(sha)) {
+            return Err("Invalid attachment identity for retention".into());
+        }
+        let mut pins = self.pins();
+        for sha in &shas {
+            *pins.entry(sha.clone()).or_default() += 1;
+        }
+        drop(pins);
+        Ok(AttachmentPin {
+            store: self.clone(),
+            shas,
+        })
     }
 
     /// Keep `bytes`; resolves once they can be read back. The same bytes are one file.
@@ -398,11 +460,12 @@ impl AttachmentStore {
 
     /// Delete what `keep` does not name and is older than the grace; returns how many went.
     pub fn sweep(&self, keep: &HashSet<String>) -> usize {
+        let pins = self.pins();
         let oldest = (self.now)() - ATTACHMENT_SWEEP_GRACE_MS;
         let mut removed = 0;
         let Some(dir) = &self.dir else {
             self.memory().retain(|sha, (_, at)| {
-                let drop = !keep.contains(sha) && *at < oldest;
+                let drop = !keep.contains(sha) && !pins.contains_key(sha) && *at < oldest;
                 removed += usize::from(drop);
                 !drop
             });
@@ -413,7 +476,7 @@ impl AttachmentStore {
         };
         for entry in names.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if !is_sha(&name) || keep.contains(&name) {
+            if !is_sha(&name) || keep.contains(&name) || pins.contains_key(&name) {
                 continue;
             }
             let young = entry

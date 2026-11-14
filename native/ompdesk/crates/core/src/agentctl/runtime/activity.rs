@@ -63,6 +63,7 @@ impl Runtime {
                 .flatten()
         });
         self.wake_activity(&activity);
+        self.redeliver_inbox();
         // A running child moved on: the next live read takes its step and cost; nothing else changed.
         if activity.kind == ActivityKind::Step {
             if parent.is_some() {

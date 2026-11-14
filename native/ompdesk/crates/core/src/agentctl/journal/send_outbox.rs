@@ -20,7 +20,11 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Map, Value};
 
 use super::attachments::{Attached, AttachedSet, attached_sig, read_attached};
-use super::{Persistence, js_number, number, object, persist_text, read_array, string, stringify};
+use super::{Persistence, js_number, number, object, persist_text, read_outbox, string, stringify};
+use crate::agentctl::inbox::{
+    InboxContent, InboxIntent, InboxLogicalSource, InboxPayload, InboxSender, NativeInboxEntry,
+    NativeInboxTransferEntry,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamingBehavior {
@@ -54,6 +58,10 @@ pub struct OutboxSend {
     pub body: String,
     /// The prompt as sent: wrapped, with its markers.
     pub message: String,
+    /// Only native-created entries have this identity and attachment-free logical prompt. Legacy records stay ambiguous.
+    pub delivery_id: Option<String>,
+    pub logical_message: Option<String>,
+    pub(crate) native_source: InboxLogicalSource,
     /// What the message carries: its pictures (bytes in the attachment store) and the files landed for its receiver.
     pub attachments: Option<AttachedSet>,
     /// Its record of attachments was damaged: it is never delivered as text alone.
@@ -89,6 +97,9 @@ impl OutboxSend {
             from_device: None,
             body,
             message,
+            delivery_id: None,
+            logical_message: None,
+            native_source: InboxLogicalSource::Legacy,
             attachments: None,
             attachments_corrupt: false,
             streaming_behavior,
@@ -131,7 +142,51 @@ impl OutboxSend {
         if let Some(instance) = self.instance.as_ref().filter(|_| self.instance_last) {
             map.insert("instance".into(), instance.clone().into());
         }
+        if let Some(id) = &self.delivery_id {
+            map.insert("deliveryId".into(), id.clone().into());
+        }
+        if let Some(message) = &self.logical_message {
+            map.insert("logicalMessage".into(), message.clone().into());
+        }
+        if let Some(source) = self.native_source.json() {
+            map.insert("nativeSource".into(), source);
+        }
         Value::Object(map)
+    }
+
+    pub(crate) fn native_entry(&self) -> Result<Option<NativeInboxTransferEntry>, String> {
+        let (Some(id), Some(message)) = (&self.delivery_id, &self.logical_message) else {
+            return Ok(None);
+        };
+        let Some(source) = self.native_source.bound()? else {
+            return Ok(None);
+        };
+        if self.attachments_corrupt {
+            return Err(
+                "The native prompt attachment record is damaged; original remains pending".into(),
+            );
+        }
+        Ok(Some(NativeInboxTransferEntry {
+            entry: NativeInboxEntry {
+                delivery_id: id.clone(),
+                sender: InboxSender {
+                    session: self.from.clone(),
+                    device: self.from_device.clone(),
+                },
+                intent: match self.streaming_behavior {
+                    StreamingBehavior::Steer => InboxIntent::Immediate,
+                    StreamingBehavior::FollowUp => InboxIntent::FollowUp,
+                },
+                trigger_turn: true,
+                legacy: false,
+                payload: InboxPayload::Prompt {
+                    content: InboxContent::Text(message.clone()),
+                },
+            },
+            logical: source.clone(),
+            dispatch: self.dispatch,
+            attachments: self.attachments.clone(),
+        }))
     }
 }
 
@@ -152,7 +207,11 @@ fn entry_key(session_path: &str, device: Option<&str>, mark: &str) -> String {
 }
 
 fn key_of(entry: &OutboxSend) -> String {
-    entry_key(&entry.session_path, entry.device.as_deref(), &entry.mark)
+    match &entry.delivery_id {
+        Some(id) => serde_json::to_string(&("native", &entry.session_path, &entry.device, id))
+            .expect("native identity tuple serializes"),
+        None => entry_key(&entry.session_path, entry.device.as_deref(), &entry.mark),
+    }
 }
 
 pub(crate) fn parse_entry(value: &Value) -> Option<OutboxSend> {
@@ -190,6 +249,11 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxSend> {
             .map(str::to_owned),
         body: body.to_owned(),
         message: message.to_owned(),
+        delivery_id: string(fields, "deliveryId")
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned),
+        logical_message: string(fields, "logicalMessage").map(str::to_owned),
+        native_source: InboxLogicalSource::read(fields.get("nativeSource")),
         attachments,
         attachments_corrupt: corrupt
             || fields.get("attachmentsCorrupt") == Some(&Value::Bool(true)),
@@ -205,6 +269,7 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxSend> {
 struct State {
     file: Option<PathBuf>,
     save_failed: bool,
+    read_error: Option<String>,
     /// Oldest first.
     entries: Vec<(String, OutboxSend)>,
 }
@@ -216,11 +281,18 @@ pub struct SendOutbox {
 }
 
 impl State {
+    fn readable(&self) -> Result<(), String> {
+        self.read_error
+            .as_ref()
+            .map_or(Ok(()), |error| Err(error.clone()))
+    }
+
     fn position(&self, key: &str) -> Option<usize> {
         self.entries.iter().position(|(held, _)| held == key)
     }
 
     fn save(&mut self) -> Result<Persistence, String> {
+        self.readable()?;
         let Some(file) = self.file.as_deref() else {
             self.save_failed = false;
             return persist_text(None, "", Some(0o600));
@@ -252,15 +324,41 @@ impl SendOutbox {
         let mut state = State {
             file,
             save_failed: false,
+            read_error: None,
             entries: Vec::new(),
         };
         if let Some(file) = state.file.clone() {
-            for item in read_array(&file) {
-                if let Some(entry) = parse_entry(&item) {
-                    let key = key_of(&entry);
-                    match state.position(&key) {
-                        Some(at) => state.entries[at].1 = entry,
-                        None => state.entries.push((key, entry)),
+            match read_outbox(&file) {
+                Err(error) => state.read_error = Some(error),
+                Ok(items) => {
+                    for item in items {
+                        let Some(entry) = parse_entry(&item) else {
+                            state.read_error =
+                                Some("Unreadable send outbox row; original retained".into());
+                            break;
+                        };
+                        let key = key_of(&entry);
+                        match state.position(&key) {
+                            Some(at)
+                                if entry.delivery_id.is_some()
+                                    || state.entries[at].1.delivery_id.is_some() =>
+                            {
+                                let result =
+                                    state.entries[at].1.native_entry().and_then(|previous| {
+                                        entry.native_entry().and_then(|incoming| {
+                                            crate::agentctl::inbox::same_native_source(
+                                                previous, incoming,
+                                            )
+                                        })
+                                    });
+                                if let Err(error) = result {
+                                    state.read_error = Some(error);
+                                    break;
+                                }
+                            }
+                            Some(at) => state.entries[at].1 = entry,
+                            None => state.entries.push((key, entry)),
+                        }
                     }
                 }
             }
@@ -277,12 +375,23 @@ impl SendOutbox {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Keep a message about to be handed over (the same marker to the same receiver replaces its entry).
+    /// Native retries retain the first presentation; legacy markers keep their existing replacement behavior.
     pub(crate) fn keep(&self, entry: OutboxSend) -> Result<Persistence, String> {
         let mut state = self.state();
+        state.readable()?;
         let key = key_of(&entry);
         match state.position(&key) {
-            Some(at) => state.entries[at].1 = entry,
+            Some(at) => {
+                let previous = &state.entries[at].1;
+                if previous.delivery_id.is_some() || entry.delivery_id.is_some() {
+                    crate::agentctl::inbox::same_native_source(
+                        previous.native_entry()?,
+                        entry.native_entry()?,
+                    )?;
+                } else {
+                    state.entries[at].1 = entry;
+                }
+            }
             None => state.entries.push((key, entry)),
         }
         state.save()
@@ -290,10 +399,19 @@ impl SendOutbox {
 
     pub(crate) fn retry_failed_save(&self) -> Result<(), String> {
         let mut state = self.state();
+        state.readable()?;
         if state.save_failed {
             state.save()?;
         }
         Ok(())
+    }
+
+    pub(crate) fn verify_readable(&self) -> Result<(), String> {
+        self.state().readable()
+    }
+
+    pub(crate) fn persist_pending(&self) -> Result<Persistence, String> {
+        self.state().save()
     }
 
     /// The message is in the hands of the omp `instance` (it queues or runs it).
@@ -317,6 +435,15 @@ impl SendOutbox {
     pub fn settle(&self, session_path: &str, device: Option<&str>, mark: &str) {
         let mut state = self.state();
         if let Some(at) = state.position(&entry_key(session_path, device, mark)) {
+            state.entries.remove(at);
+            let _ = state.save();
+        }
+    }
+
+    /// Only a matching receiving-native Disk ACK may release a trusted source row.
+    pub(crate) fn settle_native(&self, entry: &OutboxSend) {
+        let mut state = self.state();
+        if let Some(at) = state.position(&key_of(entry)) {
             state.entries.remove(at);
             let _ = state.save();
         }
@@ -443,7 +570,11 @@ pub async fn deliver_owed<D: OwedDeps>(
     if outbox.retry_failed_save().is_err() {
         return false;
     }
-    let owed = outbox.owed_to(session_path, device);
+    let owed: Vec<_> = outbox
+        .owed_to(session_path, device)
+        .into_iter()
+        .filter(|entry| entry.delivery_id.is_none())
+        .collect();
     if owed.is_empty() {
         return true;
     }

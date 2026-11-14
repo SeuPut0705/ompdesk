@@ -9,6 +9,7 @@
 
 pub mod attachments;
 pub mod call_journal;
+pub(crate) mod inbox_ledger;
 pub mod mail_outbox;
 pub mod pending_cleanups;
 pub mod send_outbox;
@@ -87,6 +88,21 @@ pub(crate) fn read_array(file: &Path) -> Vec<Value> {
     }
 }
 
+/// Delivery journals fail closed: unreadable bytes never become an empty file on the next acceptance.
+pub(crate) fn read_outbox(file: &Path) -> Result<Vec<Value>, String> {
+    let bytes = match std::fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("Cannot read outbox {}: {error}", file.display())),
+    };
+    serde_json::from_slice(&bytes).map_err(|error| {
+        format!(
+            "Unreadable outbox {}; original retained: {error}",
+            file.display()
+        )
+    })
+}
+
 /// `writeFileAtomicSync(file, text, { mode })`.
 pub(crate) fn write_text(file: &Path, text: &str, mode: Option<u32>) -> Result<(), String> {
     crate::disk::saves::write_kept(file, text.as_bytes(), mode, 0o777)
@@ -118,5 +134,7 @@ pub(crate) fn stringify(items: Vec<Value>) -> String {
     Value::Array(items).to_string()
 }
 
+#[cfg(test)]
+mod inbox_source_tests;
 #[cfg(test)]
 mod tests;

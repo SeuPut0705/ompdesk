@@ -291,7 +291,7 @@ impl Inner {
         })
     }
 
-    fn take(&self, device: &str, file: &str) -> Result<Vec<u8>, UploadFailure> {
+    fn read_upload(&self, device: &str, file: &str) -> Result<(Vec<u8>, PathBuf), UploadFailure> {
         let missing = || refuse(404, "no such upload");
         let target = resolve(Path::new(file));
         let folder = self.device_dir(device);
@@ -304,7 +304,12 @@ impl Inner {
             return Err(missing());
         };
         let bytes = fs::read(&target).map_err(|_| missing())?;
-        let _ = fs::remove_dir_all(folder.join(upload));
+        Ok((bytes, folder.join(upload)))
+    }
+
+    fn take(&self, device: &str, file: &str) -> Result<Vec<u8>, UploadFailure> {
+        let (bytes, folder) = self.read_upload(device, file)?;
+        let _ = fs::remove_dir_all(folder);
         Ok(bytes)
     }
 
@@ -511,6 +516,13 @@ impl UploadStore {
         }
         let bytes = data[file.start..file.end].to_vec();
         self.write(device, &file.name, bytes).await
+    }
+
+    /// Copy only this authenticated device's server-shaped upload, without ending its existing lifetime.
+    pub(crate) async fn read(&self, device: &str, file: &str) -> Result<Vec<u8>, UploadFailure> {
+        let inner = Arc::clone(&self.inner);
+        let (device, file) = (device.to_owned(), file.to_owned());
+        blocking(move || inner.read_upload(&device, &file).map(|(bytes, _)| bytes)).await
     }
 
     /// The bytes of `file`, an upload of this device that a call names, and the upload is gone. 404 when it is not
@@ -1200,6 +1212,37 @@ mod tests {
         store.remove_device("dev1").await;
         assert!(!scratch.0.join(FOLDER).join("dev1").exists());
         store.remove_device("dev1").await;
+    }
+
+    #[tokio::test]
+    async fn private_copy_keeps_the_upload_and_refuses_foreign_or_outside_paths() {
+        let scratch = Scratch::new();
+        let store = open(&scratch.0);
+        let stored = store
+            .store(now_ms(), SMALL, "dev1", "note.txt", b"owned bytes".to_vec())
+            .await
+            .fine();
+        let external = scratch.0.join("not-an-upload.txt");
+        fs::write(&external, b"private outside bytes").unwrap();
+        assert_eq!(status(&store.read("dev2", &stored.path).await), 404);
+        assert_eq!(
+            status(&store.read("dev1", &external.to_string_lossy()).await),
+            404
+        );
+        assert_eq!(
+            store.read("dev1", &stored.path).await.fine(),
+            b"owned bytes"
+        );
+        assert_eq!(
+            store.read("dev1", &stored.path).await.fine(),
+            b"owned bytes"
+        );
+        assert!(PathBuf::from(&stored.path).exists());
+        assert_eq!(
+            store.take("dev1", &stored.path).await.fine(),
+            b"owned bytes"
+        );
+        assert!(!PathBuf::from(&stored.path).exists());
     }
 
     #[tokio::test]

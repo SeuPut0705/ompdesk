@@ -22,6 +22,10 @@
 //! out); the wire is `agentRuntime.*`, by the same port number.
 
 mod activity;
+pub(crate) mod inbox;
+mod inbox_attachments;
+mod inbox_delivery;
+pub(crate) mod inbox_source;
 mod review;
 mod wake;
 
@@ -102,6 +106,8 @@ struct Rt {
     redelivering: bool,
     /// A pass was asked for while one ran: it runs once more when that one ends.
     redeliver_again: bool,
+    inbox_delivering: bool,
+    inbox_again: bool,
     resending: bool,
     wakes: HashMap<String, wake::Wake>,
 }
@@ -111,6 +117,7 @@ pub struct Runtime {
     control: AgentControl,
     config: RuntimeConfig,
     rt: Mutex<Rt>,
+    source_at: Mutex<f64>,
 }
 
 static RUNTIMES: LazyLock<Mutex<HashMap<u64, Arc<Runtime>>>> = LazyLock::new(Default::default);
@@ -126,10 +133,26 @@ const ATTACHMENT_SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Starts the runtime of `control` (opened as port `port`): its timer runs until the port closes.
 pub fn start(control: AgentControl, port: u64, config: RuntimeConfig) -> Arc<Runtime> {
+    let source_at = control
+        .send_outbox
+        .as_ref()
+        .into_iter()
+        .flat_map(|outbox| outbox.pending())
+        .map(|entry| entry.at)
+        .chain(
+            control
+                .host
+                .outbox()
+                .into_iter()
+                .flat_map(|outbox| outbox.pending())
+                .map(|entry| entry.at),
+        )
+        .fold(0.0, f64::max);
     let runtime = Arc::new(Runtime {
         control: control.clone(),
         config,
         rt: Mutex::new(Rt::default()),
+        source_at: Mutex::new(source_at),
     });
     lock(&RUNTIMES).insert(port, runtime.clone());
     let timer = runtime.clone();
@@ -161,6 +184,7 @@ pub fn start(control: AgentControl, port: u64, config: RuntimeConfig) -> Arc<Run
                             pass.sweep_all();
                             pass.redeliver_mail();
                             pass.redeliver_sends();
+                            pass.redeliver_inbox();
                         });
                     }
                 }
@@ -255,6 +279,7 @@ impl Runtime {
         let me = self.clone();
         tokio::spawn(async move {
             let _ = me.control.redeliver_sends().await;
+            me.resend_native_sources().await;
             me.rt().resending = false;
         });
     }
@@ -540,6 +565,7 @@ pub fn register(registry: &mut Registry) {
         at_once(acknowledge(&call))
     });
     wake::register(registry);
+    inbox_delivery::register(registry);
 }
 
 /// `{ items: [], usage: {} }`: what the board shows while the control tools are off.

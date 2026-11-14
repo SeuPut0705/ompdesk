@@ -17,7 +17,11 @@ use std::sync::Mutex;
 use serde_json::{Map, Value};
 
 use super::attachments::{Attached, AttachedSet, read_attached};
-use super::{Persistence, js_number, number, object, persist_text, read_array, string, stringify};
+use super::{Persistence, js_number, number, object, persist_text, read_outbox, string, stringify};
+use crate::agentctl::inbox::{
+    InboxContent, InboxIntent, InboxLogicalSource, InboxPayload, InboxSender, NativeInboxEntry,
+    NativeInboxTransferEntry,
+};
 use crate::agentctl::rules::mail::MailDelivery;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,12 +37,27 @@ pub struct OutboxMail {
     pub content: String,
     /// What the transcript draws (any JSON value the file held; a report's own is an object).
     pub details: Value,
+    /// Native-created report identity and attachment-free original content. Legacy records remain ambiguous.
+    pub delivery_id: Option<String>,
+    pub logical_content: Option<String>,
+    pub(crate) native_source: InboxLogicalSource,
     pub delivery: MailDelivery,
     /// What the report carries: its pictures (bytes in the attachment store) and the files landed for its receiver.
     pub attachments: Option<AttachedSet>,
     /// Its record of attachments was damaged: it is never delivered as text alone.
     pub attachments_corrupt: bool,
     pub at: f64,
+}
+
+fn same_key(left: &OutboxMail, right: &OutboxMail) -> bool {
+    match (&left.delivery_id, &right.delivery_id) {
+        (Some(left_id), Some(right_id)) => {
+            left_id == right_id
+                && left.session_path == right.session_path
+                && left.device == right.device
+        }
+        _ => left.id == right.id,
+    }
 }
 
 impl OutboxMail {
@@ -65,7 +84,53 @@ impl OutboxMail {
             map.insert("attachmentsCorrupt".into(), true.into());
         }
         map.insert("at".into(), js_number(self.at));
+        if let Some(id) = &self.delivery_id {
+            map.insert("deliveryId".into(), id.clone().into());
+        }
+        if let Some(content) = &self.logical_content {
+            map.insert("logicalContent".into(), content.clone().into());
+        }
+        if let Some(source) = self.native_source.json() {
+            map.insert("nativeSource".into(), source);
+        }
         Value::Object(map)
+    }
+
+    pub(crate) fn native_entry(&self) -> Result<Option<NativeInboxTransferEntry>, String> {
+        let (Some(id), Some(content)) = (&self.delivery_id, &self.logical_content) else {
+            return Ok(None);
+        };
+        let Some(source) = self.native_source.bound()? else {
+            return Ok(None);
+        };
+        if self.attachments_corrupt {
+            return Err(
+                "The native report attachment record is damaged; original remains pending".into(),
+            );
+        }
+        let details = self
+            .details
+            .as_object()
+            .ok_or("Native report details are not an object")?;
+        Ok(Some(NativeInboxTransferEntry {
+            entry: NativeInboxEntry {
+                delivery_id: id.clone(),
+                sender: InboxSender {
+                    session: self.from.as_deref().unwrap_or("ompdesk").to_owned(),
+                    device: self.from_device.clone(),
+                },
+                intent: InboxIntent::Immediate,
+                trigger_turn: self.delivery.trigger_turn,
+                legacy: false,
+                payload: InboxPayload::Report {
+                    content: InboxContent::Text(content.clone()),
+                    details: details.clone(),
+                },
+            },
+            logical: source.clone(),
+            dispatch: None,
+            attachments: self.attachments.clone(),
+        }))
     }
 }
 
@@ -105,6 +170,11 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxMail> {
             .map(str::to_owned),
         content: content.to_owned(),
         details: details.clone(),
+        delivery_id: string(fields, "deliveryId")
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned),
+        logical_content: string(fields, "logicalContent").map(str::to_owned),
+        native_source: InboxLogicalSource::read(fields.get("nativeSource")),
         delivery: MailDelivery {
             trigger_turn,
             aside,
@@ -119,12 +189,20 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxMail> {
 struct State {
     file: Option<PathBuf>,
     save_failed: bool,
+    read_error: Option<String>,
     /// Oldest first.
     entries: Vec<OutboxMail>,
 }
 
 impl State {
+    fn readable(&self) -> Result<(), String> {
+        self.read_error
+            .as_ref()
+            .map_or(Ok(()), |error| Err(error.clone()))
+    }
+
     fn save(&mut self) -> Result<Persistence, String> {
+        self.readable()?;
         let Some(file) = self.file.as_deref() else {
             self.save_failed = false;
             return persist_text(None, "", Some(0o600));
@@ -148,14 +226,38 @@ impl MailOutbox {
         let mut state = State {
             file,
             save_failed: false,
+            read_error: None,
             entries: Vec::new(),
         };
         if let Some(file) = state.file.clone() {
-            for item in read_array(&file) {
-                if let Some(entry) = parse_entry(&item) {
-                    match state.entries.iter_mut().find(|held| held.id == entry.id) {
-                        Some(held) => *held = entry,
-                        None => state.entries.push(entry),
+            match read_outbox(&file) {
+                Err(error) => state.read_error = Some(error),
+                Ok(items) => {
+                    for item in items {
+                        let Some(entry) = parse_entry(&item) else {
+                            state.read_error =
+                                Some("Unreadable mail outbox row; original retained".into());
+                            break;
+                        };
+                        match state.entries.iter_mut().find(|held| same_key(held, &entry)) {
+                            Some(held)
+                                if held.delivery_id.is_some() || entry.delivery_id.is_some() =>
+                            {
+                                let result = held.native_entry().and_then(|previous| {
+                                    entry.native_entry().and_then(|incoming| {
+                                        crate::agentctl::inbox::same_native_source(
+                                            previous, incoming,
+                                        )
+                                    })
+                                });
+                                if let Err(error) = result {
+                                    state.read_error = Some(error);
+                                    break;
+                                }
+                            }
+                            Some(held) => *held = entry,
+                            None => state.entries.push(entry),
+                        }
                     }
                 }
             }
@@ -171,11 +273,21 @@ impl MailOutbox {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Keep an accepted report (the same id replaces its entry).
+    /// Native retries retain the first presentation; legacy reports keep their existing replacement behavior.
     pub(crate) fn keep(&self, entry: OutboxMail) -> Result<Persistence, String> {
         let mut state = self.state();
-        match state.entries.iter_mut().find(|held| held.id == entry.id) {
-            Some(held) => *held = entry,
+        state.readable()?;
+        match state.entries.iter_mut().find(|held| same_key(held, &entry)) {
+            Some(held) => {
+                if held.delivery_id.is_some() || entry.delivery_id.is_some() {
+                    crate::agentctl::inbox::same_native_source(
+                        held.native_entry()?,
+                        entry.native_entry()?,
+                    )?;
+                } else {
+                    *held = entry;
+                }
+            }
             None => state.entries.push(entry),
         }
         state.save()
@@ -184,16 +296,29 @@ impl MailOutbox {
     /// A failed admission cannot be sent by a later sweep before the same state is saved.
     pub(crate) fn retry_failed_save(&self) -> Result<(), String> {
         let mut state = self.state();
+        state.readable()?;
         if state.save_failed {
             state.save()?;
         }
         Ok(())
     }
 
+    pub(crate) fn verify_readable(&self) -> Result<(), String> {
+        self.state().readable()
+    }
+
+    pub(crate) fn persist_pending(&self) -> Result<Persistence, String> {
+        self.state().save()
+    }
+
     /// The files of a report landed again (their uploads were deleted): its text and files as they stand now.
     pub fn relanded(&self, id: &str, content: &str, details: &Value, attachments: &AttachedSet) {
         let mut state = self.state();
-        let Some(kept) = state.entries.iter_mut().find(|held| held.id == id) else {
+        let Some(kept) = state
+            .entries
+            .iter_mut()
+            .find(|held| held.delivery_id.is_none() && held.id == id)
+        else {
             return;
         };
         kept.content = content.to_owned();
@@ -215,7 +340,19 @@ impl MailOutbox {
     pub fn settle(&self, id: &str) {
         let mut state = self.state();
         let before = state.entries.len();
-        state.entries.retain(|held| held.id != id);
+        state
+            .entries
+            .retain(|held| held.delivery_id.is_some() || held.id != id);
+        if state.entries.len() != before {
+            let _ = state.save();
+        }
+    }
+
+    /// Called only after matching receiver-native disk responsibility, not a stock transcript marker.
+    pub(crate) fn settle_native(&self, entry: &OutboxMail) {
+        let mut state = self.state();
+        let before = state.entries.len();
+        state.entries.retain(|held| !same_key(held, entry));
         if state.entries.len() != before {
             let _ = state.save();
         }
@@ -251,7 +388,11 @@ pub async fn redeliver_mail<D: RedeliverDeps>(outbox: &MailOutbox, deps: &D) {
     if outbox.retry_failed_save().is_err() {
         return;
     }
-    for mail in outbox.pending() {
+    for mail in outbox
+        .pending()
+        .into_iter()
+        .filter(|entry| entry.delivery_id.is_none())
+    {
         let Some(tab_id) = deps.tab_of(&mail.session_path, mail.device.as_deref()) else {
             continue;
         };
