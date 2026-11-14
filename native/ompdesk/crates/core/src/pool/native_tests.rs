@@ -28,6 +28,30 @@ pub(crate) fn test_host(callers: Arc<Callers>) -> Arc<TestHost> {
     })
 }
 
+pub(crate) fn set_test_source(
+    app: &Application<TestHost>,
+    tab: &str,
+    source: Arc<crate::sidecar::native::Service>,
+) {
+    app.handles().insert(
+        super::super::HandleKey::Tab(tab.into()),
+        super::super::Handle {
+            sidecar: source,
+            device: None,
+        },
+    );
+}
+
+fn page_owner(pool: &Service<TestHost>) -> Owner {
+    pool.callers
+        .admit_page(ompdesk_app_contract::NativeCaller::Desktop {
+            win_id: 17,
+            wc_id: 17,
+        })
+        .unwrap()
+        .owner
+}
+
 impl super::super::Host for TestHost {
     type Sidecar = crate::sidecar::native::Service;
     fn window(&self, _: i64) -> (bool, bool) {
@@ -388,9 +412,7 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
             device: None,
         },
     );
-    let owner = ompdesk_app_contract::OwnerIssuer::new(1)
-        .admit_authenticated()
-        .unwrap();
+    let owner = page_owner(&pool);
     let target = pool
         .session_target(&owner, "/session.jsonl", None)
         .await
@@ -722,9 +744,7 @@ async fn session_close_keeps_the_detached_source_when_the_tab_is_replaced() {
         },
     );
     *locked(&host.on_gone) = Some((Arc::downgrade(&app), Arc::clone(&replacement)));
-    let owner = ompdesk_app_contract::OwnerIssuer::new(1)
-        .admit_authenticated()
-        .unwrap();
+    let owner = page_owner(&pool);
     let target = pool
         .session_target(&owner, "/closing.jsonl", None)
         .await
@@ -796,9 +816,7 @@ async fn observer_failure_still_disposes_and_waits_for_the_exact_receipt() {
     *locked(&host.receipt_gate) = Some(gated);
     *locked(&host.receipt_entered) = Some(entered);
     host.fail_running.store(true, Ordering::SeqCst);
-    let owner = ompdesk_app_contract::OwnerIssuer::new(1)
-        .admit_authenticated()
-        .unwrap();
+    let owner = page_owner(&pool);
     let target = pool
         .session_target(&owner, "/fault.jsonl", None)
         .await
@@ -872,9 +890,7 @@ async fn window_observer_failure_after_disposal_still_waits_for_exit_result() {
     *locked(&host.receipt_gate) = Some(gated);
     *locked(&host.receipt_entered) = Some(entered);
     host.fail_window_tabs.store(true, Ordering::SeqCst);
-    let owner = ompdesk_app_contract::OwnerIssuer::new(1)
-        .admit_authenticated()
-        .unwrap();
+    let owner = page_owner(&pool);
     let target = pool
         .session_target(&owner, "/window-fault.jsonl", None)
         .await
