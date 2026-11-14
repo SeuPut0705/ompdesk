@@ -18,21 +18,26 @@ struct Fixture {
 }
 impl Fixture {
     fn new(name: &str) -> Self {
-        let root = PathBuf::from(
-            std::env::var_os("OMP_SETUP_SCRATCH").expect("isolated fixture root must be supplied"),
-        )
-        .join(format!("{name}-{}", std::process::id()));
+        let root = std::env::var_os("OMP_SETUP_SCRATCH")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join(format!("{name}-{}", std::process::id()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
         let installer = root.join("installer");
         executable(
             &installer,
             r#"#!/bin/sh
 set -eu
+case "$2" in
+  aslr-fix) printf '[{"path":"%s","prior":1}]' "$ROOT/git/usr/bin/sh.exe" > "$4"; if [ -f "$ROOT/aslr-partial-fail" ]; then exit 1; fi; exit 0;;
+  aslr-undo) cat "$3" > "$ROOT/undo-captured"; printf '["%s"]' "$ROOT/git/usr/bin/sh.exe" > "$4"; exit 0;;
+esac
 printf '%s:%s\n' "$1" "$2" >> "$ROOT/runs"
 if [ -f "$ROOT/fail-$1-$2" ]; then rm "$ROOT/fail-$1-$2"; echo 'ConnectionRefused'; exit 1; fi
 if [ -f "$ROOT/block-$1" ]; then
   trap 'echo stopped > "$ROOT/stopped"; exit 1' TERM INT
   echo BLOCKED
+  if [ -p "$ROOT/ready" ]; then echo started > "$ROOT/ready"; fi
   sleep 60 &
   wait $!
 fi
@@ -46,6 +51,15 @@ echo "installed $1"
             "#!/bin/sh\nif [ \"$1\" = pm ]; then cat \"$ROOT/manifest\"; else touch \"$ROOT/installed-bun\"; fi\n",
         );
         std::fs::write(root.join("manifest"), r#"{"engines":{"bun":">=1.4.4"}}"#).unwrap();
+        executable(
+            &root.join("bin/omp"),
+            "#!/bin/sh\ncat \"$ROOT/update-check\"\n",
+        );
+        std::fs::write(
+            root.join("update-check"),
+            "Current version: 18.18.9\nNew version available: 18.19.0\n",
+        )
+        .unwrap();
         Self { root }
     }
     fn runs(&self) -> Vec<String> {
@@ -57,6 +71,7 @@ echo "installed $1"
     }
     fn service(
         &self,
+        platform: Platform,
         gate_open: bool,
         old_bun: bool,
     ) -> (Arc<SetupService>, Arc<FixtureHost>, watch::Receiver<bool>) {
@@ -70,7 +85,7 @@ echo "installed $1"
             old_bun,
         });
         let config = Config {
-            platform: Platform::Darwin,
+            platform,
             arch: "arm64".to_owned(),
             bun_install: self.root.to_string_lossy().into_owned(),
             tools_dir: self.root.join("tools").to_string_lossy().into_owned(),
@@ -143,7 +158,11 @@ impl Host for FixtureHost {
                             version: Some(version),
                             path: Some(
                                 self.root
-                                    .join(format!("bin/{}", id.name()))
+                                    .join(if id == Item::Git {
+                                        "git".to_owned()
+                                    } else {
+                                        format!("bin/{}", id.name())
+                                    })
                                     .to_string_lossy()
                                     .into_owned(),
                             ),
@@ -210,6 +229,9 @@ impl Host for FixtureHost {
                 .map_err(|error| error.to_string())
         })
     }
+    fn git_aslr_log(&self, entry: ompdesk_core::setup::git_aslr::Log) {
+        std::fs::write(self.root.join("aslr-log"), format!("{:?}", entry.outcome)).unwrap();
+    }
     fn omp_ready(&self) {
         self.ready_count.fetch_add(1, Ordering::SeqCst);
         self.ready.notify_one();
@@ -225,7 +247,7 @@ impl Host for FixtureHost {
 #[tokio::test]
 async fn empty_machine_installs_essential_tools_before_first_tab_then_optionals() {
     let fixture = Fixture::new("empty");
-    let (service, host, _) = fixture.service(false, false);
+    let (service, host, _) = fixture.service(Platform::Darwin, false, false);
     let start = tokio::spawn(service.start());
     host.ready.notified().await;
     assert_eq!(fixture.runs(), ["bun:bun-script", "omp:bun-global"]);
@@ -253,7 +275,7 @@ async fn empty_machine_installs_essential_tools_before_first_tab_then_optionals(
 async fn bun_upgrade_failure_falls_back_without_counting_two_attempts() {
     let fixture = Fixture::new("fallback");
     std::fs::write(fixture.root.join("fail-bun-bun-upgrade"), "").unwrap();
-    let (service, host, _) = fixture.service(false, true);
+    let (service, host, _) = fixture.service(Platform::Darwin, false, true);
     let start = tokio::spawn(service.start());
     host.ready.notified().await;
     assert_eq!(
@@ -272,11 +294,11 @@ async fn bun_upgrade_failure_falls_back_without_counting_two_attempts() {
 async fn cancelling_install_ends_tree_drops_backoff_and_stops_pipeline() {
     let fixture = Fixture::new("cancel");
     std::fs::write(fixture.root.join("block-bun"), "").unwrap();
-    let (service, _, mut blocked) = fixture.service(true, false);
+    let (service, _, mut blocked) = fixture.service(Platform::Darwin, true, false);
     let start = tokio::spawn(service.start());
     blocked.wait_for(|blocked| *blocked).await.unwrap();
     assert!(service.cancel());
-    assert!(start.await.unwrap().is_err());
+    start.await.unwrap().unwrap();
     assert_eq!(fixture.runs(), ["bun:bun-script"]);
     assert!(fixture.root.join("stopped").exists());
     assert_eq!(service.state().items[0].phase, Phase::Cancelled);
@@ -299,7 +321,7 @@ async fn manual_retry_bypasses_daily_backoff_and_launch_limit() {
         format!(r#"{{"bun":{{"failures":3,"lastAttempt":{now},"app":"1.0.0"}}}}"#),
     )
     .unwrap();
-    let (service, _, _) = fixture.service(true, false);
+    let (service, _, _) = fixture.service(Platform::Darwin, true, false);
     service.start().await.unwrap();
     assert!(fixture.runs().is_empty());
     service.retry(Item::Bun).await.unwrap();
@@ -355,7 +377,7 @@ async fn target_bun_requirement_is_upgraded_before_omp_and_helpers_pause() {
     )
     .unwrap();
     std::fs::write(fixture.root.join("target-bun-version"), "1.5.0").unwrap();
-    let (service, _, _) = fixture.service(false, false);
+    let (service, _, _) = fixture.service(Platform::Darwin, false, false);
     let start = tokio::spawn(service.start());
     let outcome = service.update_omp("18.18.9".to_owned()).await.unwrap();
     assert!(matches!(
@@ -379,7 +401,7 @@ async fn standalone_release_and_failed_manifest_never_start_an_update() {
             std::fs::write(fixture.root.join(format!("installed-{id}")), "").unwrap();
         }
         std::fs::write(fixture.root.join("manifest"), manifest).unwrap();
-        let (service, _, _) = fixture.service(false, false);
+        let (service, _, _) = fixture.service(Platform::Darwin, false, false);
         let start = tokio::spawn(service.start());
         let outcome = service.update_omp("18.18.9".to_owned()).await.unwrap();
         match outcome {
@@ -393,4 +415,116 @@ async fn standalone_release_and_failed_manifest_never_start_an_update() {
         service.dispose();
         start.await.unwrap().unwrap();
     }
+}
+
+#[tokio::test]
+async fn native_tool_update_uses_shared_queue_without_mutating_setup_items() {
+    let fixture = Fixture::new("tool-update");
+    let (service, _, _) = fixture.service(Platform::Darwin, false, false);
+    let before = serde_json::to_value(service.state()).unwrap();
+    let result = service
+        .run_tool_update(ompdesk_core::setup::service::ToolRequest {
+            tool: "codex".to_owned(),
+            method: "npm".to_owned(),
+            spawn: None,
+            managed: None,
+            env: BTreeMap::new(),
+        })
+        .await;
+    assert_eq!(result, ompdesk_core::setup::service::ToolOutcome::Succeeded);
+    assert_eq!(fixture.runs(), ["cli-codex:npm"]);
+    assert_eq!(serde_json::to_value(service.state()).unwrap(), before);
+    service.dispose();
+}
+
+#[tokio::test]
+async fn tool_update_cancel_stops_its_supervised_tree() {
+    let fixture = Fixture::new("tool-cancel");
+    let pipe = fixture.root.join("ready");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(fixture.root.join("block-cli-codex"), "").unwrap();
+    let ready = tokio::task::spawn_blocking(move || std::fs::read_to_string(pipe).unwrap());
+    let (service, _, _) = fixture.service(Platform::Darwin, false, false);
+    let work = tokio::spawn(
+        service.run_tool_update(ompdesk_core::setup::service::ToolRequest {
+            tool: "codex".to_owned(),
+            method: "npm".to_owned(),
+            spawn: None,
+            managed: None,
+            env: BTreeMap::new(),
+        }),
+    );
+    assert_eq!(ready.await.unwrap().trim(), "started");
+    assert!(service.cancel());
+    assert_eq!(
+        work.await.unwrap(),
+        ompdesk_core::setup::service::ToolOutcome::Cancelled
+    );
+    assert!(fixture.root.join("stopped").exists());
+    service.dispose();
+}
+
+#[tokio::test]
+async fn latest_omp_reads_stock_update_check_from_the_detected_install() {
+    let fixture = Fixture::new("latest-omp");
+    for id in ["bun", "omp"] {
+        std::fs::write(fixture.root.join(format!("installed-{id}")), "").unwrap();
+    }
+    let (service, _, _) = fixture.service(Platform::Darwin, false, false);
+    let start = tokio::spawn(service.start());
+    assert_eq!(service.latest_omp().await.unwrap(), "18.19.0");
+    std::fs::write(
+        fixture.root.join("update-check"),
+        "Current version: 18.18.9\nAlready up to date\n",
+    )
+    .unwrap();
+    assert_eq!(service.latest_omp().await.unwrap(), "18.18.9");
+    assert!(fixture.runs().is_empty());
+    service.dispose();
+    start.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn git_aslr_fix_records_prior_and_undo_restores_only_recorded_images() {
+    use ompdesk_core::setup::git_aslr::{Action, Prior, Record};
+    let fixture = Fixture::new("aslr");
+    std::fs::write(fixture.root.join("installed-git"), "").unwrap();
+    let (service, _, _) = fixture.service(Platform::Win32, false, false);
+    assert_eq!(service.git_aslr(Action::Fix).await.unwrap(), 1);
+    let root = fixture.root.join("git").to_string_lossy().into_owned();
+    let record = fixture.root.join("git-aslr.json");
+    assert_eq!(Record::read(&record).images(&root)[0].prior, Prior::On);
+    assert_eq!(service.git_aslr(Action::Undo).await.unwrap(), 1);
+    let input: Value =
+        serde_json::from_slice(&std::fs::read(fixture.root.join("undo-captured")).unwrap())
+            .unwrap();
+    assert_eq!(input[0]["prior"], 1);
+    assert_eq!(input[0]["path"], format!("{root}/usr/bin/sh.exe"));
+    assert!(!record.exists());
+    assert!(fixture.root.join("aslr-log").exists());
+    assert!(!fixture.root.join("git-aslr-in.json").exists());
+    assert!(!fixture.root.join("git-aslr-out.json").exists());
+    service.dispose();
+}
+
+#[tokio::test]
+async fn partially_failed_git_aslr_fix_keeps_the_exact_undo_record() {
+    use ompdesk_core::setup::git_aslr::{Action, Prior, Record};
+    let fixture = Fixture::new("aslr-partial");
+    std::fs::write(fixture.root.join("installed-git"), "").unwrap();
+    std::fs::write(fixture.root.join("aslr-partial-fail"), "").unwrap();
+    let (service, _, _) = fixture.service(Platform::Win32, false, false);
+    assert!(service.git_aslr(Action::Fix).await.is_err());
+    let root = fixture.root.join("git").to_string_lossy().into_owned();
+    assert_eq!(
+        Record::read(&fixture.root.join("git-aslr.json")).images(&root)[0].prior,
+        Prior::On
+    );
+    service.dispose();
 }

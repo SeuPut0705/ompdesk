@@ -94,7 +94,8 @@ pub fn msi_arch(arch: &str) -> Option<&'static str> {
 
 pub fn command(file: &str, args: &[&str], platform: Platform) -> SpawnSpec {
     let extension = file.rsplit('.').next().unwrap_or_default();
-    let shell = platform == Platform::Win32 && (extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat"));
+    let shell = platform == Platform::Win32
+        && (extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat"));
     SpawnSpec {
         file: if shell {
             cmd_quote(file)
@@ -121,11 +122,11 @@ fn cmd_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 
-fn powershell(ctx: &PlanContext, script: &str) -> SpawnSpec {
+pub(super) fn powershell(system_root: &str, script: &str) -> SpawnSpec {
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let file = join(
         Platform::Win32,
-        &ctx.system_root,
+        system_root,
         &["System32", "WindowsPowerShell", "v1.0", "powershell.exe"],
     );
     let mut spec = command(
@@ -137,7 +138,7 @@ fn powershell(ctx: &PlanContext, script: &str) -> SpawnSpec {
             "Bypass",
             "-EncodedCommand",
         ],
-        ctx.platform,
+        Platform::Win32,
     );
     spec.args
         .push(base64::prelude::BASE64_STANDARD.encode(bytes));
@@ -177,7 +178,7 @@ pub fn build_plan(
             plan.location.clone_from(&ctx.bun_install);
             if win {
                 plan.command = scripts::bun(&ctx.bun_install);
-                plan.spawn = powershell(ctx, &plan.command);
+                plan.spawn = powershell(&ctx.system_root, &plan.command);
             } else {
                 plan.command = "curl -fsSL https://bun.sh/install | bash".to_owned();
                 plan.spawn = command(
@@ -238,7 +239,7 @@ pub fn build_plan(
             };
             plan.location = path(&ctx.tools_dir, &["git"]);
             plan.command = scripts::portable_git(&plan.location, &download);
-            plan.spawn = powershell(ctx, &plan.command);
+            plan.spawn = powershell(&ctx.system_root, &plan.command);
             plan.download = Some(download);
         }
         Method::XcodeSelect => {
@@ -310,7 +311,7 @@ pub fn build_plan(
                 )
             };
             plan.spawn = if win {
-                powershell(ctx, &plan.command)
+                powershell(&ctx.system_root, &plan.command)
             } else {
                 command("/bin/bash", &["-c", &plan.command], ctx.platform)
             };
@@ -336,7 +337,7 @@ pub fn build_plan(
                 plan.location = "/Applications/Tailscale.app".to_owned();
             } else {
                 plan.command = scripts::tailscale_msi(&download);
-                plan.spawn = powershell(ctx, &plan.command);
+                plan.spawn = powershell(&ctx.system_root, &plan.command);
                 plan.location = "C:\\Program Files\\Tailscale".to_owned();
                 plan.prompt = Some("uac");
             }
