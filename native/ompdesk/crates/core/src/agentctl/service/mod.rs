@@ -284,7 +284,7 @@ impl AgentControl {
             )));
         if let Some(outbox) = &files.mail_outbox {
             host = host.with_outbox(
-                Arc::new(MailOutbox::with_clock(outbox.file.clone(), clock.clone())),
+                Arc::new(MailOutbox::new(outbox.file.clone())),
                 clock.clone(),
             );
         }
@@ -318,7 +318,7 @@ impl AgentControl {
             send_outbox: files
                 .send_outbox
                 .as_ref()
-                .map(|outbox| SendOutbox::with_clock(outbox.file.clone(), clock.clone())),
+                .map(|outbox| SendOutbox::new(outbox.file.clone())),
             mailbox,
             clock,
             mem: Mutex::new(Mem::default()),
