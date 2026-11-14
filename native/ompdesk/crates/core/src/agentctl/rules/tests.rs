@@ -1132,3 +1132,45 @@ async fn active_forget_keeps_the_actual_delivery_and_late_completion_cannot_eras
     assert_eq!(newer.await.unwrap(), Posted::Delivered);
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
+
+#[tokio::test]
+async fn identical_native_done_and_question_calls_join_before_the_first_preparation_finishes() {
+    use super::mail::DeliveryReceipt;
+    for kind in [MailKind::Done, MailKind::Question] {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let entered = Arc::new(Mutex::new(Some(entered_tx)));
+        let release = Arc::new(Mutex::new(Some(release_rx)));
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = calls.clone();
+        let mailbox = Mailbox::new(Arc::new(move |_: Mail| {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let release = release.lock().unwrap().take();
+            if let Some(entered) = entered.lock().unwrap().take() {
+                entered.send(()).unwrap();
+            }
+            Box::pin(async move {
+                release
+                    .expect("same native identity prepared twice")
+                    .await
+                    .unwrap()
+            })
+        }));
+        let mut first = Box::pin(mailbox.post(native_report("same", "original", kind)));
+        assert_pending(first.as_mut()).await;
+        entered_rx.await.unwrap();
+        let mut joined = Box::pin(mailbox.post(native_report("same", "original", kind)));
+        assert_pending(joined.as_mut()).await;
+        assert!(
+            mailbox
+                .post(native_report("same", "conflicting body", kind))
+                .await
+                .is_err()
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        release_tx.send(Ok(DeliveryReceipt::New)).unwrap();
+        assert_eq!(first.await.unwrap(), Posted::Delivered);
+        assert_eq!(joined.await.unwrap(), Posted::Delivered);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+}
