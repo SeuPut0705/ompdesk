@@ -475,7 +475,17 @@ describe("SidecarPool exact window-view leave", () => {
 					return authorize.promise;
 				},
 			]);
-			await Promise.race([beforeCommit.promise, entered.promise]);
+			const first = await Promise.race([
+				beforeCommit.promise.then(() => ({ stage: "beforeCommit" as const })),
+				entered.promise.then(() => ({ stage: "tab.leave" as const })),
+				closing.then(
+					value => ({ stage: "settled" as const, value }),
+					error => ({ stage: "rejected" as const, error: String(error) }),
+				),
+			]);
+			expect(first, `close settled before either barrier; sent: ${sent.join(", ")}`).toMatchObject({
+				stage: expect.stringMatching(/^(beforeCommit|tab\.leave)$/),
+			});
 			if (change === "dirty") local.dirty = true;
 			if (change === "draft") local.draft = "keep this draft";
 			if (change === "revoke") local.connected = false;
