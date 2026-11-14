@@ -1,42 +1,58 @@
 use std::str::FromStr;
 
 use serde_json::{Map, Value};
-use yaml_edit::{AnchorRegistry, Document, Mapping, Scalar, ScalarType, ScalarValue, Sequence, YamlNode};
+use yaml_edit::{AnchorRegistry, Document, Mapping, Scalar, ScalarType, ScalarValue, Sequence, YamlFile, YamlNode};
 
 use super::protocol::CommandError;
 
 type R<T> = Result<T, CommandError>;
 
 pub struct ModelsDocument {
+    file: YamlFile,
     doc: Document,
     pub raw: Value,
 }
 
 impl ModelsDocument {
     pub fn parse(text: &str) -> R<Self> {
-        let mut doc = Document::from_str(text).map_err(|_| invalid_yaml())?;
-        if doc.as_mapping().is_none() && doc.as_scalar().is_none() && doc.as_sequence().is_none() && doc.as_tagged().is_none() {
-            doc = Document::from_str(&format!("{text}\n{{}}\n")).map_err(|_| invalid_yaml())?;
-        }
+        let file = YamlFile::from_str(text).map_err(|_| invalid_yaml())?;
+        if file.documents().nth(1).is_some() { return Err(invalid_yaml()); }
+        let doc = file.ensure_document();
         let anchors = AnchorRegistry::from_document(&doc);
-        let raw = if let Some(mapping) = doc.as_mapping() {
+        let raw = if let Some(tagged) = doc.as_tagged() {
+            node_value(&YamlNode::TaggedNode(tagged), &anchors, &mut 0)?
+        } else if let Some(mapping) = doc.as_mapping() {
             mapping_value(&mapping, &anchors, &mut 0)?
         } else if let Some(scalar) = doc.as_scalar() {
             scalar_value(&scalar)?
         } else if let Some(sequence) = doc.as_sequence() {
             sequence_value(&sequence, &anchors, &mut 0)?
-        } else { return Err(invalid_yaml()); };
+        } else { Value::Null };
         let raw = if raw.is_null() { Value::Object(Map::new()) } else { raw };
-        Ok(Self { doc, raw })
+        Ok(Self { file, doc, raw })
     }
 
     /// Stock normalizes legacy representations before a save. Apply its changes recursively so comments on
     /// unchanged fields and on the scalar being edited remain attached to the original CST nodes.
     pub fn render(self, normalized: &Value) -> R<String> {
-        let root = self.doc.as_mapping().ok_or_else(invalid_yaml)?;
         let after = normalized.as_object().ok_or_else(invalid_yaml)?;
-        patch_mapping(&root, self.raw.as_object(), after)?;
-        Ok(self.doc.to_string())
+        if let Some(root) = self.doc.as_mapping() {
+            patch_mapping(&root, self.raw.as_object(), after)?;
+        } else if let Some(scalar) = self.doc.as_scalar() {
+            if !scalar_value(&scalar)?.is_null() { return Err(invalid_yaml()); }
+            // A null root is an empty config in stock. Replace only that CST value, retaining stream
+            // directives and comments; Document::set refuses a scalar root instead of promoting it.
+            let range = self.doc.as_tagged().map(|tagged| YamlNode::TaggedNode(tagged).byte_range())
+                .unwrap_or_else(|| scalar.byte_range());
+            let mut text = self.file.to_string();
+            text.replace_range(range.start as usize..range.end as usize, &normalized.to_string());
+            return Ok(text);
+        } else {
+            for (key, value) in after {
+                if !self.doc.set(key.as_str(), json_node(value)?) { return Err(invalid_yaml()); }
+            }
+        }
+        Ok(self.file.to_string())
     }
 }
 
@@ -145,6 +161,21 @@ fn patch_node(node: &YamlNode, before: &Value, after: &Value) -> R<bool> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn empty_and_null_configs_accept_the_first_provider_without_losing_stream_comments() {
+        let normalized = json!({"providers":{"custom":{"api":"openai-completions","baseUrl":"https://example.invalid/v1","models":[]}}});
+        for original in ["", "# Keep this header\n", "--- # Empty document\n", "null # Keep null comment\n", "# Keep stream header\n%YAML 1.2\n---\n!!null null # Keep tag comment\n"] {
+            let document = ModelsDocument::parse(original).unwrap();
+            assert_eq!(document.raw, json!({}));
+            let rendered = document.render(&normalized).unwrap();
+            for comment in original.lines().filter_map(|line| line.find('#').map(|at| &line[at..])) {
+                assert!(rendered.contains(comment), "{rendered}");
+            }
+            assert_eq!(ModelsDocument::parse(&rendered).unwrap().raw, normalized);
+        }
+        assert!(ModelsDocument::parse("---\nproviders: {}\n---\nproviders: {}\n").is_err());
+    }
 
     #[test]
     fn editing_a_nested_scalar_keeps_comments_and_untouched_provider_bytes() {

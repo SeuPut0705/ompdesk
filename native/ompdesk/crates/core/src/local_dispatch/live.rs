@@ -13,6 +13,7 @@ pub const COMMANDS: &[&str] = &[
     "get_security_scan", "security_start", "security_cancel", "security_set_disposition",
     "security_validate", "get_ssh_hosts", "ssh_manage", "ssh_test",
     "autopilot_bridge", "get_autopilot", "set_autopilot",
+    "worktree_lifecycle_settings",
 ];
 
 const AUTOPILOT_METHODS: &[&str] = &[
@@ -25,6 +26,7 @@ const AUTOPILOT_METHODS: &[&str] = &[
 
 pub async fn handle<S: Sidecar<Error = Fault> + ?Sized + 'static>(command: &RpcCommand, session: &Session<S>) -> CommandResult {
     let result = match command.kind.as_str() {
+        "worktree_lifecycle_settings" => session.bridge_optional("worktree_lifecycle_settings", None).await?,
         "security_validate" => {
             let mut params = Map::new();
             for key in ["scanId", "findingId"] {

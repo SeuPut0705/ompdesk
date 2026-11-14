@@ -70,9 +70,7 @@ fn paths(command: &RpcCommand, all: bool) -> Result<Option<Vec<String>>, Fault> 
 }
 
 async fn remove_fresh(root: String, discarded: scm::Discarded, scope: Scope) -> Result<(), Fault> {
-    let data = serde_json::to_value(discarded).map_err(|e| Fault::new("internal", e.to_string()))?;
-    let fresh: Vec<String> = data["fresh"].as_array().ok_or_else(|| Fault::new("internal", "Invalid discarded paths"))?
-        .iter().filter_map(Value::as_str).map(str::to_owned).collect();
+    let fresh = discarded.into_fresh();
     if fresh.is_empty() { return Ok(()); }
     tokio::task::spawn_blocking(move || {
         crate::disk::tree::live(&scope)?;
