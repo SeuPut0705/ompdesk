@@ -621,7 +621,10 @@ async fn session_close_keeps_the_detached_source_when_the_tab_is_replaced() {
         .await
         .unwrap()
         .unwrap();
-    assert!(pool.close_session_tab(&owner, &target).await.unwrap());
+    assert!(matches!(
+        pool.close_session_tab(&owner, &target).await.unwrap(),
+        SessionRelease::Released(Ok(()))
+    ));
     old_held.await.unwrap();
     assert!(Arc::ptr_eq(&app.sidecar("closing").unwrap(), &replacement));
     replacement.barrier().await.unwrap();
@@ -695,7 +698,9 @@ async fn observer_failure_still_disposes_and_waits_for_the_exact_receipt() {
     assert!(!closing.is_finished());
     gate.send(Err(Fault::new("exit_failed", "Exit proof failed")))
         .unwrap();
-    let error = closing.await.unwrap().unwrap_err();
+    let SessionRelease::Released(Err(error)) = closing.await.unwrap().unwrap() else {
+        panic!("the committed release must retain its observer failure");
+    };
     assert_eq!(error.code, "observer_failed");
     held.await.unwrap();
     assert!(app.sidecar("fault-close").is_none());
@@ -767,9 +772,9 @@ async fn window_observer_failure_after_disposal_still_waits_for_exit_result() {
     assert!(!closing.is_finished());
     gate.send(Err(Fault::new("exit_failed", "Exit proof failed")))
         .unwrap();
-    assert_eq!(
-        closing.await.unwrap().unwrap_err().code,
-        "window_observer_failed"
-    );
+    let SessionRelease::Released(Err(error)) = closing.await.unwrap().unwrap() else {
+        panic!("the committed release must retain its window observer failure");
+    };
+    assert_eq!(error.code, "window_observer_failed");
     held.await.unwrap();
 }
