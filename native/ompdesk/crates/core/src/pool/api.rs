@@ -1892,6 +1892,16 @@ impl Ctx {
                 pool.entries.push(entry);
                 seq
             });
+            if let Some(wired) = tab["full"].as_array() {
+                for win in wired.iter().filter_map(Value::as_i64) {
+                    let view_id = self.with(|pool| pool.entry(id)?.view_id(&pool.view_epoch, win));
+                    if let Some(view_id) = view_id {
+                        self.push(&json!({
+                            "k": "wireFull", "tab": id, "win": win, "first": false, "viewId": view_id
+                        }));
+                    }
+                }
+            }
             if tab["ownerDetached"].as_bool() != Some(true) {
                 self.when_closed(win, super::state::Closer::Entry(seq));
             }

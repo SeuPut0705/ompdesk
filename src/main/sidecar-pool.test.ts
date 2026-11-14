@@ -5251,6 +5251,12 @@ describe("SidecarPool and a lost core", () => {
 		expect(rebuiltViewId).not.toBe(originalViewId);
 		window.sent.length = 0;
 		sidecar.emitAgentEvents(["message_start"]);
+		const frame = window.sentTo(IPC_EVENTS.EVENTS_BATCH)[0]?.data;
+		if (typeof frame !== "object" || frame === null || !("viewId" in frame)) {
+			throw new Error("The rebuilt full stream did not deliver its view binding");
+		}
+		expect(frame.viewId).toBe(rebuiltViewId);
+		expect(pool.sidecarOf("reseed-stream")).toBe(sidecar);
 		expect(window.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
 			{ tabId: "reseed-stream", viewId: rebuiltViewId, payload: [{ type: "message_start" }] },
 		]);
