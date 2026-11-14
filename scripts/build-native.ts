@@ -23,6 +23,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cargoEnv, cargoPath, cargoTargetDir, rustcPath } from "./cargo";
+import { generateNativeAppData, nativeAppDataCurrent } from "./native-app-data";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const NATIVE_DIR = path.join(REPO_ROOT, "native", "ompdesk");
@@ -78,6 +79,8 @@ const sha256 = (file: string): string => createHash("sha256").update(fs.readFile
 
 /** Holds the staged binaries to their record and the record to this checkout's sources. */
 export function checkNative(): NativeBuildRecord {
+	if (!nativeAppDataCurrent())
+		throw new BuildError("the native application data differs from the canonical catalogs.");
 	const target = stagedDir();
 	const manifest = path.join(target, BUILD_MANIFEST);
 	if (!fs.existsSync(manifest)) throw new BuildError(`${path.relative(REPO_ROOT, manifest)} is missing.`);
@@ -103,6 +106,7 @@ export function checkNative(): NativeBuildRecord {
  * a second call costs a fraction of a second. `quiet` keeps cargo's progress out of a test run's output.
  */
 export function buildNative(options: { quiet?: boolean } = {}): string {
+	generateNativeAppData();
 	const cargo = cargoPath(NATIVE_DIR);
 	if (!cargo)
 		throw new BuildError(
