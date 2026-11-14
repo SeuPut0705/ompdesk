@@ -1,0 +1,27 @@
+[
+  {
+    "id": "chrome",
+    "name": "Google Chrome",
+    "port": 9231
+  },
+  {
+    "id": "edge",
+    "name": "Microsoft Edge",
+    "port": 9232
+  },
+  {
+    "id": "brave",
+    "name": "Brave",
+    "port": 9233
+  },
+  {
+    "id": "arc",
+    "name": "Arc",
+    "port": 9234
+  },
+  {
+    "id": "chromium",
+    "name": "Chromium",
+    "port": 9235
+  }
+]
