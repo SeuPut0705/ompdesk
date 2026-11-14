@@ -70,6 +70,7 @@ export const NOTE_CODES = [
 	"wait-timed-out",
 	"run-changed",
 	"branch-moved",
+	"ran-on",
 ] as const;
 export const QUEUE_STATES = ["waiting", "testing", "ready", "landing", "failed", "removed"] as const;
 export const OUTCOMES = ["pass", "fail", "skip"] as const;
@@ -138,9 +139,15 @@ export const CHECKS_WIRE = {
 	runners: "checks.runners",
 	/** `{hub}` → this computer's own `LocalPool`, which a paired computer's link forwards as `devicePool`. */
 	localPool: "checks.localPool",
+	/** `{hub, ask}` → `Answer`: runs `LocalRunAsk` on this computer through `ompdesk check` (a paired computer's link calls it). */
+	runLocal: "checks.runLocal",
+	/** `{hub, id, answer?, error?}`: what a paired computer answered for a `RemoteRun`, or why it gave no answer. */
+	remoteAnswer: "checks.remoteAnswer",
 	fake: "checks.fake",
 	snapshot: "checks.snapshot",
 	result: "checks.result",
+	/** Event `{hub, run}`: a check placed on a paired computer (`RemoteRun`), for main to send over the link. */
+	remoteRun: "checks.remoteRun",
 } as const;
 
 /** Milliseconds since the epoch. */
@@ -391,6 +398,7 @@ export const NoteSchema = z.discriminatedUnion("code", [
 	z.strictObject({ code: z.literal("wait-timed-out"), seconds: Count }),
 	z.strictObject({ code: z.literal("run-changed") }),
 	z.strictObject({ code: z.literal("branch-moved"), commit: z.string(), branch: z.string(), asked: z.string() }),
+	z.strictObject({ code: z.literal("ran-on"), device: z.string(), job: z.string() }),
 ]);
 export type Note = z.infer<typeof NoteSchema>;
 
@@ -534,6 +542,19 @@ export const LocalPoolSchema = z.strictObject({
 });
 export type LocalPool = z.infer<typeof LocalPoolSchema>;
 
+/** A check placement put on a computer: the commit of a repository, the command `ompdesk check` runs, a release's or not. */
+export const LocalRunAskSchema = z.strictObject({
+	repo: z.string(),
+	sha: z.string(),
+	argv: z.array(z.string()),
+	release: z.boolean(),
+});
+export type LocalRunAsk = z.infer<typeof LocalRunAskSchema>;
+
+/** A check the hub placed on a paired computer: main sends `ask` there over the link and hands its answer back. */
+export const RemoteRunSchema = z.strictObject({ id: z.string(), device: z.string(), ask: LocalRunAskSchema });
+export type RemoteRun = z.infer<typeof RemoteRunSchema>;
+
 /**
  * What main knows and the hub cannot read itself; main says it again whenever it changes. `repos`: those of the open
  * sessions' checkouts. `devicePool`: a paired computer's pool, as it answered over the link. `deviceOffline`: that
@@ -554,6 +575,7 @@ export const FakeOpSchema = z.discriminatedUnion("op", [
 	z.strictObject({ op: z.literal("startReply"), reply: StartReplySchema }),
 	z.strictObject({ op: z.literal("finish"), result: RunResultSchema }),
 	z.strictObject({ op: z.literal("calls") }),
+	z.strictObject({ op: z.literal("remoteRun"), run: RemoteRunSchema }),
 ]);
 export type FakeOp = z.infer<typeof FakeOpSchema>;
 
@@ -586,6 +608,8 @@ export const CHECKS_SCHEMAS = {
 	RunResult: RunResultSchema,
 	Snapshot: SnapshotSchema,
 	LocalPool: LocalPoolSchema,
+	LocalRunAsk: LocalRunAskSchema,
+	RemoteRun: RemoteRunSchema,
 	MainFact: MainFactSchema,
 	FakeOp: FakeOpSchema,
 	FakeCall: FakeCallSchema,

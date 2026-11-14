@@ -178,6 +178,8 @@ words! {
         RunChanged = "run-changed",
         /// `{commit, branch, asked}`: GitHub ran `commit` of `branch`, not the `asked` one the start was for.
         BranchMoved = "branch-moved",
+        /// `{device, job}`: `ompdesk check` ran `job` on `device` (placement chose a computer, design §5 policy 5).
+        RanOn = "ran-on",
     }
 }
 
@@ -575,6 +577,8 @@ pub struct Note {
     pub branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<Sha>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<DeviceId>,
 }
 
 impl Note {
@@ -594,8 +598,30 @@ impl Note {
             commit: None,
             branch: None,
             asked: None,
+            device: None,
         }
     }
+}
+
+/// What a computer runs for a check placement put on it (`checks.runLocal`, also over a paired link): the commit of a
+/// repository, the command `ompdesk check` runs there, and whether it decides a release (`--release`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRunAsk {
+    pub repo: RepoId,
+    pub sha: Sha,
+    pub argv: Vec<String>,
+    pub release: bool,
+}
+
+/// A check placement put on a paired computer (event `checks.remoteRun`): main sends `ask` there over the link and
+/// hands back its answer, or why none came (`checks.remoteAnswer`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteRun {
+    pub id: RunId,
+    pub device: DeviceId,
+    pub ask: LocalRunAsk,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -902,12 +928,20 @@ pub mod wire {
     /// `{hub}` → this computer's own `LocalPool` as its poller reads it: what a paired computer's link forwards to
     /// another hub as `MainFact::DevicePool` (with its own device id).
     pub const LOCAL_POOL: &str = "checks.localPool";
+    /// `{hub, ask}` → `Answer`: runs `LocalRunAsk` on this computer through `ompdesk check` in a checkout the hub keeps
+    /// (`local_run.rs`); what a paired computer's link calls for a check placed on it. It ends with the run.
+    pub const RUN_LOCAL: &str = "checks.runLocal";
+    /// `{hub, id, answer?, error?}`: the answer of a `RemoteRun` (its run id is `id`), or why the paired computer gave
+    /// none; the hub then runs the check on a GitHub runner instead.
+    pub const REMOTE_ANSWER: &str = "checks.remoteAnswer";
     /// Drives the fake hub (`checks.open {fake: true}`): tests and the dev harness only.
     pub const FAKE: &str = "checks.fake";
     /// Event: the snapshot changed, while `checks.watch {on: true}` holds.
     pub const SNAPSHOT: &str = "checks.snapshot";
     /// Event: a run's result arrived (`RunResult`), whoever waits.
     pub const RESULT: &str = "checks.result";
+    /// Event `{hub, run}`: a check placed on a paired computer (`RemoteRun`), for main to send over the link.
+    pub const REMOTE_RUN: &str = "checks.remoteRun";
 }
 
 #[cfg(test)]
@@ -1150,6 +1184,11 @@ pub(crate) mod samples {
                 asked: Some("0123456789abcdef0123456789abcdef01234567".into()),
                 ..Note::new(NoteCode::BranchMoved)
             },
+            Note {
+                device: Some("mac-mini".into()),
+                job: Some("bun run check".into()),
+                ..Note::new(NoteCode::RanOn)
+            },
         ]
     }
 
@@ -1274,6 +1313,15 @@ pub(crate) mod samples {
         }
     }
 
+    fn local_ask() -> LocalRunAsk {
+        LocalRunAsk {
+            repo: "example/app".into(),
+            sha: "0123456789abcdef0123456789abcdef01234567".into(),
+            argv: vec!["bun".into(), "run".into(), "check".into()],
+            release: false,
+        }
+    }
+
     /// One value of every shape with every optional field present, every variant of every union, and every word of
     /// every enum: what `contract-samples.json` holds.
     pub(crate) fn all() -> Value {
@@ -1356,6 +1404,15 @@ pub(crate) mod samples {
         types.insert("Answer".into(), of(vec![answer()]));
         types.insert("TestRecord".into(), of(vec![record()]));
         types.insert("Note".into(), of(note_samples()));
+        types.insert("LocalRunAsk".into(), of(vec![local_ask()]));
+        types.insert(
+            "RemoteRun".into(),
+            of(vec![RemoteRun {
+                id: "chk-1".into(),
+                device: "mac-mini".into(),
+                ask: local_ask(),
+            }]),
+        );
         types.insert(
             "StartRequest".into(),
             of(vec![StartRequest {
@@ -1470,6 +1527,13 @@ pub(crate) mod samples {
                     },
                 },
                 FakeOp::Calls,
+                FakeOp::RemoteRun {
+                    run: RemoteRun {
+                        id: "chk-1".into(),
+                        device: "mac-mini".into(),
+                        ask: local_ask(),
+                    },
+                },
             ]),
         );
         types.insert(
@@ -1500,6 +1564,9 @@ pub(crate) mod samples {
                 "facts": wire::FACTS,
                 "runners": wire::RUNNERS,
                 "localPool": wire::LOCAL_POOL,
+                "runLocal": wire::RUN_LOCAL,
+                "remoteRun": wire::REMOTE_RUN,
+                "remoteAnswer": wire::REMOTE_ANSWER,
                 "result": wire::RESULT,
             },
             "enums": enums,

@@ -20,12 +20,12 @@ use tokio::task::AbortHandle;
 use super::admission::{self, Admission, Ask, Ended, Key, Limit, Stage};
 use super::answer::{self, Judged};
 use super::contract::{
-    Answer, AnswerVerdict, Decision, DecisionWhy, JobState, Lane, MainFact, Next, Note, NoteCode,
-    Origin, Os, PolicyAction, Purpose, QueueEntry, RepoId, Rerun, RunId, RunResult, RunVerdict,
-    Sha, Snapshot, StartDecision, StartReply, StartRequest, StartScope, StatusRequest, Until,
-    WaitRequest, Where, WhyCode, WorkflowAsk,
+    Answer, AnswerVerdict, Decision, DecisionWhy, DeviceId, JobState, Lane, LocalRunAsk, MainFact,
+    Next, Note, NoteCode, Origin, PolicyAction, Purpose, QueueEntry, RemoteRun, RepoId, Rerun,
+    RunId, RunResult, RunVerdict, Sha, Snapshot, StartDecision, StartReply, StartRequest,
+    StartScope, StatusRequest, Until, WaitRequest, Where, WhyCode, WorkflowAsk,
 };
-use super::place;
+use super::local_run::LocalRunner;
 use super::policy::{self, Plan};
 use super::poller::Poller;
 use super::poller::provenance::{Claim, Expected};
@@ -86,6 +86,20 @@ pub trait ChecksHub: Send + Sync {
     /// This computer's own pool as its poller reads it (device `local`): what a paired computer forwards to another
     /// hub as `MainFact::DevicePool`, so the mapping of `ompdesk heavy status` stays in one place.
     fn local_pool(&self) -> Fut<'_, Result<LocalPool, Fault>>;
+
+    /// Runs a check on this computer through `ompdesk check` for another hub that placed it here; ends with its
+    /// answer, or a fault when it could not start (that hub then runs it on GitHub).
+    fn run_local(&self, ask: LocalRunAsk, scope: Scope) -> Fut<'_, Result<Answer, Fault>>;
+
+    /// Every check this hub placed on a paired computer, for main to send over the link.
+    fn remote_runs(&self) -> broadcast::Receiver<RemoteRun>;
+
+    /// What the paired computer answered for a `RemoteRun`, or why it gave no answer.
+    fn remote_answer(
+        &self,
+        id: RunId,
+        answer: Result<Answer, String>,
+    ) -> Fut<'_, Result<(), Fault>>;
 }
 
 /// What admission hands the merge queue for a `start {purpose: land}`: a branch to land on `base`, already resolved
@@ -204,6 +218,9 @@ struct Book {
     /// A session was answered red or unknown for this commit of this repository and not green since: its `start
     /// {purpose: land}` of that commit is a wrong green (it went on as if the check had passed). Oldest first.
     not_green: Vec<NotGreen>,
+    /// Runs placement put on a computer, until that computer answered or the run went to GitHub instead
+    /// (`hub_local.rs`): what a fall back admits, and where it was.
+    away: HashMap<RunId, (Pending, Lane, DeviceId)>,
 }
 
 /// One (session, repo, commit) a session was answered not green about.
@@ -256,6 +273,12 @@ pub struct Core {
     ids: AtomicU64,
     /// When the Tests and cost tab was last built; 0 when a ledger changed since.
     trends_at: AtomicU64,
+    /// How a check runs on this computer (`local_run.rs`).
+    runner: Arc<dyn LocalRunner>,
+    /// Checks placed on a paired computer, for main to send over the link (`checks.remoteRun`).
+    remote: broadcast::Sender<RemoteRun>,
+    /// Itself, for the task a check placed on this computer runs in.
+    me: std::sync::Weak<Core>,
 }
 
 /// The real hub.
@@ -299,7 +322,26 @@ impl Hub {
     pub fn new(github: Arc<dyn GithubSource>, local: Arc<dyn LocalSource>) -> Hub {
         let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(clock::now_ms())));
         let poller = Poller::new(Arc::clone(&github), Arc::clone(&local), snapshot.clone());
-        Hub::build(github, local, poller, snapshot, None)
+        Hub::build(
+            github,
+            local,
+            poller,
+            snapshot,
+            None,
+            Some(Arc::new(super::local_run::Unavailable)),
+        )
+    }
+
+    /// `new`, with a runner of checks placed on this computer.
+    #[cfg(test)]
+    pub fn with_runner(
+        github: Arc<dyn GithubSource>,
+        local: Arc<dyn LocalSource>,
+        runner: Arc<dyn LocalRunner>,
+    ) -> Hub {
+        let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(clock::now_ms())));
+        let poller = Poller::new(Arc::clone(&github), Arc::clone(&local), snapshot.clone());
+        Hub::build(github, local, poller, snapshot, None, Some(runner))
     }
 
     /// Over the person's gh and git and this computer's pool; its state (the owner's pause, the test ledgers) in
@@ -308,7 +350,7 @@ impl Hub {
         let snapshot = watch::Sender::new(Arc::new(Snapshot::empty(clock::now_ms())));
         let poller = Poller::real(snapshot.clone());
         let rounds = poller.start();
-        let hub = Hub::build(poller.github(), poller.local(), poller, snapshot, dir);
+        let hub = Hub::build(poller.github(), poller.local(), poller, snapshot, dir, None);
         locked(&hub.tasks).push(rounds);
         let run = hub.run();
         locked(&hub.tasks).push(run);
@@ -321,6 +363,8 @@ impl Hub {
         poller: Arc<Poller>,
         snapshot: watch::Sender<Arc<Snapshot>>,
         dir: Option<PathBuf>,
+        // None: `ompdesk check` in the hub's own checkouts, with git as main hands it over.
+        runner: Option<Arc<dyn LocalRunner>>,
     ) -> Hub {
         let saved: Saved = dir
             .as_ref()
@@ -382,6 +426,9 @@ impl Hub {
                 done: Notify::new(),
                 ids: AtomicU64::new(0),
                 trends_at: AtomicU64::new(0),
+                runner: runner.unwrap_or_else(|| super::local_run::CheckRunner::of(core.clone())),
+                remote: broadcast::Sender::new(RESULTS_KEPT),
+                me: core.clone(),
             }),
             tasks: Mutex::default(),
         }
@@ -1264,6 +1311,19 @@ impl Core {
                 short(&sha)
             ));
         };
+        // What a computer runs instead, when placement puts the check on one (`hub_local.rs`); a land batch never.
+        let package = if land || named.is_some() || choice.local.is_some() {
+            None
+        } else {
+            self.github
+                .file(&repo, &sha, "package.json")
+                .await
+                .ok()
+                .flatten()
+        };
+        let local = (!land)
+            .then(|| policy::local_command(purpose, named.is_some(), &choice, package.as_deref()))
+            .flatten();
         let declared = policy::dispatch_inputs(&text);
         let ticketed = declared
             .as_ref()
@@ -1297,7 +1357,6 @@ impl Core {
             policy::lane(purpose, named.is_some(), plan.macos, &git_ref, &mac_refs)
         };
         let digest = policy::digest(&sha, &text, &plan.inputs);
-
         let workflow = plan.workflow.clone();
         let pending = Pending {
             origin,
@@ -1310,7 +1369,8 @@ impl Core {
             gate: (lane == Lane::Release).then(|| format!("release {workflow}")),
             rerun_of: None,
         };
-        self.admit_entry(self.next_id(), pending, lane).await
+        self.place_and_admit(self.next_id(), pending, lane, local)
+            .await
     }
 
     /// One entry into admission: a start's, or a rerun's of a red run's failed jobs. It supersedes older runs of its
@@ -1338,7 +1398,6 @@ impl Core {
         let workflow = pending.plan.workflow.clone();
         let digest = pending.digest.clone();
         let pool = policy::pool(pending.plan.macos);
-        let macos = pending.plan.macos;
         locked(&self.book).pending.insert(id.clone(), pending);
         let now = clock::now_ms();
         let started = locked(&self.admission).start(
@@ -1426,36 +1485,6 @@ impl Core {
             }
             _ => {}
         }
-        // Where it runs (design §5 policy 5), asked only for a run that runs (a reused one does not). The hub runs a
-        // check only as a GitHub workflow today: a computer that placement picks is named in the reply and the log, and
-        // the run goes to a runner. An unknown visibility reads as public, which sends it where it would go anyway.
-        let private = !macos && self.github.is_private(&repo).await.unwrap_or(false);
-        let placement = place::place(&place::Ask {
-            os: if macos { Os::Macos } else { Os::Linux },
-            private,
-            runner: true,
-            pools: &self.poller.local_pools(),
-        });
-        let elsewhere = match &placement.place {
-            Some(Where::Device { device_id }) => {
-                let why = format!(
-                    "placement picked {device_id} ({}), but OMPdesk cannot run a workflow on a computer yet, so it runs on a GitHub runner",
-                    placement.reason
-                );
-                self.decide(
-                    "local-first",
-                    &id,
-                    PolicyAction::Place,
-                    why.clone(),
-                    DecisionWhy {
-                        pool: Some(super::poller::pools::device_id(device_id)),
-                        ..DecisionWhy::new(WhyCode::LocalUnavailable)
-                    },
-                );
-                format!("; {why}")
-            }
-            _ => String::new(),
-        };
         self.pump().await;
         self.kick.notify_one();
         let stage = locked(&self.admission).entry(&id).map(|entry| entry.stage);
@@ -1472,7 +1501,7 @@ impl Core {
             Some(Stage::Dispatching | Stage::Running) => reply(
                 StartDecision::Started,
                 format!(
-                    "dispatched {workflow} on {git_ref} ({lane} lane){replaced}{elsewhere}",
+                    "dispatched {workflow} on {git_ref} ({lane} lane){replaced}",
                     lane = lane.word()
                 ),
             ),
@@ -1506,7 +1535,7 @@ impl Core {
                 reply(
                     StartDecision::Held,
                     format!(
-                        "{pool} has no free place: held in OMPdesk's queue ({lane} lane) and dispatched when one frees{replaced}{elsewhere}",
+                        "{pool} has no free place: held in OMPdesk's queue ({lane} lane) and dispatched when one frees{replaced}",
                         lane = lane.word()
                     ),
                 )
@@ -1638,6 +1667,25 @@ impl ChecksHub for Hub {
                 .ok_or_else(|| Fault::new("checks_source", "this computer's pool was not read"))
         })
     }
+
+    fn run_local(&self, ask: LocalRunAsk, scope: Scope) -> Fut<'_, Result<Answer, Fault>> {
+        Box::pin(async move { self.core.run_here(ask, scope).await })
+    }
+
+    fn remote_runs(&self) -> broadcast::Receiver<RemoteRun> {
+        self.remote.subscribe()
+    }
+
+    fn remote_answer(
+        &self,
+        id: RunId,
+        answer: Result<Answer, String>,
+    ) -> Fut<'_, Result<(), Fault>> {
+        Box::pin(async move {
+            self.core.remote_answer(id, answer).await;
+            Ok(())
+        })
+    }
 }
 
 /// The hub as the merge queue sees it (`QueueHost`), holding it weakly: the hub owns the queue and the queue this.
@@ -1726,3 +1774,6 @@ impl Drop for Core {
 #[cfg(test)]
 #[path = "hub_tests.rs"]
 mod tests;
+
+#[path = "hub_local.rs"]
+mod local;

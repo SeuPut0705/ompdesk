@@ -954,6 +954,16 @@ export function decodeBinaryRead(raw: unknown, method = "host.fs.readBinary"): I
 export const CHECKS_LOCAL_POOL_METHOD = "checks.localPool";
 
 /**
+ * `checks.runLocal {repo, sha, argv, release}` (`LocalRunAsk`): a device's checks hub placed a check on this computer
+ * (design §5 policy 5); this computer's hub runs it through `ompdesk check` in its own checkout of the commit and answers
+ * the `Answer` once the run ended, as long as that takes. An older host answers `unsupported`, a run that could not start
+ * fails; either way the device's hub runs the check on a GitHub runner instead (`checks/remote-runs.ts`).
+ */
+export const CHECKS_RUN_LOCAL_METHOD = "checks.runLocal";
+/** How long a device waits for `checks.runLocal`: the longest a check runs, a release's full suite included. */
+export const CHECKS_RUN_LOCAL_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+
+/**
  * Sessions this computer's own person (or a device) deleted here (data: {@link SessionsDeletedReply}), sent to every
  * connected device as they are deleted: a device closes every tab it holds of them, asleep ones too, and records the
  * delete under this host. `sessions.deleted {paths}` answers, for the session paths a device's tabs on this host hold

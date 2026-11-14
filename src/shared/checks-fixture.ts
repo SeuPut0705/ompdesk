@@ -165,6 +165,10 @@ export function createFakeChecksHub(): FakeChecksHub {
 					return null;
 				case "calls":
 					return structuredClone(calls);
+				case "remoteRun":
+					// The screens' fake has no link to send it over: it is only recorded.
+					called("remoteRun", null, op.run);
+					return null;
 			}
 		},
 	};

@@ -2,7 +2,8 @@
 //! and the digest a green result is reused on. Pure: the hub reads the files and hands their text in.
 //!
 //! - A repo may say it in `.ompdesk/checks.json` (beside `.ompdesk/worktree-setup`):
-//!   `{"branch": {"workflow": "ci.yml", "inputs": {"batch": "true"}}, "release": {…, "macos": true}}`.
+//!   `{"branch": {"workflow": "ci.yml", "inputs": {"batch": "true"}, "local": ["bun", "run", "check"]}, "release": {…, "macos": true}}`.
+//!   `local` is the command `ompdesk check` runs when placement puts the check on a computer (`local_command`).
 //! - Without it: `branch` runs `ci.yml` with `batch=true`, `release` with `batch=true mac=true`.
 //! - Only the inputs the workflow's `on.workflow_dispatch.inputs` declares are sent, so a repo whose `ci.yml` has no
 //!   `mac` input decides its own systems; a workflow with no `workflow_dispatch` cannot be started at all.
@@ -32,6 +33,9 @@ pub struct Choice {
     /// Whether it takes macOS runners; unset: when it sends `mac=true`.
     #[serde(default)]
     pub macos: Option<bool>,
+    /// The command a computer runs instead, through `ompdesk check` (`local_command`).
+    #[serde(default)]
+    pub local: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +56,7 @@ fn default_choice(purpose: Purpose) -> Choice {
         workflow: DEFAULT_WORKFLOW.into(),
         inputs,
         macos: None,
+        local: None,
     }
 }
 
@@ -81,7 +86,38 @@ pub fn named(ask: &WorkflowAsk) -> Choice {
         workflow: ask.file.clone(),
         inputs: ask.inputs.clone(),
         macos: Some(ask.macos),
+        local: None,
     }
+}
+
+/// The command `ompdesk check` runs when placement puts `purpose`'s check on a computer (design §5 policy 5): the repo
+/// file's `local`, else, for a branch check only, the repo's own `check` script (`<packageManager> run check`, npm when
+/// `package.json` names none). A release's gate never shrinks to a script nobody named for it, and a named workflow is
+/// that workflow: neither runs on a computer unless the file says how. None: the check runs on a GitHub runner.
+pub fn local_command(
+    purpose: Purpose,
+    named: bool,
+    choice: &Choice,
+    package_json: Option<&str>,
+) -> Option<Vec<String>> {
+    if named {
+        return None;
+    }
+    if let Some(argv) = &choice.local {
+        return (!argv.is_empty()).then(|| argv.clone());
+    }
+    if purpose != Purpose::Branch {
+        return None;
+    }
+    let package: serde_json::Value = serde_json::from_str(package_json?).ok()?;
+    package.get("scripts")?.get("check")?.as_str()?;
+    let manager = package
+        .get("packageManager")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|spec| spec.split('@').next())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("npm");
+    Some(vec![manager.into(), "run".into(), "check".into()])
 }
 
 /// What will be dispatched.
@@ -390,5 +426,48 @@ mod tests {
         assert_ne!(base, digest("abc", "on: y", &inputs));
         assert_ne!(base, digest("abc", "on: x", &BTreeMap::new()));
         assert_eq!(base, digest("abc", "on: x", &inputs.clone()));
+    }
+
+    #[test]
+    fn a_computer_runs_the_files_local_command_else_a_branch_check_runs_the_repos_check_script() {
+        let file = r#"{"branch": {"workflow": "ci.yml", "local": ["make", "test"]}, "release": {"workflow": "ci.yml"}}"#;
+        let branch = choose(Purpose::Branch, Some(file)).unwrap();
+        let release = choose(Purpose::Release, Some(file)).unwrap();
+        let script = r#"{"scripts": {"check": "biome check ."}, "packageManager": "bun@1.3.0"}"#;
+        let argv = |words: &[&str]| Some(words.iter().map(|w| w.to_string()).collect::<Vec<_>>());
+        assert_eq!(
+            local_command(Purpose::Branch, false, &branch, Some(script)),
+            argv(&["make", "test"])
+        );
+        let default = choose(Purpose::Branch, None).unwrap();
+        assert_eq!(
+            local_command(Purpose::Branch, false, &default, Some(script)),
+            argv(&["bun", "run", "check"])
+        );
+        let npm = r#"{"scripts": {"check": "x"}}"#;
+        assert_eq!(
+            local_command(Purpose::Branch, false, &default, Some(npm)),
+            argv(&["npm", "run", "check"])
+        );
+        // No check script, no package.json, a release the file says nothing local for, a named workflow: GitHub.
+        let no_check = r#"{"scripts": {"test": "x"}}"#;
+        assert_eq!(
+            local_command(Purpose::Branch, false, &default, Some(no_check)),
+            None
+        );
+        assert_eq!(local_command(Purpose::Branch, false, &default, None), None);
+        assert_eq!(
+            local_command(Purpose::Release, false, &release, Some(script)),
+            None
+        );
+        let ask = WorkflowAsk {
+            file: "e2e.yml".into(),
+            inputs: BTreeMap::new(),
+            macos: true,
+        };
+        assert_eq!(
+            local_command(Purpose::Branch, true, &named(&ask), Some(script)),
+            None
+        );
     }
 }

@@ -914,15 +914,7 @@ impl Poller {
             tools: Arc::clone(&tools),
         });
         let github = Arc::new(GhSource::new(api, Some(Arc::clone(&tools))));
-        let binary = if cfg!(windows) {
-            "ompdesk.exe"
-        } else {
-            "ompdesk"
-        };
-        let bin = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|dir| dir.join(binary)))
-            .unwrap_or_else(|| PathBuf::from(binary));
+        let bin = local::ompdesk_bin();
         // `heavy status` judges the volumes of its folder and the temp folder: the person's home and its volume.
         let cwd = ["HOME", "USERPROFILE"]
             .iter()

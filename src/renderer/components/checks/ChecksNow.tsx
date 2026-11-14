@@ -454,6 +454,14 @@ function noteText(note: Note, frame: ChecksFrame, t: Translate): string {
 				branch: note.branch,
 				asked: shortSha(note.asked),
 			});
+		case "ran-on":
+			return t("checks.note.ran-on", {
+				device:
+					note.device === "local"
+						? t("checks.note.thisComputer")
+						: (frame.names.devices[note.device]?.name ?? note.device),
+				job: note.job,
+			});
 		case "report-expired":
 		case "job-outside-tests":
 			return t(`checks.note.${note.code}`, { job: note.job });

@@ -27,6 +27,7 @@ pub mod board;
 pub mod contract;
 pub mod fake;
 pub mod hub;
+pub mod local_run;
 pub mod note;
 pub mod place;
 pub mod policy;
@@ -45,7 +46,8 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::task::AbortHandle;
 
 use self::contract::{
-    MainFact, Origin, RunResult, Snapshot, StartRequest, StatusRequest, WaitRequest, wire,
+    Answer, LocalRunAsk, MainFact, Origin, RemoteRun, RunResult, Snapshot, StartRequest,
+    StatusRequest, WaitRequest, wire,
 };
 use self::fake::{FakeHub, FakeOp};
 use self::hub::{ChecksHub, Runners};
@@ -58,12 +60,15 @@ struct Entry {
     fake: Option<Arc<FakeHub>>,
     events: Events,
     results: AbortHandle,
+    /// Forwards the checks placed on a paired computer (`checks.remoteRun`).
+    remote: AbortHandle,
     watching: Mutex<Option<AbortHandle>>,
 }
 
 impl Drop for Entry {
     fn drop(&mut self) {
         self.results.abort();
+        self.remote.abort();
         if let Some(watching) = locked(&self.watching).take() {
             watching.abort();
         }
@@ -101,6 +106,7 @@ pub(crate) fn open_fake(id: u64) -> Arc<FakeHub> {
         fake: Some(fake.clone()),
         events,
         results: tokio::spawn(async {}).abort_handle(),
+        remote: tokio::spawn(async {}).abort_handle(),
         watching: Mutex::new(None),
     });
     locked(&HUBS).insert(id, entry);
@@ -127,6 +133,12 @@ struct ResultEvent<'a> {
 struct SnapshotEvent<'a> {
     hub: u64,
     snapshot: &'a Snapshot,
+}
+
+#[derive(Serialize)]
+struct RemoteRunEvent<'a> {
+    hub: u64,
+    run: &'a RemoteRun,
 }
 
 #[derive(Deserialize)]
@@ -186,11 +198,25 @@ async fn open(call: Call) -> Result<Reply, Fault> {
         }
     })
     .abort_handle();
+    let mut runs = hub.remote_runs();
+    let to = call.events.clone();
+    let remote = tokio::spawn(async move {
+        loop {
+            match runs.recv().await {
+                Ok(run) => to.send(wire::REMOTE_RUN, &RemoteRunEvent { hub: id, run: &run }),
+                // A run that never reached main is answered nowhere: its wait ends unanswered, as a lost link's.
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return,
+            }
+        }
+    })
+    .abort_handle();
     let entry = Arc::new(Entry {
         hub,
         fake,
         events: call.events,
         results,
+        remote,
         watching: Mutex::new(None),
     });
     locked(&HUBS).insert(id, entry);
@@ -317,6 +343,40 @@ async fn local_pool(call: Call) -> Result<Reply, Fault> {
 }
 
 #[derive(Deserialize)]
+struct RunLocalParams {
+    hub: u64,
+    ask: LocalRunAsk,
+}
+
+async fn run_local(call: Call) -> Result<Reply, Fault> {
+    let params: RunLocalParams = call.params()?;
+    let hub = entry(params.hub)?.hub.clone();
+    Reply::json(&hub.run_local(params.ask, call.scope.clone()).await?)
+}
+
+#[derive(Deserialize)]
+struct RemoteAnswerParams {
+    hub: u64,
+    id: String,
+    #[serde(default)]
+    answer: Option<Answer>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+async fn remote_answer(call: Call) -> Result<Reply, Fault> {
+    let params: RemoteAnswerParams = call.params()?;
+    let hub = entry(params.hub)?.hub.clone();
+    let answer = params.answer.ok_or_else(|| {
+        params
+            .error
+            .unwrap_or_else(|| "the paired computer gave no answer".to_owned())
+    });
+    hub.remote_answer(params.id, answer).await?;
+    Reply::json(&())
+}
+
+#[derive(Deserialize)]
 struct FakeParams {
     hub: u64,
     op: FakeOp,
@@ -345,5 +405,7 @@ pub fn register(registry: &mut Registry) {
     registry.add(wire::FACTS, |call| Box::pin(facts(call)));
     registry.add(wire::RUNNERS, |call| Box::pin(runners(call)));
     registry.add(wire::LOCAL_POOL, |call| Box::pin(local_pool(call)));
+    registry.add(wire::RUN_LOCAL, |call| Box::pin(run_local(call)));
+    registry.add(wire::REMOTE_ANSWER, |call| Box::pin(remote_answer(call)));
     registry.add(wire::FAKE, |call| Box::pin(fake(call)));
 }

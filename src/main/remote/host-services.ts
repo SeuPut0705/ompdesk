@@ -43,7 +43,7 @@ import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
-import type { LocalPool } from "../../shared/checks-contract";
+import { type Answer, type LocalPool, type LocalRunAsk, LocalRunAskSchema } from "../../shared/checks-contract";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPDATE_ACTIONS,
@@ -148,6 +148,7 @@ import {
 	type AutopilotNoticeEvent,
 	BenchmarkOptionsSchema,
 	CHECKS_LOCAL_POOL_METHOD,
+	CHECKS_RUN_LOCAL_METHOD,
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
@@ -322,6 +323,8 @@ export interface HostServicesDeps {
 	uploads?: Pick<UploadStore, "store">;
 	/** This computer's heavy pool as its checks hub reads it (`checks.localPool`); absent, the method is unsupported. */
 	checksPool?: () => Promise<LocalPool>;
+	/** Runs a check a device's hub placed on this computer (`checks.runLocal`); absent, the method is unsupported. */
+	checksRunLocal?: (ask: LocalRunAsk) => Promise<Answer>;
 }
 
 /** A call of the omp's that a device answers; `delivered` once a connection was handed it. */
@@ -1504,6 +1507,9 @@ export class LocalHostServices implements HostServices {
 			case CHECKS_LOCAL_POOL_METHOD:
 				if (!this.#deps.checksPool) throw codedError("unsupported", `Unknown method ${method}`);
 				return this.#deps.checksPool();
+			case CHECKS_RUN_LOCAL_METHOD:
+				if (!this.#deps.checksRunLocal) throw codedError("unsupported", `Unknown method ${method}`);
+				return this.#deps.checksRunLocal(parse(LocalRunAskSchema, method, params));
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}

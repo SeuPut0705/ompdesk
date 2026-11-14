@@ -9,8 +9,10 @@ import {
 	type FakeCall,
 	type FakeOp,
 	type LocalPool,
+	type LocalRunAsk,
 	type MainFact,
 	type Origin,
+	type RemoteRun,
 	type RunResult,
 	type Snapshot,
 	type StartReply,
@@ -29,6 +31,7 @@ const WAIT_CALL_MS = 2 ** 31 - 1;
 interface Route {
 	snapshot(snapshot: Snapshot): void;
 	result(result: RunResult): void;
+	remoteRun(run: RemoteRun): void;
 	/** The core ended: the hub is gone with it. */
 	lost(): void;
 }
@@ -49,6 +52,10 @@ function listen(): void {
 		const { hub, result } = data as { hub: number; result: RunResult };
 		routes.get(hub)?.result(result);
 	});
+	core().on(CHECKS_WIRE.remoteRun, data => {
+		const { hub, run } = data as { hub: number; run: RemoteRun };
+		routes.get(hub)?.remoteRun(run);
+	});
 	core().on(CORE_EXITED, () => {
 		for (const route of [...routes.values()]) route.lost();
 	});
@@ -63,6 +70,7 @@ export class CoreChecksHub implements FakeChecksHub {
 	#last: Snapshot | null = null;
 	readonly #watchers = new Set<(snapshot: Snapshot) => void>();
 	readonly #resultListeners = new Set<(result: RunResult) => void>();
+	readonly #remoteListeners = new Set<(run: RemoteRun) => void>();
 
 	/** `admission`: this computer's admission key for the hub's tickets, asked at each open (`admission-key.ts`). */
 	constructor(options: { fake?: boolean; admission?: () => Promise<AdmissionKey | null> } = {}) {
@@ -108,6 +116,23 @@ export class CoreChecksHub implements FakeChecksHub {
 		return () => this.#resultListeners.delete(listener);
 	}
 
+	/** Every check the hub placed on a paired computer, for main to send over the link (`remoteAnswer` its answer). */
+	onRemoteRun(listener: (run: RemoteRun) => void): () => void {
+		this.#remoteListeners.add(listener);
+		this.#open().catch(() => {});
+		return () => this.#remoteListeners.delete(listener);
+	}
+
+	/** What the paired computer answered for a `RemoteRun`, or why it gave none (the hub then runs it on GitHub). */
+	async remoteAnswer(id: string, outcome: { answer: Answer } | { error: string }): Promise<void> {
+		await this.#call(CHECKS_WIRE.remoteAnswer, { id, ...outcome });
+	}
+
+	/** Runs a check another computer's hub placed on this one; ends with its answer, as long as the run takes. */
+	runLocal(ask: LocalRunAsk, signal?: AbortSignal): Promise<Answer> {
+		return this.#call(CHECKS_WIRE.runLocal, { ask }, { timeoutMs: WAIT_CALL_MS, signal });
+	}
+
 	async pause(paused: boolean): Promise<void> {
 		await this.#call(CHECKS_WIRE.pause, { paused });
 	}
@@ -136,6 +161,7 @@ export class CoreChecksHub implements FakeChecksHub {
 		this.#closed = true;
 		this.#watchers.clear();
 		this.#resultListeners.clear();
+		this.#remoteListeners.clear();
 		const opened = this.#opened;
 		this.#opened = null;
 		if (!opened) return;
@@ -174,12 +200,15 @@ export class CoreChecksHub implements FakeChecksHub {
 			result: result => {
 				for (const listener of [...this.#resultListeners]) listener(result);
 			},
+			remoteRun: run => {
+				for (const listener of [...this.#remoteListeners]) listener(run);
+			},
 			lost: () => {
 				if (this.#id !== id) return;
 				routes.delete(id);
 				this.#opened = null;
 				if (this.#watchers.size > 0) this.#setWatching(true);
-				else if (this.#resultListeners.size > 0) this.#open().catch(() => {});
+				else if (this.#resultListeners.size > 0 || this.#remoteListeners.size > 0) this.#open().catch(() => {});
 			},
 		});
 		// A key that cannot be read leaves this computer's dispatches without a ticket, never the hub unopened.

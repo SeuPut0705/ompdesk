@@ -114,6 +114,7 @@ import { loadAdmissionKey } from "./checks/admission-key";
 import { CoreChecksHub } from "./checks/client";
 import { ChecksFacts } from "./checks/facts";
 import { ChecksRelay, namesFor } from "./checks/relay";
+import { relayRemoteRuns } from "./checks/remote-runs";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import {
 	answersWithin,
@@ -184,6 +185,8 @@ import { createLidAwake } from "./power/lid-awake-runtime";
 import { activateAction, lastWindowCloseAction } from "./quit-guard";
 import {
 	CHECKS_LOCAL_POOL_METHOD,
+	CHECKS_RUN_LOCAL_METHOD,
+	CHECKS_RUN_LOCAL_TIMEOUT_MS,
 	decodeBinaryRead,
 	HOST_FS_READ_BINARY_TIMEOUT_MS,
 	SidebarProjectsStateSchema,
@@ -1304,6 +1307,8 @@ app.whenReady().then(async () => {
 		createSidecar: createLocalSidecar,
 		// A device whose hub counts this computer as capacity reads its pool as this computer's hub does.
 		checksPool: () => checksHub.localPool(),
+		// A check a device's hub placed on this computer runs in this computer's hub (`ompdesk check`).
+		checksRunLocal: ask => checksHub.runLocal(ask),
 		// A paired computer's attached files land in the phones' upload folder (24 h); `webHost` is made later.
 		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		// `devices` is created below; a host tab only opens once it serves connections.
@@ -1511,6 +1516,12 @@ app.whenReady().then(async () => {
 		checksFacts.start();
 		core().on(CORE_EXITED, () => checksFacts?.hubLost());
 		devices.onHostOnline(() => checksFacts?.hostsChanged());
+		// A check the hub placed on a paired computer goes to it over the link; its answer comes back to the hub.
+		relayRemoteRuns({
+			hub: checksHub,
+			request: (device, ask) => devices.request(device, CHECKS_RUN_LOCAL_METHOD, ask, CHECKS_RUN_LOCAL_TIMEOUT_MS),
+			log: (message, details) => writeRuntimeLog({ source: "checks", message, details }),
+		});
 	}
 	hostModelsChanged.current = () => devices.hostModelsChanged();
 	// Devices that use this computer as their host say "n sessions wait together" from its own count (its account).

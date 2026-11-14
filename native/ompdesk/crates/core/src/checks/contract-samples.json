@@ -22,6 +22,9 @@
     "facts": "checks.facts",
     "runners": "checks.runners",
     "localPool": "checks.localPool",
+    "runLocal": "checks.runLocal",
+    "remoteRun": "checks.remoteRun",
+    "remoteAnswer": "checks.remoteAnswer",
     "result": "checks.result"
   },
   "enums": {
@@ -127,7 +130,8 @@
       "replaced",
       "wait-timed-out",
       "run-changed",
-      "branch-moved"
+      "branch-moved",
+      "ran-on"
     ],
     "Outcome": [
       "pass",
@@ -542,6 +546,39 @@
         "commit": "89abcdef0123456789abcdef0123456789abcdef",
         "branch": "omp/agent/search-index",
         "asked": "0123456789abcdef0123456789abcdef01234567"
+      },
+      {
+        "code": "ran-on",
+        "job": "bun run check",
+        "device": "mac-mini"
+      }
+    ],
+    "LocalRunAsk": [
+      {
+        "repo": "example/app",
+        "sha": "0123456789abcdef0123456789abcdef01234567",
+        "argv": [
+          "bun",
+          "run",
+          "check"
+        ],
+        "release": false
+      }
+    ],
+    "RemoteRun": [
+      {
+        "id": "chk-1",
+        "device": "mac-mini",
+        "ask": {
+          "repo": "example/app",
+          "sha": "0123456789abcdef0123456789abcdef01234567",
+          "argv": [
+            "bun",
+            "run",
+            "check"
+          ],
+          "release": false
+        }
       }
     ],
     "StartRequest": [
@@ -1255,6 +1292,23 @@
       },
       {
         "op": "calls"
+      },
+      {
+        "op": "remoteRun",
+        "run": {
+          "id": "chk-1",
+          "device": "mac-mini",
+          "ask": {
+            "repo": "example/app",
+            "sha": "0123456789abcdef0123456789abcdef01234567",
+            "argv": [
+              "bun",
+              "run",
+              "check"
+            ],
+            "release": false
+          }
+        }
       }
     ],
     "FakeCall": [

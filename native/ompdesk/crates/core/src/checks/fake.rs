@@ -13,8 +13,9 @@ use tokio::sync::{Notify, broadcast, watch};
 
 use super::answer;
 use super::contract::{
-    Answer, MainFact, Next, Note, NoteCode, Origin, RunResult, Snapshot, StartDecision, StartReply,
-    StartRequest, StatusRequest, Until, WAIT_DEFAULT_SECONDS, WaitRequest, Where,
+    Answer, LocalRunAsk, MainFact, Next, Note, NoteCode, Origin, RemoteRun, RunId, RunResult,
+    Snapshot, StartDecision, StartReply, StartRequest, StatusRequest, Until, WAIT_DEFAULT_SECONDS,
+    WaitRequest, Where,
 };
 use super::hub::{ChecksHub, Fut, RESULTS_KEPT, Runners};
 use crate::clock;
@@ -32,6 +33,8 @@ pub enum FakeOp {
     Finish { result: RunResult },
     /// Answers every call made so far (`FakeCall`), oldest first.
     Calls,
+    /// A check placed on a paired computer: `checks.remoteRun` is sent.
+    RemoteRun { run: RemoteRun },
 }
 
 /// `FakeOp` as it is read: one plain object, its fields by the op.
@@ -42,6 +45,7 @@ pub struct FakeOpWire {
     snapshot: Option<Snapshot>,
     reply: Option<StartReply>,
     result: Option<RunResult>,
+    run: Option<RemoteRun>,
 }
 
 impl TryFrom<FakeOpWire> for FakeOp {
@@ -59,6 +63,9 @@ impl TryFrom<FakeOpWire> for FakeOp {
                 result: wire.result.clone().ok_or_else(|| missing("result"))?,
             },
             "calls" => FakeOp::Calls,
+            "remoteRun" => FakeOp::RemoteRun {
+                run: wire.run.clone().ok_or_else(|| missing("run"))?,
+            },
             other => return Err(format!("checks.fake has no op {other:?}")),
         })
     }
@@ -88,6 +95,7 @@ struct State {
 pub struct FakeHub {
     snapshot: watch::Sender<Arc<Snapshot>>,
     results: broadcast::Sender<RunResult>,
+    remote: broadcast::Sender<RemoteRun>,
     state: Mutex<State>,
     changed: Notify,
 }
@@ -97,6 +105,7 @@ impl Default for FakeHub {
         FakeHub {
             snapshot: watch::Sender::new(Arc::new(Snapshot::empty(clock::now_ms()))),
             results: broadcast::Sender::new(RESULTS_KEPT),
+            remote: broadcast::Sender::new(RESULTS_KEPT),
             state: Mutex::default(),
             changed: Notify::new(),
         }
@@ -141,6 +150,10 @@ impl FakeHub {
                 let _ = self.results.send(result);
             }
             FakeOp::Calls => return json!(self.state().calls),
+            FakeOp::RemoteRun { run } => {
+                let _ = self.remote.send(run);
+                return Value::Null;
+            }
         }
         self.changed.notify_waiters();
         Value::Null
@@ -273,6 +286,35 @@ impl ChecksHub for FakeHub {
                 "not_built",
                 "a scripted hub has no computer of its own",
             ))
+        })
+    }
+
+    fn run_local(&self, ask: LocalRunAsk, _scope: Scope) -> Fut<'_, Result<Answer, Fault>> {
+        Box::pin(async move {
+            self.called("runLocal", None, &ask);
+            Err(Fault::new(
+                "not_built",
+                "a scripted hub has no computer of its own",
+            ))
+        })
+    }
+
+    fn remote_runs(&self) -> broadcast::Receiver<RemoteRun> {
+        self.remote.subscribe()
+    }
+
+    fn remote_answer(
+        &self,
+        id: RunId,
+        answer: Result<Answer, String>,
+    ) -> Fut<'_, Result<(), Fault>> {
+        Box::pin(async move {
+            let told = match answer {
+                Ok(answer) => json!({"id": id, "answer": answer}),
+                Err(error) => json!({"id": id, "error": error}),
+            };
+            self.called("remoteAnswer", None, &told);
+            Ok(())
         })
     }
 }

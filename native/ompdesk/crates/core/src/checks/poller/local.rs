@@ -244,6 +244,19 @@ impl PairedPools {
     }
 }
 
+/// The `ompdesk` binary beside the core's own: `heavy status` and `check` are its commands.
+pub fn ompdesk_bin() -> PathBuf {
+    let binary = if cfg!(windows) {
+        "ompdesk.exe"
+    } else {
+        "ompdesk"
+    };
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(binary)))
+        .unwrap_or_else(|| PathBuf::from(binary))
+}
+
 /// The checks store, resolved as `crates/checks/src/store.rs` `store_dir` does: `OMPDESK_CHECKS_DIR`, else `checks`
 /// beside the heavy pool's folder as `heavy::pool_dir` finds it without `OMPDESK_HEAVY_DIR` (`$XDG_CACHE_HOME` only
 /// when absolute, else `~/.cache`; Windows `%LOCALAPPDATA%`, else `%USERPROFILE%\AppData\Local`).
@@ -403,6 +416,11 @@ pub struct Journals {
 }
 
 impl Journals {
+    /// One run's journal by its id, however long ago it ended.
+    pub fn run_blocking(&self, id: &str) -> Option<LocalRun> {
+        read_run(&self.root.join("runs").join(id), 0)
+    }
+
     /// Every run not ended, and those ended at or after `since`. A journal half written or of another shape is skipped.
     pub fn runs_blocking(&self, since: Timestamp) -> Vec<LocalRun> {
         let Ok(entries) = fs::read_dir(self.root.join("runs")) else {

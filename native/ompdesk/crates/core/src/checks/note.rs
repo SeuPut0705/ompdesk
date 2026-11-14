@@ -111,6 +111,11 @@ impl Note {
                 text(&self.branch),
                 short(&self.asked)
             ),
+            NoteCode::RanOn => format!(
+                "ran `{}` on {} with ompdesk check",
+                text(&self.job),
+                text(&self.device)
+            ),
         }
     }
 }
