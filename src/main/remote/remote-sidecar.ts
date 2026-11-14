@@ -375,7 +375,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	/** Reserve disposal behavior without sending a request; cancel restores the ordinary attached proxy. */
 	prepareViewLeave(sessionPath: string): PreparedRemoteViewLeave {
-		if (this.#disposed || this.#leftView || this.#preparedLeave || !this.#openedOnce)
+		if (this.#disposed || this.#leftView || this.#preparedLeave)
 			throw codedError("unknown_tab", "This view is no longer attached");
 		const link = this.#link;
 		const rtab = this.#rtab;
@@ -399,7 +399,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				this.#queuedReplies = [];
 				this.#opened = null;
 				this.#endSignInRelay();
-				await link.request("tab.leave", { rtab, sessionPath });
+				if (this.#openedOnce) await link.request("tab.leave", { rtab, sessionPath });
 			},
 		};
 	}
@@ -628,6 +628,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	}
 
 	async #bringUp(restart: { cwd?: string; sessionPath?: string } | null): Promise<void> {
+		if (this.#disposed || this.#leftView) return;
 		this.#begin();
 		if (this.#link.state !== "online") {
 			// "connecting" settles into online (bringUp again) or offline (shown then); one that never does stalls.
@@ -638,7 +639,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		try {
 			if (!this.#opened) {
 				const opened = await this.#open();
-				if (this.#disposed) return;
+				if (this.#disposed || this.#leftView) return;
 				this.#note("open", { attached: opened.attached, viewing: opened.viewing === true });
 				if (!opened.attached) {
 					// The host no longer held the tab: a new omp, so a re-attaching page starts over.
@@ -666,7 +667,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			this.#note("start", {});
 			this.#advance("ready");
 		} catch (error) {
-			if (this.#disposed) return;
+			if (this.#disposed || this.#leftView) return;
 			const message = error instanceof Error ? error.message : String(error);
 			// A request the host never answered (the link's own `timeout`, the link still up): a host too busy to answer
 			// yet, never a failed start. The tab says it waits for the host and asks again (`tab.start` is idempotent).

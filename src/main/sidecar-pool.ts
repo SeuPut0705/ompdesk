@@ -928,9 +928,12 @@ export class SidecarPool {
 
 	#noteExiting(exiting: Map<string, Promise<void>>, key: string, exited: Promise<void>): void {
 		exiting.set(key, exited);
-		void exited.finally(() => {
-			if (exiting.get(key) === exited) exiting.delete(key);
-		});
+		void exited.then(
+			() => {
+				if (exiting.get(key) === exited) exiting.delete(key);
+			},
+			error => console.warn(`[sidecar-pool] Exit confirmation failed for ${key}`, error),
+		);
 	}
 
 	/** The window's one "closed" listener (registered at the core's word): every tab it owned or viewed goes. */
@@ -1509,6 +1512,8 @@ export class SidecarPool {
 			return false;
 		}
 		const closed = committed;
+		const localRuntime = closed.last && !prepared ? this.#live(tabId) : undefined;
+		let exitConfirmation: Promise<{ error: unknown } | null> | undefined;
 		const effects: Promise<void>[] = [];
 		const run = (effect: () => void | Promise<void>): void => {
 			effects.push(
@@ -1518,6 +1523,14 @@ export class SidecarPool {
 			);
 		};
 		let flush: (() => void) | undefined;
+		run(() => {
+			if (localRuntime && !(localRuntime.sidecar instanceof HostedTabView)) {
+				exitConfirmation = localRuntime.sidecar.whenExited?.().then(
+					() => null,
+					(error: unknown) => ({ error }),
+				);
+			}
+		});
 		run(() => {
 			const handle = this.#live(tabId);
 			if (!handle) return;
@@ -1538,14 +1551,19 @@ export class SidecarPool {
 			if (prepared && closed.last) return prepared.commit();
 			prepared?.cancel();
 		});
-		run(() =>
-			this.#laterBound<void>(
+		run(async () => {
+			await this.#laterBound<void>(
 				"finishExactWindowView",
 				{ win: winId, tab: tabId, ...closed, remote: prepared !== undefined },
 				generation,
 				epoch,
-			),
-		);
+			);
+			if (localRuntime?.gone && !(localRuntime.sidecar instanceof HostedTabView)) {
+				if (!exitConfirmation) throw new Error("The execution exit could not be confirmed");
+				const failed = await exitConfirmation;
+				if (failed) throw failed.error;
+			}
+		});
 		const results = await Promise.allSettled(effects);
 		const failure = results.find(result => result.status === "rejected");
 		if (failure?.status === "rejected") {

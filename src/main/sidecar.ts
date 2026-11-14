@@ -1498,10 +1498,7 @@ export class SidecarManager extends EventEmitter {
 	/** Resolves once the current omp and every one this tab stopped before it have exited (at once when none runs). */
 	whenExited(): Promise<void> {
 		if (!this.#opened) return Promise.resolve();
-		return this.#send("sidecar.whenExited", {}, {}, NO_DEADLINE_MS).then(
-			() => undefined,
-			() => undefined,
-		);
+		return this.#send("sidecar.whenExited", {}, {}, NO_DEADLINE_MS).then(() => undefined);
 	}
 
 	/**

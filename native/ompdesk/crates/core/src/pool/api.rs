@@ -337,10 +337,14 @@ impl Ctx {
 
     pub(super) fn session_owner(&self, path: &str, device: Option<&str>) -> Value {
         self.with(|pool| {
-            pool.session_owners.get(&owner_key(device, path)).map_or(
-                Value::Null,
-                |owner| json!({"tabId": owner.tab_id, "winId": owner.win_id}),
-            )
+            pool.owner_entry(device, path).map_or(Value::Null, |entry| {
+                let win = if entry.owner_detached {
+                    entry.viewers.first().copied().unwrap_or(entry.win_id)
+                } else {
+                    entry.win_id
+                };
+                json!({"tabId": entry.tab_id, "winId": win})
+            })
         })
     }
 

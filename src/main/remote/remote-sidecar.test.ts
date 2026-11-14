@@ -960,6 +960,40 @@ describe("RemoteSidecar", () => {
 		expect(link.methods()).not.toContain("tab.start");
 	});
 
+	it("confirms an open attempted after preparation and never starts it after leaving", async () => {
+		const { link, sidecar } = setup({ fresh: false });
+		const opening = Promise.withResolvers<unknown>();
+		const leaving = Promise.withResolvers<null>();
+		link.handlers["tab.open"] = () => opening.promise;
+		link.handlers["tab.leave"] = () => leaving.promise;
+
+		const prepared = sidecar.prepareViewLeave("/s/held.jsonl");
+		sidecar.restart(undefined, "/s/held.jsonl");
+		expect(link.methods()).toEqual(["tab.open"]);
+		let confirmed = false;
+		const committed = prepared.commit().then(() => {
+			confirmed = true;
+		});
+		expect(link.methods()).toEqual(["tab.open", "tab.leave"]);
+		opening.resolve({ cwd: "/canonical/p", kind: "agent", attached: false });
+		await settle();
+		expect(confirmed).toBe(false);
+		expect(link.methods()).not.toContain("tab.start");
+		leaving.resolve(null);
+		await committed;
+		expect(confirmed).toBe(true);
+		sidecar.dispose();
+	});
+
+	it("can start a restored view after its prepared leave is cancelled", async () => {
+		const { link, sidecar } = setup({ fresh: false });
+		sidecar.prepareViewLeave("/s/held.jsonl").cancel();
+		sidecar.restart(undefined, "/s/held.jsonl");
+		await settle();
+		expect(link.methods()).toEqual(["tab.open", "tab.start"]);
+		sidecar.dispose();
+	});
+
 	it("prepares without sending, then awaits the captured leave after disposal", async () => {
 		const { link, sidecar, deferredCloses, disposed } = setup();
 		sidecar.start();

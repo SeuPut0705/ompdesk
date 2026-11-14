@@ -359,6 +359,8 @@ interface HostTab extends RunTracking {
 	resumeSessionPath: string | undefined;
 	/** Session file the sidecar last reported (live-owner checks for delete/rename). */
 	sessionFile: string | undefined;
+	/** The exact execution's exit, captured before this tab was disposed. */
+	exiting?: Promise<void>;
 	graceTimer: NodeJS.Timeout | undefined;
 	/** The rtabs this tab had before a relaunched device adopted it under a new one, newest first (`tabs.kept`). */
 	formerRtabs: string[];
@@ -591,7 +593,7 @@ export class LocalHostServices implements HostServices {
 	readonly #graceMs: number;
 	readonly #tabs = new Map<string, HostTab>();
 	readonly #leftTabs = new Set<string>();
-	readonly #leftReceipts = new Map<string, string>();
+	readonly #leftReceipts = new Map<string, { sessionPath: string; completion: Promise<void> }>();
 	/** Moves a device's command has on its way, by `resumeId` (turn-resume.ts `trackMove`). */
 	readonly #moves = new MovesInFlight();
 	/** Files a device sends in parts (`host.files.uploadPart`), by device and upload id, until the last part lands. */
@@ -1215,7 +1217,7 @@ export class LocalHostServices implements HostServices {
 				return this.#viewControl.call(peer.deviceId, method, params, conn);
 			case "tab.leave": {
 				const { rtab, sessionPath } = parse(LeaveParams, method, params);
-				this.#leave(peer, rtab, sessionPath, conn);
+				await this.#leave(peer, rtab, sessionPath, conn);
 				return null;
 			}
 			case "tab.start":
@@ -1761,35 +1763,47 @@ export class LocalHostServices implements HostServices {
 		return tab;
 	}
 
-	#leave(peer: PeerInfo, rtab: string, sessionPath: string, conn: HostConnection): void {
+	#leave(peer: PeerInfo, rtab: string, sessionPath: string, conn: HostConnection): Promise<void> {
 		const key = this.#key(peer.deviceId, rtab);
 		const previous = this.#leftReceipts.get(key);
 		if (previous !== undefined) {
-			if (previous !== sessionPath) throw codedError("invalid_session_path", "This view left a different session");
-			return;
+			if (previous.sessionPath !== sessionPath)
+				throw codedError("invalid_session_path", "This view left a different session");
+			return previous.completion;
 		}
 		const tab = this.#tab(peer, rtab);
 		if (tab.conn !== conn) throw codedError("unknown_tab", "This connection no longer owns that view");
 		if (tab.sessionFile !== sessionPath)
 			throw codedError("invalid_session_path", "The view no longer shows that session");
+		const completion = Promise.withResolvers<void>();
 		this.#leftTabs.add(key);
-		this.#leftReceipts.set(key, sessionPath);
-		if (tab.viewing || (tab.views.size === 0 && !runBusy(tab.run))) {
-			this.#closeTab(key);
-			return;
+		this.#leftReceipts.set(key, { sessionPath, completion: completion.promise });
+		try {
+			if (tab.viewing || (tab.views.size === 0 && !runBusy(tab.run))) {
+				const runner = typeof tab.viewing === "object" ? tab.viewing : undefined;
+				this.#closeTab(key);
+				const closed = runner ? (runner.exiting ? runner : undefined) : tab.viewing ? undefined : tab;
+				if (closed && !closed.sidecar.whenExited) throw new Error("Cannot confirm the hosted execution exited");
+				completion.resolve(closed?.exiting);
+			} else {
+				tab.ownerDetached = true;
+				tab.conn = null;
+				clearTimeout(tab.graceTimer);
+				tab.graceTimer = undefined;
+				tab.linkEvents?.sender.dispose();
+				tab.linkEvents = undefined;
+				this.#stopRelay(key);
+				disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
+				this.#routeDetachedCalls(tab);
+				this.#resume?.sync();
+				this.workChanged();
+				this.listingChanged();
+				completion.resolve();
+			}
+		} catch (error) {
+			completion.reject(error);
 		}
-		tab.ownerDetached = true;
-		tab.conn = null;
-		clearTimeout(tab.graceTimer);
-		tab.graceTimer = undefined;
-		tab.linkEvents?.sender.dispose();
-		tab.linkEvents = undefined;
-		this.#stopRelay(key);
-		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
-		this.#routeDetachedCalls(tab);
-		this.#resume?.sync();
-		this.workChanged();
-		this.listingChanged();
+		return completion.promise;
 	}
 
 	#viewLeft(tab: HostTab, view: HostedTabView): void {
@@ -2963,6 +2977,7 @@ export class LocalHostServices implements HostServices {
 		tab.sidecar.removeAllListeners();
 		// Taken before dispose(), which forgets the child it kills.
 		const exited = tab.sidecar.whenExited?.() ?? Promise.resolve();
+		tab.exiting = exited;
 		if (!tab.viewing) noteOmpExit(tab.sidecar.cwd, exited);
 		tab.sidecar.dispose();
 		const { sessionFile } = tab;
@@ -2971,9 +2986,12 @@ export class LocalHostServices implements HostServices {
 			const pending = this.#exiting.get(sessionFile);
 			const all = pending ? Promise.all([pending, exited]).then(() => undefined) : exited;
 			this.#exiting.set(sessionFile, all);
-			void all.finally(() => {
-				if (this.#exiting.get(sessionFile) === all) this.#exiting.delete(sessionFile);
-			});
+			void all.then(
+				() => {
+					if (this.#exiting.get(sessionFile) === all) this.#exiting.delete(sessionFile);
+				},
+				error => console.warn(`[remote-host] Exit confirmation failed for ${sessionFile}`, error),
+			);
 		}
 		this.#relays.forget(key);
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));

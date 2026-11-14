@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DesktopSlotState } from "../../resources/gui-bridge/desktop-slot-contracts";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import { DesktopSlotHost } from "./desktop-slot-host";
@@ -208,6 +208,29 @@ describe("DesktopSlotHost", () => {
 		a.exit.resolve();
 		await flush();
 		expect(world.host.state().holder?.tabId).toBe("b");
+	});
+
+	it("keeps the desktop with its holder when process exit cannot be confirmed", async () => {
+		const world = new World();
+		const a = world.tab("a", "A");
+		const b = world.tab("b", "B");
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			world.frame(a, { type: "desktop_slot_acquire", requestId: "r1" });
+			world.frame(b, { type: "desktop_slot_acquire", requestId: "r2" });
+			a.emit("status", { status: "ready" });
+			a.exit.reject(new Error("exit confirmation unavailable"));
+			a.emit("status", { status: "starting" });
+			await flush();
+			expect(world.host.state().holder?.tabId).toBe("a");
+			expect(world.host.state().queue).toEqual([{ tabId: "b", title: "B" }]);
+			expect(world.calls.some(call => call.tab === "b" && call.method === "desktop_slot.grant")).toBe(false);
+			expect(await world.host.killHolder()).toBe(false);
+			expect(world.host.state().holder?.tabId).toBe("a");
+		} finally {
+			world.host.dispose();
+			warning.mockRestore();
+		}
 	});
 
 	it("retries the revoke on the user's try-again and frees the slot once it is confirmed", async () => {

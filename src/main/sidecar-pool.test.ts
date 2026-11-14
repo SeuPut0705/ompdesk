@@ -31,6 +31,7 @@ import { withRemovalClaim } from "./worktree-removals";
 class FakeSidecar extends EventEmitter {
 	started = false;
 	disposed = false;
+	autoExitOnDispose = false;
 	restartArgs: Array<{ cwd: string | undefined; sessionPath: string | undefined }> = [];
 	reloads: Array<{ reload: boolean; reconnect: string[] }> = [];
 	/** Side-channel frames written via sendSideChannel (F-UI-ORIGIN assertions). */
@@ -94,6 +95,7 @@ class FakeSidecar extends EventEmitter {
 	kill(): void {}
 	dispose(): void {
 		this.disposed = true;
+		if (this.autoExitOnDispose) this.exited.resolve();
 		this.removeAllListeners();
 	}
 	sendSideChannel(frame: object): Promise<void> | undefined {
@@ -204,10 +206,11 @@ function fakeWindow(id: number): FakeWindow {
 	};
 }
 
-function fakePool(): { pool: SidecarPool; sidecars: FakeSidecar[] } {
+function fakePool(autoExitOnDispose = false): { pool: SidecarPool; sidecars: FakeSidecar[] } {
 	const sidecars: FakeSidecar[] = [];
 	const pool = new SidecarPool(cwd => {
 		const sidecar = new FakeSidecar(cwd);
+		sidecar.autoExitOnDispose = autoExitOnDispose;
 		sidecars.push(sidecar);
 		return sidecar as unknown as SidecarLike;
 	});
@@ -333,6 +336,68 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(pool.tabsForWindow(owner.win)).toEqual([]);
 	});
 
+	it("keeps new work after the last local view leaves even if its captured exit promise rejects", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8096);
+		pool.acquire("/a", owner.win, "local-new-work", SESSION);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "local-new-work");
+		if (!identity) throw new Error("expected an owner view identity");
+		let callbacks = 0;
+		pool.onWindowTabsChanged = () => {
+			if (++callbacks !== 1) return;
+			sidecar.emitAgentEvents(["agent_start"]);
+			sidecar.exited.reject(new Error("exit confirmation unavailable"));
+		};
+
+		expect(await pool.leaveWindowView(owner.win, "local-new-work", identity, SESSION, () => true, authorize)).toBe(
+			true,
+		);
+		expect(callbacks).toBeGreaterThan(0);
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		expect(sidecar.disposed).toBe(false);
+		expect(pool.resumeFacts()).toMatchObject([{ tabId: "local-new-work", running: true, ownerDetached: true }]);
+	});
+
+	it("waits for the original sidecar rather than a replacement with the same tab id", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8095);
+		pool.acquire("/a", owner.win, "local-reused", SESSION);
+		const original = sidecars[0];
+		if (!original) throw new Error("expected the original sidecar");
+		original.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "local-reused");
+		if (!identity) throw new Error("expected an owner view identity");
+		const closing = pool.leaveWindowView(owner.win, "local-reused", identity, SESSION, () => true, authorize);
+		let settled = false;
+		void closing.then(
+			() => {
+				settled = true;
+			},
+			() => {
+				settled = true;
+			},
+		);
+		await Promise.resolve();
+		await Promise.resolve();
+		hub().barrier();
+		expect(original.disposed).toBe(true);
+
+		pool.acquire("/b", owner.win, "local-reused", "/sessions/replacement.jsonl");
+		const replacement = sidecars[1];
+		if (!replacement) throw new Error("expected a replacement sidecar");
+		original.exited.resolve();
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		const settledAfterOriginalExit = settled;
+		replacement.exited.resolve();
+		expect(await closing).toBe(true);
+		expect(settledAfterOriginalExit).toBe(true);
+		expect(replacement.disposed).toBe(false);
+		expect(pool.tabsForWindow(owner.win).map(tab => tab.tabId)).toEqual(["local-reused"]);
+	});
+
 	it("confirms an owner view leaving without waiting for or disposing the surviving viewer's sidecar", async () => {
 		const { pool, sidecars } = fakePool();
 		const owner = fakeWindow(8093);
@@ -352,7 +417,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("fences a surface by its attachment and session, including detach and reattach", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8101);
 		const viewer = fakeWindow(-8102);
 		pool.acquire("/a", owner.win, "exact", SESSION);
@@ -377,7 +442,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("keeps long session paths out of bounded view identities and fences a reused tab id", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8110);
 		const sessionPath = `/sessions/${"long-directory/".repeat(40)}session.jsonl`;
 		pool.acquire("/a", owner.win, "reused", sessionPath);
@@ -393,7 +458,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("fences a view identity across a core generation loss and reseed", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8111);
 		pool.acquire("/a", owner.win, "generation", SESSION);
 		const first = pool.viewIdentity(owner.win, "generation");
@@ -409,7 +474,7 @@ describe("SidecarPool exact window-view leave", () => {
 	it.each([-8612, 8612])(
 		"reopens the detached owner's saved session without duplicating viewer %s",
 		async viewerId => {
-			const { pool, sidecars } = fakePool();
+			const { pool, sidecars } = fakePool(true);
 			const owner = fakeWindow(8611);
 			const viewer = fakeWindow(viewerId);
 			pool.acquire("/a", owner.win, "reopen-retained", SESSION);
@@ -444,7 +509,7 @@ describe("SidecarPool exact window-view leave", () => {
 	);
 
 	it("directs a new-window saved-session focus to a surviving view instead of the detached owner", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8621);
 		const viewer = fakeWindow(-8622);
 		pool.acquire("/a", owner.win, "focus-retained", SESSION);
@@ -464,7 +529,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("leaves the original owner while keeping every local viewer and the one execution", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8201);
 		const c = fakeWindow(-8202);
 		const d = fakeWindow(-8203);
@@ -504,7 +569,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("retains a remote-only source and routes its tools and answers through attached device views", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8301);
 		pool.acquire("/a", owner.win, "remote-only", SESSION);
 		const c = pool.viewForDevice(SESSION, { deviceId: "c", name: "C" }, "Host");
@@ -548,7 +613,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("keeps a hidden source alive if its last device leaves after a new run starts", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8351);
 		pool.acquire("/a", owner.win, "busy-hidden", SESSION);
 		const view = pool.viewForDevice(SESSION, { deviceId: "c", name: "C" }, "Host");
@@ -568,7 +633,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("refuses the last exact leave if new work started", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8401);
 		pool.acquire("/a", owner.win, "busy-exact", SESSION);
 		sidecars[0]?.emitStatus("ready");
@@ -581,7 +646,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("revives a detached marker as one hidden source and allows C to join without restoring owner UI", async () => {
-		const first = fakePool();
+		const first = fakePool(true);
 		const owner = fakeWindow(8501);
 		first.pool.acquire("/a", owner.win, "hidden-revive", SESSION);
 		const c = first.pool.viewForDevice(SESSION, { deviceId: "c", name: "C" }, "Host");
@@ -596,7 +661,7 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(marker.ownerDetached).toBe(true);
 		expect(first.pool.tabLayoutForWindow(owner.win)).toBeNull();
 		first.pool.disposeAll();
-		const revived = fakePool();
+		const revived = fakePool(true);
 		expect(revived.pool.reviveDetached(marker)).toBe("hidden-revive");
 		expect(revived.pool.reviveDetached(marker)).toBe("hidden-revive");
 		expect(revived.sidecars).toHaveLength(1);
@@ -780,7 +845,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("preserves a remaining viewer when committed layout persistence throws", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8651);
 		const viewer = fakeWindow(-8652);
 		pool.acquire("/a", owner.win, "retained-after-error", SESSION);
@@ -875,7 +940,7 @@ describe("SidecarPool exact window-view leave", () => {
 		}
 		expect(persisted).toBe(true);
 		expect(savedLayout).toBeNull();
-		const relaunched = fakePool();
+		const relaunched = fakePool(true);
 		if (savedLayout) relaunched.pool.restoreLayout(owner.win, savedLayout);
 		expect(relaunched.pool.tabsForWindow(owner.win)).toEqual([]);
 		expect(pool.tabsForWindow(owner.win)).toEqual([]);
@@ -888,7 +953,7 @@ describe("SidecarPool exact window-view leave", () => {
 	});
 
 	it("does not restore a departed local viewer's stream after core loss following its commit", async () => {
-		const { pool, sidecars } = fakePool();
+		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8701);
 		const viewer = fakeWindow(-8702);
 		const survivingViewer = fakeWindow(-8703);

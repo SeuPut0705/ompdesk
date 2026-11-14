@@ -15,28 +15,36 @@ export function noteOmpExit(cwd: string, exited: Promise<void>): void {
 	const set = pending.get(folder) ?? new Set();
 	set.add(exited);
 	pending.set(folder, set);
-	void exited
-		.catch(() => undefined)
-		.finally(() => {
+	void exited.then(
+		() => {
 			set.delete(exited);
 			if (set.size === 0 && pending.get(folder) === set) pending.delete(folder);
-		});
+		},
+		error => console.warn(`[omp-exits] Exit confirmation failed for ${folder}`, error),
+	);
 }
 
 /**
- * Settles true once every omp noted in `folder` (or inside it) has exited, false when one is still running after
- * `timeoutMs`.
+ * Settles true once every omp noted in `folder` (or inside it) has exited, false when an exit is unconfirmed or
+ * one is still running after `timeoutMs`.
  */
 export async function ompsExitedIn(folder: string, timeoutMs: number): Promise<boolean> {
 	const root = realFolder(folder);
 	const waits = [...pending.entries()]
 		.filter(([cwd]) => cwd === root || isInside(root, cwd))
-		.flatMap(([, set]) => [...set].map(exit => exit.catch(() => undefined)));
+		.flatMap(([, set]) =>
+			[...set].map(exit =>
+				exit.then(
+					() => true,
+					() => false,
+				),
+			),
+		);
 	if (waits.length === 0) return true;
 	const { promise: late, resolve } = Promise.withResolvers<boolean>();
 	const timer = setTimeout(() => resolve(false), timeoutMs);
 	try {
-		return await Promise.race([Promise.all(waits).then(() => true), late]);
+		return await Promise.race([Promise.all(waits).then(results => results.every(Boolean)), late]);
 	} finally {
 		clearTimeout(timer);
 	}

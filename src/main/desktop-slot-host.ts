@@ -136,14 +136,16 @@ export class DesktopSlotHost {
 		// Ends the child with SIGTERM and starts the tab's omp afresh, as the tab's own restart does.
 		sidecar.restart();
 		let timer: NodeJS.Timeout | undefined;
-		const gone = await Promise.race([
-			exited.then(() => true),
-			new Promise<boolean>(resolve => {
-				timer = setTimeout(() => resolve(false), this.#killConfirmMs);
-			}),
-		]);
-		clearTimeout(timer);
-		return gone;
+		try {
+			return await Promise.race([
+				exited.then(() => true),
+				new Promise<boolean>(resolve => {
+					timer = setTimeout(() => resolve(false), this.#killConfirmMs);
+				}),
+			]);
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 
 	dispose(): void {
@@ -156,16 +158,26 @@ export class DesktopSlotHost {
 		// The process whose exit proves it is gone: the current child, re-read whenever the sidecar is ready (a status
 		// other than ready arrives after the manager already forgot its child, and a restart's `starting` comes before
 		// the old child has exited).
-		let exited: Promise<void> = sidecar.whenExited?.() ?? Promise.resolve();
+		const confirmedExit = () =>
+			(sidecar.whenExited?.() ?? Promise.resolve()).then(
+				() => true,
+				error => {
+					console.warn(`[desktop-slot] Exit confirmation failed for ${id}`, error);
+					return false;
+				},
+			);
+		let exited = confirmedExit();
 		sidecar.on("status", (payload: { status: string }) => {
 			if (payload.status === "ready") {
-				exited = sidecar.whenExited?.() ?? Promise.resolve();
+				exited = confirmedExit();
 				return;
 			}
 			// `error` over a live child is a failed health check, not an exit. Anything else hands the slot on only once
 			// the old process has really exited: a holder whose revoke failed may still be driving the desktop.
 			if (payload.status === "error") return;
-			void exited.then(() => this.#slot.crashed(id));
+			void exited.then(confirmed => {
+				if (confirmed) this.#slot.crashed(id);
+			});
 		});
 	}
 

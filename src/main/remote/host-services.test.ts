@@ -3518,17 +3518,83 @@ describe("LocalHostServices: a device opening a session another device's tab run
 				throw error;
 			},
 		);
+		let retrySettled = false;
+		const retry = services
+			.call(viewer.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, viewer)
+			.then(result => {
+				retrySettled = true;
+				return result;
+			});
 		const checkpoint = Promise.withResolvers<void>();
 		setImmediate(checkpoint.resolve);
 		await checkpoint.promise;
 		const settledBeforeExit = settled;
+		const retrySettledBeforeExit = retrySettled;
 		expect(sidecar.disposed).toBe(true);
 		expect(sidecar.processAlive).toBe(true);
 		sidecar.exit();
 		expect(await leaving).toBeNull();
+		expect(await retry).toBeNull();
 		expect(settledBeforeExit).toBe(false);
+		expect(retrySettledBeforeExit).toBe(false);
 		expect(aliveAtReply).toBe(false);
 		expect(deleteSession).not.toHaveBeenCalled();
+	});
+
+	it("returns an exit failure on the leave and its retry", async () => {
+		const { services, sidecar, x: owner, y: viewer } = await held();
+		sidecar.autoExitOnDispose = false;
+		await services.call(owner.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, owner);
+		const leaving = services.call(viewer.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, viewer);
+		const retry = services.call(viewer.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, viewer);
+		const leavingRejected = expect(leaving).rejects.toThrow("exit confirmation failed");
+		const retryRejected = expect(retry).rejects.toThrow("exit confirmation failed");
+		sidecar.exited.reject(new Error("exit confirmation failed"));
+		await Promise.all([leavingRejected, retryRejected]);
+		await expect(
+			services.call(viewer.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, viewer),
+		).rejects.toThrow("exit confirmation failed");
+		await expect(services.closeSessionTabs(SESSION)).rejects.toThrow("exit confirmation failed");
+	});
+
+	it("does not wait for an older execution on the same session when the closed execution exits", async () => {
+		const { services, sidecars } = setup();
+		const oldPeer = new FakeConnection(peer("old-device"));
+		await services.call(oldPeer.peer, "tab.open", { rtab: "old", cwd: workDir, fresh: true }, oldPeer);
+		const old = sidecars[0];
+		if (!old) throw new Error("expected the old sidecar");
+		old.setStatus("ready");
+		old.emit("session", { sessionId: "old", sessionFile: SESSION });
+		await services.call(oldPeer.peer, "tab.close", { rtab: "old" }, oldPeer);
+
+		const currentPeer = new FakeConnection(peer("current-device"));
+		await services.call(
+			currentPeer.peer,
+			"tab.open",
+			{ rtab: "current", cwd: workDir, sessionPath: SESSION },
+			currentPeer,
+		);
+		const current = sidecars[1];
+		if (!current) throw new Error("expected the current sidecar");
+		current.setStatus("ready");
+		current.emit("session", { sessionId: "current", sessionFile: SESSION });
+		let settled = false;
+		const leaving = services
+			.call(currentPeer.peer, "tab.leave", { rtab: "current", sessionPath: SESSION }, currentPeer)
+			.then(result => {
+				settled = true;
+				return result;
+			});
+		expect(current.disposed).toBe(true);
+		current.exit();
+		const checkpoint = Promise.withResolvers<void>();
+		setImmediate(checkpoint.resolve);
+		await checkpoint.promise;
+		const settledWithOldAlive = settled;
+		expect(old.processAlive).toBe(true);
+		old.exit();
+		expect(await leaving).toBeNull();
+		expect(settledWithOldAlive).toBe(true);
 	});
 
 	it("acknowledges a leave without waiting for the execution another device still views", async () => {
