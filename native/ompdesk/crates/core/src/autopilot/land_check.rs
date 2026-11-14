@@ -685,6 +685,39 @@ mod tests {
         assert!(!output.status.success());
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_posix_fallback_runs_without_bash_only_options() {
+        let shell = Shell::command(
+            "printf '%s' \"$AUTOPILOT_TEST_EXPORT\"; exit 7".into(),
+            BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-posix-shell".into())]),
+            std::path::Path::new("/bin/sh"),
+            std::path::Path::new("/unused-supervisor"),
+        ).unwrap();
+        let output = Command::new(&shell.file).args(&shell.args).env_clear().envs(&shell.env).output().await.unwrap();
+        assert_eq!(output.stdout, b"from-posix-shell", "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.status.code(), Some(7));
+    }
+
+    #[test]
+    fn a_comspec_fallback_keeps_windows_command_arguments() {
+        let command = "echo %AUTOPILOT_TEST_EXPORT% & exit /b 7";
+        let shell = Shell::command(
+            command.into(),
+            BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-comspec".into())]),
+            std::path::Path::new(r"C:\Windows\System32\cmd.exe"),
+            std::path::Path::new("/unused-supervisor"),
+        ).unwrap();
+        assert_eq!(shell.args, ["/d", "/s", "/c", command]);
+        assert_eq!(shell.file, r"C:\Windows\System32\cmd.exe");
+        #[cfg(windows)]
+        {
+            let output = std::process::Command::new(&shell.file).args(&shell.args).env_clear().envs(&shell.env).output().unwrap();
+            assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "from-comspec");
+            assert_eq!(output.status.code(), Some(7));
+        }
+    }
+
     #[test]
     fn a_run_stopped_at_its_timeout_reports_timed_out_never_a_pass() {
         let out = finish(b"partial\n", None, Some(0), true);
