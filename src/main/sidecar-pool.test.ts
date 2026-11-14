@@ -528,6 +528,7 @@ describe("SidecarPool exact window-view leave", () => {
 		"reopens a busy zero-window session in the %s window without a new execution",
 		async destination => {
 			const { pool, sidecars, sidecar, owner, other, oldIdentity } = await busyWithoutViews();
+			const starts = sidecar.restartArgs.length;
 			const window = destination === "owner" ? owner : other;
 			const kindFor = vi.fn(async () => "agent" as const);
 			const recordedCwd = vi.fn(async () => "/a");
@@ -556,7 +557,7 @@ describe("SidecarPool exact window-view leave", () => {
 			expect(sidecars).toEqual([sidecar]);
 			expect(sidecar.disposed).toBe(false);
 			expect(sidecars[0]).toBe(sidecar);
-			expect(sidecar.restartArgs).toEqual([]);
+			expect(sidecar.restartArgs).toHaveLength(starts);
 			expect(kindFor).not.toHaveBeenCalled();
 			expect(recordedCwd).not.toHaveBeenCalled();
 		},
