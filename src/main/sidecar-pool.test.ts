@@ -15,7 +15,7 @@ import type {
 } from "../shared/rpc-types";
 import { unsavedSessionKey } from "../shared/session-summary";
 import { hub } from "./core/hub";
-import { core, CoreError } from "./core/process";
+import { CoreError, core } from "./core/process";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { RemoteSidecar } from "./remote/remote-sidecar";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";

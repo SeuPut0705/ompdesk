@@ -6710,6 +6710,7 @@ describe("closing one exact relay view", () => {
 					},
 				};
 				let shown = true;
+				const committed = vi.fn();
 				const detach = vi.fn(
 					async (
 						selected: LocalViewSurface,
@@ -6720,6 +6721,7 @@ describe("closing one exact relay view", () => {
 						if (!guard() || !stillClosable()) return false;
 						expect(selected.win).toBe(win);
 						expect(selected.facts.handle).toEqual(viewHandle);
+						committed();
 						shown = false;
 						return true;
 					},
@@ -6730,7 +6732,7 @@ describe("closing one exact relay view", () => {
 					isWeb: () => false,
 					timeoutMs: 1_000,
 				});
-				return { local, detach, viewHandle };
+				return { local, committed, viewHandle };
 			}
 			const b = localSurface("host-b", 2, "view-b");
 			const c = localSurface("host-c", 3, "view-c");
@@ -6871,8 +6873,8 @@ describe("closing one exact relay view", () => {
 				).toBe(true);
 				expect(b.local.list().map(item => item.handle)).toEqual(personTurn && !revoked ? [] : [b.viewHandle]);
 				expect(c.local.list().map(item => item.handle)).toEqual([c.viewHandle]);
-				expect(b.detach).toHaveBeenCalledTimes(personTurn && !revoked ? 1 : 0);
-				expect(c.detach).not.toHaveBeenCalled();
+				expect(b.committed).toHaveBeenCalledTimes(personTurn && !revoked ? 1 : 0);
+				expect(c.committed).not.toHaveBeenCalled();
 				expect(requests.map(request => [request.viewHost, request.tabId])).toEqual(
 					personTurn ? [["host-b", "view-b"]] : [],
 				);
@@ -6921,20 +6923,20 @@ describe("closing one exact relay view", () => {
 			service.validateViewAuthorization(receipt, { ...handle, incarnation: "replacement" }),
 		).rejects.toThrow();
 		await expect(service.validateViewAuthorization(receipt, handle)).rejects.toThrow();
-		await expect(service.releaseViewAuthorization(receipt)).resolves.toBeUndefined();
+		await service.releaseViewAuthorization(receipt);
 
 		const fresh: unknown = await service.authorizeView("source-a", facts(), "host-a");
 		if (typeof fresh !== "string" || fresh.length === 0) throw new Error("Missing source authorization receipt");
-		await expect(service.validateViewAuthorization(fresh, handle)).resolves.toBeUndefined();
+		await service.validateViewAuthorization(fresh, handle);
 		await expect(service.validateViewAuthorization(fresh, handle)).rejects.toThrow();
-		await expect(service.releaseViewAuthorization(fresh)).resolves.toBeUndefined();
+		await service.releaseViewAuthorization(fresh);
 
 		const released: unknown = await service.authorizeView("source-a", facts(), "host-a");
 		if (typeof released !== "string" || released.length === 0)
 			throw new Error("Missing source authorization receipt");
 		await service.releaseViewAuthorization(released);
 		await expect(service.validateViewAuthorization(released, handle)).rejects.toThrow();
-		await expect(service.releaseViewAuthorization(released)).resolves.toBeUndefined();
+		await service.releaseViewAuthorization(released);
 	});
 
 	it("validates receiver facts without dropping a real waiting request", () => {
