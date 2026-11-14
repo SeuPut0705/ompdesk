@@ -33,6 +33,7 @@ pub(crate) struct Effects {
     session_effects: Mutex<Vec<(Arc<Target>, Value)>>,
     fail_session_effect: AtomicBool,
     capture_gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    pub(crate) snapshot_failure: Mutex<Option<Fault>>,
     capture_started: Semaphore,
 }
 impl Effects {
@@ -57,6 +58,7 @@ impl Effects {
             session_effects: Mutex::default(),
             fail_session_effect: AtomicBool::new(false),
             capture_gate: Mutex::default(),
+            snapshot_failure: Mutex::default(),
             capture_started: Semaphore::new(0),
         })
     }
@@ -121,6 +123,9 @@ impl Host for Effects {
             .clone())
     }
     fn snapshot(&self, target: &Arc<Target>) -> Result<Snapshot, Fault> {
+        if let Some(failure) = lock(&self.snapshot_failure).as_ref() {
+            return Err(failure.clone());
+        }
         Ok(lock(&target.state).clone())
     }
     async fn capture_session_target(
