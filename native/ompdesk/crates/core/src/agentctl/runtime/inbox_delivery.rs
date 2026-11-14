@@ -439,3 +439,6 @@ async fn accept(call: Call) -> Result<Reply, Fault> {
 pub(super) fn register(registry: &mut Registry) {
     registry.add("agentRuntime.acceptInbox", |call| Box::pin(accept(call)));
 }
+
+#[cfg(test)]
+mod tests;

@@ -77,7 +77,7 @@ fn state(tabs: Vec<Value>) -> Value {
     json!({ "enabled": true, "tabs": tabs, "windowOf": windows })
 }
 
-fn rig(
+pub(super) fn rig(
     id: u64,
     state: Value,
     files: Files,
@@ -110,7 +110,7 @@ fn with_outbox() -> Files {
     }
 }
 
-fn told_of(told: &Told, method: &str) -> Vec<Value> {
+pub(super) fn told_of(told: &Told, method: &str) -> Vec<Value> {
     told.lock()
         .unwrap()
         .iter()
