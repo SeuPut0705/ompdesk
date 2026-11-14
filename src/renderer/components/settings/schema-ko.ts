@@ -76,6 +76,27 @@ export const KO_GROUP_TITLES: Record<string, string> = {
 /** Per-setting row text, keyed by schema setting path. */
 export const KO_SETTINGS: Record<string, { label: string; description?: string }> = {
 	"auth.accountPolicies": { label: "계정별 인증 정책" },
+	"auth.unpausedProviders": {
+		label: "일시 중지된 프로바이더 다시 사용",
+		description:
+			"일시 중지된 프로바이더의 로그인·토큰 갱신·저장된 인증 정보를 다시 사용해요. 각 중지 사유에 표시된 계정 위험을 수락하는 설정이에요. 프로젝트 설정으로는 켤 수 없어요.",
+	},
+	"todo.midRunNudges": {
+		label: "작업 중 할 일 알림",
+		description: "긴 턴에서 수정이나 명령을 계속 실행하는 동안 할 일 목록 갱신을 얼마나 자주 알릴지 정해요.",
+	},
+	"commit.enabled": {
+		label: "선택적 커밋",
+		description: "이 에이전트와 서브에이전트가 작성한 줄만 커밋하는 commit eval 기능과 /commit을 사용해요.",
+	},
+	"bash.allowedEnvVars": {
+		label: "허용할 Bash 환경 변수",
+		description:
+			"bash.patterns 허용 규칙과 대조할 때 명령 앞의 KEY=VALUE 접두어로 허용할 정확한 변수 이름이에요. 와일드카드는 지원하지 않아요. 어떤 값이든 허용하므로 안전한 빌드·시험 변수만 넣으세요. PATH·LD_PRELOAD·BASH_ENV·*_RUNNER·*_WRAPPER처럼 실행을 바꾸는 변수는 임의 명령 실행을 허용해요.",
+	},
+	"models.noJudge": { label: "판정 모델의 프로바이더 제한" },
+	"models.noSpotlight": { label: "Spotlight 프로바이더 제한" },
+	"models.offline": { label: "보조 모델의 프로바이더 제한" },
 	modelPresets: { label: "모델 프리셋" },
 	"terminal.programStatus": {
 		label: "프로그램 상태 (OSC 7501)",
