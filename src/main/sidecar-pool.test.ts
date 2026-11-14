@@ -508,10 +508,10 @@ describe("SidecarPool exact window-view leave", () => {
 		if (!oldIdentity) throw new Error("expected the owner view");
 		const oldDeviceView = pool.viewForDevice(SESSION, { deviceId: "c", name: "C" }, "Host");
 		if (!oldDeviceView) throw new Error("expected the device view");
-		sidecar.emitAgentEvents(["agent_start"]);
 		expect(await pool.leaveWindowView(owner.win, "busy-reopen", oldIdentity, SESSION, () => true, authorize)).toBe(
 			true,
 		);
+		sidecar.emitAgentEvents(["agent_start"]);
 		oldDeviceView.dispose();
 		expect(pool.tabsForWindow(owner.win)).toEqual([]);
 		expect(pool.tabsForWindow(other.win)).toEqual([]);
