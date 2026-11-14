@@ -26,6 +26,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::deps::{BoxFuture, Upload, UploadFailure, Uploads};
+use super::paths::resolve;
 use crate::server::{Call, Fault, Registry, Reply};
 
 pub const FILE_MAX_BYTES: u64 = 25 * 1024 * 1024;
@@ -128,33 +129,6 @@ fn now_ms() -> i64 {
         .map_or(0, |since| since.as_millis() as i64)
 }
 
-/// `path.resolve`: against the working folder when relative, `.` and `..` folded away without touching the disk.
-fn resolve(path: &Path) -> PathBuf {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(path)
-    };
-    let mut out = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
-                out.push(component);
-            }
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if out
-                    .components()
-                    .next_back()
-                    .is_some_and(|last| matches!(last, Component::Normal(_)))
-                {
-                    out.pop();
-                }
-            }
-        }
-    }
-    out
-}
 
 /// `path.join(base, tail)` for a name from outside: its own separators and `..` count, a leading `/` does not
 /// replace the base.

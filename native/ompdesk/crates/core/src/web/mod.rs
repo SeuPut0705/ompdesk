@@ -20,6 +20,7 @@ pub mod native;
 pub mod notification_batch;
 pub mod notifier;
 pub mod pairing;
+pub mod paths;
 pub mod push;
 pub mod quota;
 pub mod refusal;
