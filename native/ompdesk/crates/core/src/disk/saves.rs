@@ -20,23 +20,25 @@ use crate::server::{Events, Fault};
 /// Waits between tries while the disk stays full; the last one repeats.
 const RETRY_MS: [u64; 5] = [5_000, 10_000, 20_000, 40_000, 60_000];
 
-type Writer = dyn Fn(&Path, &[u8], Option<u32>, u32) -> Result<bool, Fault> + Send + Sync;
+type Commit = Arc<dyn Fn() -> bool + Send + Sync>;
+type Writer = dyn Fn(&Path, &[u8], Option<u32>, u32, &dyn Fn() -> bool) -> Result<bool, Fault> + Send + Sync;
 
 /// Whether a failed write ran out of disk space or the user's quota, as node names it.
 pub(crate) fn disk_full(fault: &Fault) -> bool {
     fault.message.starts_with("ENOSPC:") || fault.message.starts_with("EDQUOT:")
 }
 
-#[derive(Clone)]
 struct Kept {
     bytes: Vec<u8>,
     mode: Option<u32>,
     dir_mode: u32,
+    /// None preserves the unscoped writer's replacement and error semantics.
+    commit: Option<Commit>,
 }
 
 struct State {
-    /// The files waiting for space, with what each should hold.
-    kept: HashMap<PathBuf, Kept>,
+    /// Scoped pending versions retain prior accepted bytes until a newer version commits.
+    kept: HashMap<PathBuf, Vec<Kept>>,
     events: Option<Events>,
 }
 
@@ -101,19 +103,52 @@ impl Saves {
         dir_mode: u32,
     ) -> Result<bool, Fault> {
         let mut state = self.lock();
-        let result = (self.writer)(file, bytes, mode, dir_mode);
+        let result = (self.writer)(file, bytes, mode, dir_mode, &|| true);
         if matches!(&result, Err(fault) if disk_full(fault)) {
             let kept = Kept {
                 bytes: bytes.to_vec(),
                 mode,
                 dir_mode,
+                commit: None,
             };
-            if state.kept.insert(file.to_path_buf(), kept).is_none() {
+            if state.kept.insert(file.to_path_buf(), vec![kept]).is_none() {
                 state.tell("store.saveFailed", file);
                 self.retry(file);
             }
         } else if state.kept.remove(file).is_some() {
             state.tell("store.saved", file);
+        }
+        result
+    }
+
+    /// A scoped save may supersede a pending value only while its admission still holds.
+    /// Failed newer mutations leave the prior accepted value available for retry.
+    fn write_if(
+        self: &Arc<Self>,
+        file: &Path,
+        bytes: &[u8],
+        mode: Option<u32>,
+        dir_mode: u32,
+        commit: Commit,
+    ) -> Result<bool, Fault> {
+        let mut state = self.lock();
+        if !commit() { return Ok(false); }
+        let result = (self.writer)(file, bytes, mode, dir_mode, commit.as_ref());
+        match &result {
+            Ok(true) => {
+                if state.kept.remove(file).is_some() { state.tell("store.saved", file); }
+            }
+            Err(error) if disk_full(error) && commit() => {
+                let first = !state.kept.contains_key(file);
+                let pending = state.kept.entry(file.to_owned()).or_default();
+                pending.retain(|kept| kept.commit.as_ref().is_none_or(|check| check()));
+                pending.push(Kept { bytes: bytes.to_vec(), mode, dir_mode, commit: Some(commit) });
+                if first {
+                    state.tell("store.saveFailed", file);
+                    self.retry(file);
+                }
+            }
+            _ => {}
         }
         result
     }
@@ -155,29 +190,32 @@ impl Saves {
 
     fn retry_once(&self, file: &Path) -> bool {
         let mut state = self.lock();
-        let Some(kept) = state.kept.get(file) else {
-            return false;
-        };
-        let result = (self.writer)(file, &kept.bytes, kept.mode, kept.dir_mode);
-        if matches!(&result, Err(fault) if disk_full(fault)) {
-            return true;
+        let Some(mut pending) = state.kept.remove(file) else { return false; };
+        while let Some(kept) = pending.pop() {
+            let check = || kept.commit.as_ref().is_none_or(|check| check());
+            if !check() { continue; }
+            let result = (self.writer)(file, &kept.bytes, kept.mode, kept.dir_mode, &check);
+            if matches!(&result, Err(fault) if disk_full(fault) || kept.commit.is_some()) && check() {
+                pending.push(kept);
+                state.kept.insert(file.to_owned(), pending);
+                return true;
+            }
+            if matches!(result, Ok(true)) { break; }
+            if let Err(fault) = result {
+                eprintln!("ompdesk-core: couldn't save {} after the disk was full: {}", file.display(), fault.message);
+            }
+            // Only a cancelled scoped mutation falls back; an admitted pending version stays desired.
+            // An unscoped retry has only its single value, as before.
         }
-        if let Err(fault) = result {
-            eprintln!(
-                "ompdesk-core: couldn't save {} after the disk was full: {}",
-                file.display(),
-                fault.message
-            );
-        }
-        state.kept.remove(file);
         state.tell("store.saved", file);
         false
     }
 }
 
+
 static SAVES: LazyLock<Arc<Saves>> = LazyLock::new(|| {
     Arc::new(Saves::new(
-        Box::new(|file, bytes, mode, dir_mode| {
+        Box::new(|file, bytes, mode, dir_mode, commit| {
             #[cfg(test)]
             if test_support::blocked(file) {
                 return Err(Fault::new(
@@ -185,7 +223,7 @@ static SAVES: LazyLock<Arc<Saves>> = LazyLock::new(|| {
                     format!("EDQUOT: disk quota exceeded, open '{}'", file.display()),
                 ));
             }
-            write_atomic_if(file, bytes, mode, dir_mode, &|| true)
+            write_atomic_if(file, bytes, mode, dir_mode, commit)
         }),
         RETRY_MS.to_vec(),
     ))
@@ -200,6 +238,18 @@ pub(crate) fn write_kept(
     dir_mode: u32,
 ) -> Result<bool, Fault> {
     SAVES.write(file, bytes, mode, dir_mode)
+}
+
+/// A retained save whose admission predicate is checked initially, on every retry and at
+/// the canonical atomic rename. Capture a cancellation signal, not a holding `Scope`.
+pub(crate) fn write_kept_if(
+    file: &Path,
+    bytes: &[u8],
+    mode: Option<u32>,
+    dir_mode: u32,
+    commit: Arc<dyn Fn() -> bool + Send + Sync>,
+) -> Result<bool, Fault> {
+    SAVES.write_if(file, bytes, mode, dir_mode, commit)
 }
 
 /// Deletes a store and withdraws a pending retry under the same lock as saves.
@@ -282,14 +332,14 @@ mod tests {
     /// leaves it); otherwise the real atomic write.
     fn disk(full: &Arc<AtomicBool>, other: Option<&'static str>) -> Box<Writer> {
         let full = Arc::clone(full);
-        Box::new(move |file, bytes, mode, dir_mode| {
+        Box::new(move |file, bytes, mode, dir_mode, commit| {
             if let Some(message) = other {
                 return Err(Fault::new("io", message));
             }
             if full.load(Ordering::SeqCst) {
                 return Err(enospc());
             }
-            write_atomic_if(file, bytes, mode, dir_mode, &|| true)
+            write_atomic_if(file, bytes, mode, dir_mode, commit)
         })
     }
 
@@ -438,7 +488,7 @@ mod tests {
         let quota = Arc::new(AtomicBool::new(true));
         let blocked = Arc::clone(&quota);
         let saves = Arc::new(Saves::new(
-            Box::new(move |file, bytes, mode, dir_mode| {
+            Box::new(move |file, bytes, mode, dir_mode, commit| {
                 if blocked.load(Ordering::SeqCst) {
                     return Err(crate::fs::error::NodeError::new(
                         &std::io::Error::from_raw_os_error(libc::EDQUOT),
@@ -447,7 +497,7 @@ mod tests {
                     )
                     .fault(crate::fs::error::Codes::None));
                 }
-                write_atomic_if(file, bytes, mode, dir_mode, &|| true)
+                write_atomic_if(file, bytes, mode, dir_mode, commit)
             }),
             vec![60_000],
         ));
@@ -482,5 +532,87 @@ mod tests {
             vec![("store.saveFailed".to_string(), name)]
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn admitted(flag: &Arc<AtomicBool>) -> Commit {
+        let flag = Arc::clone(flag);
+        Arc::new(move || flag.load(Ordering::SeqCst))
+    }
+
+    #[test]
+    fn cancelled_newer_scoped_quota_save_retries_the_prior_accepted_value() {
+        let dir = temp("scoped-fallback");
+        let file = dir.join("state.json");
+        fs::write(&file, b"original").unwrap();
+        let full = Arc::new(AtomicBool::new(true));
+        let saves = Arc::new(Saves::new(disk(&full, None), vec![60_000]));
+        let first = Arc::new(AtomicBool::new(true));
+        let second = Arc::new(AtomicBool::new(true));
+        assert!(saves.write_if(&file, b"accepted", None, 0o700, admitted(&first)).is_err());
+        assert!(saves.write_if(&file, b"cancelled-newer", None, 0o700, admitted(&second)).is_err());
+        second.store(false, Ordering::SeqCst);
+        full.store(false, Ordering::SeqCst);
+        assert!(!saves.retry_once(&file));
+        assert_eq!(fs::read(&file).unwrap(), b"accepted");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_newer_scoped_write_preserves_the_prior_quota_retry() {
+        let dir = temp("scoped-error");
+        let file = dir.join("state.json");
+        fs::write(&file, b"original").unwrap();
+        let full = Arc::new(AtomicBool::new(true));
+        let blocked = Arc::clone(&full);
+        let saves = Arc::new(Saves::new(Box::new(move |file, bytes, mode, dir_mode, commit| {
+            if blocked.load(Ordering::SeqCst) { return Err(enospc()); }
+            if bytes == b"refused" { return Err(Fault::new("io", "EACCES: refused")); }
+            write_atomic_if(file, bytes, mode, dir_mode, commit)
+        }), vec![60_000]));
+        assert!(saves.write_if(&file, b"accepted", None, 0o700, Arc::new(|| true)).is_err());
+        full.store(false, Ordering::SeqCst);
+        assert!(saves.write_if(&file, b"refused", None, 0o700, Arc::new(|| true)).is_err());
+        assert!(!saves.retry_once(&file));
+        assert_eq!(fs::read(&file).unwrap(), b"accepted");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cancellation_at_the_actual_atomic_commit_cannot_replace_the_existing_file() {
+        let dir = temp("scoped-commit");
+        let file = dir.join("state.json");
+        fs::write(&file, b"original").unwrap();
+        let live = Arc::new(AtomicBool::new(true));
+        let revoke = Arc::clone(&live);
+        let saves = Arc::new(Saves::new(Box::new(move |file, bytes, mode, dir_mode, commit| {
+            revoke.store(false, Ordering::SeqCst);
+            write_atomic_if(file, bytes, mode, dir_mode, commit)
+        }), vec![60_000]));
+        assert!(!saves.write_if(&file, b"withdrawn", None, 0o700, admitted(&live)).unwrap());
+        assert_eq!(fs::read(&file).unwrap(), b"original");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_scoped_retry_cannot_overwrite_a_newer_successful_save_or_recreate_a_removed_store() {
+        let dir = temp("scoped-newer");
+        let file = dir.join("state.json");
+        let full = Arc::new(AtomicBool::new(true));
+        let saves = Arc::new(Saves::new(disk(&full, None), vec![60_000]));
+        let live = Arc::new(AtomicBool::new(true));
+        assert!(saves.write_if(&file, b"stale", None, 0o700, admitted(&live)).is_err());
+        full.store(false, Ordering::SeqCst);
+        assert!(saves.write_if(&file, b"newer", None, 0o700, Arc::new(|| true)).unwrap());
+        live.store(false, Ordering::SeqCst);
+        assert!(!saves.retry_once(&file));
+        assert_eq!(fs::read(&file).unwrap(), b"newer");
+        full.store(true, Ordering::SeqCst);
+        assert!(saves.write_if(&file, b"pending", None, 0o700, Arc::new(|| true)).is_err());
+        saves.remove(&file).unwrap();
+        full.store(false, Ordering::SeqCst);
+        assert!(!saves.retry_once(&file));
+        assert!(!file.exists());
+        fs::remove_dir_all(dir).unwrap();
     }
 }
