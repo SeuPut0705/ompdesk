@@ -1,0 +1,1530 @@
+[
+  {
+    "branch": "한국어/branch",
+    "cycles": [],
+    "title": "한국어/branch: 0 cycles",
+    "body": "# 한국어/branch: 0 cycles\n\n0 cycles · 0 commits · 0 red\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "performance",
+        "title": "",
+        "summary": "",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      }
+    ],
+    "title": "autopilot/2026-11-14: 1 cycle",
+    "body": "# autopilot/2026-11-14: 1 cycle\n\n1 cycle · 0 commits · 1 red\n\n## Performance\n- **#1** (untitled) — red\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n\n## Open follow-ups\n- Fix edge\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "features",
+        "title": "",
+        "summary": "",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "refactoring",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 2,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      }
+    ],
+    "title": "한국어/branch: 2 cycles",
+    "body": "# 한국어/branch: 2 cycles\n\n2 cycles · 1 commit · 0 red\n\n## Features\n- **#1** (untitled) — skipped\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n\n## Refactoring\n- **#2** Fix edge — no report · `1234567` · +2 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "refactoring",
+        "title": "",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "tests",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 3,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      },
+      {
+        "n": 3,
+        "area": "bugs",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      }
+    ],
+    "title": "autopilot/2026-11-14: 3 cycles",
+    "body": "# autopilot/2026-11-14: 3 cycles\n\n3 cycles · 1 commit · 1 red\n\n## Refactoring\n- **#1** (untitled) — no report\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n\n## Tests\n- **#2** Fix edge — green · `1234567` · +3 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Bugs\n- **#3** (untitled) — red\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "tests",
+        "title": "",
+        "summary": "",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "bugs",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 4,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      },
+      {
+        "n": 3,
+        "area": "docs",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "user",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 4,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": true,
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      }
+    ],
+    "title": "한국어/branch: 4 cycles",
+    "body": "# 한국어/branch: 4 cycles\n\n4 cycles · 2 commits · 1 red\n\n## Tests\n- **#1** (untitled) — green\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n\n## Bugs\n- **#2** Fix edge — red · `1234567` · +4 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Docs\n- **#3** (untitled) — skipped\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Your requests\n- **#4** Fix edge — no report · `1234567` · +4 −3 in 3 files · reverted\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "bugs",
+        "title": "",
+        "summary": "",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "docs",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 5,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      },
+      {
+        "n": 3,
+        "area": "user",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "release",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "green",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 5,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": false,
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 5,
+        "area": "unreported",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ]
+      }
+    ],
+    "title": "autopilot/2026-11-14: 5 cycles",
+    "body": "# autopilot/2026-11-14: 5 cycles\n\n5 cycles · 2 commits · 2 red\n\n## Bugs\n- **#1** (untitled) — red\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n\n## Docs\n- **#2** Fix edge — skipped · `1234567` · +5 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Your requests\n- **#3** (untitled) — no report\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Release\n- **#4** Fix edge — green · `1234567` · +5 −3 in 3 files\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Unreported\n- **#5** (untitled) — red\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "docs",
+        "title": "",
+        "summary": "",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "user",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 6,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      },
+      {
+        "n": 3,
+        "area": "release",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "unreported",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "red",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 6,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": true,
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 5,
+        "area": "design",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ]
+      },
+      {
+        "n": 6,
+        "area": "performance",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 6,
+          "removed": 5,
+          "files": 5,
+          "commits": 1
+        },
+        "reverted": true
+      }
+    ],
+    "title": "한국어/branch: 6 cycles",
+    "body": "# 한국어/branch: 6 cycles\n\n6 cycles · 3 commits · 1 red\n\n## Design\n- **#5** (untitled) — skipped\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n\n## Performance\n- **#6** Fix edge — no report · `1234567` · +6 −5 in 5 files · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Docs\n- **#1** (untitled) — skipped\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n\n## Your requests\n- **#2** Fix edge — no report · `1234567` · +6 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Release\n- **#3** (untitled) — green\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Unreported\n- **#4** Fix edge — red · `1234567` · +6 −3 in 3 files · reverted\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [],
+    "title": "autopilot/2026-11-14: 0 cycles",
+    "body": "# autopilot/2026-11-14: 0 cycles\n\n0 cycles · 0 commits · 0 red\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "release",
+        "title": "",
+        "summary": "",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      }
+    ],
+    "title": "한국어/branch: 1 cycle",
+    "body": "# 한국어/branch: 1 cycle\n\n1 cycle · 0 commits · 0 red\n\n## Release\n- **#1** (untitled) — green\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n\n## Open follow-ups\n- Fix edge\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "unreported",
+        "title": "",
+        "summary": "",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "design",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 9,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      }
+    ],
+    "title": "autopilot/2026-11-14: 2 cycles",
+    "body": "# autopilot/2026-11-14: 2 cycles\n\n2 cycles · 1 commit · 1 red\n\n## Design\n- **#2** Fix edge — skipped · `1234567` · +9 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Unreported\n- **#1** (untitled) — red\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "design",
+        "title": "",
+        "summary": "",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "performance",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 10,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      },
+      {
+        "n": 3,
+        "area": "features",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      }
+    ],
+    "title": "한국어/branch: 3 cycles",
+    "body": "# 한국어/branch: 3 cycles\n\n3 cycles · 1 commit · 0 red\n\n## Design\n- **#1** (untitled) — skipped\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n\n## Performance\n- **#2** Fix edge — no report · `1234567` · +10 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Features\n- **#3** (untitled) — green\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "performance",
+        "title": "",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "features",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 11,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      },
+      {
+        "n": 3,
+        "area": "refactoring",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "tests",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 11,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": false,
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      }
+    ],
+    "title": "autopilot/2026-11-14: 4 cycles",
+    "body": "# autopilot/2026-11-14: 4 cycles\n\n4 cycles · 2 commits · 1 red\n\n## Performance\n- **#1** (untitled) — no report\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n\n## Features\n- **#2** Fix edge — green · `1234567` · +11 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Refactoring\n- **#3** (untitled) — red\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Tests\n- **#4** Fix edge — skipped · `1234567` · +11 −3 in 3 files\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "features",
+        "title": "",
+        "summary": "",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "refactoring",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 12,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      },
+      {
+        "n": 3,
+        "area": "tests",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "bugs",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 12,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": true,
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 5,
+        "area": "docs",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ]
+      }
+    ],
+    "title": "한국어/branch: 5 cycles",
+    "body": "# 한국어/branch: 5 cycles\n\n5 cycles · 2 commits · 1 red\n\n## Features\n- **#1** (untitled) — green\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n\n## Refactoring\n- **#2** Fix edge — red · `1234567` · +12 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Tests\n- **#3** (untitled) — skipped\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Bugs\n- **#4** Fix edge — no report · `1234567` · +12 −3 in 3 files · reverted\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Docs\n- **#5** (untitled) — green\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "refactoring",
+        "title": "",
+        "summary": "",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "tests",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 13,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      },
+      {
+        "n": 3,
+        "area": "bugs",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "docs",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "green",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 13,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": false,
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 5,
+        "area": "user",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ]
+      },
+      {
+        "n": 6,
+        "area": "release",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 13,
+          "removed": 5,
+          "files": 5,
+          "commits": 1
+        },
+        "reverted": false
+      }
+    ],
+    "title": "autopilot/2026-11-14: 6 cycles",
+    "body": "# autopilot/2026-11-14: 6 cycles\n\n6 cycles · 3 commits · 2 red\n\n## Refactoring\n- **#1** (untitled) — red\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n\n## Tests\n- **#2** Fix edge — skipped · `1234567` · +13 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Bugs\n- **#3** (untitled) — no report\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Docs\n- **#4** Fix edge — green · `1234567` · +13 −3 in 3 files\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Your requests\n- **#5** (untitled) — red\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n\n## Release\n- **#6** Fix edge — skipped · `1234567` · +13 −5 in 5 files\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [],
+    "title": "한국어/branch: 0 cycles",
+    "body": "# 한국어/branch: 0 cycles\n\n0 cycles · 0 commits · 0 red\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "bugs",
+        "title": "",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      }
+    ],
+    "title": "autopilot/2026-11-14: 1 cycle",
+    "body": "# autopilot/2026-11-14: 1 cycle\n\n1 cycle · 0 commits · 0 red\n\n## Bugs\n- **#1** (untitled) — no report\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n\n## Open follow-ups\n- Fix edge\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "docs",
+        "title": "",
+        "summary": "",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "user",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 16,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      }
+    ],
+    "title": "한국어/branch: 2 cycles",
+    "body": "# 한국어/branch: 2 cycles\n\n2 cycles · 1 commit · 1 red\n\n## Docs\n- **#1** (untitled) — green\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n\n## Your requests\n- **#2** Fix edge — red · `1234567` · +16 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "user",
+        "title": "",
+        "summary": "",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "release",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 17,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      },
+      {
+        "n": 3,
+        "area": "unreported",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      }
+    ],
+    "title": "autopilot/2026-11-14: 3 cycles",
+    "body": "# autopilot/2026-11-14: 3 cycles\n\n3 cycles · 1 commit · 1 red\n\n## Your requests\n- **#1** (untitled) — red\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n\n## Release\n- **#2** Fix edge — skipped · `1234567` · +17 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Unreported\n- **#3** (untitled) — no report\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "release",
+        "title": "",
+        "summary": "",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "unreported",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 18,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      },
+      {
+        "n": 3,
+        "area": "design",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "performance",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "red",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 18,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": true,
+        "verifyNote": {
+          "kind": "no_check",
+          "command": "bun run check"
+        }
+      }
+    ],
+    "title": "한국어/branch: 4 cycles",
+    "body": "# 한국어/branch: 4 cycles\n\n4 cycles · 2 commits · 1 red\n\n## Design\n- **#3** (untitled) — green\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Performance\n- **#4** Fix edge — red · `1234567` · +18 −3 in 3 files · reverted\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Release\n- **#1** (untitled) — skipped\n  - Verify: reported green, but no check ran this cycle\n  - Follow-up: Fix edge\n\n## Unreported\n- **#2** Fix edge — no report · `1234567` · +18 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "unreported",
+        "title": "",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "design",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 19,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      },
+      {
+        "n": 3,
+        "area": "performance",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "features",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 19,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": false,
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 5,
+        "area": "refactoring",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ]
+      }
+    ],
+    "title": "autopilot/2026-11-14: 5 cycles",
+    "body": "# autopilot/2026-11-14: 5 cycles\n\n5 cycles · 2 commits · 1 red\n\n## Design\n- **#2** Fix edge — green · `1234567` · +19 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Performance\n- **#3** (untitled) — red\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Features\n- **#4** Fix edge — skipped · `1234567` · +19 −3 in 3 files\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Refactoring\n- **#5** (untitled) — no report\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n\n## Unreported\n- **#1** (untitled) — no report\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "design",
+        "title": "",
+        "summary": "",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "performance",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 20,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": true
+      },
+      {
+        "n": 3,
+        "area": "features",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "ship": {
+          "version": "1.2.3",
+          "runUrl": "https://example.invalid/run/1"
+        }
+      },
+      {
+        "n": 4,
+        "area": "refactoring",
+        "title": " Fix edge ",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 20,
+          "removed": 3,
+          "files": 3,
+          "commits": 1
+        },
+        "reverted": true,
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 5,
+        "area": "tests",
+        "title": "",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ]
+      },
+      {
+        "n": 6,
+        "area": "bugs",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "red",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 20,
+          "removed": 5,
+          "files": 5,
+          "commits": 1
+        },
+        "reverted": true
+      }
+    ],
+    "title": "한국어/branch: 6 cycles",
+    "body": "# 한국어/branch: 6 cycles\n\n6 cycles · 3 commits · 2 red\n\n## Design\n- **#1** (untitled) — green\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n\n## Performance\n- **#2** Fix edge — red · `1234567` · +20 −1 in 1 file · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Features\n- **#3** (untitled) — skipped\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n  - Released 1.2.3 (https://example.invalid/run/1)\n\n## Refactoring\n- **#4** Fix edge — no report · `1234567` · +20 −3 in 3 files · reverted\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n\n## Tests\n- **#5** (untitled) — green\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Child `child/one`: merged `a123456`\n\n## Bugs\n- **#6** Fix edge — red · `1234567` · +20 −5 in 5 files · reverted\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [],
+    "title": "autopilot/2026-11-14: 0 cycles",
+    "body": "# autopilot/2026-11-14: 0 cycles\n\n0 cycles · 0 commits · 0 red\n"
+  },
+  {
+    "branch": "한국어/branch",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "features",
+        "title": "",
+        "summary": "",
+        "verify": "skipped",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "check_failed",
+          "command": "bun run check"
+        }
+      }
+    ],
+    "title": "한국어/branch: 1 cycle",
+    "body": "# 한국어/branch: 1 cycle\n\n1 cycle · 0 commits · 0 red\n\n## Features\n- **#1** (untitled) — skipped\n  - Verify: reported green, but the last check failed (`bun run check`)\n  - Follow-up: Fix edge\n\n## Open follow-ups\n- Fix edge\n"
+  },
+  {
+    "branch": "autopilot/2026-11-14",
+    "cycles": [
+      {
+        "n": 1,
+        "area": "refactoring",
+        "title": "",
+        "summary": "",
+        "verify": "unreported",
+        "followups": [
+          "Fix edge"
+        ],
+        "children": [],
+        "verifyNote": {
+          "kind": "edited_after",
+          "command": "bun run check"
+        }
+      },
+      {
+        "n": 2,
+        "area": "tests",
+        "title": " Fix edge ",
+        "summary": " Korean 한국어\n second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "verify": "green",
+        "followups": [
+          "Fix edge",
+          "Keep names"
+        ],
+        "children": [
+          {
+            "branch": "child/one",
+            "outcome": "merged",
+            "sha": "a123456789abcdef"
+          }
+        ],
+        "commit": "123456789abcdef",
+        "change": {
+          "added": 23,
+          "removed": 1,
+          "files": 1,
+          "commits": 1
+        },
+        "reverted": false
+      }
+    ],
+    "title": "autopilot/2026-11-14: 2 cycles",
+    "body": "# autopilot/2026-11-14: 2 cycles\n\n2 cycles · 1 commit · 0 red\n\n## Refactoring\n- **#1** (untitled) — no report\n  - Verify: reported green, but files were edited after the last check\n  - Follow-up: Fix edge\n\n## Tests\n- **#2** Fix edge — green · `1234567` · +23 −1 in 1 file\n  Korean 한국어 second line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n  - Follow-up: Fix edge\n  - Follow-up: Keep names\n  - Child `child/one`: merged `a123456`\n\n## Open follow-ups\n- Fix edge\n- Keep names\n"
+  }
+]

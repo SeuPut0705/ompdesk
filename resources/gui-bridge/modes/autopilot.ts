@@ -92,7 +92,7 @@ import {
 	verifyShipQuote,
 	writeOffNote,
 } from "./autopilot-core";
-import { evaluateToolCall } from "./autopilot-guard-core";
+import { evaluateToolCall, findBanViolation } from "./autopilot-guard-core";
 import { ensureGuide, fileIo, type GuideIo, readGuide } from "./autopilot-guide";
 import { AUTOPILOT_CHILD_SECTION, AUTOPILOT_STOPPING_STEER, autopilotSection } from "./autopilot-prompt";
 import { unreleasedOnTarget } from "./autopilot-release-facts";
@@ -1249,6 +1249,24 @@ function methodsTable(): BridgeMethods {
 		},
 		...guard("autopilot", {
 			[M.arm]: async (params, env) => arm(attach(env), parseArm(params)),
+			[M.approval]: async (params, env) => {
+				const session = attach(env);
+				const state = requireRun(session);
+				if (state.state === "ended") throw new Error("This autopilot run has ended.");
+				const text = record(params).text;
+				if (typeof text !== "string") throw new Error("approval needs text");
+				return {
+					reason:
+						findBanViolation(text, {
+							root: state.root,
+							shipLevel: shipLevelOf(state.settings.ship, true),
+							oneShotRelease: state.role !== "child" && guardState?.oneShotRelease === true,
+							role: state.role ?? "parent",
+							remote: state.settings.ship.remote,
+							defaultBranch: state.baseBranch,
+						}) ?? null,
+				};
+			},
 			[M.configure]: async (params, env) => configure(attach(env), record(params) as AutopilotConfigureParams),
 			[M.note]: async (params, env) => note(attach(env), params),
 			[M.dismiss]: async (params, env) => dismissFollowup(attach(env), record(params)),

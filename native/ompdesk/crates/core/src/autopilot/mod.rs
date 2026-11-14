@@ -6,6 +6,8 @@
 //!   overlay): a mirror written only from this side's `mirror` and `childRun` tells.
 //! - `ship`, `audit`, `land_check` (9n): what main did to git on the run's behalf.
 //! - `branches`: the start's branch rules and reads. `steps`: the run's bounded pipeline.
+//! - `approval`, `release`, `effects`: native application rules. Approval text is checked by the existing guard in
+//!   the real tab's stock bridge; the native host never accepts root, role or release scope from page arguments.
 //!
 //! What it reaches in main goes through one `Port` (`crate::ports`): the omp of a tab (stock commands and the bridge),
 //! the pool's facts, the windows (`dispatch`, `spawnTab`), notices, text, and the few rules that stay TypeScript because
@@ -16,11 +18,14 @@
 //! of `audit`, `ship`, `land_check` and `branches` drive are `autopilot.snapshot`, `autopilot.audit`,
 //! `autopilot.branchEntries`, `autopilot.branchInfo`, `autopilot.landCheck` and `autopilot.ship.*`.
 
+pub mod approval;
 pub mod audit;
 pub mod branches;
 mod coordinator;
 mod cycle;
+pub mod effects;
 pub mod land_check;
+pub mod release;
 mod run;
 pub mod ship;
 mod start;

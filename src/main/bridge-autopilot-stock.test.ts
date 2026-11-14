@@ -20,6 +20,7 @@ import {
 	DEFAULT_AUTOPILOT_SETTINGS,
 	AUTOPILOT_BRIDGE_METHODS as M,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import { decideApproval } from "./autopilot-approver";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 import { removeWhenFree } from "./test-folders";
@@ -372,6 +373,51 @@ function firstCycle(inTurn: number): Step {
 }
 
 describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
+	it("judges approval text in the actual run, including release and child exceptions", async () => {
+		const provider = await startProvider(() => ({ hang: true }));
+		cleanups.push(() => provider.close());
+		const h = await startOmp(provider);
+		const ship = {
+			...DEFAULT_AUTOPILOT_SETTINGS.ship,
+			autoRelease: { on: true, cadence: { kind: "agent" as const } },
+		};
+		for (const role of ["parent", "child"] as const) {
+			await h.bridge.request(M.arm, {
+				role,
+				root: h.root,
+				run: "approval",
+				branch: "autopilot/approval",
+				baseBranch: "main",
+				settings: { ...DEFAULT_AUTOPILOT_SETTINGS, ship },
+			});
+			for (const text of [
+				"bash\ngit status",
+				"bash\ngit push origin HEAD:main",
+				"bash\ngit push --force origin main",
+			]) {
+				const previous = decideApproval(
+					{
+						type: "extension_ui_request",
+						id: "c",
+						method: "select",
+						title: `Allow tool: ${text}`,
+						options: ["Approve", "Deny"],
+					},
+					{ role, root: h.root, ship, oneShotRelease: true, defaultBranch: "main" },
+				);
+				const checked = await h.bridge.request<{ reason: string | null }>(M.approval, {
+					text,
+					role: "parent",
+					root: "/",
+					oneShotRelease: true,
+					shipLevel: "release",
+				});
+				expect(checked.reason ?? undefined, `${role}: ${text}`).toBe(previous.reason);
+			}
+			await h.bridge.request(M.disarm, {});
+		}
+	});
+
 	it("arms, guards, finalizes cycles, keeps going through unreported ones and disarms", async () => {
 		const provider = await startProvider(createScript());
 		cleanups.push(() => provider.close());
@@ -379,6 +425,7 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 
 		// A tab that is no run answers inactive and arms nothing.
 		expect(await h.bridge.request<AutopilotStatus>(M.status, {})).toEqual({ active: false });
+		await expect(h.bridge.request(M.approval, { text: "bash\ngit status" })).rejects.toThrow();
 
 		// The tool presentation before arm: top-level tools and `xd://` devices. Disarm must give back exactly this.
 		const presentation = async () => {
@@ -406,6 +453,38 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		});
 		expect(armed).toMatchObject({ active: true, role: "parent", state: "running", run: "2026-10-17" });
 		expect(armed.settings?.ship.autoPush).toBe(false);
+		// The native approver asks this same session to judge text; supplied role/root/release fields confer nothing.
+		for (const text of [
+			"bash\nbun run check:changed",
+			"bash\ngit push --force origin main",
+			"bash\ngit push origin HEAD:main",
+			"bash\nrm -rf /",
+		]) {
+			const previous = decideApproval(
+				{
+					type: "extension_ui_request",
+					id: "card",
+					method: "select",
+					title: `Allow tool: ${text}`,
+					options: ["Approve", "Deny"],
+				},
+				{
+					role: "parent",
+					root: h.root,
+					ship: DEFAULT_AUTOPILOT_SETTINGS.ship,
+					oneShotRelease: false,
+					defaultBranch: "main",
+				},
+			);
+			const checked = await h.bridge.request<{ reason: string | null }>(M.approval, {
+				text,
+				role: "parent",
+				root: "/",
+				oneShotRelease: true,
+				shipLevel: "release",
+			});
+			expect(checked.reason ?? undefined, text).toBe(previous.reason);
+		}
 
 		// Goal create AFTER arm: the first turn starts at once.
 		const created = await h.send({ type: "goal", op: "create", objective: "Autopilot: test objective" });
@@ -480,6 +559,7 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		await h.send({ type: "goal", op: "drop" });
 		const ended = await h.bridge.request<AutopilotStatus>(M.disarm, {});
 		expect(ended.state).toBe("ended");
+		await expect(h.bridge.request(M.approval, { text: "bash\ngit status" })).rejects.toThrow();
 
 		// Back to a normal session: no guard, the tool set is restored (no autopilot tool, `ask` is back).
 		const idleBy = Date.now() + 30_000;

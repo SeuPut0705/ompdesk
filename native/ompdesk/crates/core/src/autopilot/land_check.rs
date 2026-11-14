@@ -318,12 +318,37 @@ struct Setup {
 }
 
 /// The shell and environment the check runs in, and the supervisor that holds it (`landShell`).
-#[derive(Clone, Deserialize)]
-struct Shell {
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Shell {
     env: BTreeMap<String, String>,
     file: String,
     args: Vec<String>,
     supervisor: String,
+}
+
+impl Shell {
+    /// `bash` and `supervisor` are resolved by the native Machine service, not by a page request.
+    pub fn command(
+        command: String,
+        env: BTreeMap<String, String>,
+        bash: &std::path::Path,
+        supervisor: &std::path::Path,
+    ) -> Result<Self, Fault> {
+        let path = |path: &std::path::Path| {
+            path.to_str().map(str::to_owned).ok_or_else(|| {
+                Fault::new(
+                    "invalid_path",
+                    "The land check executable path is not UTF-8",
+                )
+            })
+        };
+        Ok(Self {
+            env,
+            file: path(bash)?,
+            args: vec!["-o".into(), "pipefail".into(), "-c".into(), command],
+            supervisor: path(supervisor)?,
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -646,6 +671,27 @@ mod tests {
             );
             assert_eq!(out, case["out"].as_str().unwrap(), "{case}");
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_native_shell_keeps_machine_exports_and_does_not_hide_a_failed_pipe() {
+        let shell = Shell::command(
+            "printf '%s' \"$AUTOPILOT_TEST_EXPORT\"; false | /usr/bin/true".into(),
+            BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-login-shell".into())]),
+            std::path::Path::new("/bin/bash"),
+            std::path::Path::new("/unused-supervisor"),
+        )
+        .unwrap();
+        let output = Command::new(&shell.file)
+            .args(&shell.args)
+            .env_clear()
+            .envs(&shell.env)
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(output.stdout, b"from-login-shell");
+        assert!(!output.status.success());
     }
 
     #[test]
