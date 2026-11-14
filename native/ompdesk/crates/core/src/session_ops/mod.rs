@@ -327,3 +327,6 @@ fn admission_error(refusal: AdmissionRefusal) -> Error {
 
 #[cfg(test)]
 mod cancellation_tests;
+
+#[cfg(test)]
+mod drop_tests;
