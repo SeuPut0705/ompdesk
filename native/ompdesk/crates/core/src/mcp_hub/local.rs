@@ -66,10 +66,10 @@ impl Call {
         object.remove("type");
         object.remove("id");
         if method == "mcp_action"
-            && !object
+            && object
                 .get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| !crate::fs::order::js_trim(name).is_empty())
+                .is_none_or(|name| crate::fs::order::js_trim(name).is_empty())
         {
             return Err(Fault::new(
                 "invalid_params",
