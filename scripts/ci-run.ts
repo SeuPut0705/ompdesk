@@ -16,9 +16,9 @@
  *    (`gh variable set MAC_REFS --body "<branch> <branch>"`).
  *  - A branch without queue-gate.yml (cut before the gate landed) runs its own old workflow files, which hold nothing:
  *    refused (exit 2); merge main first.
- *  - The macOS lane has a holder and a waiting request: refused (exit 3) with their run ids, because a dispatch now would
- *    replace the waiting one. `--wait` watches the holder (one `gh run watch`, never a poll loop) and checks again;
- *    `--replace` dispatches anyway.
+ *  - The macOS lane has another waiting request: refused (exit 3) with its run id, even without an active holder.
+ *    `--wait` watches a holder when one exists; without one it stays refused, never blindly redispatching.
+ *    `--replace` explicitly permits replacing the waiting request.
  *
  * Exit 0: dispatched, the exact response run ID printed (watch it once: `bun scripts/watch-run.ts <id>`).
  */
@@ -126,12 +126,17 @@ export function decide(
 			why: `${ref} is not in MAC_REFS (${macRefs || "empty"}): macOS runners are for main and release-bound branches. Ask Main to add it (gh variable set MAC_REFS --body "<branch> ..."), or drop mac=true / e2e=true.`,
 		};
 	}
-	if (lane.holders.length > 0 && lane.waiting.length > 0 && !args.replace) {
+	if (lane.waiting.length > 0 && !args.replace) {
 		const ids = (runs: LaneRun[]) => runs.map(run => `${run.id} (${run.workflow}, ${run.branch})`).join(", ");
+		const holder = lane.holders[0];
 		return {
 			go: false,
 			code: 3,
-			why: `the macOS lane has a holder, ${ids(lane.holders)}, and a waiting request, ${ids(lane.waiting)}; a dispatch now replaces the waiting one. Wait for the holder (--wait, or one gh run watch ${lane.holders[0]?.id}) and dispatch again.`,
+			why: `the macOS lane has ${holder ? `a holder, ${ids(lane.holders)}, and ` : ""}a waiting request, ${ids(lane.waiting)}; a new dispatch can replace it. ${
+				holder
+					? `Wait for the holder (--wait, or one gh run watch ${holder.id}) before dispatching again.`
+					: "There is no active holder to watch; --wait cannot proceed. Wait until this pending request leaves the lane."
+			}`,
 		};
 	}
 	if (lane.holders.length > 0) {
