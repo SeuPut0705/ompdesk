@@ -15,8 +15,9 @@ use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::pool::{EffectFuture, Sidecar};
+use crate::pool::application::Sidecar;
 use crate::server::Fault;
+use crate::sidecar::application::EffectFuture;
 use crate::sidecar::native::Service as NativeSidecar;
 use policy::{Attempt, Effect, Lease, Policy, Reason};
 
@@ -512,3 +513,6 @@ async fn drive(
     while tasks.join_next().await.is_some() {}
     state.send_replace(State::default());
 }
+
+#[cfg(test)]
+mod native_tests;
