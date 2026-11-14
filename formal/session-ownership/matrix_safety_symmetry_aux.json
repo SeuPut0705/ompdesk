@@ -1,0 +1,11 @@
+{
+	"runs": [
+		{
+			"name": "native-ownership-safety-name-symmetry-aux",
+			"config": "MC_SafetySymmetryAux.cfg",
+			"expect": "pass",
+			"deadlock": false,
+			"timeoutSec": 1800
+		}
+	]
+}
