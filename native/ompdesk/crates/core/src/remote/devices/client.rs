@@ -130,7 +130,17 @@ pub struct Client {
     addresses: Box<dyn Addresses>,
     inner: Mutex<Inner>,
     me: Weak<Client>,
+    observer: Mutex<Option<Observer>>,
 }
+
+#[derive(Clone)]
+pub struct Change {
+    pub state: LinkState,
+    pub host: Map<String, Value>,
+    pub hello: Option<Value>,
+    pub requests: Option<super::super::requests::RemoteRequests>,
+}
+pub type Observer = Arc<dyn Fn(Change) + Send + Sync>;
 
 pub struct ClientOptions {
     pub events: Events,
@@ -178,6 +188,7 @@ impl Client {
                 outage: None,
             }),
             me: me.clone(),
+            observer: Mutex::new(None),
         })
     }
 
@@ -209,6 +220,29 @@ impl Client {
                 "link": if inner.state == LinkState::Online { inner.link.map(Value::from) } else { None },
             }),
         );
+        if let Some(observer) = self
+            .observer
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+        {
+            let requests = if inner.state == LinkState::Online {
+                inner
+                    .link
+                    .and_then(|id| super::super::requests::RemoteRequests::bind_paused(id).ok())
+            } else {
+                None
+            };
+            observer(Change {
+                state: inner.state,
+                host: inner.host.clone(),
+                hello: inner.hello.clone(),
+                requests: requests.clone(),
+            });
+            if let Some(requests) = requests {
+                requests.listen();
+            }
+        }
     }
 
     fn set_state(&self, inner: &mut Inner, state: LinkState) {
@@ -223,6 +257,10 @@ impl Client {
         self.inner().state
     }
 
+    /// Install before connect. The observer installs its event consumer synchronously and never re-enters this client.
+    pub fn observe(&self, observer: Observer) {
+        *self.observer.lock().unwrap_or_else(|p| p.into_inner()) = Some(observer);
+    }
     /// The device name the next hello carries.
     pub fn set_name(&self, name: &str) {
         self.inner().name = name.to_owned();
