@@ -526,7 +526,7 @@ describe("authenticated inbox forwarding", () => {
 	const acceptance: NativeInboxAcceptance = {
 		persistence: "memory",
 		receiver,
-		deliveries: [{ key: { kind: "report", deliveryId: "delivery-1" }, dispatch: 7 }],
+		deliveries: [{ key: { kind: "report", deliveryId: "delivery-1" }, dispatch: 7, existing: false }],
 	};
 	const reply = { receiver, entries: [], receipts: [] };
 
@@ -551,8 +551,11 @@ describe("authenticated inbox forwarding", () => {
 		const accept = vi.fn(
 			async (_target: InboxSelection, _transfer: NativeInboxTransfer, _producer: string) => acceptance,
 		);
+		const lookup = vi.fn(async (_target: InboxSelection) => {
+			throw new Error("Unexpected lookup in an accept-only endpoint fixture");
+		});
 		let allowed = true;
-		context.services.attachAgentInbox({ allowsPeer: () => allowed, status, accept });
+		context.services.attachAgentInbox({ allowsPeer: () => allowed, status, lookup, accept });
 		let current = connection;
 		onTestFinished(async () => {
 			try {
@@ -568,6 +571,7 @@ describe("authenticated inbox forwarding", () => {
 			sidecar,
 			status,
 			accept,
+			lookup,
 			tabId,
 			revoke: () => {
 				allowed = false;
@@ -604,7 +608,7 @@ describe("authenticated inbox forwarding", () => {
 	});
 
 	it("rejects another peer's same rtab and untrusted extra fields before callbacks", async () => {
-		const { services, connection, status, accept } = await fixture();
+		const { services, connection, status, lookup, accept } = await fixture();
 		const foreign = new FakeConnection(peer("foreign"));
 		const error = await services
 			.call(foreign.peer, INBOX_METHODS.accept, { rtab: "receiver", transfer }, foreign)
@@ -614,6 +618,15 @@ describe("authenticated inbox forwarding", () => {
 			.call(foreign.peer, INBOX_METHODS.status, { rtab: "receiver", sessionPath }, foreign)
 			.catch((e: unknown) => e);
 		expect(ipcErrorCode(foreignStatus)).toBe("unknown_tab");
+		const foreignLookup = await services
+			.call(
+				foreign.peer,
+				INBOX_METHODS.lookup,
+				{ rtab: "receiver", query: { receiver, entries: transfer.entries } },
+				foreign,
+			)
+			.catch((e: unknown) => e);
+		expect(ipcErrorCode(foreignLookup)).toBe("unknown_tab");
 		for (const field of ["caller", "person", "expectedProducer"]) {
 			await expect(
 				services.call(
@@ -631,9 +644,44 @@ describe("authenticated inbox forwarding", () => {
 					connection,
 				),
 			).rejects.toThrow();
+			await expect(
+				services.call(
+					connection.peer,
+					INBOX_METHODS.lookup,
+					{ rtab: "receiver", query: { receiver, entries: transfer.entries }, [field]: "forged" },
+					connection,
+				),
+			).rejects.toThrow();
 		}
 		expect(status).not.toHaveBeenCalled();
 		expect(accept).not.toHaveBeenCalled();
+		expect(lookup).not.toHaveBeenCalled();
+	});
+
+	it.each(["revoked", "rebound"] as const)("rejects a %s lookup route without reaching the ledger", async mode => {
+		const { services, connection, lookup, sidecar, revoke, setCurrent } = await fixture();
+		if (mode === "revoked") revoke();
+		else {
+			const replacement = new FakeConnection(connection.peer);
+			setCurrent(replacement);
+			await services.call(
+				replacement.peer,
+				"tab.open",
+				{ rtab: "receiver", cwd: workDir, fresh: false },
+				replacement,
+			);
+		}
+		const error = await services
+			.call(
+				connection.peer,
+				INBOX_METHODS.lookup,
+				{ rtab: "receiver", query: { receiver, entries: transfer.entries } },
+				connection,
+			)
+			.catch((e: unknown) => e);
+		expect(ipcErrorCode(error)).toBe("remote_protocol");
+		expect(lookup).not.toHaveBeenCalled();
+		expect(sidecar.commands).toEqual([]);
 	});
 
 	it("projects only the current original route against the same captured runtime inventory", async () => {
@@ -683,6 +731,9 @@ describe("authenticated inbox forwarding", () => {
 		services.attachAgentInbox({
 			allowsPeer: () => true,
 			status: async () => reply,
+			lookup: async () => {
+				throw new Error("Unexpected lookup in an accept-only window fixture");
+			},
 			accept: async () => acceptance,
 		});
 		onTestFinished(async () => {

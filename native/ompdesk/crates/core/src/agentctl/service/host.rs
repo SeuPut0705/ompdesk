@@ -24,13 +24,13 @@ use super::types::{
 };
 use crate::agentctl::app::AppState;
 use crate::agentctl::inbox::{
-    InboxAdmission, InboxLogicalSource, InboxRoute, NativeInboxAcceptance, NativeInboxReply,
-    NativeInboxRequest, NativeInboxTransfer,
+    InboxAdmission, InboxLogicalSource, InboxRoute, NativeInboxAcceptance, NativeInboxLookup,
+    NativeInboxLookupReply, NativeInboxReply, NativeInboxRequest, NativeInboxTransfer,
 };
 use crate::agentctl::journal::Clock;
 use crate::agentctl::journal::attachments::{AttachedSet, AttachmentStore, LandedCache};
 use crate::agentctl::journal::mail_outbox::{MailAnswer, MailOutbox, OutboxMail};
-use crate::agentctl::rules::mail::MailDelivery;
+use crate::agentctl::rules::mail::{DeliveryReceipt, MailDelivery};
 use crate::ports::Port;
 
 /// Who opened a tab (`host.parentOf`): the opener's tab, and the tag the open carried (`autopilot-child`).
@@ -455,6 +455,7 @@ impl Host {
     ) -> R<()> {
         self.mail_attached(tab_id, content, details, delivery, None, None)
             .await
+            .map(|_| ())
     }
 
     /// `mail` with what the report carries: its pictures go inline (read from the attachment store), its files are
@@ -467,7 +468,7 @@ impl Host {
         delivery: MailDelivery,
         attached: Option<&AttachedSet>,
         native: Option<(&InboxAdmission, &str)>,
-    ) -> R<()> {
+    ) -> R<DeliveryReceipt> {
         if let Some((admission, logical_content)) = native {
             let state = self.state();
             let logical = &admission.logical;
@@ -494,14 +495,13 @@ impl Host {
                 attachments_corrupt: false,
                 at: (self.clock)(),
             };
-            crate::agentctl::runtime::inbox_source::post_report(
+            return crate::agentctl::runtime::inbox_source::post_report(
                 self.port.id(),
                 tab_id,
                 entry,
                 &admission.execution,
             )
-            .await?;
-            return Ok(());
+            .await;
         }
         let images = self.stored_images(attached).await?;
         let kept = self
@@ -547,13 +547,20 @@ impl Host {
         let answer = self
             .send_mail_with(tab_id, content, details, delivery, &images)
             .await?;
+        let existing = answer
+            .as_ref()
+            .is_some_and(|answer| answer.duplicate && answer.journaled);
         if let (Some((outbox, id)), Some(answer)) = (kept, answer)
             && answer.duplicate
             && answer.journaled
         {
             outbox.settle(&id);
         }
-        Ok(())
+        Ok(if existing {
+            DeliveryReceipt::Existing
+        } else {
+            DeliveryReceipt::New
+        })
     }
 
     /// One report to a tab's omp; the bridge's answer (`{duplicate, journaled}` for an id it already holds or queued).
@@ -606,6 +613,15 @@ impl Host {
             json!({ "tabId": tab_id, "sessionPath": session_path, "device": device }),
         )
         .await
+    }
+
+    pub(crate) async fn lookup_inbox(
+        &self,
+        tab_id: &str,
+        query: &NativeInboxLookup,
+    ) -> R<NativeInboxLookupReply> {
+        self.ask("lookupInbox", json!({ "tabId": tab_id, "query": query }))
+            .await
     }
 
     pub(crate) async fn inbox(

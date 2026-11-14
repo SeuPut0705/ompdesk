@@ -30,8 +30,10 @@
  *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
 import type {
+	InboxContextReceipt,
 	NativeInboxAcceptance,
 	NativeInboxFiles,
+	NativeInboxKey,
 	NativeInboxReply,
 	NativeInboxRequest,
 	NativeInboxRoute,
@@ -243,6 +245,25 @@ export interface SentAnswer {
 	journaled: string[];
 }
 
+export interface NativeInboxLookup {
+	receiver: NativeInboxTransfer["receiver"];
+	entries: NativeInboxTransfer["entries"];
+}
+
+export type NativeInboxLookupResult =
+	| { key: NativeInboxKey; state: "missing" }
+	| { key: NativeInboxKey; state: "existing_pending"; dispatch: number | null; intent: "immediate" | "follow_up" }
+	| {
+			key: NativeInboxKey;
+			state: "existing_context_observed";
+			dispatch: number | null;
+			contextReceipt: InboxContextReceipt;
+	  };
+
+export interface NativeInboxLookupReply {
+	receiver: NativeInboxTransfer["receiver"];
+	entries: NativeInboxLookupResult[];
+}
 /** What the receiver's bridge answers a report with: `{duplicate, journaled}` for an id it already holds or queued. */
 export interface MailAnswer {
 	duplicate?: boolean;
@@ -352,6 +373,7 @@ export interface AgentControlHost {
 		delivery: MailDelivery,
 	): Promise<MailAnswer | undefined | void>;
 	inboxStatus?(tabId: string, sessionPath: string, device?: string): Promise<NativeInboxReply>;
+	lookupInbox?(tabId: string, query: NativeInboxLookup): Promise<NativeInboxLookupReply>;
 	inbox?(tabId: string, transfer: NativeInboxTransfer): Promise<NativeInboxAcceptance>;
 	deliverInbox?(tabId: string, request: NativeInboxRequest): Promise<NativeInboxReply>;
 	/**
@@ -672,6 +694,17 @@ export class RuntimeClient {
 		expectedRoute?: NativeInboxRoute;
 	}): Promise<NativeInboxAcceptance> {
 		return this.#control.callRuntime("acceptInbox", request);
+	}
+
+	lookupInbox(request: {
+		tabId: string;
+		query: NativeInboxLookup;
+		uploadDeviceId: string;
+		expectedProducerDeviceId: string;
+		expectedRuntimeInstance: string;
+		expectedRoute?: NativeInboxRoute;
+	}): Promise<NativeInboxLookupReply> {
+		return this.#control.callRuntime("lookupInbox", request);
 	}
 
 	/** One tab activity the pool reported, with what only main knows at that moment (`activity.rs`). */
@@ -1112,6 +1145,11 @@ export class AgentControl {
 				coded(() => {
 					if (!host.inboxStatus) throw new Error("The native Inbox route is unavailable");
 					return host.inboxStatus(tabId, sessionPath, device(where));
+				}),
+			lookupInbox: ({ tabId, query }: { tabId: string; query: NativeInboxLookup }) =>
+				coded(() => {
+					if (!host.lookupInbox) throw new Error("The native Inbox route is unavailable");
+					return host.lookupInbox(tabId, query);
 				}),
 			inbox: ({ tabId, transfer }: { tabId: string; transfer: NativeInboxTransfer }) =>
 				coded(() => {

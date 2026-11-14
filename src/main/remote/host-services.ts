@@ -79,7 +79,7 @@ import { isApprovalSelect } from "../../shared/tool-approval";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import type { InboxSelection, LocalInboxTarget } from "../agent-control/host";
 import { localInboxRuntimeInstance } from "../agent-control/inbox-runtime-instance";
-import type { ControlTab } from "../agent-control/service";
+import type { ControlTab, NativeInboxLookup, NativeInboxLookupReply } from "../agent-control/service";
 import { type AnswerStep, TargetAnswer } from "../agent-control/target-answer";
 import { AtomicSaver } from "../atomic-file";
 import type { BackgroundWorkMember } from "../background-work";
@@ -163,6 +163,7 @@ import {
 	HostUploadPartParams,
 	INBOX_METHODS,
 	InboxAcceptParams,
+	InboxLookupParams,
 	InboxStatusParams,
 	KEPT_TABS_METHOD,
 	type KeptTab,
@@ -466,6 +467,7 @@ export type HostedAgentReview = (
 export interface HostedAgentInbox {
 	allowsPeer(deviceId: string): boolean;
 	status(target: InboxSelection): Promise<NativeInboxReply>;
+	lookup(target: InboxSelection, query: NativeInboxLookup, producerDeviceId: string): Promise<NativeInboxLookupReply>;
 	accept(
 		target: InboxSelection,
 		transfer: NativeInboxTransfer,
@@ -1278,6 +1280,15 @@ export class LocalHostServices implements HostServices {
 				const inbox = this.#agentInbox;
 				if (!inbox) throw codedError("unsupported", "The native Inbox route is unavailable");
 				const answer = await inbox.status(target);
+				target.assertCurrent();
+				return answer;
+			}
+			case INBOX_METHODS.lookup: {
+				const { rtab, query } = parse(InboxLookupParams, method, params);
+				const target = this.#inboxSelection(peer, rtab, query.receiver.sessionPath, conn);
+				const inbox = this.#agentInbox;
+				if (!inbox) throw codedError("unsupported", "The native Inbox route is unavailable");
+				const answer = await inbox.lookup(target, query, peer.deviceId);
 				target.assertCurrent();
 				return answer;
 			}
