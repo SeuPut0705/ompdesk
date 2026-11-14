@@ -1,6 +1,3 @@
-//! Tests of the message tools against a fake main: what an agent reads back from a send, a report, an answer and a
-//! card, and what main is asked or told meanwhile.
-
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};
@@ -14,7 +11,7 @@ use crate::ports::Port;
 
 type Asked = Arc<Mutex<Vec<(String, Value)>>>;
 
-fn rig(
+fn legacy_rig(
     id: u64,
     state: Value,
     tuning: Tuning,
@@ -57,6 +54,34 @@ fn rig(
     (control, asked)
 }
 
+fn rig(
+    id: u64,
+    state: Value,
+    tuning: Tuning,
+    reply: impl Fn(&str, &Value) -> Result<Value, String> + Send + Sync + 'static,
+) -> (
+    AgentControl,
+    Asked,
+    tokio::sync::mpsc::UnboundedReceiver<Value>,
+    impl Drop,
+) {
+    crate::agentctl::runtime::tests::native_rig(
+        id,
+        state,
+        Caps::default(),
+        &Files::default(),
+        tuning,
+        reply,
+    )
+}
+
+async fn delivered(channel: &mut tokio::sync::mpsc::UnboundedReceiver<Value>) -> Value {
+    tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv())
+        .await
+        .expect("native inbox delivery timed out")
+        .expect("native inbox delivery channel closed")
+}
+
 fn main_replies(method: &str, args: &Value) -> Result<Value, String> {
     match method {
         "args.parse" => Ok(json!({ "ok": true, "args": args["args"] })),
@@ -71,7 +96,7 @@ fn main_replies(method: &str, args: &Value) -> Result<Value, String> {
 }
 
 fn tab(id: &str) -> Value {
-    json!({ "tabId": id, "title": id, "cwd": "/w", "status": "ready", "busy": false, "asks": [], "hidden": false, "sessionPath": format!("/s/{id}_1.jsonl") })
+    json!({ "tabId": id, "runtimeInstance": format!("runtime-{id}"), "title": id, "cwd": "/w", "status": "ready", "busy": false, "asks": [], "hidden": false, "sessionPath": format!("/s/{id}_1.jsonl") })
 }
 
 fn state(tabs: Vec<Value>) -> Value {
@@ -80,6 +105,7 @@ fn state(tabs: Vec<Value>) -> Value {
         .map(|tab| (tab["tabId"].as_str().unwrap().to_owned(), json!("w")))
         .collect();
     json!({
+        "deviceId": "test-host",
         "enabled": true,
         "approveEnabled": true,
         "tabs": tabs,
@@ -104,7 +130,8 @@ async fn a_send_to_an_idle_child_hands_over_a_numbered_dispatch_and_repeats_its_
         turn_start_wait_ms: 40,
         ..Tuning::default()
     };
-    let (control, asked) = rig(9_301, state(vec![tab("a"), tab("b")]), tuning, main_replies);
+    let (control, asked, mut channel, _fixture) =
+        rig(9_301, state(vec![tab("a"), tab("b")]), tuning, main_replies);
     let args = json!({ "session": "b", "message": "do it", "request_id": "r1" });
     let first = control
         .run("a", "ompdesk_session_send", args.clone(), None)
@@ -112,27 +139,49 @@ async fn a_send_to_an_idle_child_hands_over_a_numbered_dispatch_and_repeats_its_
     assert!(!first.is_error, "{}", first.text);
     assert_eq!(
         first.text,
-        "Sent to \"b\" (saved id 1): accepted; it was idle, but no turn started within 0.04 s: see ompdesk_session_result before sending it again. Dispatch d1: it reports back with ompdesk_report."
+        "Sent to \"b\" (saved id 1): the receiving native journal accepted disk responsibility; actual provider-context receipt is separate. Dispatch d1: it reports back with ompdesk_report."
     );
-    let prompts: Vec<Value> = asked_with(&asked, "command")
-        .into_iter()
-        .filter(|args| args["command"]["type"] == "prompt")
-        .collect();
-    assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0]["command"]["streamingBehavior"], "steer");
-    assert!(
-        prompts[0]["command"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("[ompdesk dispatch d1:")
-    );
+    let delivery = delivered(&mut channel).await;
+    assert_eq!(delivery["tabId"], "b");
+    let entry = &delivery["request"]["entries"][0];
+    assert_eq!(entry["kind"], "prompt");
+    assert_eq!(entry["intent"], "immediate");
+    assert_eq!(entry["triggerTurn"], true);
+    let content = entry["content"].as_str().unwrap();
+    assert!(content.contains("do it"));
+    assert!(content.contains("[ompdesk dispatch d1:"));
+    let transfers = asked_with(&asked, "inbox");
+    assert_eq!(transfers[0]["transfer"]["entries"][0]["dispatch"], 1);
     let again = control.run("a", "ompdesk_session_send", args, None).await;
+    assert!(!again.is_error, "{}", again.text);
+    assert_eq!(again.text, first.text);
     assert_eq!(
-        again.text,
-        format!(
-            "{} (request r1 was already delivered; nothing sent again)",
-            first.text
+        asked_with(&asked, "inbox").last().unwrap()["transfer"]["entries"][0]["logical"]["requestId"],
+        "r1"
+    );
+    let changed = control
+        .run(
+            "a",
+            "ompdesk_session_send",
+            json!({ "session": "b", "message": "changed", "request_id": "r1" }),
+            None,
         )
+        .await;
+    assert!(changed.is_error, "{}", changed.text);
+    assert!(changed.text.contains("conflict"), "{}", changed.text);
+    let receiver = serde_json::from_value(delivery["request"]["receiver"].clone()).unwrap();
+    let (_, pending) = control
+        .receiving_inbox
+        .as_ref()
+        .unwrap()
+        .ledger
+        .pending(&receiver)
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].dispatch, Some(1));
+    assert_eq!(
+        pending[0].entry.delivery_id,
+        entry["deliveryId"].as_str().unwrap()
     );
     let to_itself = control
         .run(
@@ -153,22 +202,24 @@ async fn a_send_to_an_idle_child_hands_over_a_numbered_dispatch_and_repeats_its_
 
 #[tokio::test]
 async fn a_report_reaches_the_opener_once_and_says_what_to_do_next() {
-    let (control, asked) = rig(
+    let (control, asked, mut channel, _fixture) = rig(
         9_302,
         state(vec![tab("a"), tab("b")]),
         Tuning::default(),
         main_replies,
     );
-    let args = json!({ "kind": "question", "text": "which one?" });
+    let args = json!({ "id": "question-r1", "kind": "question", "text": "which one?" });
     let first = control.run("b", "ompdesk_report", args.clone(), None).await;
     assert_eq!(
         first.text,
         "Delivered. Wait for the answer: it comes as a message (between your steps while this turn runs); do not guess the decision meanwhile."
     );
-    let mails = asked_with(&asked, "mail");
-    assert_eq!(mails.len(), 1);
-    assert_eq!(mails[0]["tabId"], "a");
-    assert!(mails[0]["content"].as_str().unwrap().contains("which one?"));
+    let delivery = delivered(&mut channel).await;
+    assert_eq!(delivery["tabId"], "a");
+    let entry = &delivery["request"]["entries"][0];
+    assert_eq!(entry["kind"], "report");
+    assert_eq!(entry["details"]["kind"], "question");
+    assert!(entry["content"].as_str().unwrap().contains("which one?"));
     let again = control.run("b", "ompdesk_report", args, None).await;
     assert!(
         again.text.starts_with("Report ")
@@ -178,7 +229,20 @@ async fn a_report_reaches_the_opener_once_and_says_what_to_do_next() {
         "{}",
         again.text
     );
-    assert_eq!(asked_with(&asked, "mail").len(), 1);
+    assert_eq!(asked_with(&asked, "inbox").len(), 1);
+    let receiver = serde_json::from_value(delivery["request"]["receiver"].clone()).unwrap();
+    let (_, pending) = control
+        .receiving_inbox
+        .as_ref()
+        .unwrap()
+        .ledger
+        .pending(&receiver)
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].entry.delivery_id,
+        entry["deliveryId"].as_str().unwrap()
+    );
     // A session nobody opened has no one to report to.
     let alone = control
         .run(
@@ -201,7 +265,7 @@ async fn a_report_reaches_the_opener_once_and_says_what_to_do_next() {
 async fn an_answer_picks_the_option_and_a_tool_approval_needs_the_user_s_leave() {
     let mut card = tab("b");
     card["asks"] = json!([{ "id": "r1", "request": { "id": "r1", "method": "select", "title": "Pick", "options": ["Red", "Blue"] } }]);
-    let (control, asked) = rig(
+    let (control, asked) = legacy_rig(
         9_303,
         state(vec![tab("a"), card.clone()]),
         Tuning::default(),
@@ -238,7 +302,7 @@ async fn an_answer_picks_the_option_and_a_tool_approval_needs_the_user_s_leave()
     approval["asks"] = json!([{ "id": "r2", "request": { "id": "r2", "method": "select", "title": "Allow tool: bash\nrm", "options": ["Approve", "Deny"] } }]);
     let mut off = state(vec![tab("a"), approval]);
     off["approveEnabled"] = json!(false);
-    let (control, _) = rig(9_304, off, Tuning::default(), main_replies);
+    let (control, _) = legacy_rig(9_304, off, Tuning::default(), main_replies);
     let refused = control
         .run(
             "a",
@@ -269,7 +333,7 @@ async fn a_child_s_card_reaches_its_opener_once_and_focus_and_notify_tell_main()
     let mut card = tab("b");
     card["asks"] =
         json!([{ "id": "r1", "request": { "id": "r1", "method": "confirm", "title": "Go on?" } }]);
-    let (control, asked) = rig(
+    let (control, asked, mut channel, _fixture) = rig(
         9_305,
         state(vec![tab("a"), card]),
         Tuning::default(),
@@ -277,15 +341,19 @@ async fn a_child_s_card_reaches_its_opener_once_and_focus_and_notify_tell_main()
     );
     control.child_asked("a", "b", "r1").await.unwrap();
     control.child_asked("a", "b", "r1").await.unwrap();
-    let mails = asked_with(&asked, "mail");
-    assert_eq!(mails.len(), 1);
-    assert_eq!(mails[0]["tabId"], "a");
-    assert_eq!(mails[0]["details"]["kind"], "question");
+    assert_eq!(asked_with(&asked, "inbox").len(), 1);
+    let delivery = delivered(&mut channel).await;
+    assert_eq!(delivery["tabId"], "a");
+    let entry = &delivery["request"]["entries"][0];
+    assert_eq!(entry["kind"], "report");
+    assert_eq!(entry["details"]["kind"], "question");
+    assert!(entry["content"].as_str().unwrap().contains("request r1"));
+    assert!(entry["content"].as_str().unwrap().contains("Go on?"));
     let shown = control
         .run("a", "ompdesk_tab_focus", json!({ "session": "b" }), None)
         .await;
     assert_eq!(shown.text, "Showing \"b\" (focus).");
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    control.host.fresh().await.unwrap();
     assert_eq!(asked_with(&asked, "view")[0]["event"]["tabId"], "b");
     control.host.port().close();
 }
@@ -301,28 +369,13 @@ fn busy(id: &str) -> Value {
 /// wait ended: stock's host tool call cannot be cut by a steer. The wait now returns when a message reaches it.
 #[tokio::test]
 async fn a_steer_ends_the_receiver_s_blocking_wait_and_the_receipt_says_so() {
-    let (control, asked) = rig(
+    let (control, _asked, mut channel, _fixture) = rig(
         9_310,
         state(vec![tab("s"), busy("a"), busy("w")]),
         Tuning::default(),
         main_replies,
     );
-    let waiting = {
-        let control = control.clone();
-        tokio::spawn(async move {
-            control
-                .run(
-                    "a",
-                    "ompdesk_session_result",
-                    json!({ "session": "w", "wait": true, "timeout_seconds": 60 }),
-                    None,
-                )
-                .await
-        })
-    };
-    while !control.is_blocked("a") {
-        tokio::task::yield_now().await;
-    }
+    let waiting = blocking_wait(&control).await;
     let receipt = control
         .run(
             "s",
@@ -331,6 +384,11 @@ async fn a_steer_ends_the_receiver_s_blocking_wait_and_the_receipt_says_so() {
             None,
         )
         .await;
+    assert!(!receipt.is_error, "{}", receipt.text);
+    let delivery = delivered(&mut channel).await;
+    assert_eq!(delivery["tabId"], "a");
+    assert_eq!(delivery["request"]["entries"][0]["kind"], "prompt");
+    assert_eq!(delivery["request"]["entries"][0]["intent"], "immediate");
     assert!(
         receipt
             .text
@@ -346,94 +404,126 @@ async fn a_steer_ends_the_receiver_s_blocking_wait_and_the_receipt_says_so() {
     assert!(result.text.contains("Returned early"), "{}", result.text);
     assert!(!result.text.contains("Still running"), "{}", result.text);
     assert!(!control.is_blocked("a"));
-    let prompts: Vec<Value> = asked_with(&asked, "command")
-        .into_iter()
-        .filter(|args| args["command"]["type"] == "prompt")
-        .collect();
-    assert_eq!(prompts[0]["command"]["streamingBehavior"], "steer");
     control.host.port().close();
 }
 
+async fn blocking_wait(
+    control: &AgentControl,
+) -> tokio::task::JoinHandle<super::super::types::ToolOutcome> {
+    let caller = control.clone();
+    let waiting = tokio::spawn(async move {
+        caller
+            .run(
+                "a",
+                "ompdesk_session_result",
+                json!({ "session": "w", "wait": true, "timeout_seconds": 60 }),
+                None,
+            )
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !control.is_blocked("a") {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the wait did not block");
+    waiting
+}
+
 #[tokio::test]
-async fn a_report_or_the_person_s_prompt_ends_the_blocking_wait_too() {
-    let (control, _asked) = rig(
+async fn a_report_ends_the_blocking_wait_too() {
+    let (control, _asked, mut channel, _fixture) = rig(
         9_311,
         state(vec![busy("a"), busy("b"), busy("w")]),
         Tuning::default(),
         main_replies,
     );
-    // The state's parents make "a" the opener of "b".
-    for wake in 0..2 {
-        let waiting = {
-            let control = control.clone();
-            tokio::spawn(async move {
-                control
-                    .run(
-                        "a",
-                        "ompdesk_session_result",
-                        json!({ "session": "w", "wait": true, "timeout_seconds": 60 }),
-                        None,
-                    )
-                    .await
-            })
-        };
-        while !control.is_blocked("a") {
-            tokio::task::yield_now().await;
-        }
-        if wake == 0 {
-            control
-                .run(
-                    "b",
-                    "ompdesk_report",
-                    json!({ "kind": "done", "text": "finished" }),
-                    None,
-                )
-                .await;
-        } else {
-            let _ = control.person_typed("a");
-        }
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
-            .await
-            .expect("the wait never returned")
-            .unwrap();
-        assert!(result.text.contains("Returned early"), "{}", result.text);
-    }
+    let waiting = blocking_wait(&control).await;
+    let receipt = control
+        .run(
+            "b",
+            "ompdesk_report",
+            json!({ "kind": "done", "text": "finished" }),
+            None,
+        )
+        .await;
+    assert!(!receipt.is_error, "{}", receipt.text);
+    let delivery = delivered(&mut channel).await;
+    assert_eq!(delivery["tabId"], "a");
+    assert_eq!(delivery["request"]["entries"][0]["kind"], "report");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+        .await
+        .expect("the wait never returned")
+        .unwrap();
+    assert!(result.text.contains("Returned early"), "{}", result.text);
+    assert!(!result.text.contains("Still running"), "{}", result.text);
+    assert!(!control.is_blocked("a"));
     control.host.port().close();
 }
 
-/// 13 Nov 2026: three default sends to a session waiting for the person's answer closed its question card each time,
-/// while the receipt said they would be read after the user answers.
 #[tokio::test]
-async fn a_message_to_a_session_with_an_open_card_queues_behind_it_whatever_delivery_says() {
-    for (n, delivery) in [None, Some("steer"), Some("follow_up")]
-        .into_iter()
-        .enumerate()
-    {
-        let mut card = busy("c");
-        card["asks"] = json!([{ "id": "r1", "request": { "id": "r1", "method": "select", "title": "Which?", "options": ["x", "y"] } }]);
-        let (control, asked) = rig(
-            9_312 + n as u64,
-            state(vec![tab("s"), card]),
-            Tuning::default(),
-            main_replies,
-        );
-        let mut args = json!({ "session": "c", "message": "an update" });
-        if let Some(delivery) = delivery {
-            args["delivery"] = json!(delivery);
-        }
-        let receipt = control.run("s", "ompdesk_session_send", args, None).await;
-        let prompts: Vec<Value> = asked_with(&asked, "command")
-            .into_iter()
-            .filter(|args| args["command"]["type"] == "prompt")
-            .collect();
-        assert_eq!(prompts[0]["command"]["streamingBehavior"], "followUp");
-        assert!(
-            receipt.text.contains("which stays open")
-                && receipt.text.contains("once the user has answered")
-                && !receipt.text.contains("delivered as steer"),
-            "{}",
-            receipt.text
-        );
-        control.host.port().close();
+async fn a_person_s_prompt_ends_the_blocking_wait_too() {
+    let (control, _asked, _channel, _fixture) = rig(
+        9_315,
+        state(vec![busy("a"), busy("b"), busy("w")]),
+        Tuning::default(),
+        main_replies,
+    );
+    let waiting = blocking_wait(&control).await;
+    let _ = control.person_typed("a");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+        .await
+        .expect("the wait never returned")
+        .unwrap();
+    assert!(result.text.contains("Returned early"), "{}", result.text);
+    assert!(!result.text.contains("Still running"), "{}", result.text);
+    assert!(!control.is_blocked("a"));
+    control.host.port().close();
+}
+
+async fn open_card_queues_message(id: u64, delivery: Option<&str>) {
+    let mut card = busy("c");
+    card["asks"] = json!([{ "id": "r1", "request": { "id": "r1", "method": "select", "title": "Which?", "options": ["x", "y"] } }]);
+    let (control, _asked, mut channel, _fixture) = rig(
+        id,
+        state(vec![tab("s"), card]),
+        Tuning::default(),
+        main_replies,
+    );
+    let mut args = json!({ "session": "c", "message": "an update" });
+    if let Some(delivery) = delivery {
+        args["delivery"] = json!(delivery);
     }
+    let receipt = control.run("s", "ompdesk_session_send", args, None).await;
+    assert!(!receipt.is_error, "{}", receipt.text);
+    let request = delivered(&mut channel).await;
+    assert_eq!(request["tabId"], "c");
+    let entry = &request["request"]["entries"][0];
+    assert_eq!(entry["kind"], "prompt");
+    assert!(entry["content"].as_str().unwrap().contains("an update"));
+    assert_eq!(entry["intent"], "follow_up");
+    assert!(
+        receipt.text.contains("which stays open")
+            && receipt.text.contains("once the user has answered")
+            && !receipt.text.contains("delivered as steer"),
+        "{}",
+        receipt.text
+    );
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn default_send_queues_behind_open_card() {
+    open_card_queues_message(9_312, None).await;
+}
+
+#[tokio::test]
+async fn steer_send_queues_behind_open_card() {
+    open_card_queues_message(9_313, Some("steer")).await;
+}
+
+#[tokio::test]
+async fn follow_up_send_queues_behind_open_card() {
+    open_card_queues_message(9_314, Some("follow_up")).await;
 }

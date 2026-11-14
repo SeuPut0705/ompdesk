@@ -11,6 +11,7 @@ use super::super::host::{Caps, HostState};
 use super::super::tuning::Tuning;
 use super::super::{AgentControl, Files, JournalFile};
 use crate::agentctl::journal::system_clock;
+use crate::agentctl::runtime::tests::native_rig;
 use crate::ports::Port;
 
 type Asked = Arc<Mutex<Vec<(String, Value)>>>;
@@ -137,6 +138,21 @@ fn state(tabs: Vec<Value>) -> Value {
         "parents": { "b": { "callerTabId": "a" } },
     })
 }
+fn native_state(tabs: Vec<Value>) -> Value {
+    let mut state = state(tabs);
+    state["deviceId"] = json!("test-host");
+    for tab in state["tabs"].as_array_mut().unwrap() {
+        tab["runtimeInstance"] = json!(format!("runtime-{}", tab["tabId"].as_str().unwrap()));
+    }
+    state
+}
+
+async fn delivered(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Value>) -> Value {
+    tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        .await
+        .expect("native delivery timed out")
+        .expect("native delivery channel closed")
+}
 
 fn asked_with(asked: &Asked, method: &str) -> Vec<Value> {
     asked
@@ -179,49 +195,72 @@ fn temp(name: &str) -> std::path::PathBuf {
 #[tokio::test]
 async fn a_send_carries_a_picture_inline_and_a_file_by_path_and_the_same_bytes_once() {
     let dir = temp("send");
-    let (control, asked) = rig(
+    let (control, asked, mut deliveries, _fixture) = native_rig(
         9_401,
-        state(vec![tab("a"), tab("b")]),
+        native_state(vec![tab("a"), tab("b")]),
         Caps::default(),
         &files_in(&dir),
+        Tuning::default(),
         omp,
     );
     let args = json!({ "session": "b", "message": "look", "attachments": [
         { "image": 1 }, { "path": "/w/shot.png" }, { "path": "/w/doc.pdf" }, { "path": "/w/same.pdf" } ] });
     let sent = control.run("a", "ompdesk_session_send", args, None).await;
     assert!(!sent.is_error, "{}", sent.text);
+    let delivery = delivered(&mut deliveries).await;
+    let transfers = asked_with(&asked, "inbox");
+    assert_eq!(transfers.len(), 1);
+    let transfer = &transfers[0]["transfer"];
+    let attachments = &transfer["entries"][0]["attachments"];
+    assert_eq!(attachments["images"].as_array().unwrap().len(), 1);
+    assert_eq!(attachments["files"].as_array().unwrap().len(), 1);
+    assert_eq!(attachments["images"][0]["name"], "shot.png");
+    assert_eq!(attachments["files"][0]["name"], "doc.pdf");
+    assert_eq!(transfer["uploads"].as_array().unwrap().len(), 2);
+    for reference in [&attachments["images"][0], &attachments["files"][0]] {
+        assert_eq!(
+            transfer["uploads"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|upload| upload["sha256"] == reference["sha256"])
+                .count(),
+            1
+        );
+    }
+    let source_path = attachments["files"][0]["path"].as_str().unwrap();
+    let entries = delivery["request"]["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["kind"], "prompt");
+    let blocks = entries[0]["content"].as_array().unwrap();
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0]["type"], "text");
+    let text = blocks[0]["text"].as_str().unwrap();
+    let path = text.rsplit("Attached: ").next().unwrap().trim();
+    assert!(text.contains("look"));
+    assert!(text.contains("\n\nAttached: "));
+    assert_eq!(std::fs::read(path).unwrap(), PDF);
+    assert_eq!(
+        std::path::Path::new(path)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        attachments["files"][0]["sha256"].as_str().unwrap()
+    );
+    assert_eq!(blocks[1]["type"], "image");
+    assert_eq!(blocks[1]["data"], b64(PNG));
+    let image_sha = attachments["images"][0]["sha256"].as_str().unwrap();
+    assert_eq!(
+        std::fs::read(std::path::Path::new(path).with_file_name(image_sha)).unwrap(),
+        PNG
+    );
     assert!(
-        sent.text
-            .ends_with("attached: 2 (1 image inline, 1 file at /up/doc.pdf)."),
+        sent.text.ends_with(&format!(
+            "attached: 2 (1 image inline, 1 file at {source_path})."
+        )),
         "{}",
         sent.text
-    );
-    let prompts = commands(&asked, "prompt");
-    assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0]["images"].as_array().unwrap().len(), 1);
-    assert_eq!(prompts[0]["images"][0]["data"], b64(PNG));
-    assert!(
-        prompts[0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("look\n\nAttached: /up/doc.pdf")
-    );
-    let landed = asked_with(&asked, "land");
-    assert_eq!(landed.len(), 1);
-    assert_eq!(landed[0]["name"], "doc.pdf");
-    // The outbox keeps references, and the bytes are in the content-addressed store.
-    let kept: Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("send-outbox.json")).unwrap())
-            .unwrap();
-    let entry = &kept[0];
-    assert_eq!(entry["attachments"]["images"].as_array().unwrap().len(), 1);
-    assert_eq!(entry["attachments"]["files"][0]["path"], "/up/doc.pdf");
-    let sha = entry["attachments"]["images"][0]["sha256"]
-        .as_str()
-        .unwrap();
-    assert_eq!(
-        std::fs::read(dir.join("agent-attachments").join(sha)).unwrap(),
-        PNG
     );
     control.host.port().close();
 }
@@ -292,11 +331,12 @@ async fn a_caller_outside_the_app_carries_no_attachments() {
 #[tokio::test]
 async fn a_report_carries_its_pictures_as_content_blocks_and_keeps_references() {
     let dir = temp("report");
-    let (control, asked) = rig(
+    let (control, asked, mut deliveries, _fixture) = native_rig(
         9_404,
-        state(vec![tab("a"), tab("b")]),
+        native_state(vec![tab("a"), tab("b")]),
         Caps::default(),
         &files_in(&dir),
+        Tuning::default(),
         omp,
     );
     let done = control
@@ -308,29 +348,46 @@ async fn a_report_carries_its_pictures_as_content_blocks_and_keeps_references() 
         )
         .await;
     assert!(!done.is_error, "{}", done.text);
-    assert!(
-        done.text
-            .contains("attached: 2 (1 image inline, 1 file at /up/doc.pdf)."),
-        "{}",
-        done.text
-    );
-    let mails = asked_with(&asked, "mail");
-    assert_eq!(mails.len(), 1);
-    let content = mails[0]["content"].as_array().unwrap();
+    let delivery = delivered(&mut deliveries).await;
+    let transfers = asked_with(&asked, "inbox");
+    assert_eq!(transfers.len(), 1);
+    let transfer = &transfers[0]["transfer"];
+    let attachments = &transfer["entries"][0]["attachments"];
+    assert_eq!(attachments["images"].as_array().unwrap().len(), 1);
+    assert_eq!(attachments["files"].as_array().unwrap().len(), 1);
+    assert_eq!(attachments["files"][0]["name"], "doc.pdf");
+    assert_eq!(transfer["uploads"].as_array().unwrap().len(), 2);
+    let source_path = attachments["files"][0]["path"].as_str().unwrap();
+    let entries = delivery["request"]["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["kind"], "report");
+    let content = entries[0]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
     assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["data"], b64(PNG));
+    let path = entries[0]["details"]["attachments"][1]["path"]
+        .as_str()
+        .unwrap();
     assert!(
         content[0]["text"]
             .as_str()
             .unwrap()
-            .contains("Attached: /up/doc.pdf")
+            .contains(&format!("Attached: {path}"))
     );
-    assert_eq!(content[1]["type"], "image");
-    assert_eq!(mails[0]["details"]["attachments"][1]["path"], "/up/doc.pdf");
-    let kept: Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("mail-outbox.json")).unwrap())
-            .unwrap();
-    assert_eq!(kept[0]["attachments"]["files"][0]["path"], "/up/doc.pdf");
-    assert_eq!(kept[0]["from"], "/s/b_1.jsonl");
+    assert_eq!(std::fs::read(path).unwrap(), PDF);
+    let image_sha = attachments["images"][0]["sha256"].as_str().unwrap();
+    assert_eq!(
+        std::fs::read(std::path::Path::new(path).with_file_name(image_sha)).unwrap(),
+        PNG
+    );
+    assert!(
+        done.text.contains(&format!(
+            "attached: 2 (1 image inline, 1 file at {source_path})."
+        )),
+        "{}",
+        done.text
+    );
     control.host.port().close();
 }
 
@@ -624,11 +681,14 @@ async fn pictures_for_a_paired_device_stay_under_the_links_frame_cap() {
         let dir = temp(&format!("device-{inline}"));
         let mut device = tab("b");
         device["device"] = json!("dev-1");
-        let (control, asked) = rig(
+        let mut host_state = native_state(vec![tab("a"), device]);
+        host_state["devices"] = json!([{ "id": "dev-1", "name": "paired", "state": "online" }]);
+        let (control, asked, mut deliveries, _fixture) = native_rig(
             9_420 + inline as u64,
-            state(vec![tab("a"), device]),
+            host_state,
             Caps::default(),
             &files_in(&dir),
+            Tuning::default(),
             omp,
         );
         let sent = control
@@ -640,28 +700,57 @@ async fn pictures_for_a_paired_device_stay_under_the_links_frame_cap() {
             )
             .await;
         assert!(!sent.is_error, "{}", sent.text);
-        let prompts = asked_with(&asked, "command")
-            .into_iter()
-            .filter(|args| args["command"]["type"] == "prompt")
-            .collect::<Vec<_>>();
-        assert_eq!(prompts.len(), 1);
-        let command = &prompts[0]["command"];
-        assert_eq!(command["images"].as_array().map_or(0, Vec::len), inline);
+        let delivery = delivered(&mut deliveries).await;
+        let transfers = asked_with(&asked, "inbox");
+        assert_eq!(transfers.len(), 1);
+        let wire = &transfers[0];
         assert!(
-            command.to_string().len() < FRAME_CAP,
-            "the command over the link is {} bytes",
-            command.to_string().len()
+            wire.to_string().len() < FRAME_CAP,
+            "the inbox transfer exceeds the link frame cap"
         );
-        // Whatever did not go inline landed on that computer and is named in the message.
-        assert_eq!(asked_with(&asked, "land").len(), 2 - inline);
-        assert_eq!(
-            command["message"]
-                .as_str()
-                .unwrap()
-                .matches("Attached: /up/")
-                .count(),
-            2 - inline
-        );
+        let transfer = &wire["transfer"];
+        let attachments = &transfer["entries"][0]["attachments"];
+        assert_eq!(attachments["images"].as_array().unwrap().len(), inline);
+        assert_eq!(attachments["files"].as_array().unwrap().len(), 2 - inline);
+        assert_eq!(transfer["uploads"].as_array().unwrap().len(), 2);
+        let entries = delivery["request"]["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["kind"], "prompt");
+        let content = &entries[0]["content"];
+        let (text, images) = if let Some(blocks) = content.as_array() {
+            assert_eq!(blocks[0]["type"], "text");
+            (blocks[0]["text"].as_str().unwrap(), &blocks[1..])
+        } else {
+            (content.as_str().unwrap(), &[][..])
+        };
+        assert_eq!(images.len(), inline);
+        let paths: Vec<_> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("Attached: "))
+            .collect();
+        assert_eq!(paths.len(), 2 - inline);
+        for (index, source) in [first, second].iter().enumerate() {
+            let size = if inline == 0 { 10 } else { 7 } * 1024 * 1024;
+            let mut expected = vec![7u8; size];
+            expected[..PNG.len()].copy_from_slice(PNG);
+            expected[PNG.len()] = source.as_bytes()[source.len() - 5];
+            if index < inline {
+                assert_eq!(images[index]["type"], "image");
+                assert_eq!(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(images[index]["data"].as_str().unwrap())
+                        .unwrap(),
+                    expected
+                );
+            } else {
+                let file_index = index - inline;
+                assert_eq!(
+                    attachments["files"][file_index]["name"],
+                    source.rsplit('/').next().unwrap()
+                );
+                assert_eq!(std::fs::read(paths[file_index]).unwrap(), expected);
+            }
+        }
         control.host.port().close();
     }
 }
