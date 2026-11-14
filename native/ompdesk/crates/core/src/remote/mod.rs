@@ -4,6 +4,9 @@
 //! instance (`devices/`: records, Tailscale's side, the host's listener and gate, each known host's reconnecting
 //! client). Main keeps what only it can say (Mobile web's lists and blocks, the person's approval, the hello's
 //! answer) and every request and event on a link, which it holds by the link's number.
+//! Native application entry points are `devices::Devices::new` (typed effects), `application_host::HostServices`,
+//! `application_client::RemoteTab` and the shared `quota::PeerQuota`. Authenticated handoffs install `requests`
+//! before frames drain; native request consumers bypass the legacy `remote.message` executor.
 //!
 //! Methods: `remote.identity`, `remote.connect` and `remote.handshake` (one handshake, cancellable: the
 //! cross-implementation tests'), `remote.probe`, `remote.probeHost`, `remote.answer` (main's answer to an ask),
@@ -14,6 +17,8 @@
 //! encoding's methods are `events`'.
 
 pub mod address;
+pub mod application_client;
+pub mod application_devices;
 pub mod application_host;
 pub mod codec;
 pub mod crypto;
@@ -27,6 +32,7 @@ pub mod identity;
 mod link;
 pub mod quota;
 pub mod requests;
+pub mod session_feed;
 pub mod store;
 pub mod tailnet;
 pub mod traffic;
@@ -62,7 +68,7 @@ struct State {
     asks: HashMap<u64, oneshot::Sender<Value>>,
     /// Core-side code told when a link ends (a reconnecting client), registered before the link runs.
     enders: HashMap<u64, Box<dyn FnOnce(Reason) + Send>>,
-    /// Native consumers installed at the authenticated connection handoff.
+    /// Native application consumers, installed only at the authenticated connection handoff.
     applications: HashMap<u64, std::sync::Weak<requests::Inner>>,
 }
 

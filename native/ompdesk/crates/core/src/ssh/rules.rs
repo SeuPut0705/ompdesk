@@ -441,7 +441,7 @@ pub fn is_secret(answer: &str) -> bool {
 }
 
 /// JavaScript's `Number(text)`.
-fn js_to_number(text: &str) -> f64 {
+pub(crate) fn js_to_number(text: &str) -> f64 {
     let text = js_trim(text);
     if text.is_empty() {
         return 0.0;

@@ -12,6 +12,7 @@
 
 pub mod client;
 pub(crate) mod gate;
+pub mod native;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -66,6 +67,7 @@ struct HostRole {
     logged: Option<String>,
     /// Device links open: link → device id.
     links: HashMap<u64, String>,
+    versions: HashMap<u64, String>,
     /// Connections in their handshake: link → when taken in, and the device record bound.
     arriving: HashMap<u64, (u64, Option<Map<String, Value>>)>,
 }
@@ -123,6 +125,7 @@ pub struct Devices {
     peers: Arc<Mutex<Store>>,
     hosts: Arc<Mutex<Store>>,
     inner: Mutex<Inner>,
+    effects: Option<Arc<dyn native::Effects>>,
     /// One rebind, migration and scan pass at a time; a call during one waits for it (false: none running).
     binding: Pass,
     migrating: Pass,
@@ -270,7 +273,11 @@ impl Devices {
 
     /// What main mirrors, after every change.
     fn tell(&self) {
-        self.events.send("remote.devices.state", &self.snapshot());
+        let snapshot = self.snapshot();
+        self.events.send("remote.devices.state", &snapshot);
+        if let Some(effects) = &self.effects {
+            effects.changed(snapshot);
+        }
     }
 
     fn snapshot(&self) -> Value {
@@ -328,6 +335,9 @@ impl Devices {
                     "remote.devices.adoptLogin",
                     &json!({"devices": self.id, "login": login}),
                 );
+                if let Some(effects) = &self.effects {
+                    effects.adopt_login(login);
+                }
             }
             if let Some(name) = status.get("selfName").and_then(Value::as_str) {
                 self.inner().tailnet_name = Some(name.to_owned());
@@ -465,6 +475,9 @@ impl Devices {
             "remote.devices.migrated",
             &json!({"devices": self.id, "at": at, "forgotten": forgotten, "removed": removed}),
         );
+        if let Some(effects) = &self.effects {
+            effects.migrated(at as f64, forgotten, removed);
+        }
     }
 
     /// A device an older release paired by code that never connected over Tailscale goes after the grace period.
@@ -770,6 +783,9 @@ impl Devices {
             "remote.devices.computers",
             &json!({"devices": self.id, "computers": computers}),
         );
+        if let Some(effects) = &self.effects {
+            effects.computers(computers);
+        }
     }
 
     /// A known host's addresses now: its node's current tailnet address on the port it answered on in this run, then
@@ -984,7 +1000,7 @@ pub(crate) fn arriving(devices: u64, link: u64) -> Option<(Map<String, Value>, u
 }
 
 /// Main took the device's link (`open` answered with its hello): its record names it and says when it was seen.
-pub(crate) fn opened(devices: u64, link: u64, name: Option<&str>) {
+pub(crate) fn opened(devices: u64, link: u64, name: Option<&str>, app_version: Option<&str>) {
     let Some(devices) = instance(devices) else {
         return;
     };
@@ -1000,7 +1016,13 @@ pub(crate) fn opened(devices: u64, link: u64, name: Option<&str>) {
     }
     patch.push(("lastSeenAt".into(), Some(Value::from(clock::now_ms()))));
     let _ = locked(&devices.peers).update(&device, patch);
-    devices.inner().host.links.insert(link, device.clone());
+    {
+        let mut inner = devices.inner();
+        inner.host.links.insert(link, device.clone());
+        if let Some(version) = app_version {
+            inner.host.versions.insert(link, version.to_owned());
+        }
+    }
     let weak = Arc::downgrade(&devices);
     super::on_link_end(link, move |_| {
         if let Some(devices) = weak.upgrade() {
@@ -1028,6 +1050,7 @@ impl Devices {
         let Some(device) = self.inner().host.links.remove(&link) else {
             return;
         };
+        self.inner().host.versions.remove(&link);
         let _ = locked(&self.peers).update(
             &device,
             vec![("lastSeenAt".into(), Some(Value::from(clock::now_ms())))],
@@ -1069,48 +1092,81 @@ struct OpenParams {
 async fn open(call: Call) -> Result<Reply, Fault> {
     let params: OpenParams = call.params()?;
     let identity = super::identity(&params.identity)?;
-    let id = super::next_id();
-    let devices = Arc::new_cyclic(|me| Devices {
-        id,
-        events: call.events.clone(),
-        identity,
-        app_version: params.app_version,
-        port: params.port,
-        port_setting: params.port_setting,
-        refuse: params.refuse,
-        liveness: params.liveness,
-        traffic: params.traffic,
-        traffic_ms: params.traffic_ms,
-        source: params.tailnet.map_or(Source::Main, Source::Core),
-        keep_awake: params.keep_awake,
-        peers: store::open(&params.user_data, Kind::Peers),
-        hosts: store::open(&params.user_data, Kind::Hosts),
-        inner: Mutex::new(Inner {
+    let source = params.tailnet.map_or(Source::Main, Source::Core);
+    let devices = Devices::construct(
+        native::Config {
+            events: call.events.clone(),
+            identity,
+            user_data: params.user_data,
+            app_version: params.app_version,
             name: params.name,
             loopback: params.loopback,
+            port: params.port,
+            port_setting: params.port_setting,
+            refuse: params.refuse,
+            liveness: params.liveness,
+            traffic: params.traffic,
+            traffic_ms: params.traffic_ms,
+            keep_awake: params.keep_awake,
             keep_awake_enabled: params.keep_awake_enabled,
-            running_tabs: false,
             migrated_at: params.migrated_at,
-            disposed: false,
-            phase: "not-running",
-            tailnet_name: None,
-            host: HostRole::default(),
-            clients: HashMap::new(),
-            found: HashMap::new(),
-            node_online: HashMap::new(),
-            computers: Vec::new(),
-            watchers: HashSet::new(),
-            poll_timer: None,
-            scan_timer: None,
-            patched: 0,
-        }),
-        binding: Pass::default(),
-        migrating: Pass::default(),
-        scanning: Pass::default(),
-        me: me.clone(),
-    });
-    locked(&INSTANCES).insert(id, Arc::clone(&devices));
-    Reply::json(&json!({"devices": id, "state": devices.snapshot()}))
+        },
+        source,
+        None,
+    );
+    Reply::json(&json!({"devices":devices.id,"state":devices.snapshot()}))
+}
+
+impl Devices {
+    fn construct(
+        params: native::Config,
+        source: Source,
+        effects: Option<Arc<dyn native::Effects>>,
+    ) -> Arc<Self> {
+        let id = super::next_id();
+        let devices = Arc::new_cyclic(|me| Devices {
+            id,
+            events: params.events,
+            identity: params.identity,
+            app_version: params.app_version,
+            port: params.port,
+            port_setting: params.port_setting,
+            refuse: params.refuse,
+            liveness: params.liveness,
+            traffic: params.traffic,
+            traffic_ms: params.traffic_ms,
+            source,
+            keep_awake: params.keep_awake,
+            peers: store::open(&params.user_data, Kind::Peers),
+            hosts: store::open(&params.user_data, Kind::Hosts),
+            effects,
+            inner: Mutex::new(Inner {
+                name: params.name,
+                loopback: params.loopback,
+                keep_awake_enabled: params.keep_awake_enabled,
+                running_tabs: false,
+                migrated_at: params.migrated_at,
+                disposed: false,
+                phase: "not-running",
+                tailnet_name: None,
+                host: HostRole::default(),
+                clients: HashMap::new(),
+                found: HashMap::new(),
+                node_online: HashMap::new(),
+                computers: Vec::new(),
+                watchers: HashSet::new(),
+                poll_timer: None,
+                scan_timer: None,
+                patched: 0,
+            }),
+            binding: Pass::default(),
+            migrating: Pass::default(),
+            scanning: Pass::default(),
+            me: me.clone(),
+        });
+        locked(&INSTANCES).insert(id, Arc::clone(&devices));
+        devices
+    }
 }
 
 #[derive(Deserialize)]
@@ -1122,23 +1178,7 @@ struct DevicesParams {
 async fn start(call: Call) -> Result<Reply, Fault> {
     let params: DevicesParams = call.params()?;
     let devices = instance_or_fault(params.devices)?;
-    devices.forget_stale_legacy_peers();
-    let weak = Arc::downgrade(&devices);
-    let timer = tokio::spawn(async move {
-        loop {
-            clock::sleep(Duration::from_millis(TAILNET_POLL_MS)).await;
-            let Some(devices) = weak.upgrade() else {
-                return;
-            };
-            devices.poll().await;
-        }
-    });
-    if let Some(old) = devices.inner().poll_timer.replace(timer.abort_handle()) {
-        old.abort();
-    }
-    let polling = Arc::clone(&devices);
-    tokio::spawn(async move { polling.poll().await });
-    devices.tell();
+    devices.launch();
     Reply::json(&Value::Null)
 }
 
@@ -1183,37 +1223,7 @@ struct WatchParams {
 async fn watch_tailnet(call: Call) -> Result<Reply, Fault> {
     let params: WatchParams = call.params()?;
     let devices = instance_or_fault(params.devices)?;
-    if params.on {
-        {
-            let mut inner = devices.inner();
-            inner.watchers.insert(params.watcher);
-            if inner.scan_timer.is_none() {
-                let weak = Arc::downgrade(&devices);
-                let timer = tokio::spawn(async move {
-                    loop {
-                        clock::sleep(Duration::from_millis(TAILNET_SCAN_MS)).await;
-                        let Some(devices) = weak.upgrade() else {
-                            return;
-                        };
-                        devices.scan().await;
-                    }
-                });
-                inner.scan_timer = Some(timer.abort_handle());
-            }
-        }
-        return Reply::json(&devices.scan().await);
-    }
-    let computers = {
-        let mut inner = devices.inner();
-        inner.watchers.remove(&params.watcher);
-        if inner.watchers.is_empty()
-            && let Some(timer) = inner.scan_timer.take()
-        {
-            timer.abort();
-        }
-        inner.computers.clone()
-    };
-    Reply::json(&computers)
+    Reply::json(&devices.watch(params.watcher, params.on).await)
 }
 
 #[derive(Deserialize)]
@@ -1248,23 +1258,7 @@ struct DeviceParams {
 async fn revoke(call: Call) -> Result<Reply, Fault> {
     let params: DeviceParams = call.params()?;
     let devices = instance_or_fault(params.devices)?;
-    let removed = locked(&devices.peers)
-        .remove(&params.device_id)
-        .map_err(|error| Fault::new("io", error.to_string()))?;
-    let links: Vec<u64> = devices
-        .inner()
-        .host
-        .links
-        .iter()
-        .filter(|(_, device)| **device == params.device_id)
-        .map(|(link, _)| *link)
-        .collect();
-    for link in links {
-        if let Some(handle) = super::state().links.get(&link) {
-            handle.command(super::link::Command::Destroy(super::link::Reason::Local));
-        }
-    }
-    devices.tell();
+    let removed = devices.revoke_peer(&params.device_id)?;
     Reply::json(&removed)
 }
 
@@ -1272,12 +1266,7 @@ async fn revoke(call: Call) -> Result<Reply, Fault> {
 async fn remove_host(call: Call) -> Result<Reply, Fault> {
     let params: DeviceParams = call.params()?;
     let devices = instance_or_fault(params.devices)?;
-    devices.unlink(&params.device_id);
-    locked(&devices.hosts)
-        .remove(&params.device_id)
-        .map_err(|error| Fault::new("io", error.to_string()))?;
-    devices.mark_computers();
-    devices.tell();
+    devices.remove_host(&params.device_id)?;
     Reply::json(&Value::Null)
 }
 
