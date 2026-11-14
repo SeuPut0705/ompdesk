@@ -29,17 +29,8 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Session<S> {
         Self { source, version, generation, slash: Arc::default() }
     }
 
-    fn ensure_current(&self) -> Result<(), Fault> {
-        if self.source.generation() == self.generation {
-            Ok(())
-        } else {
-            Err(Fault::new("sidecar_disconnected", "Sidecar disconnected"))
-        }
-    }
-
     pub async fn raw_stock(&self, command: Value) -> Result<Value, Fault> {
-        self.ensure_current()?;
-        self.source.stock(command).await
+        self.source.stock_for_generation(self.generation, command).await
     }
 
     pub fn cwd(&self) -> String {
@@ -55,8 +46,7 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Session<S> {
     }
 
     pub async fn bridge_optional(&self, method: &str, params: Option<Value>) -> Result<Value, CommandError> {
-        self.ensure_current()?;
-        self.source.bridge(method.to_owned(), params, None).await.map_err(Into::into)
+        self.source.bridge_for_generation(self.generation, method.to_owned(), params, None).await.map_err(Into::into)
     }
 
     pub async fn stock(&self, command: Value) -> Result<Value, CommandError> {
