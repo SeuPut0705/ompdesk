@@ -213,7 +213,7 @@
 				"native/ompdesk/crates/core/src/checks/admission.rs",
 				"native/ompdesk/crates/core/src/checks/hub.rs"
 			],
-			"syncCommit": "9c40f5cd02c9a11a8213651c8d18748a7f6ee510",
+			"syncCommit": "75aa87cecb2d904fcbe09d927ede2a9834c3f302",
 			"verifySkill": ".omp/skills/checks-admission-verify/SKILL.md"
 		}
 	]
