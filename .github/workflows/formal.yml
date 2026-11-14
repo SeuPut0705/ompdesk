@@ -17,7 +17,7 @@
 # With `stamp`, the updated formal/manifest.json is committed back to the dispatched branch as
 # `chore(formal): stamp <ids> on <sha7>`. A stamp never lands on main directly: dispatch on a branch.
 name: formal
-run-name: ${{ format('formal {0} {1}{2}', inputs.only || 'all', inputs.tier, inputs.stamp && ' stamp' || '') }}
+run-name: ${{ format('formal {0} {1}{2}{3}', inputs.only || 'all', inputs.tier, inputs.stamp && ' stamp' || '', inputs.diagnose_r12 && ' diagnostic inspection' || '') }}
 
 on:
   workflow_dispatch:
@@ -39,12 +39,16 @@ on:
         description: "Skip the mutation runs"
         type: boolean
         default: false
+      diagnose_r12:
+        description: "Inspect checks-admission r12 only (not a verification or stamp)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: formal-${{ github.ref }}-${{ inputs.only || 'all' }}
+  group: formal-${{ github.ref }}-${{ inputs.only || 'all' }}${{ inputs.diagnose_r12 && '-diagnose-r12' || '' }}
   cancel-in-progress: true
 
 env:
@@ -58,6 +62,11 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       jobs: ${{ steps.plan.outputs.jobs }}
     steps:
+      - name: Guard diagnostic scope
+        if: inputs.diagnose_r12 && (inputs.only != 'checks-admission' || inputs.tier != 'fast' || inputs.stamp)
+        run: |
+          echo "::error::diagnose_r12 requires only=checks-admission, tier=fast and stamp=false."
+          exit 1
       - name: Refuse a stamp on main
         if: inputs.stamp && github.ref == 'refs/heads/main'
         run: |
@@ -83,10 +92,12 @@ jobs:
           ONLY: ${{ inputs.only }}
           TIER: ${{ inputs.tier }}
           SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
+          DIAGNOSE_R12: ${{ inputs.diagnose_r12 }}
         run: |
           args=(formal --tier "$TIER")
           [ -n "$ONLY" ] && args+=(--only "$ONLY")
           [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
+          [ "$DIAGNOSE_R12" = "true" ] && args+=(--diagnose-r12)
           bun "$SKILL/scripts/shard.ts" plan "${args[@]}" --github-output
 
   run:
@@ -114,6 +125,7 @@ jobs:
           key: formal-tools-${{ runner.os }}-${{ hashFiles('resources/omp-builtin/formal/skills/ompdesk-formal-verify/assets/toolchain.json') }}
       # The key is the digest of this job's checks; a hit holds their verdicts, a miss is saved when the job ends.
       - name: Verdict cache
+        if: ${{ !inputs.diagnose_r12 }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .formal-verdict-cache
@@ -170,22 +182,36 @@ jobs:
           ONLY: ${{ inputs.only }}
           TIER: ${{ inputs.tier }}
           SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
+          DIAGNOSE_R12: ${{ inputs.diagnose_r12 }}
           UNITS: ${{ matrix.units }}
         run: |
           args=(formal --tier "$TIER")
           [ -n "$ONLY" ] && args+=(--only "$ONLY")
           [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
+          [ "$DIAGNOSE_R12" = "true" ] && args+=(--diagnose-r12)
           bun "$SKILL/scripts/shard.ts" run "${args[@]}" --units "$UNITS" --out verdicts --cache .formal-verdict-cache
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ !inputs.diagnose_r12 }}
         with:
           name: formal-verdict-${{ matrix.id }}
           path: verdicts
           if-no-files-found: error
           retention-days: 3
+      - name: Diagnostic inspection summary
+        if: ${{ always() && inputs.diagnose_r12 }}
+        run: echo "Diagnostic inspection only. This is not a verification pass or model stamp." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload diagnostic inspection
+        if: ${{ always() && inputs.diagnose_r12 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: formal-r12-diagnostics
+          path: verdicts/diagnostics/
+          if-no-files-found: warn
+          retention-days: 3
 
   collect:
     needs: [plan, run]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !inputs.diagnose_r12 && !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -240,7 +266,7 @@ jobs:
   # stamp is written onto the branch's head as it is now, and only for a model whose covered code is the same there
   # as at the verified commit; a lost push race re-reads the head and checks again, it never rebases the old commit.
   publish:
-    if: inputs.stamp
+    if: inputs.stamp && !inputs.diagnose_r12
     needs: collect
     runs-on: ubuntu-latest
     timeout-minutes: 15

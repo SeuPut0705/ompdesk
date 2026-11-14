@@ -74,7 +74,7 @@ import {
 } from "./verify-all";
 
 const USAGE = [
-	"usage: bun shard.ts plan <formal dir> [--tier fast|deep] [--only id] [--skip-mutations] [--github-output] [--limit N]",
+	"usage: bun shard.ts plan <formal dir> [--tier fast|deep] [--only id] [--skip-mutations] [--diagnose-r12] [--github-output] [--limit N]",
 	'       bun shard.ts run <formal dir> --units "<model>/<unit> ..." --out <folder> [--cache <folder>] [plan flags]',
 	"       bun shard.ts costs <verdicts folder> --into <formal dir>/shard-costs.json",
 ].join("\n");
@@ -327,6 +327,36 @@ export async function planUnits(
 	return units;
 }
 
+const R12_REF = "checks-admission/r12-liveness-account";
+
+function selectR12(all: ModelUnits[], verify: VerifyArgs, refs?: string[]): ModelUnits[] {
+	if (
+		verify.only !== "checks-admission" ||
+		verify.tier !== "fast" ||
+		verify.stamp ||
+		verify.allowDirty ||
+		verify.strictDrift ||
+		verify.verdicts
+	)
+		throw new UsageError(
+			"--diagnose-r12 requires --only checks-admission --tier fast without stamp or verification options",
+		);
+	if (refs && (refs.length !== 1 || refs[0] !== R12_REF))
+		throw new UsageError(`--diagnose-r12 requires exactly --units ${R12_REF}`);
+	const model = all.find(item => item.model.id === "checks-admission");
+	const rows = model?.rows.filter(row => row.unit === "r12-liveness-account") ?? [];
+	if (!model || all.length !== 1 || rows.length !== 1)
+		throw new UsageError(`${R12_REF}: diagnostic row not found exactly once`);
+	return [{ ...model, rows, mutation: undefined }];
+}
+
+function diagnosticKey(key: string): string {
+	const hash = createHash("sha256").update("diagnose-r12\0").update(key);
+	for (const file of ["shard.ts", "lib/tlc-run.ts", "lib/tlc-diagnostics.ts"])
+		hash.update(fs.readFileSync(path.join(import.meta.dirname, file)));
+	return hash.digest("hex");
+}
+
 interface Flags {
 	verify: VerifyArgs;
 	githubOutput: boolean;
@@ -334,10 +364,11 @@ interface Flags {
 	units: string[];
 	out?: string;
 	cache?: string;
+	diagnoseR12: boolean;
 }
 
 function parseFlags(argv: string[]): Flags {
-	const own: Omit<Flags, "verify"> = { githubOutput: false, limit: MATRIX_LIMIT, units: [] };
+	const own: Omit<Flags, "verify"> = { githubOutput: false, limit: MATRIX_LIMIT, units: [], diagnoseR12: false };
 	const rest: string[] = [];
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i] as string;
@@ -346,7 +377,8 @@ function parseFlags(argv: string[]): Flags {
 			if (next === undefined) throw new UsageError(`${arg} needs a value\n${USAGE}`);
 			return next;
 		};
-		if (arg === "--github-output") own.githubOutput = true;
+		if (arg === "--diagnose-r12") own.diagnoseR12 = true;
+		else if (arg === "--github-output") own.githubOutput = true;
 		else if (arg === "--limit") {
 			own.limit = Number(value());
 			if (!Number.isInteger(own.limit) || own.limit < 1)
@@ -370,7 +402,14 @@ function modelsOf(flags: Flags): ModelUnits[] {
 					? `no model ${flags.verify.only} in the manifest (${manifest.models.map(model => model.id).join(", ")})`
 					: `no ${flags.verify.tier}-tier model in the manifest`,
 			);
-		return models.map(model => modelUnits(model, formalDir, flags.verify));
+		const units = models.map(model =>
+			modelUnits(
+				model,
+				formalDir,
+				flags.diagnoseR12 ? { ...flags.verify, tierGiven: true, skipMutations: true } : flags.verify,
+			),
+		);
+		return flags.diagnoseR12 ? selectR12(units, flags.verify) : units;
 	} catch (error) {
 		throw error instanceof UsageError
 			? error
@@ -396,6 +435,7 @@ async function planCommand(flags: Flags): Promise<number> {
 	const prepared = await prepare();
 	if (!prepared) return EXIT.unavailable;
 	const units = await planUnits(all, prepared.tools.id, loadCosts(path.resolve(flags.verify.dir)));
+	if (flags.diagnoseR12) for (const unit of units) unit.key = diagnosticKey(unit.key);
 	const jobs = packUnits(units, { limit: flags.limit });
 	const matrix = {
 		include: jobs.map(job => ({
@@ -427,6 +467,7 @@ interface RunContext {
 	tla: TlaEnv;
 	tools: { id: string; info: ToolsInfo };
 	cache?: string;
+	diagnostics?: { outDir: string };
 }
 
 async function runRow(units: ModelUnits, row: RowUnit, context: RunContext): Promise<RowVerdict> {
@@ -437,16 +478,17 @@ async function runRow(units: ModelUnits, row: RowUnit, context: RunContext): Pro
 		model: units.model.id,
 		unit: row.unit,
 		name: row.run.name,
-		key: plan.key,
+		key: context.diagnostics ? diagnosticKey(plan.key) : plan.key,
 		workers: plan.workers,
 		tools: context.tools.info,
 	} as const;
-	const hit = context.cache ? cacheGet(context.cache, plan.key) : undefined;
+	const hit = context.cache && !context.diagnostics ? cacheGet(context.cache, plan.key) : undefined;
 	if (hit?.kind === "row") return { ...hit, ...base, cached: true };
 	const run: MatrixRun = { ...row.run, workers: plan.workers };
 	const started = Date.now();
 	const tlcRun = await runTlc({
 		tla: context.tla,
+		...(context.diagnostics ? { diagnostics: context.diagnostics } : {}),
 		...rowRunOptions(run, units.spec, {
 			noDeadlock: false,
 			coverage: false,
@@ -460,7 +502,8 @@ async function runRow(units: ModelUnits, row: RowUnit, context: RunContext): Pro
 		},
 	});
 	const verdict: RowVerdict = { ...base, cached: false, run: storedRun(tlcRun, units.dir) };
-	if (context.cache && !tlcRun.spawnError && judge(run, tlcRun.result).ok) cachePut(context.cache, plan.key, verdict);
+	if (context.cache && !context.diagnostics && !tlcRun.spawnError && judge(run, tlcRun.result).ok)
+		cachePut(context.cache, plan.key, verdict);
 	return verdict;
 }
 
@@ -553,8 +596,11 @@ function unavailableVerdict(
 async function runCommand(flags: Flags): Promise<number> {
 	if (flags.units.length === 0 || !flags.out) throw new UsageError(`run needs --units and --out\n${USAGE}`);
 	const out = path.resolve(flags.out);
-	const all = new Map(modelsOf(flags).map(units => [units.model.id, units]));
+	const selected = modelsOf(flags);
+	if (flags.diagnoseR12) selectR12(selected, flags.verify, flags.units);
+	const all = new Map(selected.map(units => [units.model.id, units]));
 	const prepared = await prepare();
+	let diagnosticExit: number = EXIT.ok;
 	for (const ref of flags.units) {
 		const { model, unit } = parseUnitRef(ref);
 		const units = all.get(model);
@@ -568,6 +614,7 @@ async function runCommand(flags: Flags): Promise<number> {
 			const context: RunContext = {
 				tla: prepared.tla,
 				tools: prepared.tools,
+				...(flags.diagnoseR12 ? { diagnostics: { outDir: path.join(out, "diagnostics") } } : {}),
 				...(flags.cache ? { cache: path.resolve(flags.cache) } : {}),
 			};
 			const row = units.rows.find(candidate => candidate.unit === unit);
@@ -577,11 +624,21 @@ async function runCommand(flags: Flags): Promise<number> {
 			else throw new UsageError(`${ref}: ${model} has no unit ${unit}`);
 		}
 		writeVerdict(out, verdict);
+		if (flags.diagnoseR12 && verdict.kind === "row") {
+			const row = units.rows[0];
+			if (!row || verdict.run.spawnError || verdict.run.code !== 0 || !judge(row.run, verdict.run.result).ok)
+				diagnosticExit = 1;
+		}
 		const outcome =
 			verdict.kind === "row" ? verdict.run.result.outcome : (verdict.result.outcome?.status ?? "invalid");
 		console.log(
 			`${unitRef(model, unit)}: ${outcome}${verdict.cached ? " (cached)" : ""} in ${((Date.now() - started) / 1000).toFixed(1)} s`,
 		);
+	}
+	if (flags.diagnoseR12) {
+		console.log("Diagnostic inspection completed; this is not a verification pass or model stamp.");
+		if (!prepared) return EXIT.unavailable;
+		return diagnosticExit;
 	}
 	return EXIT.ok;
 }
@@ -617,6 +674,8 @@ export async function main(argv: string[]): Promise<number> {
 		if (command === "costs") return costsCommand(rest);
 		if (command !== "plan" && command !== "run") throw new UsageError(USAGE);
 		const flags = parseFlags(rest);
+		if (flags.diagnoseR12 && command === "plan" && flags.units.length)
+			throw new UsageError("--diagnose-r12 plan does not accept --units");
 		return command === "plan" ? await planCommand(flags) : await runCommand(flags);
 	} catch (error) {
 		if (error instanceof UsageError) {
