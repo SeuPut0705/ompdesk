@@ -218,6 +218,9 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
     }
 }
 
+#[cfg(all(test, unix))]
+mod native_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
