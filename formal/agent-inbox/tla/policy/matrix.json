@@ -1,0 +1,109 @@
+{
+  "runs": [
+    {
+      "name": "two-ids-two-attempts-one-incarnation-change",
+      "config": "MC.cfg",
+      "expect": "pass"
+    },
+    {
+      "name": "two-ids-three-attempts-two-incarnation-changes",
+      "config": "MC.cfg",
+      "constants": {
+        "MaxAttempts": "3",
+        "MaxEpochs": "2"
+      },
+      "expect": "pass",
+      "tier": "deep"
+    },
+    {
+      "name": "PromoteRequested",
+      "config": "Negative_RequestedIntentPreserved.cfg",
+      "constants": {
+        "PromoteRequested": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "RequestedIntentPreserved"
+    },
+    {
+      "name": "ReplaceFirst",
+      "config": "Negative_FirstDeliveryStable.cfg",
+      "constants": {
+        "ReplaceFirst": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "FirstDeliveryStable"
+    },
+    {
+      "name": "IncomingRetryWake",
+      "config": "Negative_WakeRequiresDiskCardAndFirstImmediate.cfg",
+      "constants": {
+        "IncomingRetryWake": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "WakeRequiresDiskCardAndFirstImmediate"
+    },
+    {
+      "name": "WakeObserved",
+      "config": "Negative_ObservedReplayDoesNotWake.cfg",
+      "constants": {
+        "WakeObserved": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "ObservedReplayDoesNotWake"
+    },
+    {
+      "name": "IgnoreCard",
+      "config": "Negative_WakeRequiresDiskCardAndFirstImmediate.cfg",
+      "constants": {
+        "IgnoreCard": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "WakeRequiresDiskCardAndFirstImmediate"
+    },
+    {
+      "name": "WakeMemory",
+      "config": "Negative_WakeRequiresDiskCardAndFirstImmediate.cfg",
+      "constants": {
+        "WakeMemory": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "WakeRequiresDiskCardAndFirstImmediate"
+    },
+    {
+      "name": "ConsumeHistory",
+      "config": "Negative_HistoricalProofCannotConsume.cfg",
+      "constants": {
+        "ConsumeHistory": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "HistoricalProofCannotConsume"
+    },
+    {
+      "name": "SkipMalformed",
+      "config": "Negative_MalformedProofCannotAffect.cfg",
+      "constants": {
+        "SkipMalformed": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "MalformedProofCannotAffect"
+    },
+    {
+      "name": "SuppressHistory",
+      "config": "Negative_HistoryDoesNotSuppressOrNotify.cfg",
+      "constants": {
+        "SuppressHistory": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "HistoryDoesNotSuppressOrNotify"
+    },
+    {
+      "name": "WakeHistory",
+      "config": "Negative_HistoryDoesNotSuppressOrNotify.cfg",
+      "constants": {
+        "WakeHistory": "TRUE"
+      },
+      "expect": "invariant",
+      "property": "HistoryDoesNotSuppressOrNotify"
+    }
+  ]
+}

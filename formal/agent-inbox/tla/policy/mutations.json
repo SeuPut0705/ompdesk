@@ -1,0 +1,99 @@
+{
+  "checker": {
+    "kind": "tlc",
+    "config": "MC.cfg",
+    "workers": 1,
+    "timeoutSec": 180
+  },
+  "properties": [
+    "RequestedIntentPreserved",
+    "FirstDeliveryStable",
+    "HistoricalProofCannotConsume",
+    "MalformedProofCannotAffect",
+    "ObservedReplayDoesNotWake",
+    "WakeRequiresDiskCardAndFirstImmediate",
+    "HistoryDoesNotSuppressOrNotify"
+  ],
+  "mutations": [
+    {
+      "name": "PromoteRequested",
+      "why": "RequestedIntentPreserved can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "\\/ PromoteRequested",
+      "replace": "\\/ TRUE",
+      "breaks": "RequestedIntentPreserved",
+      "isolate": true
+    },
+    {
+      "name": "ReplaceFirst",
+      "why": "FirstDeliveryStable can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "IF ReplaceFirst THEN",
+      "replace": "IF TRUE THEN",
+      "breaks": "FirstDeliveryStable",
+      "isolate": true
+    },
+    {
+      "name": "IncomingRetryWake",
+      "why": "WakeRequiresDiskCardAndFirstImmediate can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "IF IncomingRetryWake THEN",
+      "replace": "IF TRUE THEN",
+      "breaks": "WakeRequiresDiskCardAndFirstImmediate",
+      "isolate": true
+    },
+    {
+      "name": "WakeObserved",
+      "why": "ObservedReplayDoesNotWake can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "\\/ WakeObserved)",
+      "replace": "\\/ TRUE)",
+      "breaks": "ObservedReplayDoesNotWake",
+      "isolate": true
+    },
+    {
+      "name": "IgnoreCard",
+      "why": "WakeRequiresDiskCardAndFirstImmediate can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "\\/ IgnoreCard)",
+      "replace": "\\/ TRUE)",
+      "breaks": "WakeRequiresDiskCardAndFirstImmediate",
+      "isolate": true
+    },
+    {
+      "name": "WakeMemory",
+      "why": "WakeRequiresDiskCardAndFirstImmediate can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "toDisk \\/ WakeMemory",
+      "replace": "toDisk \\/ TRUE",
+      "breaks": "WakeRequiresDiskCardAndFirstImmediate",
+      "isolate": true
+    },
+    {
+      "name": "ConsumeHistory",
+      "why": "HistoricalProofCannotConsume can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "\\/ ConsumeHistory)",
+      "replace": "\\/ TRUE)",
+      "breaks": "HistoricalProofCannotConsume",
+      "isolate": true
+    },
+    {
+      "name": "SkipMalformed",
+      "why": "MalformedProofCannotAffect can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "\\/ SkipMalformed",
+      "replace": "\\/ TRUE",
+      "breaks": "MalformedProofCannotAffect",
+      "isolate": true
+    },
+    {
+      "name": "SuppressHistory",
+      "why": "HistoryDoesNotSuppressOrNotify can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "!.suppressed = @ \\/ (SuppressHistory /\\ History),\n                                 !.phase = IF SuppressHistory /\\ History THEN",
+      "replace": "!.suppressed = @ \\/ (TRUE /\\ History),\n                                 !.phase = IF TRUE /\\ History THEN",
+      "breaks": "HistoryDoesNotSuppressOrNotify",
+      "isolate": true
+    },
+    {
+      "name": "WakeHistory",
+      "why": "HistoryDoesNotSuppressOrNotify can fail at the corresponding native policy boundary. Unexecuted kill hypothesis.",
+      "search": "historyWake == WakeHistory /\\ History",
+      "replace": "historyWake == TRUE /\\ History",
+      "breaks": "HistoryDoesNotSuppressOrNotify",
+      "isolate": true
+    }
+  ]
+}
