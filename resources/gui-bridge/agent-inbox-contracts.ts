@@ -28,6 +28,16 @@ export interface InboxReceiver {
 	instance: string;
 }
 
+/** Ephemeral authenticated route capture. Never part of logical identity, a transfer, or durable inventory. */
+export interface NativeInboxRoute {
+	peerDeviceId: string;
+	connectionIncarnation: string;
+	rtab: string;
+	tabId: string;
+	sessionPath: string;
+	runtimeInstance: string;
+}
+
 /** Supplied only by the private native outbox -> authenticated Host -> bridge route, never a stock prompt. */
 interface NativeInboxEntryFields {
 	deliveryId: string;

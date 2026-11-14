@@ -186,6 +186,19 @@ pub(crate) struct InboxReceiver {
     pub instance: String,
 }
 
+/// Private receiving-route capture, compared with the same current authenticated host snapshot before acceptance.
+/// Not part of logical source identity or persisted receiving responsibility.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InboxRoute {
+    pub peer_device_id: String,
+    pub connection_incarnation: String,
+    pub rtab: String,
+    pub tab_id: String,
+    pub session_path: String,
+    pub runtime_instance: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct InboxSender {
     pub session: String,
