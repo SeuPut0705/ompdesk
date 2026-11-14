@@ -414,6 +414,8 @@ function modelsOf(flags: Flags): ModelUnits[] {
 					? `no model ${flags.verify.only} in the manifest (${manifest.models.map(model => model.id).join(", ")})`
 					: `no ${flags.verify.tier}-tier model in the manifest`,
 			);
+		if (flags.inspection && models.some(model => !model.matrix))
+			throw new UsageError("--inspect-unit requires a model with an explicit matrix");
 		const units = models.map(model =>
 			modelUnits(model, formalDir, flags.inspection ? { ...flags.verify, tierGiven: true } : flags.verify),
 		);
