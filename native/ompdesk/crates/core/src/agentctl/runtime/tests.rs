@@ -805,3 +805,47 @@ async fn disk_enqueue_survives_reload_and_receiver_journal_deduplicates_effect()
     assert!(runtime.rt().wakes.is_empty());
     control.host.port().close();
 }
+
+#[tokio::test]
+async fn paired_mail_acceptance_rechecks_online_pairing_before_keep() {
+    use crate::agentctl::journal::Persistence;
+    for (index, link) in [None, Some("offline"), Some("connecting"), Some("online")]
+        .into_iter()
+        .enumerate()
+    {
+        let mut paired = tab("boss", "/s/boss.jsonl");
+        paired["device"] = json!("peer");
+        let mut snapshot = state(vec![paired]);
+        snapshot["devices"] = link.map_or_else(
+            || json!([]),
+            |state| json!([{ "id": "peer", "name": "Peer", "state": state }]),
+        );
+        let (control, runtime, told) =
+            rig(7_460 + index as u64, snapshot, with_outbox(), wake_main);
+        let expected = super::wake::MailRecipient {
+            session_path: "/s/boss.jsonl".into(),
+            device: Some("peer".into()),
+        };
+        let receipt = runtime.enqueue_mail(
+            "checks:hub:entry-1:result",
+            "boss",
+            "Checks",
+            "answer",
+            &expected,
+        );
+        if link == Some("online") {
+            assert_eq!(receipt.unwrap(), Persistence::Memory);
+            assert_eq!(
+                control.host.outbox().unwrap().pending()[0]
+                    .device
+                    .as_deref(),
+                Some("peer")
+            );
+        } else {
+            assert!(receipt.is_err());
+            assert!(control.host.outbox().unwrap().pending().is_empty());
+        }
+        assert!(told_of(&told, "mail").is_empty());
+        control.host.port().close();
+    }
+}

@@ -19,6 +19,7 @@ use crate::agentctl::journal::mail_outbox::OutboxMail;
 use crate::agentctl::rules::mail::{Mail, MailDelivery, MailKind, mail_details, mail_text};
 use crate::agentctl::service::fail::{Fail, R, fail};
 use crate::agentctl::service::host::HostState;
+use crate::agentctl::service::types::DeviceState;
 use crate::server::{Call, Fault, Registry, Reply, at_once};
 
 /// A run waiting for the turn its wake-up mail starts.
@@ -130,6 +131,13 @@ impl Runtime {
         }
         if target.hidden || state.deleted_at_path(path, device).is_some() {
             return fail("The resolved mail recipient is hidden or deleted.");
+        }
+        if let Some(device) = device
+            && !state
+                .device(device)
+                .is_some_and(|peer| peer.state == DeviceState::Online)
+        {
+            return fail("The resolved mail recipient is offline or no longer paired.");
         }
         let outbox = self
             .host()
