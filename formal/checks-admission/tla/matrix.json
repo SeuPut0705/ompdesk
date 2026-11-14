@@ -60,7 +60,8 @@
 			"name": "permanent-unconfirmed-can-block-release",
 			"config": "MC_live_unconfirmed.cfg",
 			"expect": "temporal",
-			"property": "ReleaseEventuallyAdmitted"
+			"property": "ReleaseEventuallyAdmitted",
+			"args": ["-lncheck", "final"]
 		},
 		{
 			"name": "liveness-one-pool",
@@ -72,7 +73,8 @@
 			"name": "liveness-account",
 			"config": "MC_live_account.cfg",
 			"expect": "pass",
-			"timeoutSec": 3600
+			"timeoutSec": 3600,
+			"args": ["-lncheck", "final"]
 		},
 		{
 			"name": "liveness-a-dispatch-that-fails-after-a-supersede",
