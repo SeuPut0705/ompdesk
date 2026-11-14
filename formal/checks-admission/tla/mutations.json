@@ -2,7 +2,7 @@
 	"checker": {
 		"kind": "tlc",
 		"config": "MC.cfg",
-		"timeoutSec": 600
+		"timeoutSec": 3600
 	},
 	"properties": [
 		"TypeOK",

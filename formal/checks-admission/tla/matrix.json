@@ -31,7 +31,8 @@
 		{
 			"name": "supersede-within-one-key",
 			"config": "MC_supersede.cfg",
-			"expect": "pass"
+			"expect": "pass",
+			"timeoutSec": 3600
 		},
 		{
 			"name": "reuse-a-green-digest",
@@ -64,13 +65,14 @@
 		{
 			"name": "liveness-one-pool",
 			"config": "MC_live.cfg",
-			"expect": "pass"
+			"expect": "pass",
+			"timeoutSec": 3600
 		},
 		{
 			"name": "liveness-account",
 			"config": "MC_live_account.cfg",
 			"expect": "pass",
-			"timeoutSec": 1800
+			"timeoutSec": 3600
 		},
 		{
 			"name": "liveness-a-dispatch-that-fails-after-a-supersede",

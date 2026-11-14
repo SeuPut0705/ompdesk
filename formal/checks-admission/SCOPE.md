@@ -79,7 +79,7 @@ The frozen set is `Properties.md`.
 | `MC_live_unconfirmed.cfg` | one slot; branch then release. Without `NoForeverUnconfirmed`, P10 must fail when the branch reservation is never observed |
 | deep | one heavy pool of 2 slots, two release jobs, two branch jobs, one outside job |
 
-The real limits (5 and 40) are larger. The properties compare counts with limits and order entries by lane and arrival. Prior evidence applies to the earlier model only. These changes have not been checked by TLC.
+The real limits (5 and 40) are larger. The properties compare counts with limits and order entries by lane and arrival. Prior evidence applies to the earlier model only. Updated-model run 43562545178 did not produce a passing matrix: `MC_supersede.cfg` and `MC_live.cfg` timed out at 600 seconds, and `MC_live_account.cfg` at 1,800 seconds. Mutation baselines that timed out establish no coverage. The next run raises those three matrix budgets and the mutation checker budget to 3,600 seconds. Actors, limits, properties and existing fairness assumptions are unchanged. No symmetry is used for these temporal checks; timeout remains not checked, never a pass.
 
 ## Finding F1 (design question, decided 14 Nov 2026): a release macOS job and the account's last places
 
