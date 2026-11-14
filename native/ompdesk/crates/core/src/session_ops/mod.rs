@@ -270,3 +270,6 @@ fn running() -> Error {
         message: "Session is currently running",
     }
 }
+
+#[cfg(test)]
+mod cancellation_tests;
