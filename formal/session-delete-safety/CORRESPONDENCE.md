@@ -45,7 +45,7 @@ Original stuttering steps map to stuttering steps. In each dash cell the origina
 
 `src/main/session-index.ts:329-338,441-444` deletes storage before notifying the shared list. `src/main/session-list-share.ts:46-60` increments the shared generation on invalidation. Its `34-43,77-89` ranges capture a wanted generation, await a shared read, and publish the sample. The model keeps the sample, wanted generation, and notification distinct.
 
-`src/renderer/stores/session-list.ts:169-209` captures and checks a feed generation; `237-251` invalidates pending reads when the last holder releases the feed. The model's `connection` and `readConn` comparison abstracts release and rebuild invalidation. It is not a literal renderer connection-number comparison and does not prove all in-place reconnects. The acknowledgement maps to `259-286`, and the snapshot timer maps to `115-121`.
+`src/renderer/stores/session-list.ts:107-127` seeds the feed and defines its snapshot save and generation state. `171-183,202-204` captures and checks a read generation; `236-251` invalidates pending reads when the last holder releases the feed. The model's `connection` and `readConn` comparison abstracts release and rebuild invalidation. It is not a literal renderer connection-number comparison and does not prove all in-place reconnects. Feed removal maps to `259-268`, and acknowledgement removes both scopes' snapshots at `271-285`. Delta application, announced-version handling, retries, and rename behavior outside these boundaries are not covered.
 
 `src/main/remote/host-services.ts:1878-1885` checks the tombstone and in-flight delete count before opening. The existing-view path checks and publishes at `1929-1951,2127-2160`. The lookup and final check are at `1967-2004`, with sidecar creation and publication at `2127-2160`.
 
@@ -68,3 +68,46 @@ Under the state map, the original predicates equal these projected predicates, w
 | `RestoredDeletedAbsent` | restore | `restored` to `detail.restored`, `restoredRow` to `detail.restoredRow`; `tombstone` unchanged. |
 
 Induction over one original trace uses the same initial state and the same original action at each position for all three maps. Each delete event has the same parameter, order, `dpc`, file, tombstone, count, and acknowledgement in all three projected traces. Stutters preserve positions for erased events. Arbitrarily combining separately generated projection histories does not establish this relationship. If the stated initial, step, and predicate obligations hold and each corresponding projection satisfies its assigned invariant, an original violating finite prefix would project to a violating prefix. This implication is conditional on those obligations and on completed safety checks. It is not a liveness or implementation proof.
+
+## Conditional replacement obligations
+
+Completed safety of all three baselines, together with the stated forward state/action/stutter map and predicate equalities, could discharge the five-property bounded safety obligation attempted by the original matrix baseline. It would not turn that timed-out execution into a PASS. Promotion requires an explicit review of the completed evidence; no old gate is retired here.
+
+A projected mutation counterexample is not automatically an original-model mutation counterexample. Replacing the original seven mutation obligations additionally requires exact mutated correspondence and a way to lift the counterexample into an original trace. Original-to-projection forward simulation alone is insufficient for that claim. Direct mutation counterparts are feed generation, final count and tombstone checks, successful count reset, joint connection/generation checks, wanted source generation, and restore filtering. Their old failed gate remains open until this extra argument and actual detection evidence are accepted.
+
+All original reachability and late-reply diagnostic scenarios remain unchanged. New sanity negatives establish only their named projection observations. They do not replace the removed late observers or silently broaden reconnect ordering, filesystem durability, stock storage behavior, exit confirmation, authorization receipts, liveness, or native SessionOps composition. The same original delete-spine history must underlie all projected traces; arbitrary independent histories are never combined.
+
+## Explicit acceptance-only candidate (Main d88)
+
+This is a new candidate mapping, not a claim that the old mutation artifact had these bytes. The immutable original is `66dd66a9b5c85ad7b7c9accf8ce48fce013519b3:formal/session-delete-fences/tla/`. Its `mutations.json` SHA-256 is `579f5c847f417459856eadcb63620f5f80fce53992e601e7db060cb67e2abd6c`. The old `rebuild-accepts-obsolete-feed-read` search occurs in both the `ReadFinish` acceptance predicate and the `freshAfterLate` observer. Without `all: true`, that record has no uniquely applicable runnable identity. The original record, model, manifest, failed runs and diagnostic artifacts remain unchanged.
+
+The candidate chooses only the `ReadFinish` acceptance predicate. Its contextual search is:
+
+```tla
+readPc' = [readPc EXCEPT ![s][r] = "done"]
+    /\ IF readConn[s][r] = connection /\ readGen[s][r] = generation[s]
+```
+
+Its replacement is:
+
+```tla
+readPc' = [readPc EXCEPT ![s][r] = "done"]
+    /\ IF TRUE
+```
+
+The context occurs once. The candidate leaves the separate `freshAfterLate` assignment, all five frozen predicates, actor constants, configuration, timeouts and other mutation records unchanged; it does not add `all: true`. Applying only these two JSON-field changes to the immutable original defines the separately identified candidate JSON, SHA-256 `792fd3b016abfaaafeebcca70afecce4d0084fbd1a672a415e3f50cb6980a815`. Source preparation checks the exact transform and its applicability; it does not execute either model or overwrite the original JSON.
+
+| Original-side candidate mutation | Projected mutation | Retained changed action |
+| --- | --- | --- |
+| `accept-pre-delete-read` | `accept-pre-delete-feed-generation` | `DeleteAcknowledged` leaves the feed generation unchanged. |
+| `ignore-active-delete-at-publish` | `final-open-ignores-active-delete` | `OpenPublish` ignores only the active delete count. |
+| `ignore-tombstone-at-publish` | `final-open-ignores-tombstone` | `OpenPublish` ignores only the tombstone. |
+| `one-delete-clears-all-counts` | `commit-clears-all-delete-counts` | `DeleteCommit` writes count zero; this is not the additional failure-release mutation. |
+| `rebuild-accepts-obsolete-feed-read`, new acceptance-only identity above | `accept-old-connection-and-generation` | Only the retained `ReadFinish` acceptance predicate becomes `TRUE`. |
+| `shared-read-skips-wanted-generation` | `skip-wanted-source-generation` | `ReadAnswer` ignores the wanted-generation guard. |
+| `restore-ignores-tombstone` | `restore-keeps-tombstoned-row` | `Restore` keeps the row while retaining its post-delete guard. |
+
+For a fixed mode and unchanged constants, a proposed finite-prefix lift starts at original `Init` and follows the same retained action labels and parameters. A projected stutter can be an original stutter. Erased actors need not be scheduled; no fairness is added. Erased fields are advanced by each original action's own successor expressions, not reset to initial values. The retained guard and successor dependencies in the action table must match in both directions, including the chosen changed acceptance expression. The unchanged observer assignment has no retained effect. All three projections must derive from the same original delete-spine history; separately generated histories are never combined.
+
+This construction is an obligation, not a completed witness lift. Each claimed mutation replacement still needs its exact configuration and source identity, an actually observed projected counterexample to the corresponding frozen predicate, and an accepted action-by-action mutated correspondence or lifted original trace. The old ambiguous record and old failed mutation gate are not repaired or retired by this new candidate mapping. All new baselines, sixteen proposed kills and witness lifts remain unobserved.
+
