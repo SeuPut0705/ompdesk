@@ -118,6 +118,53 @@ jobs:
         with:
           path: .formal-verdict-cache
           key: formal-verdict-v1-${{ matrix.key }}
+      - name: Prepare admission liveness scratch
+        if: contains(format(' {0} ', matrix.units), ' checks-admission/r12-liveness-account ')
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          echo "Admission liveness disk usage before SDK cleanup"
+          df -PT "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /tmp
+          tools=()
+          for tool in java bun gh; do
+            tool_path=$(command -v "$tool")
+            tools+=("$(readlink -f "$tool_path")")
+          done
+          for sdk in /usr/local/lib/android /usr/share/dotnet /opt/ghc; do
+            [ -d "$sdk" ] && [ ! -L "$sdk" ] || continue
+            sdk=$(readlink -f "$sdk")
+            for kept in "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$HOME/.cache/ompdesk/formal" "${tools[@]}"; do
+              kept=$(realpath -m "$kept")
+              case "$kept/" in
+                "$sdk/"*) echo "::error::SDK overlaps required path: $kept"; exit 1 ;;
+              esac
+              case "$sdk/" in
+                "$kept/"*) echo "::error::SDK is inside required path: $kept"; exit 1 ;;
+              esac
+            done
+            echo "Removing unused preinstalled SDK: $sdk"
+            sudo du -sx --block-size=1 "$sdk"
+            sudo rm -rf --one-file-system -- "$sdk"
+          done
+          best=
+          available=-1
+          for candidate in "$RUNNER_TEMP" /mnt /tmp; do
+            [ -d "$candidate" ] && [ -w "$candidate" ] || continue
+            candidate=$(readlink -f "$candidate")
+            df -PT "$candidate"
+            bytes=$(df -B1 --output=avail "$candidate" | tail -n 1 | tr -d ' ')
+            if (( bytes > available )); then
+              best=$candidate
+              available=$bytes
+            fi
+          done
+          test -n "$best"
+          scratch=$(mktemp -d "$best/ompdesk-admission-tlc.XXXXXX")
+          echo "TLC scratch: $scratch; available bytes: $available"
+          df -PT "$scratch"
+          echo "TMPDIR=$scratch" >> "$GITHUB_ENV"
       - name: Check
         env:
           ONLY: ${{ inputs.only }}
