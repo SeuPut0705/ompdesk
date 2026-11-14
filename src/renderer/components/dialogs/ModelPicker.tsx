@@ -17,7 +17,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { LoginProvider, ModelInfo } from "../../../shared/rpc-types";
+import type { LoginProvider, ModelInfo, ModelReleaseDatesResult } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
 import { compactionPointValue, useCompactionPoints } from "../../lib/compaction-limits";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -125,14 +125,6 @@ export function ModelPicker() {
 			]);
 			if (version !== requestVersion.current) return;
 			setLoading(false);
-			if (modelsResult.status === "fulfilled") {
-				const dates = new Map<string, number>();
-				for (const model of modelsResult.value.models) {
-					if (model.provider === "openrouter" && model.releasedAt !== undefined)
-						dates.set(model.id, model.releasedAt);
-				}
-				setReleaseDates(dates);
-			}
 			const providersOk = providersResult.status === "fulfilled" && providersResult.value.success;
 			if (providersOk) {
 				const data = providersResult.value.data as { providers?: LoginProvider[] } | undefined;
@@ -158,6 +150,23 @@ export function ModelPicker() {
 			requestVersion.current++;
 		};
 	}, [open, load]);
+
+	const hasOpenRouter = availableModels.some(model => model.provider === "openrouter");
+	useEffect(() => {
+		if (!open || !sidecarReady || !hasOpenRouter) return undefined;
+		let cancelled = false;
+		void tabRpc
+			.getModelReleaseDates()
+			.then(response => {
+				if (cancelled || !response.success) return;
+				const data = response.data as ModelReleaseDatesResult | undefined;
+				setReleaseDates(new Map(Object.entries(data?.dates ?? {})));
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [open, sidecarReady, hasOpenRouter, tabRpc]);
 
 	// The picker opens over the focused session's composer, its right edge on the composer's (the model chip's
 	// side), and leaves the window as it is behind it. Without a composer on screen (a page open) it opens at the top.
@@ -225,8 +234,8 @@ export function ModelPicker() {
 				models:
 					provider === "openrouter"
 						? [...models].sort((a, b) => {
-								const aRelease = releaseDates.get(a.id) ?? a.releasedAt;
-								const bRelease = releaseDates.get(b.id) ?? b.releasedAt;
+								const aRelease = releaseDates.get(a.id);
+								const bRelease = releaseDates.get(b.id);
 								const aDate = typeof aRelease === "number" && Number.isFinite(aRelease) ? aRelease : -Infinity;
 								const bDate = typeof bRelease === "number" && Number.isFinite(bRelease) ? bRelease : -Infinity;
 								return bDate === aDate ? 0 : bDate > aDate ? 1 : -1;
@@ -256,19 +265,24 @@ export function ModelPicker() {
 		releaseDates,
 	]);
 
+	const waitingForModels = loading && availableModels.length === 0;
+	const showOptions = !error && !waitingForModels && groups.length > 0;
+
 	// Flat row order (group order → in-group order) for keyboard navigation; a
 	// recent model also listed under its provider is a separate row.
 	const flatOptions = useMemo(
 		() =>
-			groups.flatMap(group =>
-				(group.collapsed ? [] : group.models).map(model => ({
-					provider: model.provider,
-					modelId: model.id,
-					model,
-					key: `${group.id}:${model.provider}/${model.id}`,
-				})),
-			),
-		[groups],
+			showOptions
+				? groups.flatMap(group =>
+						(group.collapsed ? [] : group.models).map(model => ({
+							provider: model.provider,
+							modelId: model.id,
+							model,
+							key: `${group.id}:${model.provider}/${model.id}`,
+						})),
+					)
+				: [],
+		[groups, showOptions],
 	);
 	const indexByKey = useMemo(() => new Map(flatOptions.map((option, index) => [option.key, index])), [flatOptions]);
 
@@ -389,9 +403,6 @@ export function ModelPicker() {
 		openProviders();
 	};
 
-	// role="listbox" only when option rows actually render (loading / error /
-	// empty states are plain status blocks, not listbox children).
-	const showOptions = !error && !loading && groups.length > 0;
 	const activeModel = showOptions ? flatOptions[activeIndex]?.model : undefined;
 	const activeDetail = activeModel ? describeModel(activeModel) : "";
 	const detailId = `${listboxId}-detail`;
@@ -455,7 +466,7 @@ export function ModelPicker() {
 							}
 							tone="danger"
 						/>
-					) : loading ? (
+					) : waitingForModels ? (
 						<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : availableModels.length === 0 ? (
 						<EmptyState

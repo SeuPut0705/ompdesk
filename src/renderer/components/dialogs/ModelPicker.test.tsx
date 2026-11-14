@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AvailableModelsResult, ModelInfo } from "../../../shared/rpc-types";
+import type { AvailableModelsResult, ModelInfo, ModelReleaseDatesResult } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
@@ -26,10 +26,12 @@ let recent: unknown = { selectors: ["openai/gpt-5", "gone/model", "anthropic/cla
 const setModel = vi.fn(async () => ok({}));
 const setModelRole = vi.fn(async () => ok({}));
 const setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
+const getModelReleaseDates = vi.fn(async () => ok({ dates: { old: 100, "new-a": 200, "new-b": 200 } }));
 Reflect.set(window, "omp", {
 	rpc: {
 		getLoginProviders: vi.fn(async () => ok({ providers: [] })),
 		getRecentModels: vi.fn(async () => ok(recent)),
+		getModelReleaseDates,
 		getSettings: vi.fn(async () => ok({ values: {} })),
 		setModel,
 		setModelRole,
@@ -95,6 +97,8 @@ afterEach(async () => {
 	recent = { selectors: ["openai/gpt-5", "gone/model", "anthropic/claude"] };
 	setModel.mockClear();
 	setModelRole.mockClear();
+	getModelReleaseDates.mockReset();
+	getModelReleaseDates.mockResolvedValue(ok({ dates: { old: 100, "new-a": 200, "new-b": 200 } }));
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useUiStore.setState({ modelPickerOpen: false });
@@ -226,10 +230,10 @@ describe("ModelPicker thinking row", () => {
 describe("ModelPicker OpenRouter group", () => {
 	const routerModels: ModelInfo[] = [
 		{ provider: "openrouter", id: "unknown-a", name: "Unknown A" },
-		{ provider: "openrouter", id: "old", name: "Old", releasedAt: 100 },
-		{ provider: "openrouter", id: "new-a", name: "New A", releasedAt: 200 },
-		{ provider: "openrouter", id: "unknown-b", name: "Unknown B", releasedAt: NaN },
-		{ provider: "openrouter", id: "new-b", name: "New B", releasedAt: 200 },
+		{ provider: "openrouter", id: "old", name: "Old" },
+		{ provider: "openrouter", id: "new-a", name: "New A" },
+		{ provider: "openrouter", id: "unknown-b", name: "Unknown B" },
+		{ provider: "openrouter", id: "new-b", name: "New B" },
 	];
 	const disclosure = () =>
 		document.querySelector('[data-model-group="openrouter"] button[aria-expanded]') as unknown as HTMLElement;
@@ -267,24 +271,51 @@ describe("ModelPicker OpenRouter group", () => {
 		response.resolve({ models: routerModels, discoveryStates: [], refreshPending: false, generation: 1 });
 	});
 
-	it("keeps release ordering across raw catalog pushes and a late dated read without restoring removed models", async () => {
-		const response = Promise.withResolvers<AvailableModelsResult>();
-		const raw = routerModels.map(model => ({ provider: model.provider, id: model.id, name: model.name }));
-		await mount([...MODELS, ...raw], response.promise);
+	it("keeps current, recent, search and selection usable while release metadata is pending", async () => {
+		const response = Promise.withResolvers<ModelReleaseDatesResult>();
+		getModelReleaseDates.mockImplementationOnce(async () => ok(await response.promise));
+		recent = { selectors: ["openrouter/old"] };
+		useModelStore.setState({ chosenModel: routerModels[2], model: routerModels[2] });
+		await mount(routerModels);
+		expect(rows("current")).toEqual(["New A"]);
+		expect(rows("recent")).toEqual(["Old"]);
+		const { input, props } = inputProps();
+		input.value = "new b";
+		await act(async () => props.onChange({ target: input, currentTarget: input }));
+		expect(rows("openrouter")).toEqual(["New B"]);
+		await key("Enter");
+		expect(setModel).toHaveBeenCalledWith("openrouter", "new-b");
+		expect(setModelRole).not.toHaveBeenCalled();
+		await act(async () => response.resolve({ dates: {} }));
+	});
+
+	it("keeps the catalog selectable when release metadata fails", async () => {
+		getModelReleaseDates.mockRejectedValueOnce(new Error("offline"));
+		await mount(routerModels);
 		await act(async () => disclosure().click());
-		await act(async () => useModelStore.setState({ availableModels: [raw[1], raw[3], raw[4]] }));
+		expect(rows("openrouter")).toEqual(routerModels.map(model => model.name));
+		await key("Enter");
+		expect(setModel).toHaveBeenCalledWith("openrouter", "unknown-a");
+	});
+
+	it("keeps release ordering across raw catalog pushes and a late date read without restoring removed models", async () => {
+		const response = Promise.withResolvers<ModelReleaseDatesResult>();
+		getModelReleaseDates.mockImplementationOnce(async () => ok(await response.promise));
+		await mount([...MODELS, ...routerModels]);
+		await act(async () => disclosure().click());
+		expect(rows("openrouter")).toEqual(routerModels.map(model => model.name));
 		await act(async () =>
-			response.resolve({
-				models: routerModels,
-				discoveryStates: [],
-				refreshPending: false,
-				generation: 1,
-			}),
+			useModelStore.setState({ availableModels: [routerModels[1], routerModels[3], routerModels[4]] }),
 		);
+		await act(async () => response.resolve({ dates: { old: 100, "new-a": 200, "new-b": 200 } }));
 		expect(rows("openrouter")).toEqual(["New B", "Old", "Unknown B"]);
 		await act(async () =>
 			useModelStore.setState({
-				availableModels: [raw[1], { provider: "anthropic", id: "new-b", name: "Other provider" }, raw[4]],
+				availableModels: [
+					routerModels[1],
+					{ provider: "anthropic", id: "new-b", name: "Other provider" },
+					routerModels[4],
+				],
 			}),
 		);
 		expect(rows("openrouter")).toEqual(["New B", "Old"]);

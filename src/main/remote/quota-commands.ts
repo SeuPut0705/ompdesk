@@ -172,6 +172,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_login_providers",
 	"get_marketplaces",
 	"get_mcp_servers",
+	"get_model_release_dates",
 	"get_model_role_metadata",
 	"get_model_roles",
 	"get_model_setup_facts",

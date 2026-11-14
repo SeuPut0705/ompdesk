@@ -4,7 +4,7 @@
  * Stock's fetchWellKnownModels cache is field-pruned and carries no release dates.
  * Source semantics: https://github.com/anomalyco/models.dev#api-reference
  */
-import type { ModelInfo } from "../shared/rpc-types";
+import type { ModelReleaseDatesResult } from "../shared/rpc-types";
 
 const SUCCESS_TTL_MS = 24 * 60 * 60 * 1_000;
 const FAILURE_TTL_MS = 5 * 60 * 1_000;
@@ -64,11 +64,6 @@ function releaseDates(): Promise<Map<string, number>> {
 	return inFlight;
 }
 
-export async function enrichModelReleaseDates(models: ModelInfo[]): Promise<ModelInfo[]> {
-	if (!models.some(model => model.provider === "openrouter")) return models;
-	const known = await releaseDates();
-	return models.map(model => {
-		const releasedAt = model.provider === "openrouter" ? known.get(model.id) : undefined;
-		return releasedAt === undefined ? model : { ...model, releasedAt };
-	});
+export async function getModelReleaseDates(): Promise<ModelReleaseDatesResult> {
+	return { dates: Object.fromEntries(await releaseDates()) };
 }

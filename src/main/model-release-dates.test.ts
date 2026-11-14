@@ -6,7 +6,6 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
-const model = (id: string, provider = "openrouter") => ({ provider, id, name: id });
 const catalog = {
 	providers: {
 		openrouter: {
@@ -29,25 +28,11 @@ const catalog = {
 };
 
 describe("model release dates", () => {
-	it("uses only exact canonical model dates and preserves the listing", async () => {
+	it("returns only exact canonical model dates, not provider dates or guessed suffix matches", async () => {
 		const fetcher = vi.fn(async (_url: string | URL | Request) => Response.json(catalog));
 		vi.stubGlobal("fetch", fetcher);
-		// Re-import after resetModules to isolate the module-wide cache.
-		const { enrichModelReleaseDates } = await import("./model-release-dates");
-		const models = [
-			model("lab/exact"),
-			model("lab/month"),
-			model("lab/invalid"),
-			model("lab/standalone"),
-			model("lab/wrong"),
-			model("lab/mismatch"),
-			model("lab/exact:free"),
-			model("lab/exact", "other"),
-		];
-		expect(await enrichModelReleaseDates(models)).toEqual([
-			{ ...models[0], releasedAt: Date.UTC(2024, 1, 29) },
-			...models.slice(1),
-		]);
+		const { getModelReleaseDates } = await import("./model-release-dates");
+		expect(await getModelReleaseDates()).toEqual({ dates: { "lab/exact": Date.UTC(2024, 1, 29) } });
 		expect(fetcher.mock.calls[0]?.[0]).toBe("https://models.dev/catalog.json");
 	});
 
@@ -57,26 +42,22 @@ describe("model release dates", () => {
 		const { promise, resolve } = Promise.withResolvers<Response>();
 		const fetcher = vi.fn(() => promise);
 		vi.stubGlobal("fetch", fetcher);
-		// Re-import after resetModules to isolate the module-wide cache.
-		const { enrichModelReleaseDates } = await import("./model-release-dates");
-		await enrichModelReleaseDates([model("x", "other")]);
+		const { getModelReleaseDates } = await import("./model-release-dates");
 		expect(fetcher).not.toHaveBeenCalled();
-		const first = enrichModelReleaseDates([model("lab/exact")]);
-		const second = enrichModelReleaseDates([model("lab/exact")]);
+		const first = getModelReleaseDates();
+		const second = getModelReleaseDates();
 		expect(fetcher).toHaveBeenCalledTimes(1);
 		resolve(Response.json(catalog));
 		expect(await first).toEqual(await second);
-		await enrichModelReleaseDates([model("lab/exact")]);
+		await getModelReleaseDates();
 		expect(fetcher).toHaveBeenCalledTimes(1);
 		fetcher.mockResolvedValueOnce(Response.json(catalog));
 		vi.advanceTimersByTime(24 * 60 * 60 * 1_000);
-		expect(await enrichModelReleaseDates([model("lab/exact")])).toEqual([
-			{ ...model("lab/exact"), releasedAt: Date.UTC(2024, 1, 29) },
-		]);
+		expect(await getModelReleaseDates()).toEqual({ dates: { "lab/exact": Date.UTC(2024, 1, 29) } });
 		expect(fetcher).toHaveBeenCalledTimes(2);
 	});
 
-	it("keeps models selectable and backs off after failure or malformed data", async () => {
+	it("returns unknown dates and backs off after failure or malformed data", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 		const fetcher = vi
@@ -84,15 +65,13 @@ describe("model release dates", () => {
 			.mockRejectedValueOnce(new Error("offline"))
 			.mockResolvedValueOnce(Response.json({ providers: {} }));
 		vi.stubGlobal("fetch", fetcher);
-		// Re-import after resetModules to isolate the module-wide cache.
-		const { enrichModelReleaseDates } = await import("./model-release-dates");
-		const models = [model("lab/exact")];
-		expect(await enrichModelReleaseDates(models)).toEqual(models);
-		expect(await enrichModelReleaseDates(models)).toEqual(models);
+		const { getModelReleaseDates } = await import("./model-release-dates");
+		expect(await getModelReleaseDates()).toEqual({ dates: {} });
+		expect(await getModelReleaseDates()).toEqual({ dates: {} });
 		expect(fetcher).toHaveBeenCalledTimes(1);
 		vi.advanceTimersByTime(5 * 60 * 1_000);
-		expect(await enrichModelReleaseDates(models)).toEqual(models);
-		expect(await enrichModelReleaseDates(models)).toEqual(models);
+		expect(await getModelReleaseDates()).toEqual({ dates: {} });
+		expect(await getModelReleaseDates()).toEqual({ dates: {} });
 		expect(fetcher).toHaveBeenCalledTimes(2);
 	});
 });
