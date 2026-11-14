@@ -246,7 +246,7 @@
 				"native/ompdesk/crates/checks/src/cli.rs",
 				"native/ompdesk/crates/checks/src/inputs.rs"
 			],
-			"syncCommit": null
+			"syncCommit": "a74698659d8cdfb6baa129d40ec5ef06115d91bc"
 		},
 		{
 			"id": "checks-result-delivery",
