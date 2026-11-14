@@ -144,10 +144,11 @@ impl Rig {
         self.source.dispose(Duration::ZERO);
         let exit = exited.await;
         let held = self.held.await;
-        self.stock.close().await;
+        let stock = self.stock.close().await;
         self.fingerprints.dispose();
         exit.unwrap();
         held.unwrap();
+        stock.unwrap();
     }
 }
 
@@ -188,10 +189,13 @@ async fn failed_local_hits_write_no_stock_stdin_and_unknown_stock_is_delivered_o
     assert!(rig.sink.flushes.load(Ordering::SeqCst) > flushes);
     assert_eq!(rig.stdin(), before);
 
+    let bridge_error = rig.source.bridge_for_generation(
+        rig.source.generation(), "modes.autopilot_status".into(), Some(json!({})), None,
+    ).await.unwrap_err();
     let flushes = rig.sink.flushes.load(Ordering::SeqCst);
     let bridge_failure = rig.command(json!({"type":"get_autopilot"})).await;
     assert_eq!(bridge_failure, json!({
-        "type":"response","id":"gui-3","command":"get_autopilot","success":false,"error":"gui-bridge not connected",
+        "type":"response","id":"gui-3","command":"get_autopilot","success":false,"error":bridge_error.message,
     }));
     assert!(rig.sink.flushes.load(Ordering::SeqCst) > flushes);
     assert_eq!(rig.stdin(), before, "a real Lane bridge error must not fall through to stock");
