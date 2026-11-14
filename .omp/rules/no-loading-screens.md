@@ -34,6 +34,7 @@ The user's rule: nothing waits on a spinner or a blank window; the app appears a
 
 ### Preload and transitions
 - `components/layout/AppShell.tsx`: Settings, Agents, Insights load idle (≤ `IDLE_PRELOAD_TIMEOUT_MS` 3 s after start; a paired web page waits `WEB_PRELOAD_DELAY_MS` 5 s first) and on intent (pointer over, focus, touch start on a sidebar destination, the panel toggle or a rail pin: `preloadForIntent`; the panel's views via `preloadPanelViews`). Rendered from `loadedPages`, never through `lazy()` (~300 ms Suspense throttle). The first-screen budget in `scripts/check-main-bundle.ts` is unchanged.
+- `components/chat/ConversationNavigator.tsx` loads the turn rail's view only after a viewport reaches 960 px; below that, the existing workspace CSS hides it. The CSS still decides whether the transcript column has room. Once loaded, the view stays mounted across narrow/wide resizes so the reader's earlier-turn page is preserved. This changes no transcript or password-notice loading and does not raise the first-screen budget.
 - `lib/view-transition.ts`: a page and a Settings section cross-fade (View Transitions API, opacity only, `--sc-duration-fast`) and otherwise change at once: reduced motion, `html[data-gpu="software"]`, hidden document, no API, a swap inside a running transition. The side panel's views are not transitioned (the document is not tappable during one; a panel opens to be used at once). A page's content fades in once (`omp-page-in`).
 
 ### Panels and pages paint their last read

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { ConversationNavigator, TURN_RAIL_LIMIT } from "./ConversationNavigator";
+import { ConversationNavigator } from "./ConversationNavigator";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 
@@ -57,6 +57,7 @@ async function mount(onNavigate: (rowIndex: number) => void, anchors = ANCHORS, 
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
 		root.render(rail(anchors, activeIndex, onNavigate));
+		await vi.dynamicImportSettled();
 	});
 }
 
@@ -83,9 +84,46 @@ afterEach(async () => {
 	container?.remove();
 	document.body.innerHTML = "";
 	vi.restoreAllMocks();
+	Reflect.deleteProperty(window, "matchMedia");
 });
 
 describe("ConversationNavigator", () => {
+	it("leaves a narrow screen unchanged, then opens the rail when there is room", async () => {
+		let narrow = true;
+		const listeners = new Set<() => void>();
+		Reflect.set(window, "matchMedia", () => ({
+			get matches() {
+				return narrow;
+			},
+			addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+			removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+		}));
+		const onNavigate = vi.fn();
+		await mount(onNavigate, turns(45), 44);
+		expect(container.querySelector("nav")).toBeNull();
+
+		await act(async () => {
+			narrow = false;
+			for (const listener of listeners) listener();
+			await vi.dynamicImportSettled();
+		});
+		expect(drawn()).toEqual([26, 45]);
+		await press(earlier());
+		expect(drawn()).toEqual([6, 25]);
+
+		await act(async () => {
+			narrow = true;
+			for (const listener of listeners) listener();
+		});
+		await act(async () => {
+			narrow = false;
+			for (const listener of listeners) listener();
+		});
+		expect(drawn()).toEqual([6, 25]);
+		await press(markers()[0]);
+		expect(onNavigate).toHaveBeenCalledWith(15);
+	});
+
 	it("marks the current turn and jumps to the selected virtual row", async () => {
 		const onNavigate = vi.fn();
 		await mount(onNavigate);
@@ -117,8 +155,7 @@ describe("ConversationNavigator", () => {
 		const anchors = turns(250);
 		await mount(() => {}, anchors, 249);
 
-		expect(TURN_RAIL_LIMIT).toBe(20);
-		expect(markers()).toHaveLength(TURN_RAIL_LIMIT);
+		expect(markers()).toHaveLength(20);
 		expect(drawn()).toEqual([231, 250]);
 		expect(markers().at(-1)?.getAttribute("aria-current")).toBe("location");
 		expect(earlier()?.getAttribute("aria-label")).toBe("230 earlier");
@@ -188,7 +225,7 @@ describe("ConversationNavigator", () => {
 	});
 
 	it("draws every turn, with no earlier item, up to 20 turns", async () => {
-		await mount(() => {}, turns(TURN_RAIL_LIMIT), 5);
+		await mount(() => {}, turns(20), 5);
 		expect(drawn()).toEqual([1, 20]);
 		expect(earlier()).toBeNull();
 		expect(markers()[5]?.getAttribute("aria-current")).toBe("location");
