@@ -36,11 +36,14 @@ pub(super) async fn import(
     for item in &transfer.entries {
         let ownership = owned.get(&item.entry.key());
         let already_owned = ownership.is_some();
-        for reference in item.attachments.iter().flat_map(|set| {
-            set.images
-                .iter()
-                .chain(set.files.iter().map(file_reference))
-        }) {
+        let Some(set) = &item.attachments else {
+            continue;
+        };
+        for reference in set
+            .images
+            .iter()
+            .chain(set.files.iter().map(file_reference))
+        {
             if reference.size > ATTACHMENT_MAX_BYTES as u64 {
                 return Err(format!(
                     "Invalid native inbox attachment size: {}",

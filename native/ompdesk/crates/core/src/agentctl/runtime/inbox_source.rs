@@ -423,11 +423,14 @@ impl Runtime {
         let mut landed = HashSet::new();
         let file_reference: for<'a> fn(&'a LandedFile) -> &'a AttachmentRef = |file| &file.file;
         for entry in &entries {
-            for reference in entry.attachments.iter().flat_map(|set| {
-                set.images
-                    .iter()
-                    .chain(set.files.iter().map(file_reference))
-            }) {
+            let Some(set) = &entry.attachments else {
+                continue;
+            };
+            for reference in set
+                .images
+                .iter()
+                .chain(set.files.iter().map(file_reference))
+            {
                 if !landed.insert(reference.sha256.clone()) {
                     continue;
                 }
