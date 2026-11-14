@@ -13,7 +13,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		result = { prompts: [] };
 	} else if (message.method === "tools/call") {
 		if (message.params.arguments?.notify) send({ jsonrpc: "2.0", method: "notifications/progress", params: { marker: message.params.arguments.notify } });
-		result = { content: [{ type: "text", text: JSON.stringify({ cwd: process.cwd(), pid: process.pid, secret: process.env.OMP_GUI_MCP_HUB_SECRET ?? null, marker: process.env.FIXTURE_MARKER }) }] };
+        result = { content: [{ type: "text", text: JSON.stringify({ cwd: process.cwd(), pid: process.pid, secret: process.env.OMP_GUI_MCP_HUB_SECRET ?? null, marker: process.env.FIXTURE_MARKER, plumbing: ["OMP_GUI_MCP_AUTH", "OMP_GUI_MCP_HUB", "OMP_GUI_MCP_CWD", "OMP_GUI_BRIDGE", "OMPDESK_SOCKET", "OMP_GUI_SESSION_TAG", "OMP_GUI_REA_ROOT"].map(key => process.env[key] ?? null) }) }] };
 	}
 	send({ jsonrpc: "2.0", id: message.id, result });
 }

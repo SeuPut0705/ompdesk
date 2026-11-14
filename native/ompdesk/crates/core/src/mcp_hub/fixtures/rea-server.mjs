@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 
 const send = message => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
 const tools = [
@@ -29,6 +30,11 @@ async function receive(message) {
     const index = message.params?.cursor ? 1 : 0;
     send({ id: message.id, result: { tools: list.slice(index, index + 1), ...(index + 1 < list.length ? { nextCursor: "next" } : {}) } });
   } else if (message.method === "prompts/list") {
+    if (process.env.REA_PROMPT_BARRIER) {
+      const hold = process.env.REA_PROMPT_BARRIER;
+      writeFileSync(`${hold}.started`, "ready");
+      while (!existsSync(`${hold}.release`)) await new Promise(resolve => setTimeout(resolve, 5));
+    }
     send({ id: message.id, result: { prompts: [{ name: "investigate" }] } });
   } else if (message.method === "tools/call") {
     if (message.params.arguments?.marker === "hold") {
@@ -45,6 +51,12 @@ async function receive(message) {
   } else if (message.method === "fixture/ask") {
     send({ method: "roots/list", id: 41, params: {} });
     send({ id: message.id, result: {} });
+  } else if (message.method === "fixture/env") {
+    send({ id: message.id, result: { auth: process.env.OMP_GUI_MCP_AUTH ?? null, hub: process.env.OMP_GUI_MCP_HUB ?? null, tag: process.env.OMP_GUI_SESSION_TAG ?? null } });
+  } else if (message.method === "fixture/descendant_then_exit") {
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "inherit", "inherit"] });
+    send({ id: message.id, result: { pid: child.pid } });
+    setTimeout(() => process.exit(0), 20);
   } else if (message.method === "fixture/exit") {
     process.exit(0);
   } else if (!message.method && message.id === 41) {
