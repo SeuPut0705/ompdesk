@@ -8,8 +8,8 @@ fn main() {
     println!("cargo:rerun-if-changed=app.manifest");
     println!("cargo:rerun-if-env-changed=OMPDESK_ICON");
     println!("cargo:rerun-if-changed=last-electron.json");
-    // The last Electron release, the app the macOS launcher puts back when a new version never starts: a compile-time
-    // constant of `ompdesk-launcher` from `last-electron.json` (`{"tag": "v0.127.0"}`; the release workflow writes it).
+    // The macOS launcher restores this Electron release if the new shell never starts.
+    // Set last-electron.json to the newest Electron release before landing the shell swap.
     let tag = std::fs::read_to_string("last-electron.json")
         .ok()
         .and_then(|text| {
