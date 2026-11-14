@@ -12,7 +12,9 @@ const CLOSED_TAB_LIMIT = 20;
 async function prepareLastTabClose(id: string): Promise<number | null> {
 	const closing = markTabClosed(id);
 	const get = useTabsStore.getState;
-	if (get().tabs.length === 1 && (await get().openTab({ work: true, placeholder: true })) === null) {
+	const prepared = get().tabs.length !== 1 || (await get().openTab({ work: true, placeholder: true })) !== null;
+	if (tabCloseState(id, closing) !== "closing") return null;
+	if (!prepared) {
 		forgetTabClose(id, closing);
 		return null;
 	}
@@ -40,7 +42,7 @@ export async function closeTab(id: string, closeRequest: string | undefined): Pr
 	}
 	if (closeRequest && state.tabs.length === 1) {
 		const closing = await prepareLastTabClose(id);
-		if (closing === null) {
+		if (closing === null || tabCloseState(id, closing) !== "closing") {
 			await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
 			return;
 		}
@@ -126,7 +128,7 @@ export async function closeDeletedSession(sessionPath: string, tabId: string | u
 	const tab = tabId ? get().tabs.find(entry => entry.id === tabId) : undefined;
 	if (tab) {
 		const closing = await prepareLastTabClose(tab.id);
-		if (closing === null) return false;
+		if (closing === null || tabCloseState(tab.id, closing) !== "closing") return false;
 		await closeTab(tab.id, undefined);
 		if (get().tabs.some(entry => entry.id === tab.id)) {
 			forgetTabClose(tab.id, closing);

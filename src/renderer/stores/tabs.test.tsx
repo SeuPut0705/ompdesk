@@ -1683,13 +1683,17 @@ describe("retained execution view races", () => {
 			sessionRuntimeStore<ComposerStore>("t1", "composer")?.setState({ draft: "work in replacement view" });
 
 			spawned.resolve({ tabId: "start", cwd: "/workspace" });
-			await closing;
+			const outcome = await closing;
+			if (kind === "deleted session") expect(outcome).toBe(false);
+			else expect(omp.tabs.close).toHaveBeenCalledWith("t1", "one-use", true);
 
 			expect(omp.tabs.close).not.toHaveBeenCalledWith("t1");
 			expect(omp.tabs.close).not.toHaveBeenCalledWith("t1", "one-use");
 			expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.viewId).toBe(replacement.viewId);
 			expect(sessionRuntime("t1")).toBe(freshRuntime);
-			expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("work in replacement view");
+			expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe(
+				"work in replacement view",
+			);
 			expect(acceptsTabViewFrame("t1", replacement.viewId)).toBe(true);
 		},
 	);
