@@ -840,7 +840,7 @@ export class AgentControlRuntime {
 	async #spawn(
 		callerTabId: string,
 		request: SpawnRequest,
-	): Promise<{ tabId: string; worktree?: IpcTabWorktree; prepared?: string }> {
+	): Promise<{ tabId: string; attached?: boolean; worktree?: IpcTabWorktree; prepared?: string }> {
 		const win = this.#win(callerTabId);
 		if (!win) throw new Error("This session's window is gone.");
 		// A caller outside OMPdesk runs on this computer and has no tab: its folder is where it was started.
@@ -905,7 +905,8 @@ export class AgentControlRuntime {
 		}
 		this.#windows.set(result.tabId, win);
 		// A view of a tab that holds the session elsewhere stays whoever's it was: no parent, no opener.
-		if (request.join) return { tabId: result.tabId };
+		if (request.join || result.attached)
+			return { tabId: result.tabId, ...(result.attached ? { attached: true } : {}) };
 		this.#parents.set(result.tabId, { callerTabId, ...(request.tag ? { tag: request.tag } : {}) });
 		// An Autopilot child already sits under its run (`tag`); a session the tool opens nests under its opener. An
 		// outside caller has no tab to nest under: its sessions sit in the sidebar like the person's own.
@@ -1172,8 +1173,9 @@ export class AgentControlRuntime {
 					const named =
 						needle !== undefined && `${row.title ?? ""} ${row.firstMessage}`.toLowerCase().includes(needle);
 					if (matches && !snippets.has(row.path) && !named) return [];
-					const tab = deps.pool.sessionOwner(row.path, device)?.tabId;
-					const open = tab ? undefined : elsewhere(row);
+					const owner = deps.pool.sessionOwner(row.path, device);
+					const tab = owner?.winId === null ? undefined : owner?.tabId;
+					const open = tab ? undefined : (elsewhere(row) ?? (owner ? {} : undefined));
 					const snippet = snippets.get(row.path);
 					return [
 						{

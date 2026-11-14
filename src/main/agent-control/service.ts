@@ -471,7 +471,7 @@ export interface AgentControlHost {
 	spawn(
 		callerTabId: string,
 		request: SpawnRequest,
-	): Promise<{ tabId: string; worktree?: IpcTabWorktree; prepared?: string }>;
+	): Promise<{ tabId: string; attached?: boolean; worktree?: IpcTabWorktree; prepared?: string }>;
 	/** Start a tab that has no process yet (a restored, not yet shown tab). */
 	start(tabId: string): void;
 	/** Name a tab that already exists (a relaunched one, from its saved session); a new one gets its task at the spawn. */

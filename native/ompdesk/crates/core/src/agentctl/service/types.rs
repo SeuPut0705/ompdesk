@@ -398,6 +398,8 @@ pub struct SpawnWorktree {
 pub struct Spawned {
     pub tab_id: String,
     #[serde(default)]
+    pub attached: bool,
+    #[serde(default)]
     pub worktree: Option<TabWorktree>,
     #[serde(default)]
     pub prepared: Option<String>,

@@ -269,6 +269,10 @@ impl AgentControl {
         reservation: &str,
         tag: Option<&str>,
     ) -> R<OpenResult> {
+        if args.reopen.is_some() && args.throwaway.is_some() {
+            self.opened_delete(&caller.tab_id, reservation);
+            return fail("reopen opens a stored session as it was: give no throwaway with it");
+        }
         let worktree_arg: Option<SpawnWorktree> = match &args.worktree {
             Some(WorktreeArg::Flag(true)) => Some(SpawnWorktree::default()),
             Some(WorktreeArg::Flag(false)) | None => None,
@@ -405,6 +409,17 @@ impl AgentControl {
             }
             Err(error) => return Err(error),
         };
+        if spawned.attached && joined.is_none() {
+            let computer = reopened
+                .as_ref()
+                .and_then(|row| {
+                    row.device
+                        .as_deref()
+                        .map(|device| row.device_name.as_deref().unwrap_or(device))
+                })
+                .unwrap_or("this computer");
+            joined = Some(open_in_text(computer, None));
+        }
         let tab_id = spawned.tab_id.clone();
         let worktree = spawned.worktree.clone();
         // A session joined where it is open stays whoever's it was: never "opened by you".
@@ -433,6 +448,9 @@ impl AgentControl {
             Ok(result) => return Ok(result),
             Err(error) => error,
         };
+        if joined.is_some() {
+            return Err(error);
+        }
         // A child that cannot be set up does not linger half-configured, nor does the worktree made for it.
         self.opened_delete(&caller.tab_id, &tab_id);
         self.mem().throwaway.remove(&tab_id);
@@ -571,17 +589,19 @@ impl AgentControl {
         if let Some(prepared) = prepared.filter(|prepared| !prepared.is_empty()) {
             notes.push(prepared.to_owned());
         }
-        self.host
-            .before_first_prompt(&OpenedChild {
-                tab_id: tab_id.to_owned(),
-                caller_tab_id: caller.tab_id.clone(),
-                worktree: worktree.as_ref().map(|worktree| ChildWorktree {
-                    path: worktree.path.clone(),
-                    branch: worktree.branch.clone(),
-                }),
-                tag: tag.filter(|tag| !tag.is_empty()).map(str::to_owned),
-            })
-            .await?;
+        if joined.is_none() {
+            self.host
+                .before_first_prompt(&OpenedChild {
+                    tab_id: tab_id.to_owned(),
+                    caller_tab_id: caller.tab_id.clone(),
+                    worktree: worktree.as_ref().map(|worktree| ChildWorktree {
+                        path: worktree.path.clone(),
+                        branch: worktree.branch.clone(),
+                    }),
+                    tag: tag.filter(|tag| !tag.is_empty()).map(str::to_owned),
+                })
+                .await?;
+        }
         // Before its first message: a quick lookup may end before this call returns.
         if args.throwaway == Some(true) {
             self.mem().throwaway.insert(tab_id.to_owned());

@@ -76,6 +76,7 @@ function setup(
 		requests?: IpcOpenExtensionRequest[];
 		schedules?: AgentControlHostDeps["schedules"];
 		autopilot?: AgentControlHostDeps["autopilot"];
+		beforeFirstPrompt?: AgentControlHostDeps["beforeFirstPrompt"];
 		/** The sweep timer's period in ms (`AgentControlHostDeps.sweepMs`). */
 		sweepMs?: number;
 		/** The core runtime's own waits in ms (`AgentControlHostDeps.runtimeTuning`): a test shortens them. */
@@ -210,6 +211,7 @@ function setup(
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
 		schedules: options.schedules,
 		autopilot: options.autopilot,
+		beforeFirstPrompt: options.beforeFirstPrompt,
 		sweepMs: options.sweepMs,
 		runtimeTuning: options.runtimeTuning,
 		tuning: { ...SHORT_WAITS, ...options.tuning },
@@ -1020,9 +1022,10 @@ describe("AgentControlRuntime", () => {
 			expect(spawned).toHaveLength(1);
 		});
 
-		function heldWithoutView() {
+		function heldWithoutView(beforeFirstPrompt?: AgentControlHostDeps["beforeFirstPrompt"]) {
 			const world = setup({
 				tabs: [{ tabId: "main0001" }, { tabId: "old00001", sessionPath: "/s/old.jsonl" }],
+				beforeFirstPrompt,
 				owners: { "/s/held.jsonl": { tabId: "busy0002", winId: null } },
 				sessions: {
 					list: async () => [row("/s", "held") as never],
@@ -1065,6 +1068,43 @@ describe("AgentControlRuntime", () => {
 			expect(spawned).toHaveLength(0);
 			expect(openers).not.toHaveBeenCalled();
 		});
+
+		it("keeps custody of a windowless retained session when its owner appears after the stored lookup", async () => {
+			const beforeFirstPrompt = vi.fn(async () => {});
+			const { runtime, win, deps, spawned, openers } = heldWithoutView(beforeFirstPrompt);
+			deps.pool.sessionOwner = () => null;
+			const opened = await runtime.run(win, "main0001", T.open, { reopen: "held" });
+			expect(opened.isError, opened.text).toBe(false);
+			expect(opened.text).toContain("joined");
+			expect(spawned).toHaveLength(1);
+			expect(openers).not.toHaveBeenCalled();
+			expect(beforeFirstPrompt).not.toHaveBeenCalled();
+			const mine = await runtime.run(win, "main0001", T.list, { scope: "app", mine: true });
+			expect(mine.text).toMatch(/^0 sessions/);
+		});
+
+		it("does not close a windowless retained session when its reopen setup fails", async () => {
+			const { runtime, win, deps, openers } = heldWithoutView();
+			deps.pool.sessionOwner = () => null;
+			const opened = await runtime.run(win, "main0001", T.open, { reopen: "held", model: "missing/model" });
+			expect(opened.isError).toBe(true);
+			expect(opened.text).toContain("No model");
+			expect(openers).not.toHaveBeenCalled();
+			expect(win.sent).not.toContainEqual([AGENT_CONTROL_VIEW, { tabId: "busy0002", how: "close" }]);
+			const mine = await runtime.run(win, "main0001", T.list, { scope: "app", mine: true });
+			expect(mine.text).toMatch(/^0 sessions/);
+		});
+
+		it.each([true, false])(
+			"refuses programmatic throwaway=%s of a windowless retained session before attaching",
+			async throwaway => {
+				const { runtime, spawned, openers } = heldWithoutView();
+				const ids = await runtime.control.openSessions("main0001", [{ reopen: "held", throwaway }]);
+				expect(ids).toEqual([""]);
+				expect(spawned).toHaveLength(0);
+				expect(openers).not.toHaveBeenCalled();
+			},
+		);
 
 		it("reopens that session as a view of the tab that holds it, not as the caller's child", async () => {
 			const { runtime, win, spawned, openers } = heldByDesktop();
