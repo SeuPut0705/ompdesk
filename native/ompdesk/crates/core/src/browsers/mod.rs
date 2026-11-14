@@ -45,7 +45,7 @@ struct Definition {
 }
 
 impl Id {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Id::Chrome => "chrome",
             Id::Edge => "edge",
@@ -98,34 +98,34 @@ impl Id {
 }
 
 /// One browser as main names it.
-#[derive(Deserialize)]
-struct Named {
-    id: Id,
-    name: String,
+#[derive(Clone, Deserialize)]
+pub(crate) struct Named {
+    pub id: Id,
+    pub name: String,
     /// Its own relay's loopback port.
-    port: u16,
+    pub port: u16,
 }
 
 /// Where the machine keeps things; a test points these at a temp folder.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Places {
+pub(crate) struct Places {
     /// Whose install places are read: `darwin` or `win32` (any other has none).
-    platform: String,
-    home: String,
+    pub platform: String,
+    pub home: String,
     /// macOS folders holding `.app` bundles.
-    app_dirs: Vec<String>,
+    pub app_dirs: Vec<String>,
     /// Windows `%ProgramFiles%`, `%ProgramFiles(x86)%` and `%LOCALAPPDATA%` roots for installed exes.
-    program_dirs: Vec<String>,
+    pub program_dirs: Vec<String>,
     /// Windows `%LOCALAPPDATA%`.
-    local_app_data: String,
+    pub local_app_data: String,
 }
 
-#[derive(Deserialize)]
-struct FindParams {
-    places: Places,
+#[derive(Clone, Deserialize)]
+pub(crate) struct FindParams {
+    pub places: Places,
     /// In `auto` order.
-    browsers: Vec<Named>,
+    pub browsers: Vec<Named>,
 }
 
 /// A browser found on disk: what the launch and the relay check need.
@@ -143,11 +143,16 @@ struct Found {
 /// An installed browser with the state of its own relay extension copy.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Installed {
-    id: Id,
-    name: String,
-    relay_installed: bool,
-    relay_connected: bool,
+pub(crate) struct Installed {
+    pub id: Id,
+    pub name: String,
+    pub relay_installed: bool,
+    pub relay_connected: bool,
+}
+
+pub(crate) fn bundled_catalog() -> Result<Vec<Named>, Fault> {
+    serde_json::from_str(include_str!("../../assets/browser-catalog.json"))
+        .map_err(|error| Fault::new("browser_catalog", error.to_string()))
 }
 
 fn joined(root: &str, parts: &[&str]) -> PathBuf {
@@ -241,7 +246,7 @@ async fn relay_connected(port: u16) -> bool {
 
 /// The installed browsers with the state of their own relay extension copy. The profiles are read first, then the
 /// relays of the installed copies are asked together.
-async fn status(params: FindParams) -> Result<Vec<Installed>, Fault> {
+pub(crate) async fn status(params: FindParams) -> Result<Vec<Installed>, Fault> {
     let read = blocking(move || {
         find(&params)
             .into_iter()
