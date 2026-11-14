@@ -63,12 +63,7 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Session<S> {
     }
 
     pub async fn stock(&self, command: Value) -> Result<Value, CommandError> {
-        let response = self.raw_stock(command).await?;
-        if response["success"] == true {
-            Ok(response.get("data").cloned().unwrap_or(Value::Null))
-        } else {
-            Err(CommandError::Other(response["error"].as_str().unwrap_or("RPC command failed").to_owned()))
-        }
+        super::protocol::stock_data(self.raw_stock(command).await?)
     }
 
     pub async fn forward(&self, method: &str, command: &RpcCommand) -> Result<Value, CommandError> {
