@@ -94,6 +94,7 @@ pub fn stop() {
     let previous = std::mem::replace(&mut *STATE.lock().unwrap(), State::Stopped);
     media::stop();
     lid::stop();
+    crate::shortcut::unregister_all();
     let ids = std::mem::take(&mut *BLOCKERS.lock().unwrap());
     for id in ids {
         if let Err(error) = crate::power::release(&id.to_string())
@@ -142,6 +143,16 @@ pub fn theme_source(source: ThemeSource) {
 
 pub fn register_shortcut(accelerator: &str) -> bool {
     crate::shortcut::register(accelerator)
+}
+
+/// Native callers use the same resolver as the temporary wire adapter. CEF lookups are asynchronous; disallowed
+/// cache usage keeps the OS worker and its deadline. The callback may run off the UI thread.
+pub fn resolve_host(
+    host: String,
+    usage: shell_core::netmap::CacheUsage,
+    answer: crate::net::ResolveAnswer,
+) {
+    crate::net::resolve_host_native(host, usage, answer);
 }
 
 /// The native language is authoritative; emitting boot.labels only updates consumers.
