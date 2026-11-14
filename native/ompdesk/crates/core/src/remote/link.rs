@@ -328,6 +328,10 @@ impl Link {
     pub fn command(&self, command: Command) {
         let _ = self.commands.send(command);
     }
+
+    pub(super) fn try_command(&self, command: Command) -> bool {
+        self.commands.send(command).is_ok()
+    }
 }
 
 #[derive(Serialize)]
@@ -547,14 +551,18 @@ impl Task {
                     }
                 }
                 "pong" => self.wire(false, wire_bytes, Some("pong")),
-                _ => self.events.send_bin(
-                    "remote.message",
-                    &LinkRef {
-                        link: self.id,
-                        bytes: self.tap.then_some(wire_bytes),
-                    },
-                    json,
-                ),
+                _ => {
+                    if !super::requests::receive(self.id, &json) {
+                        self.events.send_bin(
+                            "remote.message",
+                            &LinkRef {
+                                link: self.id,
+                                bytes: self.tap.then_some(wire_bytes),
+                            },
+                            json,
+                        );
+                    }
+                }
             }
         }
         None
