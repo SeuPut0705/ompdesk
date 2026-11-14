@@ -164,16 +164,23 @@ impl Ctx {
             if entry.viewers.is_empty() {
                 return None;
             }
-            Some(entry.full.clone().unwrap_or_default())
+            Some(
+                entry
+                    .full
+                    .iter()
+                    .flatten()
+                    .filter_map(|win| entry.view_id(&pool.view_epoch, *win).map(|id| (*win, id)))
+                    .collect::<Vec<_>>(),
+            )
         });
-        for win in wins.unwrap_or_default() {
+        for (win, view_id) in wins.unwrap_or_default() {
             if win == except {
                 continue;
             }
             self.send(
                 vec![win],
                 "CONFIG_UPDATE",
-                json!({"tabId": tab, "payload": {"type": "config_update", "modes": true}}),
+                json!({"tabId": tab, "viewId": view_id, "payload": {"type": "config_update", "modes": true}}),
             );
         }
     }
@@ -184,17 +191,26 @@ impl Ctx {
         let wins = self.with(|pool| {
             let entry = pool.entry_mut(tab)?;
             entry.title = Some(Some(title.to_string()));
-            Some(entry.full.clone().unwrap_or_default())
+            let wins = entry.full.clone().unwrap_or_default();
+            Some(
+                wins.into_iter()
+                    .filter_map(|win| {
+                        pool.entry(tab)?
+                            .view_id(&pool.view_epoch, win)
+                            .map(|id| (win, id))
+                    })
+                    .collect::<Vec<_>>(),
+            )
         });
         let Some(wins) = wins else {
             return Ok(());
         };
         self.forward_status(tab).await?;
-        for win in wins {
+        for (win, view_id) in wins {
             self.send(
                 vec![win],
                 "SESSION_INFO_UPDATE",
-                json!({"tabId": tab, "payload": {"type": "session_info_update", "title": title}}),
+                json!({"tabId": tab, "viewId": view_id, "payload": {"type": "session_info_update", "title": title}}),
             );
         }
         Ok(())
@@ -296,8 +312,10 @@ impl Ctx {
             let list: Vec<Value> = pool
                 .active_by_window
                 .iter()
-                .filter(|(win, tab)| pool.entry(tab).is_some_and(|entry| entry.shown_in(**win)))
-                .map(|(win, tab)| json!([win, tab]))
+                .filter_map(|(win, tab)| {
+                    let view_id = pool.entry(tab)?.view_id(&pool.view_epoch, *win)?;
+                    Some(json!([win, tab, view_id]))
+                })
                 .collect();
             Value::Array(list)
         })

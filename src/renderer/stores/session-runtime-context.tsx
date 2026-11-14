@@ -53,6 +53,8 @@ export function isSessionReplaced(response: RpcResponse): boolean {
 
 export interface SessionRuntime {
 	tabId: string;
+	/** Original window attachment of frames received before its first tab-list snapshot. */
+	viewId?: string;
 	command: TabCommand;
 	stores: Map<RuntimeStoreKey, StoreApi<unknown>>;
 	/** A process restart may allocate a new ID for an unpersisted session. */

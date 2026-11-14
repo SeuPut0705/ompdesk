@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import type { CompactionPoint, CompactionPointsResult } from "../../shared/rpc-types";
 import { useSessionStore } from "../stores/session";
+import { acceptsTabViewFrame } from "../stores/tabs";
 import { formatTokens } from "./format";
 import { useTabRpc } from "./tab-rpc";
 
@@ -97,7 +98,9 @@ export function useCompactionPoints(active = true, selector?: string | null): Co
 			}
 		};
 		void load();
-		const unsubscribe = window.omp.events.onConfigUpdate(() => void load());
+		const unsubscribe = window.omp.events.onConfigUpdate((_payload, tabId, viewId) => {
+			if (acceptsTabViewFrame(tabId, viewId)) void load();
+		});
 		return () => {
 			version++;
 			unsubscribe();

@@ -31,7 +31,7 @@ globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
-type TabBatchHandler = (events: AgentSessionEvent[], tabId: string) => void;
+type TabBatchHandler = (events: AgentSessionEvent[], tabId: string, viewId: string) => void;
 
 // One run: a prompt, a read and a command in one assistant message, both results, the reply.
 const user: AgentMessage = { role: "user", content: "go", timestamp: 100 };
@@ -332,7 +332,7 @@ it("ends every reordered and replayed delivery around snapshot loads as the run 
 		const next = random(seed);
 		const tabId = `t-replay-${seed}`;
 		useTabsStore.setState({
-			tabs: [{ kind: "agent", id: tabId, cwd: "/tmp", status: "ready", unreadDone: false }],
+			tabs: [{ kind: "agent", id: tabId, viewId: "replay-view", cwd: "/tmp", status: "ready", unreadDone: false }],
 			activeTabId: tabId,
 		});
 		ensureTabRuntime(tabId);
@@ -369,6 +369,7 @@ it("ends every reordered and replayed delivery around snapshot loads as the run 
 					emit(
 						batch.map(delivery => delivery.event),
 						tabId,
+						"replay-view",
 					),
 				);
 				invariant(`batch ending ${position}`);

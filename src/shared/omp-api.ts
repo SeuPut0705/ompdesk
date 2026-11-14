@@ -82,6 +82,7 @@ import type {
 	IpcSignInRelayPayload,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
+	IpcTabEventHandler,
 	IpcTabInfo,
 	IpcTabListChangedPayload,
 	IpcTabStatusPayload,
@@ -223,14 +224,18 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 	/** The tab main routes untargeted commands to; full-stream envelopes of other tabs are dropped. */
 	let activeTabId: string | null = null;
 
-	function subscribeActiveTab<T>(channel: string, callback: (data: T) => void): () => void {
-		return subscribe<IpcActiveTabEnvelope<T>>(channel, envelope => {
-			if (activeTabId === null || envelope.tabId === activeTabId) callback(envelope.payload);
+	function subscribeActiveTab<T>(channel: string, callback: IpcTabEventHandler<T>): () => void {
+		return subscribeTab<T>(channel, (payload, tabId, viewId) => {
+			if (activeTabId === null || tabId === activeTabId) callback(payload, tabId, viewId);
 		});
 	}
 
-	function subscribeTab<T>(channel: string, callback: (data: T, tabId: string) => void): () => void {
-		return subscribe<IpcActiveTabEnvelope<T>>(channel, envelope => callback(envelope.payload, envelope.tabId));
+	function subscribeTab<T>(channel: string, callback: IpcTabEventHandler<T>): () => void {
+		return subscribe<IpcActiveTabEnvelope<T>>(channel, envelope => {
+			if (typeof envelope.viewId !== "string" || !envelope.viewId)
+				throw new Error(`Unsupported view-stream protocol on "${channel}": missing attachment identity`);
+			callback(envelope.payload, envelope.tabId, envelope.viewId);
+		});
 	}
 
 	return {
@@ -322,7 +327,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 		},
 
 		events: {
-			onBatch: (callback: (events: AgentSessionEvent[]) => void) =>
+			onBatch: (callback: IpcTabEventHandler<AgentSessionEvent[]>) =>
 				subscribeActiveTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
 			onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
 				subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
@@ -342,11 +347,11 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<IpcSignInEndedPayload>(IPC_EVENTS.SIGN_IN_ENDED, callback),
 			onSignInRelay: (callback: (payload: IpcSignInRelayPayload) => void) =>
 				subscribe<IpcSignInRelayPayload>(IPC_EVENTS.SIGN_IN_RELAY, callback),
-			onLiveFrame: (callback: (frame: RpcLiveFrame) => void) =>
+			onLiveFrame: (callback: IpcTabEventHandler<RpcLiveFrame>) =>
 				subscribeActiveTab<RpcLiveFrame>(IPC_EVENTS.LIVE_FRAME, callback),
-			onBtwFrame: (callback: (frame: RpcBtwFrame) => void) =>
+			onBtwFrame: (callback: IpcTabEventHandler<RpcBtwFrame>) =>
 				subscribeActiveTab<RpcBtwFrame>(IPC_EVENTS.BTW_FRAME, callback),
-			onConfigUpdate: (callback: (payload: ConfigUpdateFrame) => void) =>
+			onConfigUpdate: (callback: IpcTabEventHandler<ConfigUpdateFrame>) =>
 				subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
 			onSessionsChanged: (callback: (change: IpcSessionsChanged) => void) =>
 				subscribe<IpcSessionsChanged | undefined>(IPC_EVENTS.SESSIONS_CHANGED, change => callback(change ?? {})),
@@ -357,29 +362,29 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			onHeldSessionsChanged: (callback: (files: string[]) => void) =>
 				subscribe<string[]>(IPC_EVENTS.SESSIONS_HELD_CHANGED, callback),
 			onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),
-			onTabBatch: (callback: (events: AgentSessionEvent[], tabId: string) => void) =>
+			onTabBatch: (callback: IpcTabEventHandler<AgentSessionEvent[]>) =>
 				subscribeTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
-			onTabSidecarStatus: (callback: (status: IpcSidecarStatusPayload, tabId: string) => void) =>
+			onTabSidecarStatus: (callback: IpcTabEventHandler<IpcSidecarStatusPayload>) =>
 				subscribeTab<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
-			onTabSubagentFrame: (callback: (frame: SubagentFrame, tabId: string) => void) =>
-				subscribeTab<SubagentFrame[]>(IPC_EVENTS.SUBAGENT_FRAMES, (frames, tabId) => {
-					for (const frame of frames) callback(frame, tabId);
+			onTabSubagentFrame: (callback: IpcTabEventHandler<SubagentFrame>) =>
+				subscribeTab<SubagentFrame[]>(IPC_EVENTS.SUBAGENT_FRAMES, (frames, tabId, viewId) => {
+					for (const frame of frames) callback(frame, tabId, viewId);
 				}),
-			onTabModelCatalogUpdate: (callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void) =>
+			onTabModelCatalogUpdate: (callback: IpcTabEventHandler<ModelCatalogUpdateFrame>) =>
 				subscribeTab<ModelCatalogUpdateFrame>(IPC_EVENTS.MODEL_CATALOG_UPDATE, callback),
 			onModelsConfigChanged: (callback: () => void) =>
 				subscribe<undefined>(IPC_EVENTS.MODELS_CONFIG_CHANGED, () => callback()),
-			onTabCommandsUpdate: (callback: (commands: AvailableCommand[], tabId: string) => void) =>
+			onTabCommandsUpdate: (callback: IpcTabEventHandler<AvailableCommand[]>) =>
 				subscribeTab<AvailableCommand[]>(IPC_EVENTS.COMMANDS_UPDATE, callback),
-			onTabConfigUpdate: (callback: (frame: ConfigUpdateFrame, tabId: string) => void) =>
+			onTabConfigUpdate: (callback: IpcTabEventHandler<ConfigUpdateFrame>) =>
 				subscribeTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
-			onTabPromptResult: (callback: (frame: PromptResultFrame, tabId: string) => void) =>
+			onTabPromptResult: (callback: IpcTabEventHandler<PromptResultFrame>) =>
 				subscribeTab<PromptResultFrame>(IPC_EVENTS.PROMPT_RESULT, callback),
-			onTabCommandOutput: (callback: (frame: CommandOutputFrame, tabId: string) => void) =>
+			onTabCommandOutput: (callback: IpcTabEventHandler<CommandOutputFrame>) =>
 				subscribeTab<CommandOutputFrame>(IPC_EVENTS.COMMAND_OUTPUT, callback),
-			onTabSessionInfoUpdate: (callback: (frame: SessionInfoUpdateFrame, tabId: string) => void) =>
+			onTabSessionInfoUpdate: (callback: IpcTabEventHandler<SessionInfoUpdateFrame>) =>
 				subscribeTab<SessionInfoUpdateFrame>(IPC_EVENTS.SESSION_INFO_UPDATE, callback),
-			onTabExtensionError: (callback: (frame: ExtensionErrorFrame, tabId: string) => void) =>
+			onTabExtensionError: (callback: IpcTabEventHandler<ExtensionErrorFrame>) =>
 				subscribeTab<ExtensionErrorFrame>(IPC_EVENTS.EXTENSION_ERROR, callback),
 			onMenuAction: (callback: (action: MenuAction) => void) =>
 				subscribe<{ action: MenuAction }>(IPC_EVENTS.MENU_ACTION, data => callback(data.action)),

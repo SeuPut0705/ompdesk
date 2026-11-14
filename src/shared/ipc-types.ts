@@ -1667,6 +1667,8 @@ export interface IpcRetrySaga {
 export interface IpcTabInfo {
 	/** Opaque snowflake id minted by main at acquire. */
 	tabId: string;
+	/** This window's attachment incarnation; stable across turns, replaced when it leaves and rejoins. */
+	viewId?: string;
 	cwd: string;
 	status: TabStatus;
 	/** Present on GET_TABS for the tab main currently routes as active. */
@@ -1778,8 +1780,11 @@ export type IpcTabStatusPayload = IpcTabInfo;
  * envelopes from a previously active tab after SET_ACTIVE_TAB resolves. */
 export interface IpcActiveTabEnvelope<T> {
 	tabId: string;
+	viewId: string;
 	payload: T;
 }
+
+export type IpcTabEventHandler<T> = (payload: T, tabId: string, viewId: string) => void;
 
 /** Spawn a tab bound to the calling window. Defaults: caller's cwd, fresh session. */
 export interface IpcSpawnTabPayload {
@@ -2180,7 +2185,7 @@ export interface OmpApi {
 		commandForTab(tabId: string, cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
 	};
 	events: {
-		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
+		onBatch(callback: IpcTabEventHandler<AgentSessionEvent[]>): () => void;
 		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
 		/**
 		 * `resent`: a paired host's re-attach sent the request again (`IpcExtensionUiPayload.resent`).
@@ -2199,23 +2204,23 @@ export interface OmpApi {
 		onSignInEnded(callback: (payload: IpcSignInEndedPayload) => void): () => void;
 		/** This computer's stand-in for a paired host tab's sign-in callback changed (`IpcSignInRelay`). */
 		onSignInRelay(callback: (payload: IpcSignInRelayPayload) => void): () => void;
-		onLiveFrame(callback: (frame: RpcLiveFrame) => void): () => void;
-		onBtwFrame(callback: (frame: RpcBtwFrame) => void): () => void;
-		onConfigUpdate(callback: (payload: ConfigUpdateFrame) => void): () => void;
+		onLiveFrame(callback: IpcTabEventHandler<RpcLiveFrame>): () => void;
+		onBtwFrame(callback: IpcTabEventHandler<RpcBtwFrame>): () => void;
+		onConfigUpdate(callback: IpcTabEventHandler<ConfigUpdateFrame>): () => void;
 		/** Full-stream variants keep the originating visible tab id. */
-		onTabBatch(callback: (events: AgentSessionEvent[], tabId: string) => void): () => void;
-		onTabSidecarStatus(callback: (status: IpcSidecarStatusPayload, tabId: string) => void): () => void;
+		onTabBatch(callback: IpcTabEventHandler<AgentSessionEvent[]>): () => void;
+		onTabSidecarStatus(callback: IpcTabEventHandler<IpcSidecarStatusPayload>): () => void;
 		/** Called once per frame; a batch's frames are delivered in one task (one React commit). */
-		onTabSubagentFrame(callback: (frame: SubagentFrame, tabId: string) => void): () => void;
-		onTabModelCatalogUpdate(callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void): () => void;
+		onTabSubagentFrame(callback: IpcTabEventHandler<SubagentFrame>): () => void;
+		onTabModelCatalogUpdate(callback: IpcTabEventHandler<ModelCatalogUpdateFrame>): () => void;
 		/** OMPdesk changed this computer's models.yml by itself (`MODELS_CONFIG_CHANGED`): read providers and models again. */
 		onModelsConfigChanged(callback: () => void): () => void;
-		onTabCommandsUpdate(callback: (commands: AvailableCommand[], tabId: string) => void): () => void;
-		onTabConfigUpdate(callback: (payload: ConfigUpdateFrame, tabId: string) => void): () => void;
-		onTabPromptResult(callback: (frame: PromptResultFrame, tabId: string) => void): () => void;
-		onTabCommandOutput(callback: (frame: CommandOutputFrame, tabId: string) => void): () => void;
-		onTabSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void): () => void;
-		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
+		onTabCommandsUpdate(callback: IpcTabEventHandler<AvailableCommand[]>): () => void;
+		onTabConfigUpdate(callback: IpcTabEventHandler<ConfigUpdateFrame>): () => void;
+		onTabPromptResult(callback: IpcTabEventHandler<PromptResultFrame>): () => void;
+		onTabCommandOutput(callback: IpcTabEventHandler<CommandOutputFrame>): () => void;
+		onTabSessionInfoUpdate(callback: IpcTabEventHandler<SessionInfoUpdateFrame>): () => void;
+		onTabExtensionError(callback: IpcTabEventHandler<ExtensionErrorFrame>): () => void;
 		/** A machine's session list changed: this computer's (`device` absent) or a paired host's. */
 		onSessionsChanged(callback: (change: IpcSessionsChanged) => void): () => void;
 		/** One computer's session summaries changed: this computer's (`device` absent) or a paired host's. */

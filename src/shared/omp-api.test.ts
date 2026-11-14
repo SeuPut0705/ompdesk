@@ -44,19 +44,19 @@ describe("createOmpApi", () => {
 	it("drops other tabs' full-stream envelopes once a tab is active, and passes every tab's to per-tab listeners", async () => {
 		const { api, emit, answers } = recording();
 		const focused: unknown[] = [];
-		const perTab: Array<[unknown, string]> = [];
+		const perTab: Array<[unknown, string, string]> = [];
 		api.events.onBatch(events => focused.push(events));
-		api.events.onTabBatch((events, tabId) => perTab.push([events, tabId]));
-		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: ["before"] });
+		api.events.onTabBatch((events, tabId, viewId) => perTab.push([events, tabId, viewId]));
+		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-a", payload: ["before"] });
 		answers.set(IPC_COMMANDS.SET_ACTIVE_TAB, true);
 		expect(await api.tabs.setActive("b")).toBe(true);
-		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: ["hidden"] });
-		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "b", payload: ["shown"] });
+		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-a", payload: ["hidden"] });
+		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "b", viewId: "view-b", payload: ["shown"] });
 		expect(focused).toEqual([["before"], ["shown"]]);
 		expect(perTab).toEqual([
-			[["before"], "a"],
-			[["hidden"], "a"],
-			[["shown"], "b"],
+			[["before"], "a", "view-a"],
+			[["hidden"], "a", "view-a"],
+			[["shown"], "b", "view-b"],
 		]);
 	});
 
@@ -68,9 +68,23 @@ describe("createOmpApi", () => {
 		await api.tabs.setView("a", ["a"]);
 		answers.set(IPC_COMMANDS.SET_TAB_VIEW, false);
 		expect(await api.tabs.setView("b", ["b"])).toBe(false);
-		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "b", payload: ["b"] });
-		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: ["a"] });
+		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "b", viewId: "view-b", payload: ["b"] });
+		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", viewId: "view-a", payload: ["a"] });
 		expect(focused).toEqual([["a"]]);
+	});
+
+	it("refuses view-stream frames from a peer without attachment identity", () => {
+		const { api, emit, sent } = recording();
+		const seen: unknown[] = [];
+		api.events.onTabBatch(events => seen.push(events));
+		emit(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: ["unbound"] });
+		expect(seen).toEqual([]);
+		expect(sent).toEqual([
+			{
+				channel: IPC_COMMANDS.RUNTIME_ERROR_REPORT,
+				args: [expect.objectContaining({ message: expect.stringContaining("missing attachment identity") })],
+			},
+		]);
 	});
 
 	it("isolates a throwing listener and reports it, so the others on the channel still run", () => {

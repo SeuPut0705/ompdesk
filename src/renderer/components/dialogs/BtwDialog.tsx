@@ -6,6 +6,7 @@ import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { useTabCommand } from "../../stores/session-runtime-context";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, InlineNotice, Modal, Spinner, TextArea } from "../common";
@@ -44,8 +45,8 @@ export function BtwDialog() {
 		setStarting(false);
 		setDraft(question ?? "");
 		if (question === null) return;
-		const unsubscribe = window.omp.events.onBtwFrame(frame => {
-			if (!acceptsActiveTabEvents()) return;
+		const unsubscribe = window.omp.events.onBtwFrame((frame, tabId, viewId) => {
+			if (!acceptsTabViewFrame(tabId, viewId) || !acceptsActiveTabEvents()) return;
 			const id = frame.type === "btw_record" ? frame.record.id : frame.recordId;
 			if (id === activeId.current) {
 				setRecord(current => applyBtwFrame(current ?? undefined, frame) ?? current);

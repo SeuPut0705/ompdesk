@@ -5,6 +5,7 @@ import { useT } from "../../lib/i18n";
 import { INITIAL_LIVE_STATE, type LiveViewState, reduceLiveFrame } from "../../lib/live-state";
 import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { useTabCommand } from "../../stores/session-runtime-context";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Card, InlineNotice, Modal, Spinner } from "../common";
@@ -35,8 +36,9 @@ export function LiveVoiceDialog() {
 		let cancelled = false;
 		generation.current++;
 		dispatch({ kind: "reset" });
-		const unsubscribe = window.omp.events.onLiveFrame(frame => {
-			if (!cancelled && acceptsActiveTabEvents()) dispatch({ kind: "frame", frame });
+		const unsubscribe = window.omp.events.onLiveFrame((frame, tabId, viewId) => {
+			if (!cancelled && acceptsTabViewFrame(tabId, viewId) && acceptsActiveTabEvents())
+				dispatch({ kind: "frame", frame });
 		});
 		return () => {
 			cancelled = true;

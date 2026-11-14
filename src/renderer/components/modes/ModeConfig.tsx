@@ -20,6 +20,7 @@ import { useT } from "../../lib/i18n";
 import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import {
 	Badge,
@@ -173,8 +174,8 @@ function useModeRpc<T>(
 function useModeEvents(handle: (event: AgentSessionEvent) => void): void {
 	useEffect(
 		() =>
-			window.omp.events.onBatch((events: AgentSessionEvent[]) => {
-				if (!acceptsActiveTabEvents()) return;
+			window.omp.events.onBatch((events: AgentSessionEvent[], tabId, viewId) => {
+				if (!acceptsTabViewFrame(tabId, viewId) || !acceptsActiveTabEvents()) return;
 				for (const event of events) handle(event);
 			}),
 		[handle],

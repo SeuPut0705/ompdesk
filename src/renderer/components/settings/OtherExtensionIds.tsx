@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { RpcContextFilesResult, RpcHooksResult, RpcSkillsResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { Banner, Button, ErrorDetail } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
@@ -39,7 +40,9 @@ export function OtherExtensionIds() {
 	}, [sidecarReady, rpc.getSkills, rpc.getHooks, rpc.getContextFiles]);
 	useEffect(() => {
 		void load();
-		return window.omp.events.onConfigUpdate(() => void load());
+		return window.omp.events.onConfigUpdate((_payload, tabId, viewId) => {
+			if (acceptsTabViewFrame(tabId, viewId)) void load();
+		});
 	}, [load]);
 	const ids = Array.isArray(values.disabledExtensions)
 		? values.disabledExtensions.filter((value): value is string => typeof value === "string")

@@ -13,12 +13,12 @@ import { useEffect } from "react";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 import { withSessionRuntime } from "../stores/session-runtime-context";
-import { isTabClosed } from "../stores/tabs";
+import { acceptsTabViewFrame } from "../stores/tabs";
 
 export function usePlanApproval(): void {
 	useEffect(() => {
-		const reduce = (events: AgentSessionEvent[], tabId: string) => {
-			if (isTabClosed(tabId)) return;
+		const reduce = (events: AgentSessionEvent[], tabId: string, viewId: string) => {
+			if (!acceptsTabViewFrame(tabId, viewId)) return;
 			withSessionRuntime(tabId, () => {
 				for (const event of events) {
 					const store = usePlanApprovalStore.getState();

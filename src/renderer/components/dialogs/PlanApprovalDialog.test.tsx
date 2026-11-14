@@ -10,11 +10,18 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { AgentSessionEvent, RpcResponse } from "../../../shared/rpc-types";
+import type { AgentSessionEvent, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { usePlanApproval } from "../../hooks/use-plan-approval";
 import { I18nProvider } from "../../lib/i18n";
 import { usePlanApprovalStore } from "../../stores/plan-approval";
 import { useSessionStore } from "../../stores/session";
+import {
+	deleteSessionRuntime,
+	SessionRuntimeProvider,
+	setFocusedSessionRuntime,
+} from "../../stores/session-runtime-context";
+import { ensureTabRuntime } from "../../stores/tab-runtime";
+import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { PlanApprovalDialog } from "./PlanApprovalDialog";
 
@@ -61,7 +68,7 @@ type SaveDialogFn = (
 	defaultPath?: string,
 	filters?: { name: string; extensions: string[] }[],
 ) => Promise<string | null>;
-type BatchListener = (events: AgentSessionEvent[], tabId: string) => void;
+type BatchListener = (events: AgentSessionEvent[], tabId: string, viewId: string) => void;
 
 let batchListener: BatchListener | null = null;
 
@@ -72,13 +79,26 @@ function installMockOmp(
 	batchListener = null;
 	const ompWindow = window as unknown as {
 		omp: {
-			rpc: { planApproval: Mock<PlanApprovalFn> };
+			rpc: {
+				planApproval: Mock<PlanApprovalFn>;
+				commandForTab: (tabId: string, command: RpcCommand) => Promise<RpcResponse>;
+			};
 			events: { onTabBatch: (callback: BatchListener) => () => void };
 			system: { showSaveDialog: Mock<SaveDialogFn> };
 		};
 	};
 	ompWindow.omp = {
-		rpc: { planApproval },
+		rpc: {
+			planApproval,
+			commandForTab: (_tabId, command) => {
+				if (command.type !== "plan_approval") throw new Error(`Unexpected command: ${command.type}`);
+				if (command.savePath !== undefined)
+					return planApproval(command.approved, command.option, command.feedback, command.savePath);
+				if (command.feedback !== undefined) return planApproval(command.approved, command.option, command.feedback);
+				if (command.option !== undefined) return planApproval(command.approved, command.option);
+				return planApproval(command.approved);
+			},
+		},
 		system: { showSaveDialog },
 		events: {
 			onTabBatch: callback => {
@@ -89,6 +109,13 @@ function installMockOmp(
 			},
 		},
 	};
+	useTabsStore.setState({
+		tabs: [{ kind: "agent", id: "plan-tab", viewId: "plan-view", cwd: "/work", status: "ready", unreadDone: false }],
+		activeTabId: "plan-tab",
+	});
+	ensureTabRuntime("plan-tab");
+	setFocusedSessionRuntime("plan-tab");
+	useSessionStore.setState({ status: "ready" });
 }
 
 function proposal(content: string, overrides: Partial<Extract<AgentSessionEvent, { type: "plan_proposal" }>> = {}) {
@@ -130,7 +157,9 @@ async function mount(element: ReactElement): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<PlanEvents>{element}</PlanEvents>
+				<SessionRuntimeProvider runtime={ensureTabRuntime("plan-tab")}>
+					<PlanEvents>{element}</PlanEvents>
+				</SessionRuntimeProvider>
 			</I18nProvider>,
 		);
 	});
@@ -139,7 +168,7 @@ async function mount(element: ReactElement): Promise<void> {
 
 async function emit(events: AgentSessionEvent[]): Promise<void> {
 	await act(async () => {
-		batchListener?.(events, "");
+		batchListener?.(events, "plan-tab", "plan-view");
 	});
 	await flush();
 }
@@ -175,6 +204,8 @@ afterEach(async () => {
 	useToastStore.setState({ toasts: [] });
 	batchListener = null;
 	useSessionStore.getState().reset();
+	useTabsStore.getState().reset();
+	deleteSessionRuntime("plan-tab");
 });
 
 describe("plan-approval store", () => {
@@ -195,6 +226,32 @@ describe("plan-approval store", () => {
 });
 
 describe("PlanApprovalDialog", () => {
+	it("ignores proposals and resolutions from another or missing view", async () => {
+		installMockOmp(vi.fn<PlanApprovalFn>(async () => success({})));
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "plan-tab", viewId: "plan-view", cwd: "/work", status: "ready", unreadDone: false },
+			],
+			activeTabId: "plan-tab",
+		});
+		await mount(<PlanApprovalDialog />);
+		await act(async () => {
+			batchListener?.([proposal("old")], "plan-tab", "retired-view");
+			batchListener?.([proposal("missing")], "plan-tab", undefined as unknown as string);
+		});
+		expect(document.querySelector("[data-prompt-card]")).toBeNull();
+		await emit([proposal("current")]);
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
+		await act(async () => {
+			batchListener?.(
+				[{ type: "plan_proposal_resolved", planFilePath: "/session/plans/2026-08-03-auth-refactor.md" }],
+				"plan-tab",
+				"retired-view",
+			);
+		});
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
+	});
+
 	it("renders nothing without a proposal and subscribes to plan_proposal events", async () => {
 		const planApproval = vi.fn<PlanApprovalFn>(async () => success({ approved: false, dispatched: false }));
 		installMockOmp(planApproval);
@@ -228,7 +285,7 @@ describe("PlanApprovalDialog", () => {
 		installMockOmp(
 			vi.fn<PlanApprovalFn>(async () => {
 				// The other viewer wins: its resolution reaches this window before this answer fails.
-				batchListener?.([{ type: "plan_proposal_resolved", planFilePath: path }], "");
+				batchListener?.([{ type: "plan_proposal_resolved", planFilePath: path }], "plan-tab", "plan-view");
 				return failure("No plan is awaiting approval");
 			}),
 		);

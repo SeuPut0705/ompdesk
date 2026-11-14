@@ -10,6 +10,7 @@ import { createSessionRpcClient } from "../../../shared/rpc-client";
 import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { type SettingsData, useSettingsDataLoader } from "./settings-data";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -28,6 +29,7 @@ afterEach(async () => {
 	if (root) await act(async () => root?.unmount());
 	root = undefined;
 	useSessionStore.getState().reset();
+	useTabsStore.setState({ activeTabId: null, tabs: [] });
 });
 
 const PATH = "compaction.reserveTokens";
@@ -46,7 +48,7 @@ describe("useSettingsDataLoader", () => {
 		let stored = 8192;
 		const held: Array<() => void> = [];
 		let holdReads = false;
-		const configListeners: Array<() => void> = [];
+		const configListeners: Array<(payload: unknown, tabId: string, viewId: string) => void> = [];
 		const rpc = createSessionRpcClient(async (command: RpcCommand): Promise<RpcResponse> => {
 			if (command.type === "get_settings_schema")
 				return response(command.type, {
@@ -67,7 +69,7 @@ describe("useSettingsDataLoader", () => {
 			omp: {
 				rpc,
 				events: {
-					onConfigUpdate: (listener: () => void) => {
+					onConfigUpdate: (listener: (payload: unknown, tabId: string, viewId: string) => void) => {
 						configListeners.push(listener);
 						return () => {};
 					},
@@ -75,6 +77,19 @@ describe("useSettingsDataLoader", () => {
 			},
 		});
 		useSessionStore.setState({ status: "ready" });
+		useTabsStore.setState({
+			activeTabId: "settings-test-tab",
+			tabs: [
+				{
+					id: "settings-test-tab",
+					viewId: "settings-view-b",
+					cwd: "/repo",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+			],
+		});
 		let data: SettingsData | undefined;
 		function Probe() {
 			data = useSettingsDataLoader();
@@ -91,11 +106,18 @@ describe("useSettingsDataLoader", () => {
 		);
 		await settle();
 		expect(data?.values[PATH]).toBe(8192);
+		stored = 9999;
+		await act(async () => {
+			for (const listener of configListeners) listener({}, "settings-test-tab", "settings-view-a");
+		});
+		await settle();
+		expect(data?.values[PATH]).toBe(8192);
+		stored = 8192;
 
 		// Another client edits the config: the page re-reads, and that read is slow (it saw 8192).
 		holdReads = true;
 		await act(async () => {
-			for (const listener of configListeners) listener();
+			for (const listener of configListeners) listener({}, "settings-test-tab", "settings-view-b");
 		});
 		// Meanwhile the user saves 12345 here.
 		stored = 12345;

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ModelRoleEntry, ModelRolesResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { Button } from "../common";
 import { effectiveAdvisorModel } from "./model-setup/model-setup-logic";
 import { SettingsRow } from "./SettingsLayout";
@@ -25,7 +26,9 @@ export function AdvisorModelRow({ active, sidecarReady }: { active: boolean | un
 	}, [sidecarReady, tabRpc.getModelRoles]);
 	useEffect(() => {
 		void load();
-		return window.omp.events.onConfigUpdate(() => void load());
+		return window.omp.events.onConfigUpdate((_payload, tabId, viewId) => {
+			if (acceptsTabViewFrame(tabId, viewId)) void load();
+		});
 	}, [load]);
 	const effective = effectiveAdvisorModel(roles);
 	return (

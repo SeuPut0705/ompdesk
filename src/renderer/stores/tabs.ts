@@ -107,6 +107,7 @@ import { useUiStore } from "./ui";
 
 export interface SessionTab {
 	id: string;
+	viewId?: string;
 	cwd: string;
 	status: TabStatus;
 	/** Automatic transcript compaction is in flight in this tab's sidecar. */
@@ -229,17 +230,57 @@ export function steppingFromTabId(state: Pick<TabsStore, "activeTabId">): string
 /** How long a switch to a tab that ran out of view waits for its present before painting anyway. */
 const RETURN_HYDRATION_WAIT_MS = 100;
 
-/**
- * Tabs the user closed in this window. Late IPC frames for these ids must be
- * dropped outright — withSessionRuntime would otherwise fall back to the
- * FOCUSED runtime and pollute a live session, and ensureTabRuntime would
- * resurrect a ghost runtime with no store cleanup path. Ids are never reused
- * (ULIDs), so tombstones live for the window's lifetime.
- */
-const closedTabIds = new Set<string>();
+/** Closed attachments stay retired even when the same execution is rejoined in this window. */
+const closedTabIds = new Map<string, { serial: number; viewId?: string; closed: boolean }>();
+const retiredViewIds = new Set<string>();
+let tabCloseSerial = 0;
+let tabViewRevision = 0;
+
+export function markTabClosed(tabId: string): number {
+	const viewId =
+		useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.viewId ??
+		sessionRuntime(tabId)?.viewId ??
+		closedTabIds.get(tabId)?.viewId;
+	const serial = ++tabCloseSerial;
+	tabViewRevision++;
+	closedTabIds.set(tabId, { serial, viewId, closed: true });
+	if (viewId) retiredViewIds.add(viewId);
+	return serial;
+}
+
+export function forgetTabClose(tabId: string, serial: number | undefined): void {
+	const closed = closedTabIds.get(tabId);
+	if (!closed || closed.serial !== serial) return;
+	if (closed.viewId) retiredViewIds.delete(closed.viewId);
+	closed.closed = false;
+}
+
+export function tabCloseState(tabId: string, serial: number): "closing" | "reopened" | "replaced" {
+	const closed = closedTabIds.get(tabId);
+	if (closed?.serial !== serial) return "replaced";
+	return closed.closed ? "closing" : "reopened";
+}
+
+function acceptsListedView(info: IpcTabInfo): boolean {
+	if (info.viewId && retiredViewIds.has(info.viewId)) return false;
+	const closed = closedTabIds.get(info.tabId);
+	if (!closed?.closed) return true;
+	if (!closed.viewId || !info.viewId) return false;
+	closed.closed = false;
+	return true;
+}
 
 export function isTabClosed(tabId: string): boolean {
-	return closedTabIds.has(tabId);
+	return closedTabIds.get(tabId)?.closed === true;
+}
+
+export function acceptsTabViewFrame(tabId: string, viewId: string): boolean {
+	if (!tabId || typeof viewId !== "string" || !viewId || isTabClosed(tabId) || retiredViewIds.has(viewId))
+		return false;
+	const current = useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.viewId ?? sessionRuntime(tabId)?.viewId;
+	if (current && current !== viewId) return false;
+	ensureTabRuntime(tabId).viewId = viewId;
+	return true;
 }
 
 /** Whether main holds remembered splits (it only learns the list through `setView`). */
@@ -279,8 +320,8 @@ function tabSessionChanged(previous: SessionTab | undefined, info: IpcTabStatusP
 }
 
 /** What a tab list (GET_TABS, TAB_LIST_CHANGED) says about who else shows a tab; absent = nobody. */
-function viewerFields(info: IpcTabInfo): Pick<SessionTab, "shared" | "viewerCount"> {
-	return { shared: info.shared, viewerCount: info.viewerCount };
+function viewerFields(info: IpcTabInfo): Pick<SessionTab, "shared" | "viewerCount" | "viewId"> {
+	return { shared: info.shared, viewerCount: info.viewerCount, viewId: info.viewId };
 }
 
 /**
@@ -331,6 +372,7 @@ function projectSessionTab(
 ): SessionTab {
 	return {
 		id: info.tabId,
+		viewId: previous?.viewId,
 		cwd: info.cwd || previous?.cwd || "",
 		status: info.status,
 		compacting: info.compacting ?? previous?.compacting ?? false,
@@ -418,7 +460,7 @@ async function focusTab(
 		const listed = await window.omp.tabs.list().catch(() => null);
 		if (version !== switchVersion || isTabClosed(id)) return;
 		if (listed && !listed.some(info => info.tabId === id)) {
-			closedTabIds.add(id);
+			markTabClosed(id);
 			useTabsStore.setState(state => ({ tabs: state.tabs.filter(tab => tab.id !== id) }));
 			deleteSessionRuntime(id);
 			await useTabsStore.getState().reconcileTabs();
@@ -702,6 +744,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	listed: false,
 
 	reconcileTabs: async options => {
+		const revision = tabViewRevision;
 		const listed = await window.omp.tabs.list().catch(() => null);
 		if (!listed) {
 			// Bridge down — the tab strip simply stays as it is and TAB_STATUS
@@ -710,8 +753,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		// A tab this window is closing is gone for it even while main still lists
 		// it (its release is in flight): reviving it would recreate its runtime.
-		const list = listed.filter(info => !isTabClosed(info.tabId));
-		const resync = options?.resync === true;
+		const list = listed.filter(acceptsListedView);
+		const resync =
+			options?.resync === true &&
+			revision === tabViewRevision &&
+			!listed.some(info => info.viewId && retiredViewIds.has(info.viewId));
 		if (resync) {
 			// Outside set(): dropping a runtime fires the focus listeners synchronously (see applyTabStatus).
 			const keep = new Set(list.map(info => info.tabId));
@@ -759,12 +805,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 						existing = plain;
 					}
 				}
+				const runtime = sessionRuntime(info.tabId);
+				const previousViewId = existing?.viewId ?? runtime?.viewId ?? closedTabIds.get(info.tabId)?.viewId;
+				const viewChanged = !!info.viewId && !!previousViewId && info.viewId !== previousViewId;
+				if (viewChanged) retiredViewIds.add(previousViewId);
+				if (info.viewId && info.viewId !== existing?.viewId) tabViewRevision++;
 				const sessionChanged = tabSessionChanged(existing, info);
-				if (sessionChanged) {
+				if (sessionChanged || (viewChanged && runtime?.viewId !== info.viewId)) {
 					replaceTabRuntime(info.tabId);
 				}
-				if (newRuntime || sessionChanged) fresh.push(info);
-				ensureTabRuntime(info.tabId);
+				if (newRuntime || sessionChanged || viewChanged) fresh.push(info);
+				if (info.viewId) ensureTabRuntime(info.tabId).viewId = info.viewId;
+				else ensureTabRuntime(info.tabId);
 				if (ghostId) carryGhostComposer(ghostId, info.tabId);
 				const tab: SessionTab = {
 					...projectSessionTab(info, existing, sessionChanged, false),
@@ -856,6 +908,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		openingTab(
 			(async () => {
 				const activeTab = get().tabs.find(tab => tab.id === get().activeTabId);
+				const beganBeforeClose = tabCloseSerial;
 				const device = args?.device;
 				// The focused tab's folder only means something on its own device.
 				const inheritCwd = activeTab?.device === device;
@@ -941,9 +994,9 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					return ownerTabId;
 				}
 				const { tabId } = result;
-				// This window already let the tab go while main answered (the start tab gave way to a real tab the list pushed
-				// ahead of this answer): it is gone, not a tab to re-add and switch to.
-				if (isTabClosed(tabId)) return null;
+				const closed = closedTabIds.get(tabId);
+				if (closed?.closed && result.attached && closed.serial <= beganBeforeClose) closed.closed = false;
+				if (isTabClosed(tabId) || (closed?.serial ?? 0) > beganBeforeClose) return null;
 				ensureTabRuntime(tabId);
 				const resolvedCwd = result.cwd ?? cwd;
 				// A new session in a folder makes that folder a project of the sidebar (a worktree: its project), so it
@@ -953,6 +1006,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				// Attached as a viewer of a session another window holds: the tab is already running there, so its
 				// status, title and viewers come from the list rather than from a first ready push that never comes.
 				if (result.attached) await get().reconcileTabs();
+				if (isTabClosed(tabId) || (closedTabIds.get(tabId)?.serial ?? 0) > beganBeforeClose) return null;
 				set(state => {
 					const existing = state.tabs.find(tab => tab.id === tabId);
 					if (existing) {
@@ -981,7 +1035,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					return { tabs: [...state.tabs, tab] };
 				});
 				await get().switchTab(tabId);
-				return tabId;
+				return isTabClosed(tabId) ? null : tabId;
 			})(),
 		),
 
@@ -1150,12 +1204,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			if (closeRequest) await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
 			return;
 		}
-		await actions.closeTab(id, closeRequest, closedTabIds);
+		await actions.closeTab(id, closeRequest);
 	},
 
 	closeDeletedSession: async (sessionPath, tabId) => {
 		const actions = await loadTabActions("tabs.closeFailed");
-		return actions ? actions.closeDeletedSession(sessionPath, tabId, closedTabIds) : false;
+		return actions ? actions.closeDeletedSession(sessionPath, tabId) : false;
 	},
 
 	closedTabs: [],
@@ -1264,15 +1318,27 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	applyTabList: async (list, closed, shown) => {
+		if (closed?.length || get().tabs.some(tab => tab.shared && !list.some(info => info.tabId === tab.id))) {
+			const revision = tabViewRevision;
+			const current = await window.omp.tabs.list().catch(() => null);
+			if (!current || revision !== tabViewRevision) return;
+			list = current;
+			closed = closed?.filter(id => !current.some(info => info.tabId === id));
+		}
 		for (const id of closed ?? []) {
 			const tab = get().tabs.find(entry => entry.id === id);
 			if (tab && !tab.shared) await get().closeDeletedSession(tab.sessionPath ?? "", id);
 			// Main closed it before this window listed it (a paired host refused a tab `openTab` is still adding): the
 			// open finds it gone instead of adding a tab main no longer has.
-			else if (!tab) closedTabIds.add(id);
+			else if (!tab) markTabClosed(id);
 		}
+		const listed = new Set(list.map(info => info.tabId));
+		list = list.filter(acceptsListedView);
 		const known = new Map(get().tabs.map(tab => [tab.id, tab]));
-		const unseen = list.some(info => !known.has(info.tabId) && !isTabClosed(info.tabId));
+		const unseen = list.some(info => {
+			const tab = known.get(info.tabId);
+			return !tab || (!!info.viewId && info.viewId !== tab.viewId);
+		});
 		if (unseen) {
 			await get().reconcileTabs();
 		} else {
@@ -1285,7 +1351,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					const next = { ...tab, ...viewerFields(info) };
 					if (!info.shared) delete next.shared;
 					if (info.viewerCount === undefined) delete next.viewerCount;
-					if (next.shared === tab.shared && next.viewerCount === tab.viewerCount) return tab;
+					if (next.shared === tab.shared && next.viewerCount === tab.viewerCount && next.viewId === tab.viewId)
+						return tab;
 					changed = true;
 					return next;
 				});
@@ -1293,9 +1360,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			});
 		}
 		// A tab another window owned and closed is gone for this viewer too.
-		const listed = new Set(list.map(info => info.tabId));
-		for (const tab of get().tabs) {
-			if (tab.shared && !listed.has(tab.id)) await get().closeTab(tab.id);
+		if (!unseen) {
+			for (const tab of get().tabs) {
+				if (tab.shared && !listed.has(tab.id)) await get().closeTab(tab.id);
+			}
 		}
 		if (!shown) return;
 		if ("tabId" in shown) {
@@ -1314,7 +1382,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 
 	applyAgentView: async event => {
 		const actions = await loadTabActions(event.how === "close" ? "tabs.closeFailed" : "tabs.switchFailed");
-		if (actions) await actions.applyAgentView(event, closedTabIds);
+		if (actions) await actions.applyAgentView(event);
 		else if (event.how === "close" && event.closeRequest)
 			await window.omp.tabs.close(event.tabId, event.closeRequest, true).catch(() => false);
 	},
@@ -1327,6 +1395,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		for (const tab of get().tabs) deleteSessionRuntime(tab.id);
 		closedTabIds.clear();
+		retiredViewIds.clear();
 		setFocusedSessionRuntime(null);
 		resetTabRoute();
 		mainRemembersSplits = false;

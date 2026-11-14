@@ -3,27 +3,28 @@ import { forgetSplitTab, splitTabIds } from "../../shared/split-layout";
 import { autoCloseHeld } from "../lib/agent-auto-close";
 import { translate } from "../lib/i18n";
 import { deleteSessionRuntime } from "./session-runtime-context";
-import { isTabClosed, useTabsStore, visibleTabIds } from "./tabs";
+import { forgetTabClose, isTabClosed, markTabClosed, tabCloseState, useTabsStore, visibleTabIds } from "./tabs";
 import { toastError } from "./toast";
 import { useUiStore } from "./ui";
 
 const CLOSED_TAB_LIMIT = 20;
 
-async function prepareLastTabClose(id: string, closedTabIds: Set<string>): Promise<boolean> {
-	closedTabIds.add(id);
+async function prepareLastTabClose(id: string): Promise<number | null> {
+	const closing = markTabClosed(id);
 	const get = useTabsStore.getState;
 	if (get().tabs.length === 1 && (await get().openTab({ work: true, placeholder: true })) === null) {
-		closedTabIds.delete(id);
-		return false;
+		forgetTabClose(id, closing);
+		return null;
 	}
-	return true;
+	return closing;
 }
 
-export async function closeTab(id: string, closeRequest: string | undefined, closedTabIds: Set<string>): Promise<void> {
+export async function closeTab(id: string, closeRequest: string | undefined): Promise<void> {
 	const get = useTabsStore.getState;
 	const set = useTabsStore.setState;
 	let state = get();
 	let index = state.tabs.findIndex(tab => tab.id === id);
+	let prepared: number | undefined;
 	if ((!closeRequest && state.tabs.length <= 1) || index === -1 || state.tabs[index]?.ghost) {
 		if (closeRequest) await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
 		return;
@@ -38,10 +39,12 @@ export async function closeTab(id: string, closeRequest: string | undefined, clo
 		return;
 	}
 	if (closeRequest && state.tabs.length === 1) {
-		if (!(await prepareLastTabClose(id, closedTabIds))) {
+		const closing = await prepareLastTabClose(id);
+		if (closing === null) {
 			await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
 			return;
 		}
+		prepared = closing;
 		state = get();
 		index = state.tabs.findIndex(tab => tab.id === id);
 		if (index < 0) {
@@ -58,11 +61,17 @@ export async function closeTab(id: string, closeRequest: string | undefined, clo
 	if (closeRequest) {
 		const latest = useUiStore.getState();
 		if (latest.fileEditDirty && (latest.fileEditTabId === id || latest.fileEditTabId === null)) {
-			closedTabIds.delete(id);
+			forgetTabClose(id, prepared);
 			await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
 			return;
 		}
 	}
+	const current = get().tabs.find(tab => tab.id === id);
+	if (!current || current.viewId !== state.tabs[index]?.viewId) {
+		if (closeRequest) await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
+		return;
+	}
+	const closing = markTabClosed(id);
 	const closed = state.tabs[index];
 	set(current => {
 		const closedTabs = closed?.sessionPath
@@ -83,7 +92,6 @@ export async function closeTab(id: string, closeRequest: string | undefined, clo
 			closedTabs,
 		};
 	});
-	closedTabIds.add(id);
 	let failure: unknown = null;
 	try {
 		const released = await (closeRequest ? window.omp.tabs.close(id, closeRequest) : window.omp.tabs.close(id));
@@ -91,11 +99,13 @@ export async function closeTab(id: string, closeRequest: string | undefined, clo
 	} catch (error) {
 		failure = error;
 	}
+	if (tabCloseState(id, closing) !== "closing") return;
 	if (failure !== null) {
-		closedTabIds.delete(id);
+		forgetTabClose(id, closing);
 		const listed = await get().reconcileTabs();
+		if (tabCloseState(id, closing) === "replaced") return;
 		if (listed && !get().tabs.some(tab => tab.id === id)) {
-			closedTabIds.add(id);
+			markTabClosed(id);
 			deleteSessionRuntime(id);
 			return;
 		}
@@ -111,18 +121,15 @@ export async function closeTab(id: string, closeRequest: string | undefined, clo
 	if (split && splitTabIds(split).includes(id)) await get().reconcileTabs();
 }
 
-export async function closeDeletedSession(
-	sessionPath: string,
-	tabId: string | undefined,
-	closedTabIds: Set<string>,
-): Promise<boolean> {
+export async function closeDeletedSession(sessionPath: string, tabId: string | undefined): Promise<boolean> {
 	const get = useTabsStore.getState;
 	const tab = tabId ? get().tabs.find(entry => entry.id === tabId) : undefined;
 	if (tab) {
-		if (!(await prepareLastTabClose(tab.id, closedTabIds))) return false;
-		await closeTab(tab.id, undefined, closedTabIds);
+		const closing = await prepareLastTabClose(tab.id);
+		if (closing === null) return false;
+		await closeTab(tab.id, undefined);
 		if (get().tabs.some(entry => entry.id === tab.id)) {
-			closedTabIds.delete(tab.id);
+			forgetTabClose(tab.id, closing);
 			return false;
 		}
 	}
@@ -132,7 +139,7 @@ export async function closeDeletedSession(
 	return true;
 }
 
-export async function applyAgentView(event: AgentControlViewEvent, closedTabIds: Set<string>): Promise<void> {
+export async function applyAgentView(event: AgentControlViewEvent): Promise<void> {
 	const { tabId, how, auto, closeRequest } = event;
 	const get = useTabsStore.getState;
 	if (!get().tabs.some(tab => tab.id === tabId)) await get().reconcileTabs();
@@ -143,7 +150,7 @@ export async function applyAgentView(event: AgentControlViewEvent, closedTabIds:
 	}
 	if (how === "close") {
 		if (auto && autoCloseHeld(tabId, visibleTabIds(get()))) return;
-		await closeTab(tabId, closeRequest, closedTabIds);
+		await closeTab(tabId, closeRequest);
 		return;
 	}
 	useUiStore.getState().closeDestination();

@@ -176,6 +176,14 @@ impl Entry {
         }
     }
 
+    pub(super) fn view_id(&self, epoch: &str, win: i64) -> Option<String> {
+        if !self.shown_in(win) {
+            return None;
+        }
+        let generation = self.view_generations.get(&win)?;
+        Some(format!("{epoch}.{:x}.{:x}", self.seq, generation))
+    }
+
     pub(super) fn view_identity(&self, win: i64) -> Option<String> {
         if !self.shown_in(win) {
             return None;
@@ -272,6 +280,7 @@ pub(super) struct Pool {
     /// The clock of the call being served: main's `Date.now()`.
     pub now: i64,
     pub next_seq: u64,
+    pub view_epoch: String,
     pub retry_serial: u64,
     /// Every live tab, in acquisition order.
     pub entries: Vec<Entry>,

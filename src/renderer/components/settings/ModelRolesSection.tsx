@@ -27,6 +27,7 @@ import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { Button, EmptyState, IconButton, InlineNotice, SettingInfo, SkeletonRows } from "../common";
 import { ModelRoleRow } from "./ModelRoleRow";
@@ -92,7 +93,9 @@ export function ModelRolesSection() {
 	// advisor row, another window) pushes config_update.
 	useEffect(() => {
 		void load();
-		return window.omp.events.onConfigUpdate(() => void load());
+		return window.omp.events.onConfigUpdate((_payload, tabId, viewId) => {
+			if (acceptsTabViewFrame(tabId, viewId)) void load();
+		});
 	}, [load]);
 	useEffect(() => {
 		if (!sidecarReady) return;

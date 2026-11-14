@@ -36,6 +36,7 @@ import {
 	type ThemeScheme,
 	type ThemeSelection,
 } from "../../shared/theme-names";
+import { acceptsTabViewFrame } from "../stores/tabs";
 import { saveGuiPreference } from "./display-preferences";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./tab-routing";
 import {
@@ -1054,8 +1055,8 @@ async function syncAgentThemeSettings(): Promise<void> {
  */
 export function initAgentThemeSync(): () => void {
 	void syncAgentThemeSettings();
-	const unsubscribe = window.omp.events.onConfigUpdate(() => {
-		if (acceptsActiveTabEvents()) void syncAgentThemeSettings();
+	const unsubscribe = window.omp.events.onConfigUpdate((_payload, tabId, viewId) => {
+		if (acceptsTabViewFrame(tabId, viewId) && acceptsActiveTabEvents()) void syncAgentThemeSettings();
 	});
 	const unsubscribeRoute = onActiveTabRouteSettled(() => void syncAgentThemeSettings());
 	const resetOverlay = () => {

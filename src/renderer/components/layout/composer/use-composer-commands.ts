@@ -7,6 +7,7 @@ import { withGuiCommands } from "../../../lib/command-registry";
 import type { TabRpc } from "../../../lib/tab-rpc";
 import type { SessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
+import { acceptsTabViewFrame } from "../../../stores/tabs";
 
 export function useComposerCommands({
 	rpc,
@@ -22,8 +23,9 @@ export function useComposerCommands({
 	const [commands, setCommands] = useState<AvailableCommand[]>([]);
 	useEffect(() => {
 		let cancelled = false;
-		const unsubscribe = window.omp.events.onTabCommandsUpdate((next, tabId) => {
-			if (!cancelled && tabId === runtimeTabId) setCommands(withGuiCommands(next));
+		const unsubscribe = window.omp.events.onTabCommandsUpdate((next, tabId, viewId) => {
+			if (!cancelled && tabId === runtimeTabId && acceptsTabViewFrame(tabId, viewId))
+				setCommands(withGuiCommands(next));
 		});
 		const load = () => {
 			if (status !== "ready" || !runtimeTabId) return;

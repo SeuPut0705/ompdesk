@@ -36,7 +36,12 @@ import { type MessagesStore, useMessagesStore } from "../stores/messages";
 import { type ModelStore, useModelStore } from "../stores/model";
 import type { PlanApprovalStore } from "../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../stores/session";
-import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "../stores/session-runtime-context";
+import {
+	SessionRuntimeProvider,
+	sessionRuntime,
+	sessionRuntimeStore,
+	setFocusedSessionRuntime,
+} from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
 import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime, replaceTabRuntime } from "../stores/tab-runtime";
@@ -75,7 +80,9 @@ type BatchHandler = (events: AgentSessionEvent[]) => void;
 type CommandOutputHandler = (frame: CommandOutputFrame) => void;
 type PromptResultHandler = (frame: PromptResultFrame) => void;
 type ModelCatalogUpdateHandler = (frame: ModelCatalogUpdateFrame) => void;
-type Stamped<T extends (...args: never[]) => void> = (...args: [...Parameters<T>, tabId: string]) => void;
+type Stamped<T extends (...args: never[]) => void> = (
+	...args: [...Parameters<T>, tabId: string, viewId: string]
+) => void;
 
 interface MockOmp {
 	tabs: {
@@ -104,8 +111,12 @@ interface MockOmp {
 		onSignInRelay: Mock<() => () => void>;
 		onTabPromptResult: Mock<(callback: Stamped<PromptResultHandler>) => () => void>;
 		onTabCommandOutput: Mock<(callback: Stamped<CommandOutputHandler>) => () => void>;
-		onTabSessionInfoUpdate: Mock<(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void) => () => void>;
-		onTabExtensionError: Mock<(callback: (frame: ExtensionErrorFrame, tabId: string) => void) => () => void>;
+		onTabSessionInfoUpdate: Mock<
+			(callback: (frame: SessionInfoUpdateFrame, tabId: string, viewId: string) => void) => () => void
+		>;
+		onTabExtensionError: Mock<
+			(callback: (frame: ExtensionErrorFrame, tabId: string, viewId: string) => void) => () => void
+		>;
 	};
 	sidecar: { getStatus: Mock<() => Promise<unknown>> };
 	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
@@ -129,7 +140,7 @@ function installMockOmp(): {
 } {
 	let batchHandler: Stamped<BatchHandler> = () => {};
 	let commandOutputHandler: Stamped<CommandOutputHandler> = () => {};
-	let sessionInfoHandler: (frame: SessionInfoUpdateFrame, tabId: string) => void = () => {};
+	let sessionInfoHandler: (frame: SessionInfoUpdateFrame, tabId: string, viewId: string) => void = () => {};
 	let promptResultHandler: Stamped<PromptResultHandler> = () => {};
 	let modelCatalogUpdateHandler: Stamped<ModelCatalogUpdateHandler> = () => {};
 	let modelsConfigChangedHandler: () => void = () => {};
@@ -216,10 +227,12 @@ function installMockOmp(): {
 				commandOutputHandler = callback;
 				return () => {};
 			}),
-			onTabSessionInfoUpdate: vi.fn((callback: (frame: SessionInfoUpdateFrame, tabId: string) => void) => {
-				sessionInfoHandler = callback;
-				return () => {};
-			}),
+			onTabSessionInfoUpdate: vi.fn(
+				(callback: (frame: SessionInfoUpdateFrame, tabId: string, viewId: string) => void) => {
+					sessionInfoHandler = callback;
+					return () => {};
+				},
+			),
 			onTabExtensionError: vi.fn(() => () => {}),
 		},
 		sidecar: { getStatus: vi.fn(async () => ({ status: "ready", cwd: "/tmp" })) },
@@ -234,26 +247,36 @@ function installMockOmp(): {
 	};
 	const ompWindow = window as unknown as { omp: MockOmp };
 	ompWindow.omp = omp;
+	if (!focusedTab()) {
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "test-tab", viewId: "test-view", cwd: "/tmp", status: "ready", unreadDone: false },
+			],
+			activeTabId: "test-tab",
+		});
+		ensureTabRuntime("test-tab");
+		setFocusedSessionRuntime("test-tab");
+	}
 	const emitBatch: BatchHandler = events => {
 		for (const event of events) {
 			if (event.type === "agent_start") mockStreaming = true;
 			if (event.type === "agent_end") mockStreaming = false;
 		}
-		batchHandler(events, focusedTab());
+		batchHandler(events, focusedTab(), "test-view");
 	};
 	return {
 		omp,
 		emitBatch,
-		emitCommandOutput: (frame, tabId = focusedTab()) => commandOutputHandler(frame, tabId),
-		emitSessionInfo: (frame, tabId = focusedTab()) => sessionInfoHandler(frame, tabId),
-		emitPromptResult: frame => promptResultHandler(frame, focusedTab()),
-		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame, focusedTab()),
+		emitCommandOutput: (frame, tabId = focusedTab()) => commandOutputHandler(frame, tabId, "test-view"),
+		emitSessionInfo: (frame, tabId = focusedTab()) => sessionInfoHandler(frame, tabId, "test-view"),
+		emitPromptResult: frame => promptResultHandler(frame, focusedTab(), "test-view"),
+		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame, focusedTab(), "test-view"),
 		emitModelsConfigChanged: () => modelsConfigChangedHandler(),
 	};
 }
 
-type TabBatchHandler = (events: AgentSessionEvent[], tabId: string) => void;
-type TabSidecarStatusHandler = (payload: IpcSidecarStatusPayload, tabId: string, viewId?: string) => void;
+type TabBatchHandler = (events: AgentSessionEvent[], tabId: string, viewId: string) => void;
+type TabSidecarStatusHandler = (payload: IpcSidecarStatusPayload, tabId: string, viewId: string) => void;
 
 /**
  * Tab-routed variant of the legacy harness above: the modern preload exposes
@@ -261,8 +284,9 @@ type TabSidecarStatusHandler = (payload: IpcSidecarStatusPayload, tabId: string,
  * arrive stamped with their originating tab.
  */
 function installTabRoutedMockOmp(): {
-	emitTabBatch: TabBatchHandler;
-	emitTabStatus: TabSidecarStatusHandler;
+	emitTabBatch: (events: AgentSessionEvent[], tabId: string, viewId?: string) => void;
+	emitTabStatus: (payload: IpcSidecarStatusPayload, tabId: string, viewId?: string) => void;
+	emitMissingTabStatus: (payload: IpcSidecarStatusPayload, tabId: string) => void;
 	listTabs: Mock<() => Promise<IpcTabInfo[]>>;
 	notify: Mock<(title: string, body: string) => void>;
 	commandForTab: Mock<(tabId: string, command: RpcCommand) => Promise<RpcResponse>>;
@@ -340,8 +364,9 @@ function installTabRoutedMockOmp(): {
 	};
 	(window as unknown as { omp: typeof omp }).omp = omp;
 	return {
-		emitTabBatch: (events, tabId) => tabBatchHandler(events, tabId),
-		emitTabStatus: (payload, tabId, viewId) => tabStatusHandler(payload, tabId, viewId),
+		emitTabBatch: (events, tabId, viewId = "test-view") => tabBatchHandler(events, tabId, viewId),
+		emitTabStatus: (payload, tabId, viewId = "test-view") => tabStatusHandler(payload, tabId, viewId),
+		emitMissingTabStatus: (payload, tabId) => tabStatusHandler(payload, tabId, undefined as unknown as string),
 		listTabs: omp.tabs.list,
 		notify,
 		commandForTab,
@@ -1061,7 +1086,9 @@ describe("useRpcEvents awaiting-model marker", () => {
 			await mount(
 				<>
 					<RpcEventsProbe />
-					<TurnStatusRow />
+					<SessionRuntimeProvider runtime={sessionRuntime("test-tab")!}>
+						<TurnStatusRow />
+					</SessionRuntimeProvider>
 				</>,
 			);
 			const delayMs = 2 * 24 * 60 * 60 * 1000;
@@ -2256,7 +2283,7 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 	});
 
 	it("rejects the retired view's late starting frame after the same execution is rejoined", async () => {
-		const { emitTabStatus, listTabs } = installTabRoutedMockOmp();
+		const { emitTabBatch, emitTabStatus, emitMissingTabStatus, listTabs } = installTabRoutedMockOmp();
 		seedTwoTabs();
 		useTabsStore.setState(state => ({
 			tabs: state.tabs.map(tab => (tab.id === "t-dead" ? { ...tab, viewId: "pool/entry/view-A" } : tab)),
@@ -2280,6 +2307,14 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 			emitTabStatus({ status: "starting", cwd: "/beta" }, "t-dead", "pool/entry/view-A");
 		});
 		expect(messages().messages).toContain(kept);
+		await act(async () => {
+			emitMissingTabStatus({ status: "starting", cwd: "/beta" }, "t-dead");
+		});
+		expect(messages().messages).toContain(kept);
+		await act(async () => {
+			emitTabBatch([{ type: "agent_start" }], "t-dead", "pool/entry/view-A");
+		});
+		expect(sessionRuntimeStore<SessionStore>("t-dead", "session")?.getState().isStreaming).toBe(false);
 		await act(async () => {
 			emitTabStatus({ status: "starting", cwd: "/beta" }, "t-dead", "pool/entry/view-B");
 		});
@@ -2723,7 +2758,7 @@ describe("useRpcEvents background tabs", () => {
 	// after): it is that tab's, never the focused tab's, and the tab's row reads it once its list arrives.
 	it("files a frame for a tab without a runtime under that tab, never the focused one", async () => {
 		installTabRoutedMockOmp();
-		let onSubagent: (frame: SubagentFrame, tabId: string) => void = () => {};
+		let onSubagent: (frame: SubagentFrame, tabId: string, viewId: string) => void = () => {};
 		(window.omp.events as unknown as Record<string, unknown>).onTabSubagentFrame = vi.fn(
 			(callback: typeof onSubagent) => {
 				onSubagent = callback;
@@ -2740,6 +2775,7 @@ describe("useRpcEvents background tabs", () => {
 					payload: { id: "sa-1", index: 0, agent: "task", agentSource: "bundled", status: "started" },
 				},
 				"t-later",
+				"test-view",
 			),
 		);
 		const roster = (tabId: string) => sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().subagents;
@@ -2749,7 +2785,7 @@ describe("useRpcEvents background tabs", () => {
 
 	it("re-reads only its own tab when a tab without a runtime reports a slash command's result", async () => {
 		const { commandForTab } = installTabRoutedMockOmp();
-		let onPromptResult: (frame: PromptResultFrame, tabId: string) => void = () => {};
+		let onPromptResult: (frame: PromptResultFrame, tabId: string, viewId: string) => void = () => {};
 		(window.omp.events as unknown as Record<string, unknown>).onTabPromptResult = vi.fn(
 			(callback: typeof onPromptResult) => {
 				onPromptResult = callback;
@@ -2759,7 +2795,7 @@ describe("useRpcEvents background tabs", () => {
 		seedTabs();
 		await mount(<RpcEventsProbe />);
 		commandForTab.mockClear();
-		await act(async () => onPromptResult({ type: "prompt_result", agentInvoked: false }, "t-later"));
+		await act(async () => onPromptResult({ type: "prompt_result", agentInvoked: false }, "t-later", "test-view"));
 		await flush();
 		const asked = commandForTab.mock.calls.map(([tabId, command]) => `${tabId}:${command.type}`);
 		expect(asked).toContain("t-later:get_state");

@@ -59,6 +59,7 @@ thread_local! {
 fn open(id: u64, opts: &RawValue, out: Out) -> Result<(), Fault> {
     let opts: Value = serde_json::from_str(opts.get()).unwrap_or(Value::Null);
     let pool = Pool {
+        view_epoch: opts["viewEpoch"].as_str().unwrap_or("").into(),
         layout_version: opts["layoutVersion"].as_i64().unwrap_or(1),
         max_former_tab_ids: opts["maxFormerTabIds"]
             .as_u64()

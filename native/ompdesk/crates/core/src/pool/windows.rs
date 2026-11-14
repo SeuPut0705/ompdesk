@@ -292,22 +292,23 @@ impl Ctx {
         }
         self.ensure_started(tab).await?;
         let first = self.with(|pool| {
+            let view_id = pool.entry(tab)?.view_id(&pool.view_epoch, win)?;
             let entry = pool.entry_mut(tab)?;
             match &mut entry.full {
                 Some(wins) => {
                     if !wins.contains(&win) {
                         wins.push(win);
                     }
-                    Some(false)
+                    Some((false, view_id))
                 }
                 None => {
                     entry.full = Some(vec![win]);
-                    Some(true)
+                    Some((true, view_id))
                 }
             }
         });
-        if let Some(first) = first {
-            self.push(&json!({"k": "wireFull", "tab": tab, "win": win, "first": first}));
+        if let Some((first, view_id)) = first {
+            self.push(&json!({"k": "wireFull", "tab": tab, "win": win, "first": first, "viewId": view_id}));
         }
         Ok(())
     }
@@ -813,6 +814,9 @@ impl Ctx {
                 .map(|entry| {
                     let cwd = facts[entry.tab_id.as_str()]["cwd"].as_str().unwrap_or("");
                     let mut tab = Pool::tab_status(entry, cwd);
+                    if let Some(view_id) = entry.view_id(&pool.view_epoch, win) {
+                        tab.insert("viewId".into(), Value::from(view_id));
+                    }
                     if active.as_deref() == Some(entry.tab_id.as_str()) {
                         tab.insert("active".into(), Value::from(true));
                     }

@@ -14,6 +14,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { focusedSessionRuntime } from "../../stores/session-runtime-context";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 
 export type LoadState = "loading" | "error" | "ready";
@@ -165,7 +166,8 @@ export function useSettingsDataLoader(): SettingsData {
 	// refetch values only; per-row drafts win over `values`, so in-progress edits survive.
 	useEffect(() => {
 		let cancelled = false;
-		const unsubscribe = window.omp.events.onConfigUpdate(() => {
+		const unsubscribe = window.omp.events.onConfigUpdate((_payload, tabId, viewId) => {
+			if (!acceptsTabViewFrame(tabId, viewId)) return;
 			const version = ++settingsVersion.current;
 			void tabRpc
 				.getSettings()

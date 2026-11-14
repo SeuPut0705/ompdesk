@@ -505,6 +505,28 @@ impl Ctx {
             unsaved_before: Option<String>,
         }
         let list = events.as_array().cloned().unwrap_or_default();
+        let hidden_targets = if list.iter().any(|event| {
+            matches!(
+                event["type"].as_str(),
+                Some("plan_proposal" | "plan_proposal_resolved")
+            )
+        }) {
+            self.with(|pool| {
+                pool.entry(tab)
+                    .map(|entry| {
+                        Pool::windows_of(entry)
+                            .into_iter()
+                            .filter(|win| !entry.wired_in(*win))
+                            .filter_map(|win| {
+                                entry.view_id(&pool.view_epoch, win).map(|id| (win, id))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            })
+        } else {
+            Vec::new()
+        };
         let (seen, run_ended, retry_started, stepped, hidden, win) = self.with(|pool| {
             let now = pool.now;
             let mut serial = pool.retry_serial;
@@ -632,29 +654,16 @@ impl Ctx {
             self.notify_window_tabs_changed(win).await?;
         }
         if !hidden.is_empty() {
-            self.forward_to_hidden(
-                tab,
-                "EVENTS_BATCH",
-                json!({"tabId": tab, "payload": hidden}),
-            );
+            for (win, view_id) in hidden_targets {
+                self.send(
+                    vec![win],
+                    "EVENTS_BATCH",
+                    json!({"tabId": tab, "viewId": view_id, "payload": &hidden}),
+                );
+            }
         }
         self.release_hidden_if_unused(tab, true).await?;
         Ok(())
-    }
-
-    /// Frames a hidden tab's sidebar row needs go to the windows that show the tab without its full channel.
-    pub(super) fn forward_to_hidden(&self, tab: &str, channel: &str, data: Value) {
-        let wins = self.with(|pool| {
-            pool.entry(tab)
-                .map(|entry| {
-                    Pool::windows_of(entry)
-                        .into_iter()
-                        .filter(|win| !entry.wired_in(*win))
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        });
-        self.send(wins, channel, data);
     }
 
     /// A turn ended on a tab that waits for the new omp: one tick later (main's `setImmediate`), so every listener of

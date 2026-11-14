@@ -505,6 +505,8 @@ describe("SidecarPool exact window-view leave", () => {
 		if (!sidecar) throw new Error("expected a sidecar");
 		sidecar.emitStatus("ready");
 		const oldIdentity = pool.viewIdentity(owner.win, "busy-reopen");
+		const oldViewId = pool.tabsForWindow(owner.win)[0]?.viewId;
+		expect(oldViewId).toEqual(expect.any(String));
 		if (!oldIdentity) throw new Error("expected the owner view");
 		const oldDeviceView = pool.viewForDevice(SESSION, { deviceId: "c", name: "C" }, "Host");
 		if (!oldDeviceView) throw new Error("expected the device view");
@@ -521,13 +523,13 @@ describe("SidecarPool exact window-view leave", () => {
 		]);
 		expect(sidecar.disposed).toBe(false);
 		expect(sidecars).toHaveLength(1);
-		return { pool, sidecars, sidecar, owner, other, oldIdentity, oldDeviceView };
+		return { pool, sidecars, sidecar, owner, other, oldIdentity, oldViewId, oldDeviceView };
 	}
 
 	it.each(["owner", "other"] as const)(
 		"reopens a busy zero-window session in the %s window without a new execution",
 		async destination => {
-			const { pool, sidecars, sidecar, owner, other, oldIdentity } = await busyWithoutViews();
+			const { pool, sidecars, sidecar, owner, other, oldIdentity, oldViewId } = await busyWithoutViews();
 			const starts = sidecar.restartArgs.length;
 			const window = destination === "owner" ? owner : other;
 			const kindFor = vi.fn(async () => "agent" as const);
@@ -551,6 +553,11 @@ describe("SidecarPool exact window-view leave", () => {
 			const newIdentity = pool.viewIdentity(window.win, "busy-reopen");
 			expect(newIdentity).toBeTruthy();
 			expect(newIdentity).not.toBe(oldIdentity);
+			const newViewId = pool.tabsForWindow(window.win)[0]?.viewId;
+			expect(newViewId).toEqual(expect.any(String));
+			expect(newViewId).not.toBe(oldViewId);
+			sidecar.emitAgentEvents(["message_start"]);
+			expect(pool.tabsForWindow(window.win)[0]?.viewId).toBe(newViewId);
 			expect(await pool.leaveWindowView(owner.win, "busy-reopen", oldIdentity, SESSION, () => true, authorize)).toBe(
 				false,
 			);
@@ -1215,6 +1222,7 @@ describe("SidecarPool tabs", () => {
 			{
 				kind: "agent",
 				tabId: "tab-a",
+				viewId: expect.any(String),
 				cwd: "/a",
 				status: "starting",
 				active: true,
@@ -1226,6 +1234,7 @@ describe("SidecarPool tabs", () => {
 			{
 				kind: "agent",
 				tabId: "tab-b",
+				viewId: expect.any(String),
 				cwd: "/b",
 				status: "starting",
 				placeholder: false,
@@ -1265,7 +1274,7 @@ describe("SidecarPool tabs", () => {
 		b?.emitAgentEvents(["agent_start"]);
 		// Only the active tab's batch reaches the full channel…
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-a", payload: [{ type: "agent_start" }] },
+			{ tabId: "tab-a", viewId: expect.any(String), payload: [{ type: "agent_start" }] },
 		]);
 		// …but both tabs pushed TAB_STATUS for their running transition.
 		const statuses = fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data as IpcTabStatusPayload);
@@ -1287,7 +1296,7 @@ describe("SidecarPool tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT)).toHaveLength(0);
 		a?.emit("promptResult", { type: "prompt_result" });
 		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-a", payload: { type: "prompt_result" } },
+			{ tabId: "tab-a", viewId: expect.any(String), payload: { type: "prompt_result" } },
 		]);
 	});
 
@@ -1319,6 +1328,10 @@ describe("SidecarPool tabs", () => {
 		pool.acquire("/a", fw.win, "tab-a");
 		pool.acquire("/b", fw.win, "tab-b");
 		const [a, b] = sidecars;
+		const viewA = pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a")?.viewId;
+		const viewB = pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-b")?.viewId;
+		expect(viewA).toEqual(expect.any(String));
+		expect(viewB).toEqual(expect.any(String));
 		fw.sent.length = 0;
 
 		// Hidden B: what its sidebar row reads still arrives, tagged with B's id;
@@ -1327,7 +1340,7 @@ describe("SidecarPool tabs", () => {
 		const started = { type: "subagent_lifecycle", payload: { id: "sa-1", status: "started" } };
 		b?.emitEvents([{ type: "message_update" }, proposal, { type: "agent_end" }]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: [proposal] },
+			{ tabId: "tab-b", viewId: viewB, payload: [proposal] },
 		]);
 
 		// Shown, B's full channel carries them: no second copy from the light one.
@@ -1338,10 +1351,10 @@ describe("SidecarPool tabs", () => {
 		// Batched per frame; an agent-event batch sends the frames that came before it first.
 		expect(fw.sent.map(entry => entry.channel)).toEqual([IPC_EVENTS.SUBAGENT_FRAMES, IPC_EVENTS.EVENTS_BATCH]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: [proposal] },
+			{ tabId: "tab-b", viewId: viewB, payload: [proposal] },
 		]);
 		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: [started] },
+			{ tabId: "tab-b", viewId: viewB, payload: [started] },
 		]);
 		// A response leaves after the frames batched before it, agent events or not.
 		fw.sent.length = 0;
@@ -1349,13 +1362,13 @@ describe("SidecarPool tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES)).toHaveLength(0);
 		b?.emit("beforeResponse");
 		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: [started] },
+			{ tabId: "tab-b", viewId: viewB, payload: [started] },
 		]);
 		// And A, now hidden, gets the light routing instead.
 		fw.sent.length = 0;
 		a?.emitEvents([proposal]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-a", payload: [proposal] },
+			{ tabId: "tab-a", viewId: viewA, payload: [proposal] },
 		]);
 	});
 
@@ -1388,6 +1401,7 @@ describe("SidecarPool tabs", () => {
 			{
 				kind: "agent",
 				tabId: "tab-a",
+				viewId: expect.any(String),
 				cwd: "/a",
 				status: "ready",
 				active: true,
@@ -1399,6 +1413,7 @@ describe("SidecarPool tabs", () => {
 			{
 				kind: "agent",
 				tabId: "tab-b",
+				viewId: expect.any(String),
 				cwd: "/b",
 				status: "running",
 				placeholder: false,
@@ -1576,8 +1591,8 @@ describe("SidecarPool tabs", () => {
 		b?.emitAgentEvents(["agent_start"]);
 		c?.emitAgentEvents(["agent_start"]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-a", payload: [{ type: "agent_start" }] },
-			{ tabId: "tab-b", payload: [{ type: "agent_start" }] },
+			{ tabId: "tab-a", viewId: expect.any(String), payload: [{ type: "agent_start" }] },
+			{ tabId: "tab-b", viewId: expect.any(String), payload: [{ type: "agent_start" }] },
 		]);
 		expect(
 			pool
@@ -1692,6 +1707,7 @@ describe("SidecarPool tabs", () => {
 		expect(pool.tabsForWindow(fw.win)[1]).toEqual({
 			kind: "agent",
 			tabId: "tab-b",
+			viewId: expect.any(String),
 			cwd: "/b",
 			status: "starting",
 			placeholder: false,
@@ -4428,15 +4444,68 @@ describe("SidecarPool multi-viewer", () => {
 		return { pool, sidecar, desktop, phone };
 	}
 
+	it("binds broadcast and synthesized updates to each window's view", () => {
+		const { pool, desktop, phone } = shared();
+		const desktopViewId = pool.tabsForWindow(desktop.win)[0]?.viewId;
+		const phoneViewId = pool.tabsForWindow(phone.win)[0]?.viewId;
+		expect(desktopViewId).toEqual(expect.any(String));
+		expect(phoneViewId).toEqual(expect.any(String));
+		expect(phoneViewId).not.toBe(desktopViewId);
+
+		pool.broadcastEvent({ type: "agent_start" });
+		pool.noteModeChanged("tab-a", desktop.win.webContents.id);
+		pool.noteModeChanged("tab-a", phone.win.webContents.id);
+		pool.noteSessionName("tab-a", "Renamed");
+
+		for (const [win, viewId] of [
+			[desktop, desktopViewId],
+			[phone, phoneViewId],
+		] as const) {
+			expect(win.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+				{ tabId: "tab-a", viewId, payload: [{ type: "agent_start" }] },
+			]);
+			expect(win.sentTo(IPC_EVENTS.CONFIG_UPDATE).map(entry => entry.data)).toEqual([
+				{ tabId: "tab-a", viewId, payload: { type: "config_update", modes: true } },
+			]);
+			expect(win.sentTo(IPC_EVENTS.SESSION_INFO_UPDATE).map(entry => entry.data)).toEqual([
+				{ tabId: "tab-a", viewId, payload: { type: "session_info_update", title: "Renamed" } },
+			]);
+		}
+	});
+
 	it("fans one set of sidecar listeners out to every window that shows the tab", () => {
 		const { pool, sidecar, desktop, phone } = shared();
+		const desktopViewId = pool.tabsForWindow(desktop.win)[0]?.viewId;
+		const phoneViewId = pool.tabsForWindow(phone.win)[0]?.viewId;
+		expect(desktopViewId).toEqual(expect.any(String));
+		expect(phoneViewId).toEqual(expect.any(String));
+		expect(phoneViewId).not.toBe(desktopViewId);
 		// One full wiring for both windows.
 		expect(sidecar.listenerCount("beforeResponse")).toBe(1);
 		sidecar.emitAgentEvents(["agent_start"]);
-		expect(desktop.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
-		expect(phone.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
+		sidecar.emit("promptResult", { type: "prompt_result" });
+		for (const [win, viewId] of [
+			[desktop, desktopViewId],
+			[phone, phoneViewId],
+		] as const) {
+			expect(win.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+				{ tabId: "tab-a", viewId, payload: [{ type: "agent_start" }] },
+			]);
+			expect(win.sentTo(IPC_EVENTS.PROMPT_RESULT).map(entry => entry.data)).toEqual([
+				{ tabId: "tab-a", viewId, payload: { type: "prompt_result" } },
+			]);
+		}
 		expect(phone.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", status: "running" });
 		expect(desktop.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", status: "running" });
+		sidecar.emitStatus("ready");
+		for (const [win, viewId] of [
+			[desktop, desktopViewId],
+			[phone, phoneViewId],
+		] as const) {
+			expect(win.sentTo(IPC_EVENTS.SIDECAR_STATUS).map(entry => entry.data)).toEqual([
+				{ tabId: "tab-a", viewId, payload: { status: "ready", cwd: "/a" } },
+			]);
+		}
 
 		// Each window has its own view: hiding the tab in the desktop keeps the phone's stream.
 		pool.acquire("/b", desktop.win, "tab-b");
@@ -4449,7 +4518,7 @@ describe("SidecarPool multi-viewer", () => {
 		expect(pool.activeTabForWindow(phone.win)).toBe("tab-a");
 	});
 
-	it("hands every window at the same message one push, and a window that joined mid-message its own whole one", () => {
+	it("keeps each window's token with a slimmed or late-joining message update", () => {
 		const { pool, sidecar, desktop, phone } = shared();
 		const update = (delta: string) => ({
 			type: "message_update",
@@ -4462,9 +4531,14 @@ describe("SidecarPool multi-viewer", () => {
 		expect(pool.attachViewer(late.win, "tab-a")).toBe(true);
 		sidecar.emitEvents([update("b")]);
 		const lastPush = (win: FakeWindow) => win.sentTo(IPC_EVENTS.EVENTS_BATCH).at(-1)?.data;
-		// One slimmed batch and one push object for both: a web page's frame text is made once from it.
-		expect(lastPush(phone)).toBe(lastPush(desktop));
-		expect(lastPush(desktop)).toEqual({
+		const desktopViewId = pool.tabsForWindow(desktop.win)[0]?.viewId;
+		const phoneViewId = pool.tabsForWindow(phone.win)[0]?.viewId;
+		const lateViewId = pool.tabsForWindow(late.win)[0]?.viewId;
+		expect(desktopViewId).toEqual(expect.any(String));
+		expect(phoneViewId).toEqual(expect.any(String));
+		expect(lateViewId).toEqual(expect.any(String));
+		expect(new Set([desktopViewId, phoneViewId, lateViewId]).size).toBe(3);
+		const slimmed = {
 			tabId: "tab-a",
 			payload: [
 				{
@@ -4473,8 +4547,41 @@ describe("SidecarPool multi-viewer", () => {
 					assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "b" },
 				},
 			],
-		});
-		expect(lastPush(late)).toEqual({ tabId: "tab-a", payload: [update("b")] });
+		};
+		expect(lastPush(desktop)).toEqual({ ...slimmed, viewId: desktopViewId });
+		expect(lastPush(phone)).toEqual({ ...slimmed, viewId: phoneViewId });
+		expect(lastPush(late)).toEqual({ tabId: "tab-a", viewId: lateViewId, payload: [update("b")] });
+	});
+
+	it("keeps queued subagent frames on their original view when a viewer rejoins the same tab", () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		const originalViewId = pool.tabsForWindow(phone.win)[0]?.viewId;
+		const desktopViewId = pool.tabsForWindow(desktop.win)[0]?.viewId;
+		expect(originalViewId).toEqual(expect.any(String));
+		expect(desktopViewId).toEqual(expect.any(String));
+		const oldFrame = { type: "subagent_lifecycle", payload: { id: "old", status: "started" } };
+		const newFrame = { type: "subagent_lifecycle", payload: { id: "new", status: "started" } };
+
+		sidecar.emit("subagentFrame", oldFrame);
+		expect(phone.sentTo(IPC_EVENTS.SUBAGENT_FRAMES)).toEqual([]);
+		pool.detachViewer(phone.win, "tab-a");
+		expect(pool.attachViewer(phone.win, "tab-a")).toBe(true);
+		const newViewId = pool.tabsForWindow(phone.win)[0]?.viewId;
+		expect(newViewId).toEqual(expect.any(String));
+		expect(newViewId).not.toBe(originalViewId);
+		sidecar.emit("subagentFrame", newFrame);
+		sidecar.emit("beforeResponse");
+
+		expect(phone.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-a", viewId: originalViewId, payload: [oldFrame] },
+			{ tabId: "tab-a", viewId: newViewId, payload: [newFrame] },
+		]);
+		expect(desktop.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-a", viewId: desktopViewId, payload: [oldFrame] },
+			{ tabId: "tab-a", viewId: desktopViewId, payload: [newFrame] },
+		]);
+		expect(pool.sidecarForTab(phone.win, "tab-a")).toBe(sidecar);
+		expect(sidecar.disposed).toBe(false);
 	});
 
 	it("lists a viewed tab as shared, counts its viewers, and lets the viewer reach it", () => {

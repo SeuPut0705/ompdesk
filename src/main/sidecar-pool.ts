@@ -223,7 +223,10 @@ const FORWARDED_TAB_EVENTS: ReadonlyArray<readonly [event: string, channel: stri
  */
 interface FullWiring {
 	/** Window id → that window and its own message-update slimmer (its first update of a message stays whole). */
-	windows: Map<number, { win: ClientWindow; slim: (events: AgentSessionEvent[]) => AgentSessionEvent[] }>;
+	windows: Map<
+		number,
+		{ win: ClientWindow; viewId: string; slim: (events: AgentSessionEvent[]) => AgentSessionEvent[] }
+	>;
 	/** Delivers the subagent frames still batched. */
 	flush: () => void;
 	/**
@@ -501,6 +504,7 @@ export class SidecarPool {
 				"pool",
 				{
 					layoutVersion: TAB_LAYOUT_VERSION,
+					viewEpoch: nextSnowflake(),
 					maxFormerTabIds: MAX_FORMER_TAB_IDS,
 					stopSessionWaitMs: STOP_SESSION_WAIT_MS,
 				},
@@ -625,7 +629,9 @@ export class SidecarPool {
 				return;
 			}
 			case "wireFull":
-				this.#wireFull(item.tab as string, item.win as number);
+				if (typeof item.viewId !== "string" || !item.viewId)
+					throw new CoreError("unsupported_protocol", "The pool did not supply the view binding for its stream");
+				this.#wireFull(item.tab as string, item.win as number, item.viewId);
 				return;
 			case "unwireFull":
 				this.#unwireFull(item.tab as string, item.win as number, item.last === true);
@@ -1100,24 +1106,24 @@ export class SidecarPool {
 	 * Full-channel wiring for window `winId`, at the core's word (`wireFull`): the sidecar listeners exist once per tab
 	 * and fan out to every window the tab is visible in; a window already wired is left untouched.
 	 */
-	#wireFull(tab: string, winId: number): void {
+	#wireFull(tab: string, winId: number, viewId: string): void {
 		const handle = this.#handles.get(tab);
 		const win = this.#windows.get(winId);
 		if (!handle || !win) return;
 		// A fresh slimmer per window: the first update of each message after the tab becomes visible there keeps
 		// its full snapshot (it missed message_start).
-		const shown = { win, slim: createMessageUpdateSlimmer() };
+		const shown = { win, viewId, slim: createMessageUpdateSlimmer() };
 		if (handle.full) {
+			if (handle.full.windows.get(winId)?.viewId !== viewId) handle.full.flush();
 			handle.full.windows.set(winId, shown);
 			return;
 		}
 		const { sidecar } = handle;
 		const windows: FullWiring["windows"] = new Map([[winId, shown]]);
 		const removers: (() => void)[] = [];
-		// One push object for every window: a web page's frame text is then made once for all the pages showing the tab.
 		const forwardActive = <T>(channel: string, payload: T): void => {
-			const data = { tabId: tab, payload };
-			for (const target of windows.values()) forwardToWindow(target.win, channel, data);
+			for (const target of windows.values())
+				forwardToWindow(target.win, channel, { tabId: tab, viewId: target.viewId, payload });
 		};
 		const wire = <T>(event: string, listener: (payload: T) => void): void => {
 			sidecar.on(event, listener);
@@ -1130,16 +1136,12 @@ export class SidecarPool {
 		const forwardEvents = (events: AgentSessionEvent[]): void => {
 			// Subagent frames that arrived first leave first, as when each was sent alone.
 			subagentFrames.flush();
-			// Windows whose slimmers stand at the same message get the same slimmed batch, and so the same push object.
-			const pushes = new Map<AgentSessionEvent[], { tabId: string; payload: AgentSessionEvent[] }>();
 			for (const target of windows.values()) {
-				const payload = target.slim(events);
-				let data = pushes.get(payload);
-				if (!data) {
-					data = { tabId: tab, payload };
-					pushes.set(payload, data);
-				}
-				forwardToWindow(target.win, IPC_EVENTS.EVENTS_BATCH, data);
+				forwardToWindow(target.win, IPC_EVENTS.EVENTS_BATCH, {
+					tabId: tab,
+					viewId: target.viewId,
+					payload: target.slim(events),
+				});
 			}
 		};
 		// A response (a subagent's messages, a transcript) can hold frames still batched here.
@@ -1198,15 +1200,15 @@ export class SidecarPool {
 	 * tab, which is the stream every window already reads. A window without a tab has no use for it.
 	 */
 	broadcastEvent(event: AgentSessionEvent): void {
-		for (const [winId, tabId] of this.#call<Array<[number, string]>>("broadcastTargets")) {
+		for (const [winId, tabId, viewId] of this.#call<Array<[number, string, string]>>("broadcastTargets")) {
 			const win = this.#windows.get(winId);
-			if (win) forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId, payload: [event] });
+			if (win) forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId, viewId, payload: [event] });
 		}
 	}
 
 	/** App-wide state on a channel of its own, to every window that shows a tab (a window without one has no use for it). */
 	broadcastApp(channel: string, payload: unknown): void {
-		for (const [winId] of this.#call<Array<[number, string]>>("broadcastTargets")) {
+		for (const [winId] of this.#call<Array<[number, string, string]>>("broadcastTargets")) {
 			const win = this.#windows.get(winId);
 			if (win) forwardToWindow(win, channel, payload);
 		}

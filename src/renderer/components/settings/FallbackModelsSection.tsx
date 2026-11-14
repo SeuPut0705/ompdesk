@@ -19,6 +19,7 @@ import type { ModelRoleEntry, ModelRolesResult, SettingProvenance } from "../../
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
+import { acceptsTabViewFrame } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { Badge, Button, ChoiceCards, EmptyState, IconButton, InlineNotice, Switch } from "../common";
 import {
@@ -103,7 +104,9 @@ export function FallbackModelsSection() {
 				})
 				.catch(() => undefined);
 		void load();
-		const off = window.omp.events.onConfigUpdate(() => void load());
+		const off = window.omp.events.onConfigUpdate((_payload, tabId, viewId) => {
+			if (acceptsTabViewFrame(tabId, viewId)) void load();
+		});
 		return () => {
 			live = false;
 			off();
