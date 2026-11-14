@@ -200,6 +200,7 @@ function vendoredSections(): string {
 	const pstackLicense = read("LICENSES/MIT-pstack.txt");
 	const eccLicense = read("LICENSES/MIT-ecc.txt");
 	const proofLicense = read("LICENSES/proof-skills-MIT.txt");
+	const rustStdLicense = read("LICENSES/MIT-rust-std.txt");
 	const eccPin = JSON.parse(read("resources/omp-builtin/ecc/ecc-config.json")) as {
 		commit: string;
 		version: string;
@@ -241,6 +242,16 @@ function vendoredSections(): string {
 			"OMPdesk's own Rust source is built into the binaries that ship inside the app under ompdesk-bin/ (ompdesk /",
 			"ompdesk.exe, the command-line tool). They are OMPdesk's, under the Apache License, Version 2.0 (LICENSE), and",
 			"statically link the Rust crates listed in section 4, each under its own license.",
+		].join("\n"),
+		[
+			"Rust standard library Windows process and argument handling",
+			"Copyright (c) The Rust Project Contributors. Argument quoting and executable lookup in",
+			"native/ompdesk/crates/core/src/sys/restricted_spawn.rs are adapted from Rust revision 0ef1bc386:",
+			"https://github.com/rust-lang/rust/blob/0ef1bc386/library/std/src/sys/args/windows.rs and",
+			"https://github.com/rust-lang/rust/blob/0ef1bc386/library/std/src/sys/process/windows.rs.",
+			"Used under the MIT License (full text below and in LICENSES/MIT-rust-std.txt).",
+			"",
+			rustStdLicense,
 		].join("\n"),
 		[
 			`agent-desktop ${agentDesktopPin.version} (https://github.com/${agentDesktopPin.repo}, tag v${agentDesktopPin.version})`,

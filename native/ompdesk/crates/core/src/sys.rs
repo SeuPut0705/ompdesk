@@ -313,6 +313,12 @@ pub fn pipe_has_instance(name: &str) -> bool {
 #[cfg(windows)]
 pub use job::ProcessTree;
 
+#[cfg(windows)]
+#[path = "sys/restricted_spawn.rs"]
+mod restricted_spawn;
+#[cfg(windows)]
+pub(crate) use restricted_spawn::{RestrictedChild, spawn as spawn_restricted};
+
 /// Job objects: the one this process lives in, and one for each process whose whole tree is ended together.
 #[cfg(windows)]
 mod job {
