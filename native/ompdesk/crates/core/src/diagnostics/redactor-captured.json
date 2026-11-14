@@ -337,6 +337,32 @@
       "file": "edge.jsonl",
       "input": "{\"token\":\"\\ud800\",\"number\":1e400}\n{\"2\":\"two\",\"1\":\"one\",\"n\":-0,\"s\":\"\\ud83d\\ude00\"}\n",
       "output": "{\"token\":\"<secret>\",\"number\":null}\n{\"1\":\"one\",\"2\":\"two\",\"n\":0,\"s\":\"😀\"}\n"
+    },
+    {
+      "name": "inert values with final line terminators",
+      "operation": "file",
+      "file": "inert.json",
+      "input": "{\"token\":[\"true\\n\",\"123\\r\\n\",\"none \",\"FALSE \",\"false\\r\",\"true\\n\\n\",\"123\\r\\nx\"],\"password\":[\"\\\"true\\\"\\n\",\"'123'\\r\\n\",\"\\\"none\\\" \",\"'FALSE' \",\"\\\"\\n\",\"'\\r\\n\",\"\\\\\\\"true\\n\",\"\\\\'123\\r\\n\",\"\\\\\\\"none\\\" \",\"\\\\'FALSE' \"]}",
+      "output": "{\"token\":[\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\"],\"password\":[\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\",\"<secret>\"]}"
+    },
+    {
+      "name": "key value line terminators",
+      "operation": "text",
+      "input": "token=true\r\npassword=123\nsecret=none\rTOKEN=FALSE password=\"true\"\r\npassword='123'\npassword=\"\npassword='\r\npassword=\\\"true\r\npassword=actualvalue\r\n",
+      "output": "token=true\r\npassword=123\nsecret=none\rTOKEN=FALSE password=\"true\"\r\npassword='123'\npassword=\"\npassword='\r\npassword=\\\"true\r\npassword=<secret>\r\n"
+    },
+    {
+      "name": "secret text key value line terminators",
+      "operation": "secret",
+      "input": "token=true\r\npassword=123\nsecret=none\rTOKEN=FALSE password=\"true\"\r\npassword='123'\npassword=\"\npassword=\\\"true\r\npassword=actualvalue\r\n",
+      "output": "token=true\r\npassword=123\nsecret=none\rTOKEN=FALSE password=\"true\"\r\npassword='123'\npassword=\"\npassword=\\\"true\r\npassword=<secret>\r\n"
+    },
+    {
+      "name": "inert line terminators jsonl",
+      "operation": "file",
+      "file": "inert.jsonl",
+      "input": "{\"token\":\"true\\n\",\"password\":\"\\\"123\\\"\\r\\n\",\"secret\":\"' \"}\n{\"token\":\"none \",\"password\":\"FALSE \",\"secret\":\"\\\\\\\"true\\n\"}\n",
+      "output": "{\"token\":\"<secret>\",\"password\":\"<secret>\",\"secret\":\"<secret>\"}\n{\"token\":\"<secret>\",\"password\":\"<secret>\",\"secret\":\"<secret>\"}\n"
     }
   ]
 }

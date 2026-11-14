@@ -16,6 +16,7 @@ use super::session::Session;
 pub const COMMANDS: &[&str] = &["read_agent_file", "write_agent_file", "delete_agent_file", "install_agent_templates"];
 
 /// Ordered, pre-rendered templates from the application's canonical template catalog.
+#[derive(serde::Deserialize)]
 pub struct Template {
     pub name: String,
     pub content: String,

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use regress::{Match, Regex};
@@ -13,6 +14,8 @@ struct Patterns {
     vendor: Regex,
     bearer: Regex,
     secret_field: Regex,
+    inert_quotes: Regex,
+    inert_value: Regex,
     key_value: Regex,
     hex: Regex,
     base64: Regex,
@@ -37,6 +40,8 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
     vendor: regex(r"\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bsk-[A-Za-z0-9_-]{16,}|\bxox[abposr]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_-]{35}", false),
     bearer: regex(r"\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}", true),
     secret_field: regex(&format!("^{SECRET_NAME}$"), true),
+    inert_quotes: regex(r#"^\\?["']|["']$"#, false),
+    inert_value: regex(r"^(?:true|false|null|undefined|none|\d+)$", true),
     key_value: regex(&format!(r#"(\\?["']?\b{SECRET_NAME}\\?["']?[ \t]*[:=][ \t]*)("[^"\n]*"|'[^'\n]*'|\\?"?[^\s"'\\,;&}}]+)"#), true),
     hex: regex(r"(?<![\w-])[0-9a-fA-F]{32,}(?![\w-])", false),
     base64: regex(r"(?<![\w+=-])[A-Za-z0-9_+=-]{32,}(?![\w+=-])", false),
@@ -75,22 +80,23 @@ fn capture<'a>(text: &'a [u16], m: &Match, index: usize) -> &'a [u16] {
 }
 
 pub(super) fn inert(raw: &[u16]) -> bool {
-    let mut value = raw;
-    if value.len() >= 2 && value[0] == 92 && matches!(value[1], 34 | 39) {
-        value = &value[2..];
-    } else if value.first().is_some_and(|c| matches!(*c, 34 | 39)) {
-        value = &value[1..];
-    }
-    if value.last().is_some_and(|c| matches!(*c, 34 | 39)) {
-        value = &value[..value.len() - 1];
-    }
-    value.is_empty() || value[0] == 60
-        || value.iter().all(|c| (48..=57).contains(c))
-        || ["true", "false", "null", "undefined", "none"].iter().any(|s| {
-            value.len() == s.len() && value.iter().zip(s.bytes()).all(|(a, b)| {
-                *a <= 127 && (*a as u8).eq_ignore_ascii_case(&b)
-            })
-        })
+    let p = &*PATTERNS;
+    let mut matches = p.inert_quotes.find_from_ucs2(raw, 0);
+    let value = if let Some(first) = matches.next() {
+        let mut stripped = Vec::with_capacity(raw.len());
+        let mut last = 0;
+        for found in std::iter::once(first).chain(matches) {
+            stripped.extend_from_slice(&raw[last..found.start()]);
+            last = found.end();
+        }
+        stripped.extend_from_slice(&raw[last..]);
+        Cow::Owned(stripped)
+    } else {
+        Cow::Borrowed(raw)
+    };
+    value.is_empty()
+        || value[0] == 60
+        || p.inert_value.find_from_ucs2(&value, 0).next().is_some()
 }
 
 fn credentials(mut text: Vec<u16>) -> Vec<u16> {
