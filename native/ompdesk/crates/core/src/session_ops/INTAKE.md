@@ -13,8 +13,9 @@ Main AUTHORITY-v2 assigns canonical SessionAuthority state, tombstones, retained
 - Relay counted-fence two-file patch `2e0b7a34cf87c8a08013ef5652abd9642440a1fd` as an attached policy reference, not TS code intake.
 - Exact native stock service input `3bf8e72469cb1a6d63296d19196cd4f67f286941`, locally cherry-picked as `091fb61dc`, three stock files only.
 - Exact canonical SessionAuthority input `75307aa0dc9f1cbe9f9ac80fa9edd0d6ec84dbcb`, locally cherry-picked as `f9140dd36`, four application/export files only.
+- Exact captured services input `5a95ec411f28826e663b9bd67bd70a799e0e7752`, locally cherry-picked as `fa7accd9e`, 28 bounded native service files only. Base labelled this source unverified.
 
-The direct stock service and canonical SessionAuthority are now present as exact source units. Coordinator Config receives Base's actual shared authority Arc and directly holds its DeletionGuard through storage, commit and notices. The published 6d02 sidecar.when_exited, Released.exited and when_released still return void futures and swallow channel closure. Those are not successful exact-exit proof. The upgraded Result receipt and native pool facade remain pending.
+The direct stock service and canonical SessionAuthority are present as exact source units. Coordinator Config receives Base's actual shared authority Arc and directly holds its DeletionGuard through storage, commit and notices. The 5a95 source now has Result-bearing Released receipts and generation-bound SessionTarget. Its close_session_tab still has fallible notification awaits between release and receipt join; an unreproduced source integration risk was reported to Base. The tiny correction and actual hosted-mutation facade remain pending.
 
 ## Ordering implementation
 
@@ -24,11 +25,19 @@ Stop dispatches all captured abort effects and retains every idle waiter. Rename
 
 ## Required actual adapter input
 
-The actual SessionAuthority and canonical guard are consumed directly. Base must still supply the shared stored-mutation admission lease. Pool primitives must capture immutable runtime/incarnation handles, atomically recheck busy/compaction when releasing saved-file holders, and return Result exit receipts captured before disposal. A partial release error must preserve the receipts of anything already released. Saved-file delete must not be confused with closing only one protected view.
+The actual SessionAuthority and canonical guard are consumed directly. Base must still supply the shared stored-mutation admission lease. Pool primitives capture immutable runtime/incarnation handles and atomically recheck busy/compaction when releasing saved-file holders. A partial release error must preserve and join the receipts of anything already released, including errors after release but before notification finishes. Saved-file delete must not be confused with closing only one protected view.
 
-The concrete NativeHost still needs Base's tiny native pool/receipt facade, current Owner/scope checks, authenticated local/remote target resolution, hosted notice tickets, direct index invalidation and direct stock storage wiring. The stored-rename helper and closed-only move must use the same admission authority so an open cannot race their preconditions. No substitute mutex or count belongs here.
+The concrete NativeHost still needs the corrected partial-release primitive, current Owner/scope checks, authenticated local/remote target resolution, hosted notice tickets, direct index invalidation and direct stock storage wiring. The stored-rename helper and closed-only move must use the same admission authority so an open cannot race their preconditions. No substitute mutex or count belongs here.
 
 Base owns core module exports, Cargo/global files and NativeApp registration. Final native graph intake must instantiate the shared authority once and remove or route every obsolete TS authority consumer in that same wave. No dual writes or simultaneously authoritative TS/native stores are permitted.
+
+## Unwritten live sessions
+
+`live::LiveSource` carries the actual admitted Owner, tab, execution host and canonical local_dispatch::Session. It does not require a saved file. `rename_from_live` uses stock for an omitted or current sessionPath and only routes another saved path through the saved coordinator. `move_live` uses command.path, the canonical Session slash implementation and post-move directory readback, not the closed-file move operation.
+
+Base must route a remote tab.command to the machine running the omp before constructing this local capability. A nonlocal execution host is rejected before any filesystem call. Local directory validation reuses fs::disk::stat; there is no client-side stat of a remote path or invented remote stat callback.
+
+The canonical Session and CommandError helper blobs are not yet a self-contained consumed input. Dispatcher revision dc34640cb10aed71099cdce4597eadfe9f9b51ab was read as a source reference only; its delta changes unrelated diagnostics and was not cherry-picked. Main/Base must package the canonical helper source plus minimal module registration, or compile the actual domains in one fixed cohort. The upcoming Session generation wrapper must use the actual Lane dequeue gates, not the old check-then-send helper.
 
 ## Verification limits
 

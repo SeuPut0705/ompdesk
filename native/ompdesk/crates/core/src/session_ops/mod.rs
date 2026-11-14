@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 
+pub mod live;
 pub(crate) mod stored_rename;
 
 use ompdesk_app_contract::Owner;
@@ -91,7 +91,7 @@ pub trait Host: Send + Sync + 'static {
     fn capture(&self, target: &Target) -> Effect<Captured<Self::Runtime, Self::Notices>>;
     /// Rechecks the captured holder's incarnation and busy/compaction under its pool's atomic release operation.
     fn release(&self, holder: &Holder<Self::Runtime>) -> Effect<Release>;
-    fn when_idle(&self, holder: &Holder<Self::Runtime>, timeout: Duration) -> Effect<()>;
+    /// Starts the native abort operation now and resolves only when that captured run is idle or fails.
     fn stop(&self, holder: &Holder<Self::Runtime>) -> Effect<()>;
     fn rename_live(&self, holder: &Holder<Self::Runtime>, name: &str) -> Effect<()>;
     fn rename_stored(&self, target: &Target, name: &str, scope: Scope) -> Effect<()>;
@@ -196,15 +196,13 @@ impl<H: Host> Coordinator<H> {
     async fn stop(&self, target: Target) -> Result<Output, Error> {
         let captured = self.host.capture(&target).await?;
         let mut stopping = Vec::new();
-        let mut idle = Vec::new();
         for holder in &captured.holders {
             if holder.activity != Activity::Idle {
-                idle.push(self.host.when_idle(holder, Duration::from_secs(60)));
                 stopping.push(self.host.stop(holder));
             }
         }
         let mut failure = None;
-        for effect in stopping.into_iter().chain(idle) {
+        for effect in stopping {
             if let Err(error) = effect.await {
                 failure.get_or_insert(error);
             }
