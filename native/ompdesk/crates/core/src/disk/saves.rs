@@ -1,4 +1,4 @@
-//! A store's save that finds the disk full (`ENOSPC`): the file keeps its old bytes (`write_atomic_if` removes its
+//! A store's save that finds the disk full (`ENOSPC`/`EDQUOT`): the file keeps its old bytes (`write_atomic_if` removes its
 //! temp file), the caller still gets the error and keeps its state in memory, and the same content is tried again
 //! here on a backoff until it lands or a newer save of that file replaces it. Main hears of it as
 //! `store.saveFailed {file}` once per file and `store.saved {file}` when the file is no longer waiting for space, and
@@ -22,9 +22,9 @@ const RETRY_MS: [u64; 5] = [5_000, 10_000, 20_000, 40_000, 60_000];
 
 type Writer = dyn Fn(&Path, &[u8], Option<u32>, u32) -> Result<bool, Fault> + Send + Sync;
 
-/// Whether a failed write ran out of room: its message is node's `ENOSPC: no space left on device, open '…'`.
+/// Whether a failed write ran out of disk space or the user's quota, as node names it.
 pub(crate) fn disk_full(fault: &Fault) -> bool {
-    fault.message.starts_with("ENOSPC:")
+    fault.message.starts_with("ENOSPC:") || fault.message.starts_with("EDQUOT:")
 }
 
 #[derive(Clone)]
@@ -178,6 +178,13 @@ impl Saves {
 static SAVES: LazyLock<Arc<Saves>> = LazyLock::new(|| {
     Arc::new(Saves::new(
         Box::new(|file, bytes, mode, dir_mode| {
+            #[cfg(test)]
+            if test_support::blocked(file) {
+                return Err(Fault::new(
+                    "io",
+                    format!("EDQUOT: disk quota exceeded, open '{}'", file.display()),
+                ));
+            }
             write_atomic_if(file, bytes, mode, dir_mode, &|| true)
         }),
         RETRY_MS.to_vec(),
@@ -203,6 +210,48 @@ pub(crate) fn remove_kept(file: &Path) -> Result<(), Fault> {
 /// Where `store.saveFailed` and `store.saved` go: the connection main speaks on.
 pub(crate) fn attach(events: Events) {
     SAVES.attach(events);
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use std::collections::HashSet;
+
+    static QUOTAS: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+    pub(super) fn blocked(file: &Path) -> bool {
+        QUOTAS.lock().unwrap().contains(file)
+    }
+
+    /// Blocks only this test's exact file in the canonical writer, never another test's store.
+    pub(crate) struct Quota {
+        file: PathBuf,
+    }
+
+    impl Quota {
+        pub(crate) fn new(file: &Path) -> Self {
+            assert!(QUOTAS.lock().unwrap().insert(file.to_path_buf()));
+            Self {
+                file: file.to_path_buf(),
+            }
+        }
+
+        /// Advances the actual kept retry after recovery, with no second save or wall-clock wait.
+        pub(crate) fn recover(&self) {
+            QUOTAS.lock().unwrap().remove(&self.file);
+            assert!(!SAVES.retry_once(&self.file));
+        }
+    }
+
+    impl Drop for Quota {
+        fn drop(&mut self) {
+            let mut state = SAVES.lock();
+            QUOTAS.lock().unwrap().remove(&self.file);
+            if state.kept.remove(&self.file).is_some() {
+                state.tell("store.saved", &self.file);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -377,6 +426,43 @@ mod tests {
             .collect();
         assert_eq!(events, ["store.saveFailed"]);
         saves.lock().kept.clear();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn quota_recovery_saves_queued_bytes_without_another_save() {
+        let dir = temp("quota");
+        let file = dir.join("state.json");
+        fs::write(&file, b"old").unwrap();
+        let quota = Arc::new(AtomicBool::new(true));
+        let blocked = Arc::clone(&quota);
+        let saves = Arc::new(Saves::new(
+            Box::new(move |file, bytes, mode, dir_mode| {
+                if blocked.load(Ordering::SeqCst) {
+                    return Err(crate::fs::error::NodeError::new(
+                        &std::io::Error::from_raw_os_error(libc::EDQUOT),
+                        "open",
+                        Some(&file.to_string_lossy()),
+                    )
+                    .fault(crate::fs::error::Codes::None));
+                }
+                write_atomic_if(file, bytes, mode, dir_mode, &|| true)
+            }),
+            vec![60_000],
+        ));
+        let (events, _keep, mut frames) = Events::capture();
+        saves.attach(events);
+        assert!(saves.write(&file, b"new", Some(0o600), 0o700).is_err());
+        assert_eq!(fs::read(&file).unwrap(), b"old");
+        quota.store(false, Ordering::SeqCst);
+        assert!(!saves.retry_once(&file));
+        assert_eq!(fs::read(&file).unwrap(), b"new");
+        let events: Vec<_> = heard(&mut frames)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(events, ["store.saveFailed", "store.saved"]);
         fs::remove_dir_all(dir).unwrap();
     }
 

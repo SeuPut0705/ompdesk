@@ -131,6 +131,7 @@ fn uv_name(errno: i32) -> Option<&'static str> {
         (libc::EBADF, "EBADF"),
         (libc::EBUSY, "EBUSY"),
         (libc::ECANCELED, "ECANCELED"),
+        (libc::EDQUOT, "EDQUOT"),
         (libc::EEXIST, "EEXIST"),
         (libc::EFAULT, "EFAULT"),
         (libc::EFBIG, "EFBIG"),
@@ -213,6 +214,7 @@ fn describe(name: &str) -> &'static str {
         "EBUSY" => "resource busy or locked",
         "ECANCELED" => "operation canceled",
         "ECHARSET" => "invalid Unicode character",
+        "EDQUOT" => "disk quota exceeded",
         "EEXIST" => "file already exists",
         "EFAULT" => "bad address in system call argument",
         "EFBIG" => "file too large",
@@ -288,10 +290,10 @@ mod tests {
             .code,
             IO
         );
-        let unmapped = io::Error::from_raw_os_error(libc::EDQUOT);
+        let quota = io::Error::from_raw_os_error(libc::EDQUOT);
         assert_eq!(
-            NodeError::new(&unmapped, "open", Some("/q")).message,
-            "UNKNOWN: unknown error, open '/q'"
+            NodeError::new(&quota, "open", Some("/q")).message,
+            "EDQUOT: disk quota exceeded, open '/q'"
         );
     }
 
