@@ -49,6 +49,7 @@ use tokio::sync::{Notify, mpsc, oneshot, watch};
 use crate::fs::error::uv_code;
 use crate::json::whole_surrogates;
 use crate::run::{Runner, terminate};
+use crate::server::Scope;
 use crate::server::{Call, Events, Fault, Registry, Reply};
 
 pub mod native;
@@ -178,6 +179,7 @@ enum Msg {
         tuning: Tuning,
         events: Events,
         reply: oneshot::Sender<Answer>,
+        joined: Option<Joined>,
     },
     /// The request's caller stopped waiting: its timeout passed (or main withdrew the call).
     GaveUp(u64),
@@ -190,6 +192,9 @@ enum Msg {
         line: Vec<u8>,
     },
     Exited {
+        generation: u64,
+    },
+    WaitFailed {
         generation: u64,
     },
     /// A timed-out request's grace passed.
@@ -245,6 +250,7 @@ struct Placed {
     id: u64,
     timeout: Duration,
     answer: oneshot::Receiver<Answer>,
+    unconfirmed: Option<oneshot::Receiver<()>>,
 }
 
 /// `stock.request`: takes the request's place in its lane now, before the server reads the next line, so two requests
@@ -281,6 +287,7 @@ fn place(call: &Call) -> Result<Placed, Fault> {
         Duration::from_millis(timeout_ms),
         tuning,
         &call.events,
+        None,
         LaunchSource::Legacy,
     )
 }
@@ -292,11 +299,25 @@ fn place_request(
     timeout: Duration,
     tuning: Tuning,
     events: &Events,
+    scope: Option<Scope>,
     source: LaunchSource,
 ) -> Result<Placed, Fault> {
     let worker = tuning.worker.unwrap_or_else(|| Worker::of(method));
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (reply, answer) = oneshot::channel();
+    let (joined, unconfirmed) = match scope {
+        Some(scope) => {
+            let (notify, receiver) = oneshot::channel();
+            (
+                Some(Joined {
+                    _scope: scope,
+                    notify: Some(notify),
+                }),
+                Some(receiver),
+            )
+        }
+        None => (None, None),
+    };
     let inbox = {
         let mut lanes = locked(&LANES);
         if matches!(&source, LaunchSource::Native { closed, .. } if closed.load(Ordering::Acquire))
@@ -315,6 +336,20 @@ fn place_request(
                 "Stock host belongs to another launcher",
             ));
         }
+        if locked(&STOPPING)
+            .values()
+            .any(|(lane_host, owner, finished)| {
+                lane_host == host
+                    && owner.same_owner(&source)
+                    && (matches!(&source, LaunchSource::Native { .. })
+                        || finished.has_changed().is_err())
+            })
+        {
+            return Err(Fault::new(
+                "stock_exit_unconfirmed",
+                "Stock worker exit could not be confirmed",
+            ));
+        }
         let entry = lanes
             .entry((host.to_owned(), worker))
             .or_insert_with(|| Entry {
@@ -331,6 +366,7 @@ fn place_request(
             tuning,
             events: events.clone(),
             reply,
+            joined,
         });
         entry.inbox.clone()
     };
@@ -339,6 +375,7 @@ fn place_request(
         id,
         timeout,
         answer,
+        unconfirmed,
     })
 }
 
@@ -348,6 +385,7 @@ async fn wait(call: Call, placed: Placed) -> Result<Reply, Fault> {
         id,
         timeout,
         answer,
+        ..
     } = placed;
     let gave_up = |fault: Fault| {
         let _ = inbox.send(Msg::GaveUp(id));
@@ -441,8 +479,13 @@ async fn end_lanes(chosen: impl Fn(&(String, Worker), &Entry) -> bool, wait: Dur
                 let (stopped, exits) = oneshot::channel();
                 let _ = entry.inbox.send(Msg::Stop(stopped));
                 tokio::spawn(async move {
-                    for mut exit in exits.await.unwrap_or_default() {
-                        let _ = exit.wait_for(|exited| *exited).await;
+                    let Ok(exits) = exits.await else {
+                        return;
+                    };
+                    for mut exit in exits {
+                        if exit.wait_for(|exited| *exited).await.is_err() {
+                            return;
+                        }
                     }
                     locked(&STOPPING).remove(&token);
                     done.send_replace(true);
@@ -458,7 +501,7 @@ async fn end_lanes(chosen: impl Fn(&(String, Worker), &Entry) -> bool, wait: Dur
     let _ = tokio::time::timeout(wait, exited).await;
 }
 
-async fn wait_stopping(source: &LaunchSource, deadline: tokio::time::Instant) {
+async fn wait_stopping(source: &LaunchSource, deadline: tokio::time::Instant) -> Result<(), Fault> {
     let waiting: Vec<_> = locked(&STOPPING)
         .values()
         .filter(|(_, owner, _)| owner.same_owner(source))
@@ -470,6 +513,17 @@ async fn wait_stopping(source: &LaunchSource, deadline: tokio::time::Instant) {
         }
     })
     .await;
+    if locked(&STOPPING)
+        .values()
+        .any(|(_, owner, _)| owner.same_owner(source))
+    {
+        Err(Fault::new(
+            "stock_exit_unconfirmed",
+            "Stock worker exit could not be confirmed",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn stopped() -> Fault {
@@ -547,15 +601,24 @@ struct Pending {
     line: Option<Vec<u8>>,
     timeout: Duration,
     reply: oneshot::Sender<Answer>,
+    joined: Option<Joined>,
+    gave_up: bool,
+}
+
+struct Joined {
+    _scope: Scope,
+    notify: Option<oneshot::Sender<()>>,
 }
 
 /// A worker the lane talks to.
 struct Running {
     generation: u64,
     /// Lines to its stdin, written in order by its own task; dropping this closes the pipe, which ends the worker.
-    stdin: mpsc::UnboundedSender<Vec<u8>>,
+    stdin: Option<mpsc::UnboundedSender<Vec<u8>>>,
     kill: Arc<Notify>,
     exited: watch::Receiver<bool>,
+    exit_unconfirmed: bool,
+    retiring: Option<Fault>,
     stamp_file: Option<PathBuf>,
     /// The stamp when it started, so a request can see omp was replaced since.
     started_stamp: Option<(SystemTime, u64)>,
@@ -586,6 +649,7 @@ struct Lane {
     idle_epoch: u64,
     /// Workers let go that have not exited yet.
     leaving: Vec<watch::Receiver<bool>>,
+    stopping: bool,
 }
 
 impl Lane {
@@ -610,6 +674,7 @@ impl Lane {
             generations: 0,
             idle_epoch: 0,
             leaving: Vec::new(),
+            stopping: false,
         };
         tokio::spawn(async move {
             while let Some(message) = messages.recv().await {
@@ -622,6 +687,7 @@ impl Lane {
                         tuning,
                         events,
                         reply,
+                        joined,
                     } => {
                         lane.tuning = tuning;
                         lane.events = events;
@@ -630,6 +696,8 @@ impl Lane {
                             line: Some(line),
                             timeout,
                             reply,
+                            joined,
+                            gave_up: false,
                         };
                         lane.request(id, pending);
                     }
@@ -637,12 +705,18 @@ impl Lane {
                     Msg::Launched { launch, how } => lane.launched(launch, how),
                     Msg::Line { generation, line } => lane.line(generation, line),
                     Msg::Exited { generation } => lane.exited(generation),
+                    Msg::WaitFailed { generation } => lane.wait_failed(generation),
                     Msg::Overdue { generation, id } => lane.overdue(generation, id),
                     Msg::Idle { generation, epoch } => lane.idle(generation, epoch),
                     Msg::Stop(stopped) => {
                         let _ = stopped.send(lane.stop());
-                        break;
+                        if lane.pending.is_empty() {
+                            break;
+                        }
                     }
+                }
+                if lane.stopping && lane.pending.is_empty() {
+                    break;
                 }
             }
         });
@@ -650,6 +724,17 @@ impl Lane {
     }
 
     fn request(&mut self, id: u64, pending: Pending) {
+        if self
+            .running
+            .as_ref()
+            .is_some_and(|worker| worker.exit_unconfirmed)
+        {
+            let _ = pending.reply.send(Err(Fault::new(
+                "stock_exit_unconfirmed",
+                "Stock worker exit could not be confirmed",
+            )));
+            return;
+        }
         // A request keeps the worker up: the idle exit is armed again once this one is answered.
         self.idle_epoch += 1;
         self.pending.insert(id, pending);
@@ -660,8 +745,12 @@ impl Lane {
             );
             self.let_go();
         }
-        if self.running.is_some() {
-            self.write(id);
+        if let Some(running) = &self.running {
+            if running.retiring.is_some() {
+                self.waiting.push(id);
+            } else {
+                self.write(id);
+            }
             return;
         }
         self.waiting.push(id);
@@ -699,6 +788,8 @@ impl Lane {
             return false;
         };
         if self.worker == Worker::Terminals
+            || running.retiring.is_some()
+            || running.exit_unconfirmed
             || running.started_stamp.is_none()
             || !running.unanswered.is_empty()
             || self.pending.len() > 1
@@ -722,9 +813,9 @@ impl Lane {
         let (Some(running), Some(pending)) = (&mut self.running, self.pending.get_mut(&id)) else {
             return;
         };
-        if let Some(line) = pending.line.take() {
+        if let (Some(line), Some(stdin)) = (pending.line.take(), running.stdin.as_ref()) {
             running.unanswered.insert(id);
-            let _ = running.stdin.send(line);
+            let _ = stdin.send(line);
         }
     }
 
@@ -733,6 +824,23 @@ impl Lane {
             let _ = pending.reply.send(Err(fault.clone()));
         }
         self.waiting.clear();
+    }
+
+    fn retire(&mut self, fault: &Fault, stopping: bool) {
+        for (_, pending) in self.pending.extract_if(|_, pending| {
+            !(pending.joined.is_some() && pending.line.is_none())
+                && (stopping || pending.line.is_none())
+        }) {
+            let _ = pending.reply.send(Err(fault.clone()));
+        }
+        if let Some(running) = &mut self.running {
+            running.retiring.get_or_insert_with(|| fault.clone());
+            if stopping {
+                running.stdin.take();
+            } else {
+                running.kill.notify_one();
+            }
+        }
     }
 
     fn launched(&mut self, launch: u64, how: Result<Launch, Fault>) {
@@ -809,21 +917,30 @@ impl Lane {
         let (exit, exited) = watch::channel(false);
         let (killed, inbox) = (Arc::clone(&kill), self.inbox.clone());
         tokio::spawn(async move {
-            tokio::select! {
-                _ = child.wait() => {}
+            let result = tokio::select! {
+                result = child.wait() => result,
                 () = killed.notified() => {
                     terminate(&mut child);
-                    let _ = child.wait().await;
+                    child.wait().await
+                }
+            };
+            match result {
+                Ok(_) => {
+                    exit.send_replace(true);
+                    let _ = inbox.send(Msg::Exited { generation });
+                }
+                Err(_) => {
+                    let _ = inbox.send(Msg::WaitFailed { generation });
                 }
             }
-            exit.send_replace(true);
-            let _ = inbox.send(Msg::Exited { generation });
         });
         Ok(Running {
             generation,
-            stdin: lines,
+            stdin: Some(lines),
             kill,
             exited,
+            exit_unconfirmed: false,
+            retiring: None,
             started_stamp: stamp(stamp_file.as_ref()),
             stamp_file,
             unanswered: HashSet::new(),
@@ -847,9 +964,13 @@ impl Lane {
         };
         running.overdue.remove(&id);
         running.unanswered.remove(&id);
+        let retirement = running.retiring.clone();
         self.arm_idle_exit();
         if let Some(pending) = self.pending.remove(&id) {
-            let _ = pending.reply.send(answer);
+            let _ = pending.reply.send(match retirement {
+                Some(fault) => Err(fault),
+                None => answer,
+            });
         }
     }
 
@@ -857,16 +978,30 @@ impl Lane {
     /// it. The stock worker is replaced only when its lane then stays silent past the grace; the terminals and
     /// extensions workers never are (a live shell must not be lost, a plugin upgrade may run for minutes).
     fn gave_up(&mut self, id: u64) {
-        let Some(pending) = self.pending.remove(&id) else {
+        let Some(pending) = self.pending.get_mut(&id) else {
             return;
         };
-        // Still waiting for a worker to start: `launched` skips it.
+        if pending.gave_up {
+            return;
+        }
+        pending.gave_up = true;
+        if pending.line.is_some() {
+            if let Some(pending) = self.pending.remove(&id) {
+                let _ = pending.reply.send(Err(Fault::cancelled()));
+            }
+            return;
+        }
+        let method = pending.method.clone();
+        let timeout = pending.timeout;
+        if pending.joined.is_none() {
+            self.pending.remove(&id);
+        }
         let Some(running) = &mut self.running else {
             return;
         };
-        let _ = running
-            .stdin
-            .send(format!("{{\"cancel\":{id}}}\n").into_bytes());
+        if let Some(stdin) = &running.stdin {
+            let _ = stdin.send(format!("{{\"cancel\":{id}}}\n").into_bytes());
+        }
         if self.worker != Worker::Stock {
             return;
         }
@@ -874,9 +1009,7 @@ impl Lane {
             .tuning
             .recycle_grace_ms
             .map_or(RECYCLE_GRACE, Duration::from_millis);
-        running
-            .overdue
-            .insert(id, (pending.method, pending.timeout + grace));
+        running.overdue.insert(id, (method, timeout + grace));
         let (generation, inbox) = (running.generation, self.inbox.clone());
         tokio::spawn(async move {
             tokio::time::sleep(grace).await;
@@ -897,22 +1030,63 @@ impl Lane {
             "omp stock helper: \"{method}\" hung for {} ms; restarting the worker",
             waited.as_millis()
         );
-        self.fail_pending(&Fault::new(
+        let fault = Fault::new(
             "stock_restarted",
             format!("omp stock helper restarted: \"{method}\" hung"),
-        ));
-        if let Some(running) = self.let_go() {
-            running.kill.notify_one();
+        );
+        if self
+            .pending
+            .values()
+            .any(|pending| pending.joined.is_some() && pending.line.is_none())
+        {
+            self.retire(&fault, false);
+        } else {
+            self.fail_pending(&fault);
+            if let Some(running) = self.let_go() {
+                running.kill.notify_one();
+            }
+        }
+    }
+
+    fn wait_failed(&mut self, generation: u64) {
+        let Some(running) = self.current(generation) else {
+            return;
+        };
+        running.exit_unconfirmed = true;
+        eprintln!(
+            "omp stock helper: {} worker exit could not be confirmed",
+            self.worker.name()
+        );
+        for pending in self.pending.values_mut() {
+            if pending.line.is_none() {
+                if let Some(joined) = &mut pending.joined {
+                    if let Some(notify) = joined.notify.take() {
+                        let _ = notify.send(());
+                    }
+                }
+            }
         }
     }
 
     fn exited(&mut self, generation: u64) {
-        if self.current(generation).is_none() {
+        let Some(running) = self.current(generation) else {
             return;
+        };
+        let fault = running
+            .retiring
+            .clone()
+            .unwrap_or_else(|| Fault::new("stock_exited", "omp stock helper exited"));
+        for (_, pending) in self.pending.extract_if(|_, pending| pending.line.is_none()) {
+            let _ = pending.reply.send(Err(fault.clone()));
         }
         self.running = None;
         self.idle_epoch += 1;
-        self.fail_pending(&Fault::new("stock_exited", "omp stock helper exited"));
+        let waiting = std::mem::take(&mut self.waiting);
+        for id in waiting {
+            if let Some(pending) = self.pending.remove(&id) {
+                self.request(id, pending);
+            }
+        }
     }
 
     /// Every request the worker was sent is answered: end it if nothing new comes within the idle exit.
@@ -925,7 +1099,11 @@ impl Lane {
         let Some(running) = &self.running else {
             return;
         };
-        if wait.is_zero() || !running.unanswered.is_empty() {
+        if wait.is_zero()
+            || !running.unanswered.is_empty()
+            || running.retiring.is_some()
+            || running.exit_unconfirmed
+        {
             return;
         }
         self.idle_epoch += 1;
@@ -940,19 +1118,22 @@ impl Lane {
         if epoch != self.idle_epoch {
             return;
         }
-        if self
-            .current(generation)
-            .is_some_and(|running| running.unanswered.is_empty())
-        {
+        if self.current(generation).is_some_and(|running| {
+            running.unanswered.is_empty() && running.retiring.is_none() && !running.exit_unconfirmed
+        }) {
             self.let_go();
         }
     }
 
     /// Fails what waits and lets the worker go; the exits of every worker that has not exited yet.
     fn stop(&mut self) -> Vec<watch::Receiver<bool>> {
-        self.fail_pending(&stopped());
+        self.stopping = true;
+        self.retire(&stopped(), true);
+        self.waiting.clear();
         self.launching = None;
-        self.let_go();
+        if let Some(running) = &self.running {
+            self.leaving.push(running.exited.clone());
+        }
         self.leaving.retain(|exited| !*exited.borrow());
         std::mem::take(&mut self.leaving)
     }
@@ -1024,6 +1205,7 @@ pub(crate) async fn request_in_process(
         timeout,
         Tuning::default(),
         events,
+        None,
         LaunchSource::Legacy,
     )?;
     let mut withdraw = Withdraw {
