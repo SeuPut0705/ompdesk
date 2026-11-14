@@ -74,6 +74,12 @@ pub trait Host: Send + Sync + 'static {
         options: Open,
     ) -> impl Future<Output = Result<Self::Target, Fault>> + Send;
     fn snapshot(&self, target: &Self::Target) -> Result<Snapshot, Fault>;
+    /// Freeze the original execution, path and run before a saved-session ticket can outlive an await.
+    fn capture_session_target(
+        &self,
+        target: &Self::Target,
+        expected_path: &str,
+    ) -> impl Future<Output = Result<Self::Target, Fault>> + Send;
     /// Reads the pool's authoritative activity and readiness for this exact target.
     fn session_runtime(
         &self,
@@ -336,7 +342,11 @@ impl<H: Host> HostServices<H> {
             (tickets, notices)
         };
         let mut holders = Vec::with_capacity(tickets.len());
-        for ticket in tickets {
+        for mut ticket in tickets {
+            ticket.target = self
+                .host
+                .capture_session_target(&ticket.target, path)
+                .await?;
             let runtime = self.host.session_runtime(&ticket.target).await?;
             holders.push(Holder {
                 runtime: ticket,
