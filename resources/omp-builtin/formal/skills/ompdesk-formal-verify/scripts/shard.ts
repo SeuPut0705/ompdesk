@@ -12,6 +12,8 @@
 //       per check under <folder>/<model>/. A check that fails is a verdict, not an error: the exit code is 0 unless
 //       the script itself broke. With --cache, a check whose input digest is in the folder is not run again.
 //   then: bun verify-all.ts <formal dir> [same flags] --verdicts <folder> [--stamp]
+//   --inspect-unit <model>/<row> selects one existing matrix row with --only and --skip-mutations, never a stamp.
+//       Its bounded verdict and summary are observations of that row, not a verification pass for the model.
 //
 // A check's digest covers the normalized text of every module in the spec's folder (comments blanked, so `@code` tags
 // may move), the config TLC reads, its options (worker count, deadlock, extra arguments), the pinned jar digests and
@@ -74,7 +76,7 @@ import {
 } from "./verify-all";
 
 const USAGE = [
-	"usage: bun shard.ts plan <formal dir> [--tier fast|deep] [--only id] [--skip-mutations] [--github-output] [--limit N]",
+	"usage: bun shard.ts plan <formal dir> [--tier fast|deep] [--only id] [--skip-mutations] [--inspect-unit model/row] [--github-output] [--limit N]",
 	'       bun shard.ts run <formal dir> --units "<model>/<unit> ..." --out <folder> [--cache <folder>] [plan flags]',
 	"       bun shard.ts costs <verdicts folder> --into <formal dir>/shard-costs.json",
 ].join("\n");
@@ -327,6 +329,21 @@ export async function planUnits(
 	return units;
 }
 
+interface Inspection {
+	ref: string;
+	model: string;
+	unit: string;
+}
+
+function inspectionKey(key: string, inspection: Inspection): string {
+	return createHash("sha256")
+		.update("inspect-unit-v1\0")
+		.update(inspection.ref)
+		.update(key)
+		.update(fs.readFileSync(import.meta.filename))
+		.digest("hex");
+}
+
 interface Flags {
 	verify: VerifyArgs;
 	githubOutput: boolean;
@@ -334,11 +351,13 @@ interface Flags {
 	units: string[];
 	out?: string;
 	cache?: string;
+	inspection?: Inspection;
 }
 
 function parseFlags(argv: string[]): Flags {
 	const own: Omit<Flags, "verify"> = { githubOutput: false, limit: MATRIX_LIMIT, units: [] };
 	const rest: string[] = [];
+	let unitLists = 0;
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i] as string;
 		const value = (): string => {
@@ -351,12 +370,37 @@ function parseFlags(argv: string[]): Flags {
 			own.limit = Number(value());
 			if (!Number.isInteger(own.limit) || own.limit < 1)
 				throw new UsageError(`--limit takes a positive integer\n${USAGE}`);
-		} else if (arg === "--units") own.units = value().split(/\s+/).filter(Boolean);
-		else if (arg === "--out") own.out = value();
+		} else if (arg === "--units") {
+			unitLists++;
+			own.units = value().split(/\s+/).filter(Boolean);
+		} else if (arg === "--inspect-unit") {
+			if (own.inspection) throw new UsageError("--inspect-unit must occur once");
+			const ref = value();
+			try {
+				if (/[\s*?[\]{}]/.test(ref)) throw new Error("lists and patterns are not units");
+				own.inspection = { ref, ...parseUnitRef(ref) };
+			} catch {
+				throw new UsageError("--inspect-unit needs one exact <model>/<row> reference");
+			}
+		} else if (arg === "--out") own.out = value();
 		else if (arg === "--cache") own.cache = value();
 		else rest.push(arg);
 	}
-	return { ...own, verify: parseVerifyArgs(rest) };
+	const verify = parseVerifyArgs(rest);
+	if (
+		own.inspection &&
+		(verify.only !== own.inspection.model ||
+			!verify.skipMutations ||
+			verify.stamp ||
+			verify.allowDirty ||
+			verify.strictDrift ||
+			verify.verdicts ||
+			unitLists > 1)
+	)
+		throw new UsageError(
+			"--inspect-unit requires matching --only, --skip-mutations and no stamp or verification options",
+		);
+	return { ...own, verify };
 }
 
 function modelsOf(flags: Flags): ModelUnits[] {
@@ -370,7 +414,15 @@ function modelsOf(flags: Flags): ModelUnits[] {
 					? `no model ${flags.verify.only} in the manifest (${manifest.models.map(model => model.id).join(", ")})`
 					: `no ${flags.verify.tier}-tier model in the manifest`,
 			);
-		return models.map(model => modelUnits(model, formalDir, flags.verify));
+		const units = models.map(model =>
+			modelUnits(model, formalDir, flags.inspection ? { ...flags.verify, tierGiven: true } : flags.verify),
+		);
+		if (!flags.inspection) return units;
+		const selected = units.find(item => item.model.id === flags.inspection?.model);
+		const rows = selected?.rows.filter(row => row.unit === flags.inspection?.unit) ?? [];
+		if (units.length !== 1 || !selected || rows.length !== 1)
+			throw new UsageError(`${flags.inspection.ref}: not exactly one matrix row in the selected tier`);
+		return [{ ...selected, rows, mutation: undefined }];
 	} catch (error) {
 		throw error instanceof UsageError
 			? error
@@ -396,6 +448,7 @@ async function planCommand(flags: Flags): Promise<number> {
 	const prepared = await prepare();
 	if (!prepared) return EXIT.unavailable;
 	const units = await planUnits(all, prepared.tools.id, loadCosts(path.resolve(flags.verify.dir)));
+	if (flags.inspection) for (const unit of units) unit.key = inspectionKey(unit.key, flags.inspection);
 	const jobs = packUnits(units, { limit: flags.limit });
 	const matrix = {
 		include: jobs.map(job => ({
@@ -427,6 +480,7 @@ interface RunContext {
 	tla: TlaEnv;
 	tools: { id: string; info: ToolsInfo };
 	cache?: string;
+	inspection?: Inspection;
 }
 
 async function runRow(units: ModelUnits, row: RowUnit, context: RunContext): Promise<RowVerdict> {
@@ -437,7 +491,7 @@ async function runRow(units: ModelUnits, row: RowUnit, context: RunContext): Pro
 		model: units.model.id,
 		unit: row.unit,
 		name: row.run.name,
-		key: plan.key,
+		key: context.inspection ? inspectionKey(plan.key, context.inspection) : plan.key,
 		workers: plan.workers,
 		tools: context.tools.info,
 	} as const;
@@ -550,10 +604,76 @@ function unavailableVerdict(
 	};
 }
 
+const MAX_INSPECTION_BYTES = 1024 * 1024;
+
+function recordInspection(
+	out: string,
+	inspection: Inspection,
+	row: RowUnit,
+	verdict: RowVerdict,
+	available: boolean,
+): number {
+	const judgment = judge(row.run, verdict.run.result);
+	let status =
+		!available ||
+		verdict.run.code === null ||
+		verdict.run.spawnError ||
+		verdict.run.result.outcome === "error" ||
+		verdict.run.result.outcome === "timeout"
+			? "INCONCLUSIVE"
+			: judgment.ok
+				? "OBSERVED"
+				: "UNEXPECTED";
+	const raw = JSON.stringify(verdict);
+	const bytes = Buffer.byteLength(raw);
+	const complete = bytes <= MAX_INSPECTION_BYTES;
+	if (!complete) status = "INCONCLUSIVE";
+	const summary = {
+		scope: "single-matrix-row-inspection",
+		unit: inspection.ref,
+		key: verdict.key,
+		status,
+		expected: { outcome: row.run.expect, property: row.run.property ?? null },
+		actual: {
+			code: verdict.run.code,
+			outcome: verdict.run.result.outcome,
+			property: verdict.run.result.property ?? null,
+			stats: verdict.run.result.stats,
+			spawnError: verdict.run.spawnError ?? null,
+		},
+		judgment,
+		evidence: { complete, bytes, limit: MAX_INSPECTION_BYTES },
+		modelVerified: false,
+	};
+	const summaryText = JSON.stringify(summary);
+	const summaryFits = Buffer.byteLength(summaryText) <= MAX_INSPECTION_BYTES;
+	if (!summaryFits) status = "INCONCLUSIVE";
+	const omitted = JSON.stringify({
+		scope: summary.scope,
+		status: "INCONCLUSIVE",
+		key: verdict.key,
+		code: verdict.run.code,
+		outcome: verdict.run.result.outcome,
+		reason: "inspection evidence exceeds its artifact limit",
+		modelVerified: false,
+	});
+	const folder = path.join(out, "inspection");
+	fs.mkdirSync(folder, { recursive: true });
+	fs.writeFileSync(path.join(folder, "verdict.json"), complete ? raw : omitted);
+	fs.writeFileSync(path.join(folder, "summary.json"), summaryFits ? summaryText : omitted);
+	console.log(
+		`Single-unit inspection ${status}: ${inspection.ref}; TLC rc=${verdict.run.code}; ${judgment.reason}. Not a model verification pass or stamp.`,
+	);
+	return !available ? EXIT.unavailable : status === "OBSERVED" ? EXIT.ok : EXIT.failed;
+}
+
 async function runCommand(flags: Flags): Promise<number> {
 	if (flags.units.length === 0 || !flags.out) throw new UsageError(`run needs --units and --out\n${USAGE}`);
 	const out = path.resolve(flags.out);
-	const all = new Map(modelsOf(flags).map(units => [units.model.id, units]));
+	const selected = modelsOf(flags);
+	if (flags.inspection && (flags.units.length !== 1 || flags.units[0] !== flags.inspection.ref))
+		throw new UsageError("--inspect-unit run requires exactly one matching --units reference");
+	const all = new Map(selected.map(units => [units.model.id, units]));
 	const prepared = await prepare();
 	for (const ref of flags.units) {
 		const { model, unit } = parseUnitRef(ref);
@@ -568,13 +688,19 @@ async function runCommand(flags: Flags): Promise<number> {
 			const context: RunContext = {
 				tla: prepared.tla,
 				tools: prepared.tools,
-				...(flags.cache ? { cache: path.resolve(flags.cache) } : {}),
+				...(flags.cache && !flags.inspection ? { cache: path.resolve(flags.cache) } : {}),
+				...(flags.inspection ? { inspection: flags.inspection } : {}),
 			};
 			const row = units.rows.find(candidate => candidate.unit === unit);
 			const check = units.mutation?.plan.units.find(candidate => candidate.id === unit);
 			if (row) verdict = await runRow(units, row, context);
 			else if (check) verdict = await runCheck(units, check, context);
 			else throw new UsageError(`${ref}: ${model} has no unit ${unit}`);
+		}
+		if (flags.inspection) {
+			const row = units.rows[0];
+			if (!row || verdict.kind !== "row") throw new UsageError("inspection did not resolve a matrix row");
+			return recordInspection(out, flags.inspection, row, verdict, prepared !== undefined);
 		}
 		writeVerdict(out, verdict);
 		const outcome =
