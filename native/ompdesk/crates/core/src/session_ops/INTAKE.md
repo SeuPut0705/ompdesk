@@ -33,6 +33,8 @@ Base's scoped deletion and stored-mutation claims are consumed directly; no subs
 
 The concrete NativeHost still needs current Owner/scope checks, authenticated local/remote target resolution, hosted holder/notice tickets, direct index invalidation and direct stock storage wiring. Base confirmed those facades remain unfinished. No empty hosted result, Node fallback or placeholder successful Host is supplied here. The stored-rename helper and closed-only move must bind the admitted claim to actual supervised storage/child work before adapter acceptance.
 
+`runtime::Runtime` binds the captured local Owner/SessionTarget and opaque hosted SessionTicket directly to native pool/HostServices release, stop and full-frame rename effects. It uses the canonical stock_data decoder; a failed RPC response cannot become a successful rename. This leaf is source preparation against actual 06ad and 8a4 APIs, not a substitute Host or an authentication implementation. Its remote imports remain unbound in this checkout until Base supplies the actual bounded HostServices module closure. The local name-note effect still needs a pool primitive that checks the captured incarnation/generation in the same hub step, rather than a separate awaited check followed by note_session_name.
+
 Base owns core module exports, Cargo/global files and NativeApp registration. Final native graph intake must instantiate the shared authority once and remove or route every obsolete TS authority consumer in that same wave. No dual writes or simultaneously authoritative TS/native stores are permitted.
 
 ## Unwritten live sessions
