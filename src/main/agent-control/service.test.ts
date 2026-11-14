@@ -22,6 +22,8 @@ import type {
 } from "../../shared/schedules";
 import type { SessionSummary } from "../../shared/session-summary";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
+import { CorePort } from "../core/ports";
+import { core } from "../core/process";
 import { RpcTimeoutError } from "../rpc-client";
 import type { Pace } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
@@ -604,6 +606,97 @@ const summary = (over: Partial<SessionSummary> & { sessionPath: string }): Sessi
 	status: "ready",
 	agents: [],
 	...over,
+});
+
+describe("native inbox snapshot authority", () => {
+	const services: AgentControl[] = [];
+	beforeEach(() => {
+		vi.spyOn(core(), "call").mockRejectedValue(new Error("Native execution is outside this snapshot test"));
+	});
+	afterEach(() => {
+		for (const service of services.splice(0)) service.close();
+		vi.restoreAllMocks();
+	});
+
+	async function snapshotOf(service: AgentControl): Promise<unknown> {
+		const first = CorePort.prototype.first;
+		const captured = new Error("Snapshot captured before opening a native service");
+		let state: unknown;
+		const read = vi.spyOn(CorePort.prototype, "first").mockImplementation(function (this: CorePort) {
+			state = first.call(this).state;
+			throw captured;
+		});
+		try {
+			await expect(service.childrenOf("caller")).rejects.toBe(captured);
+			return state;
+		} finally {
+			read.mockRestore();
+		}
+	}
+
+	const receiver: ControlTab = {
+		tabId: "hosted-recipient",
+		title: "Recipient",
+		cwd: "/repo",
+		status: "ready",
+		busy: false,
+		asks: [],
+		hidden: false,
+		sessionPath: "/s/recipient.jsonl",
+		runtimeInstance: "runtime-a",
+	};
+
+	it("supplies a windowless receiver without creating a roster row or a window", async () => {
+		const host = Object.assign(new FakeHost({ tabId: "caller" }), {
+			mailTargets: () => [receiver],
+			mailBlocked: () => [],
+		});
+		const service = new AgentControl(host);
+		services.push(service);
+		const snapshot = await snapshotOf(service);
+		expect(snapshot).toMatchObject({ mailTargets: [receiver], tabs: [{ tabId: "caller" }] });
+		expect(snapshot).toHaveProperty("windowOf", { caller: "main" });
+	});
+
+	it("blocks every last-known receiver on a failed build until a fresh success", async () => {
+		let failed = false;
+		let current = receiver;
+		const host = Object.assign(new FakeHost({ tabId: "caller" }), {
+			mailTargets: () => [current],
+			mailBlocked: () => ["already-blocked"],
+		});
+		const tabs = host.tabs;
+		host.tabs = () => {
+			if (failed) throw new Error("Snapshot inventory unavailable");
+			return tabs();
+		};
+		const service = new AgentControl(host);
+		services.push(service);
+		await snapshotOf(service);
+		failed = true;
+		const refused = await snapshotOf(service);
+		expect(refused).toMatchObject({
+			mailBlocked: expect.arrayContaining(["already-blocked", "caller", receiver.tabId]),
+			tabs: [{ tabId: "caller" }],
+			mailTargets: [receiver],
+		});
+		current = { ...receiver, runtimeInstance: "runtime-b" };
+		failed = false;
+		expect(await snapshotOf(service)).toMatchObject({
+			mailBlocked: ["already-blocked"],
+			mailTargets: [current],
+		});
+	});
+
+	it("does not convert the first failed build into an available receiver snapshot", async () => {
+		const host = new FakeHost({ tabId: "caller" });
+		host.tabs = () => {
+			throw new Error("First snapshot unavailable");
+		};
+		const service = new AgentControl(host);
+		services.push(service);
+		await expect(service.childrenOf("caller")).rejects.toThrow("First snapshot unavailable");
+	});
 });
 
 describe("ompdesk_sessions", () => {
