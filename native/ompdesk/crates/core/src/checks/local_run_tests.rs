@@ -2,7 +2,6 @@
 //! with a stand-in `ompdesk` that writes a journal as the real one does.
 
 use super::*;
-use crate::git::run::tests::{git, runner};
 
 fn journal(state: &str, failed: Vec<String>, flaky: Vec<String>) -> LocalRun {
     LocalRun {
@@ -103,20 +102,24 @@ fn a_journal_answers_with_its_verdict_its_failed_tests_and_where_it_ran() {
 }
 
 /// A test folder that goes with the test.
+#[cfg(unix)]
 struct Gone(PathBuf);
 
+#[cfg(unix)]
 impl Gone {
     fn path(&self) -> &Path {
         &self.0
     }
 }
 
+#[cfg(unix)]
 impl Drop for Gone {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
+#[cfg(unix)]
 fn sh(dir: &Path, script: &str) {
     let status = std::process::Command::new("sh")
         .arg("-c")
@@ -132,6 +135,7 @@ fn sh(dir: &Path, script: &str) {
 
 /// A stand-in for `ompdesk check`: records its arguments and folder, writes a passed journal and names its run on
 /// stderr as the real one does.
+#[cfg(unix)]
 const FAKE_OMPDESK: &str = r#"#!/bin/sh
 store="$OMPDESK_CHECKS_DIR"
 printf '%s\n' "$*" > "$store/args"
@@ -148,6 +152,8 @@ echo "ompdesk check: run $id (vitest); it keeps running if this terminal or OMPd
 #[tokio::test]
 async fn the_runner_checks_out_the_commit_runs_the_repos_setup_and_reads_the_journal_of_its_run() {
     use std::os::unix::fs::PermissionsExt;
+
+    use crate::git::run::tests::{git, runner};
 
     let made = crate::fs::disk::make_temp_dir("ompdesk-local-run-").unwrap();
     let root = Gone(made);
