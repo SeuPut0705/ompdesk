@@ -284,3 +284,106 @@ async fn reparent_during_journal_read_refuses_even_when_opened_by_remembers_the_
 async fn parent_removal_during_journal_read_refuses_even_when_opened_by_remembers_the_tab() {
     parent_change_while_reading_journal(9_339, true).await;
 }
+
+#[tokio::test]
+async fn draft_started_during_journal_read_waits_for_the_real_guard_and_state_change() {
+    use std::future::{Future, poll_fn};
+    use std::sync::{Arc, Mutex};
+    use std::task::Poll;
+
+    use crate::agentctl::runtime::tests::native_rig_async;
+
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let entered = Arc::new(Mutex::new(Some(entered_tx)));
+    let held_reply = Arc::new(Mutex::new(Some(release_rx)));
+    let (control, asked, mut deliveries, _fixture) = native_rig_async(
+        9_340,
+        snapshot(true, false),
+        Caps::default(),
+        &Files::default(),
+        Tuning::default(),
+        move |method, args| {
+            let held = if method == "command"
+                && args["tabId"] == "target"
+                && args["command"]["type"] == "get_transcript_page"
+            {
+                let held = held_reply.lock().unwrap().take();
+                if held.is_some() {
+                    entered.lock().unwrap().take().unwrap().send(()).unwrap();
+                }
+                held
+            } else {
+                None
+            };
+            async move {
+                match held {
+                    Some(reply) => reply.await.expect("journal response was not released"),
+                    None => replies(&method, &args),
+                }
+            }
+        },
+    );
+    let sending = control.run(
+        "sender",
+        "ompdesk_session_send",
+        json!({ "session": "target", "message": "after the person's draft", "request_id": "journal-draft" }),
+        None,
+    );
+    tokio::pin!(sending);
+    tokio::select! {
+        result = &mut sending => panic!("send finished before the journal barrier: {}", result.text),
+        entered = entered_rx => entered.expect("journal command was not entered"),
+    }
+    let mut drafting = snapshot(true, false);
+    drafting["tabs"][1]["drafting"] = json!(true);
+    crate::ports::apply_state(control.host.port(), 1, &drafting.to_string()).unwrap();
+    let baseline = control.host.port().active_change_waiters();
+    release_tx
+        .send(Ok(json!({ "success": true, "data": {} })))
+        .unwrap();
+    poll_fn(|cx| match sending.as_mut().poll(cx) {
+        Poll::Ready(result) => {
+            panic!(
+                "send advanced while the recipient had a draft: {}",
+                result.text
+            )
+        }
+        Poll::Pending if control.host.port().active_change_waiters() > baseline => Poll::Ready(()),
+        Poll::Pending => Poll::Pending,
+    })
+    .await;
+    assert!(control.send_outbox.as_ref().unwrap().pending().is_empty());
+    assert!(asked.lock().unwrap().iter().all(|(method, _)| {
+        method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
+    }));
+    crate::ports::apply_state(control.host.port(), 2, &snapshot(true, false).to_string()).unwrap();
+    let result = sending.await;
+    assert!(!result.is_error, "{}", result.text);
+    let delivery = tokio::time::timeout(std::time::Duration::from_secs(5), deliveries.recv())
+        .await
+        .expect("native delivery after the draft timed out")
+        .expect("native delivery channel closed");
+    let receiver: InboxReceiver =
+        serde_json::from_value(delivery["request"]["receiver"].clone()).unwrap();
+    let pending = control
+        .receiving_inbox
+        .as_ref()
+        .unwrap()
+        .ledger
+        .pending(&receiver)
+        .unwrap()
+        .1;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].logical.request_id.as_deref(),
+        Some("journal-draft")
+    );
+    assert_eq!(pending[0].dispatch, Some(1));
+    assert_eq!(
+        delivery["request"]["entries"][0]["deliveryId"],
+        pending[0].entry.delivery_id
+    );
+    assert!(control.send_outbox.as_ref().unwrap().pending().is_empty());
+    control.host.port().close();
+}
