@@ -134,6 +134,7 @@ import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-t
 import type { ScheduleCreated, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { ScheduleFrequencySchema, ScheduleRunSchema } from "../../shared/schedules-schema";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
+import type { NativeInboxLookup, NativeInboxLookupReply } from "../agent-control/service";
 import { SIGN_IN_PAGE_MAX_CHARS } from "../sign-in-callback";
 
 /**
@@ -240,7 +241,11 @@ export const SignInCallbackReply = z.object({
 	body: z.string().max(SIGN_IN_PAGE_MAX_CHARS),
 });
 
-export const INBOX_METHODS = { status: "host.inbox.status", accept: "host.inbox" } as const;
+export const INBOX_METHODS = {
+	status: "host.inbox.status",
+	accept: "host.inbox",
+	lookup: "host.inbox.lookup",
+} as const;
 const InboxReceiverSchema = z
 	.object({ sessionPath: z.string().min(1), device: z.string().min(1).optional(), instance: z.string().min(1) })
 	.strict();
@@ -295,31 +300,40 @@ const InboxAttachmentSchema = z
 		size: z.number().int().nonnegative(),
 	})
 	.strict();
+const InboxTransferEntrySchema = z
+	.object({
+		entry: InboxEntrySchema,
+		logical: InboxLogicalSchema,
+		dispatch: z.number().int().nonnegative().nullable(),
+		attachments: z
+			.object({
+				images: z.array(InboxAttachmentSchema),
+				files: z.array(InboxAttachmentSchema.extend({ path: z.string().min(1), landedAt: z.number().finite() })),
+			})
+			.strict()
+			.optional(),
+	})
+	.strict();
 export const NativeInboxTransferSchema: z.ZodType<NativeInboxTransfer> = z
 	.object({
 		receiver: InboxReceiverSchema,
-		entries: z.array(
-			z
-				.object({
-					entry: InboxEntrySchema,
-					logical: InboxLogicalSchema,
-					dispatch: z.number().int().nonnegative().nullable(),
-					attachments: z
-						.object({
-							images: z.array(InboxAttachmentSchema),
-							files: z.array(
-								InboxAttachmentSchema.extend({ path: z.string().min(1), landedAt: z.number().finite() }),
-							),
-						})
-						.strict()
-						.optional(),
-				})
-				.strict(),
-		),
+		entries: z.array(InboxTransferEntrySchema),
 		uploads: z.array(z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), path: z.string().min(1) }).strict()),
 	})
 	.strict();
+export const NativeInboxLookupSchema: z.ZodType<NativeInboxLookup> = z
+	.object({ receiver: InboxReceiverSchema, entries: z.array(InboxTransferEntrySchema) })
+	.strict();
 const InboxKeyFields = { kind: z.enum(["prompt", "report"]), deliveryId: z.string().min(1) };
+const InboxContextReceiptSchema = z
+	.object({
+		requestId: z.string(),
+		sessionPath: z.string(),
+		instance: z.string(),
+		ids: z.array(z.string()),
+		evidence: z.literal("context-id-and-provider-output"),
+	})
+	.strict();
 export const NativeInboxReplySchema: z.ZodType<NativeInboxReply> = z
 	.object({
 		receiver: InboxReceiverSchema,
@@ -332,16 +346,32 @@ export const NativeInboxReplySchema: z.ZodType<NativeInboxReply> = z
 				})
 				.strict(),
 		),
-		receipts: z.array(
-			z
-				.object({
-					requestId: z.string(),
-					sessionPath: z.string(),
-					instance: z.string(),
-					ids: z.array(z.string()),
-					evidence: z.literal("context-id-and-provider-output"),
-				})
-				.strict(),
+		receipts: z.array(InboxContextReceiptSchema),
+	})
+	.strict();
+export const NativeInboxLookupReplySchema: z.ZodType<NativeInboxLookupReply> = z
+	.object({
+		receiver: InboxReceiverSchema,
+		entries: z.array(
+			z.discriminatedUnion("state", [
+				z.object({ key: z.object(InboxKeyFields).strict(), state: z.literal("missing") }).strict(),
+				z
+					.object({
+						key: z.object(InboxKeyFields).strict(),
+						state: z.literal("existing_pending"),
+						dispatch: z.number().int().nonnegative().nullable(),
+						intent: z.enum(["immediate", "follow_up"]),
+					})
+					.strict(),
+				z
+					.object({
+						key: z.object(InboxKeyFields).strict(),
+						state: z.literal("existing_context_observed"),
+						dispatch: z.number().int().nonnegative().nullable(),
+						contextReceipt: InboxContextReceiptSchema,
+					})
+					.strict(),
+			]),
 		),
 	})
 	.strict();
@@ -354,6 +384,7 @@ export const NativeInboxAcceptanceSchema: z.ZodType<NativeInboxAcceptance> = z
 				.object({
 					key: z.object(InboxKeyFields).strict(),
 					dispatch: z.number().int().nonnegative().nullable(),
+					existing: z.boolean(),
 				})
 				.strict(),
 		),
@@ -361,6 +392,7 @@ export const NativeInboxAcceptanceSchema: z.ZodType<NativeInboxAcceptance> = z
 	.strict();
 export const InboxStatusParams = z.object({ rtab: PreviewRelayRtab, sessionPath: z.string().min(1) }).strict();
 export const InboxAcceptParams = z.object({ rtab: PreviewRelayRtab, transfer: NativeInboxTransferSchema }).strict();
+export const InboxLookupParams = z.object({ rtab: PreviewRelayRtab, query: NativeInboxLookupSchema }).strict();
 
 /**
  * This computer's session summaries changed (data: a `SummaryDelta`), sent to every connected device; `sessions.summaries

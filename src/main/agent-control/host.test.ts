@@ -393,7 +393,7 @@ describe("private Inbox receiving guards", () => {
 		const acceptance: NativeInboxAcceptance = {
 			persistence: "disk",
 			receiver,
-			deliveries: [{ key: { kind: "prompt", deliveryId: "fixture-delivery" }, dispatch: 1 }],
+			deliveries: [{ key: { kind: "prompt", deliveryId: "fixture-delivery" }, dispatch: 1, existing: false }],
 		};
 		return { ...env, sidecar, bridgeRequest, transfer, selection, acceptance, sessionPath };
 	}

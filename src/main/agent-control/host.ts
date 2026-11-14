@@ -80,6 +80,7 @@ import {
 	GIT_REQUEST_TIMEOUT_MS,
 	INBOX_METHODS,
 	NativeInboxAcceptanceSchema,
+	NativeInboxLookupReplySchema,
 	NativeInboxReplySchema,
 	ScheduleCreatedSchema,
 	SchedulesStateSchema,
@@ -121,6 +122,8 @@ import {
 	type HostTab,
 	type Landing,
 	type MailAnswer,
+	type NativeInboxLookup,
+	type NativeInboxLookupReply,
 	type OpenElsewhere,
 	type OpenedChild,
 	type ReleasedSession,
@@ -843,6 +846,56 @@ export class AgentControlRuntime {
 		return reply;
 	}
 
+	async lookupHostedInbox(
+		target: InboxSelection,
+		query: NativeInboxLookup,
+		producerDeviceId: string,
+	): Promise<NativeInboxLookupReply> {
+		target.assertCurrent();
+		const local = this.#localInboxTarget(target.tabId, target.sessionPath);
+		local.assertCurrent();
+		if (query.receiver.sessionPath !== local.sessionPath)
+			throw new Error("The authenticated Inbox recipient path differs");
+		const raw = await this.control.runtime.lookupInbox({
+			tabId: local.tabId,
+			query,
+			uploadDeviceId: producerDeviceId,
+			expectedProducerDeviceId: producerDeviceId,
+			expectedRuntimeInstance: local.runtimeInstance,
+			expectedRoute: {
+				...target.route,
+				tabId: local.tabId,
+				sessionPath: local.sessionPath,
+				runtimeInstance: local.runtimeInstance,
+			},
+		});
+		local.assertCurrent();
+		target.assertCurrent();
+		return NativeInboxLookupReplySchema.parse(raw);
+	}
+
+	async #lookupInbox(tabId: string, query: NativeInboxLookup): Promise<NativeInboxLookupReply> {
+		const sidecar = this.#deps.pool.sidecarOf(tabId);
+		if (sidecar?.device) {
+			const device = sidecar.device;
+			const check = this.#remoteInboxTarget(tabId, query.receiver.sessionPath, device);
+			const raw = await this.#remote().request(device, INBOX_METHODS.lookup, { rtab: tabId, query });
+			check();
+			return NativeInboxLookupReplySchema.parse(raw);
+		}
+		const target = this.#localInboxTarget(tabId, query.receiver.sessionPath);
+		target.assertCurrent();
+		const raw = await this.control.runtime.lookupInbox({
+			tabId: target.tabId,
+			query,
+			uploadDeviceId: LOCAL_UPLOAD_DEVICE,
+			expectedProducerDeviceId: this.#deps.deviceId,
+			expectedRuntimeInstance: target.runtimeInstance,
+		});
+		target.assertCurrent();
+		return NativeInboxLookupReplySchema.parse(raw);
+	}
+
 	async #acceptInbox(tabId: string, transfer: NativeInboxTransfer): Promise<NativeInboxAcceptance> {
 		const sidecar = this.#deps.pool.sidecarOf(tabId);
 		if (sidecar?.device) {
@@ -1190,6 +1243,7 @@ export class AgentControlRuntime {
 				return this.#sendMail(tabId, content, details, delivery);
 			},
 			inboxStatus: (tabId, sessionPath, device) => this.#inboxStatus(tabId, sessionPath, device),
+			lookupInbox: (tabId, query) => this.#lookupInbox(tabId, query),
 			inbox: (tabId, transfer) => this.#acceptInbox(tabId, transfer),
 			deliverInbox: (tabId, request) => this.#deliverInbox(tabId, request),
 			land: (tabId, name, bytes) => this.#land(tabId, name, bytes),
