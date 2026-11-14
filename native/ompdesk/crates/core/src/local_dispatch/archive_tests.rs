@@ -40,13 +40,14 @@ async fn redacts_real_nested_zip_before_publishing_and_discards_only_owned_outpu
         ("request.json", br#"{"apiKey":"fictional-secret","messages":[{"text":"mail jane@example.com"}],"tokens":3}"#),
         ("subagents/A/session.JSONL", b"{\"token\":[\"fictional-secret\"]}\nraw /Users/jane/work\n"),
         ("notes.md", "한글 🦀 192.168.1.20 token=fictional-secret\n".as_bytes()),
+        ("bom.json", b"\xef\xbb\xbf{\"password\":[\"fictional-secret\"]}"),
         ("invalid.bin", &[0xff, 0xfe]),
         ("nul.txt", b"looks like text\0but is binary"),
     ]);
     let service = Archives::default();
     let output = service.redact(input, Scope::detached()).await.expect("redacted result");
     assert!(!root.file("stock.zip").exists());
-    assert_eq!(output["files"], json!(["request.json","subagents/A/session.JSONL","notes.md"]));
+    assert_eq!(output["files"], json!(["request.json","subagents/A/session.JSONL","notes.md","bom.json"]));
     assert_eq!(output["dropped"], json!(["invalid.bin","nul.txt"]));
     assert_eq!(output["subagentCount"], 1);
     assert_eq!(output["subagentError"], "one unreadable");
@@ -61,6 +62,7 @@ async fn redacts_real_nested_zip_before_publishing_and_discards_only_owned_outpu
     assert_eq!(serde_json::from_str::<Value>(files["request.json"].as_str().expect("JSON member")).expect("valid JSON"), json!({"apiKey":"<secret>","messages":[{"text":"mail <email>"}],"tokens":3}));
     assert_eq!(files["subagents/A/session.JSONL"], "{\"token\":[\"<secret>\"]}\nraw ~/work\n");
     assert_eq!(files["notes.md"], "한글 🦀 <lan-ip> token=<secret>\n");
+    assert_eq!(files["bom.json"], "{\"password\":[\"<secret>\"]}");
     let unrelated = root.file("unrelated.txt");
     fs::write(&unrelated, "keep this file").expect("unrelated fixture");
     assert!(!service.discard(&unrelated).expect("not owned"));

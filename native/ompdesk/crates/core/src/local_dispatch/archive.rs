@@ -174,7 +174,8 @@ fn redact_owned(raw: &Path, original: Value, scope: &Scope, output: Option<PathB
         let text = reader.read_to_end(&mut bytes).ok().and_then(|_| String::from_utf8(bytes).ok()).filter(|text| !text.contains('\0'));
         if scope.cancelled() { return Err(Fault::cancelled().into()); }
         let Some(text) = text else { dropped.push(name); continue; };
-        let redacted = redact_diagnostics_file(&name, &text);
+        // The canonical TextDecoder("utf-8", {fatal:true}) omits an initial BOM before JSON classification.
+        let redacted = redact_diagnostics_file(&name, text.strip_prefix('\u{feff}').unwrap_or(&text));
         writer.start_file(&name, options).map_err(error)?;
         writer.write_all(redacted.as_bytes()).map_err(error)?;
         files.push(name);
