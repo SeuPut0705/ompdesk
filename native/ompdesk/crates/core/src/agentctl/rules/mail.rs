@@ -658,9 +658,7 @@ async fn deliver_claimed(inner: Arc<Inner>, key: String, mut next: Waiting, atte
         }
         Err(error) => {
             let Some(attempt) = attempt.filter(|attempt| *attempt < MAIL_PROGRESS_RETRIES) else {
-                if let Some(progress) = &next.native
-                    && !progress.finished()
-                {
+                if let Some(progress) = &next.native {
                     progress.finish(|| Err(unknown_outcome(&error)));
                 }
                 return;
@@ -671,9 +669,7 @@ async fn deliver_claimed(inner: Arc<Inner>, key: String, mut next: Waiting, atte
                     .as_ref()
                     .is_some_and(|progress| progress.finished())
             {
-                if let Some(progress) = &next.native
-                    && !progress.finished()
-                {
+                if let Some(progress) = &next.native {
                     progress.finish(|| Err(unknown_outcome(&error)));
                 }
                 return;
