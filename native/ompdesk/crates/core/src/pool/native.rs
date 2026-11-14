@@ -290,13 +290,26 @@ pub struct Service<H: Host> {
     removal_claims: Arc<RemovalClaims>,
 }
 
-fn check_target<H: Host>(
+fn admit_session<H: Host, T>(
+    callers: &Callers,
     ctx: &Ctx,
     app: &Application<H>,
     owner: &Owner,
     target: &SessionTarget<H::Sidecar>,
-) -> Result<(), Fault> {
+    effect: impl FnOnce() -> Result<T, Fault>,
+) -> Result<T, Fault> {
     app.host.authorize_tab(owner, &target.tab)?;
+    callers.admit_tab_effect(owner, &target.tab, || {
+        check_target(ctx, app, target)?;
+        effect()
+    })
+}
+
+fn check_target<H: Host>(
+    ctx: &Ctx,
+    app: &Application<H>,
+    target: &SessionTarget<H::Sidecar>,
+) -> Result<(), Fault> {
     let current = ctx.with(|pool| {
         pool.owner_entry(target.device.as_deref(), &target.session_file)
             .is_some_and(|entry| entry.seq == target.incarnation && entry.tab_id == target.tab)
@@ -1079,38 +1092,40 @@ impl<H: Host> Service<H> {
         let owner = owner.clone();
         let target = target.clone();
         let app = Arc::clone(&self.app);
+        let callers = Arc::clone(&self.callers);
         self.execute_typed(move |ctx| {
             Box::pin(async move {
                 use crate::session_ops::{Activity, RuntimeState};
-                check_target(&ctx, &app, &owner, &target)?;
-                let (activity, ready) = ctx.with(|pool| {
-                    let entry = pool
-                        .entry(&target.tab)
-                        .expect("checked target remains in this hub step");
-                    let run = &entry.tracking.run;
-                    let activity = if run.compacting == Some(true) {
-                        Activity::Compacting
-                    } else if run.running {
-                        Activity::Running
-                    } else {
-                        Activity::Idle
-                    };
-                    (activity, entry.status == "ready")
-                });
-                let alive = target.sidecar.facts()["processAlive"]
-                    .as_bool()
-                    .ok_or_else(|| {
-                        Fault::new("tab_state", "The sidecar has no process lifetime fact")
-                    })?;
-                Ok(SessionRuntime {
-                    activity,
-                    state: if alive && ready {
-                        RuntimeState::Ready
-                    } else if alive {
-                        RuntimeState::Starting
-                    } else {
-                        RuntimeState::Dormant
-                    },
+                admit_session(&callers, &ctx, &app, &owner, &target, || {
+                    let (activity, ready) = ctx.with(|pool| {
+                        let entry = pool
+                            .entry(&target.tab)
+                            .expect("checked target remains in this hub step");
+                        let run = &entry.tracking.run;
+                        let activity = if run.compacting == Some(true) {
+                            Activity::Compacting
+                        } else if run.running {
+                            Activity::Running
+                        } else {
+                            Activity::Idle
+                        };
+                        (activity, entry.status == "ready")
+                    });
+                    let alive = target.sidecar.facts()["processAlive"]
+                        .as_bool()
+                        .ok_or_else(|| {
+                            Fault::new("tab_state", "The sidecar has no process lifetime fact")
+                        })?;
+                    Ok(SessionRuntime {
+                        activity,
+                        state: if alive && ready {
+                            RuntimeState::Ready
+                        } else if alive {
+                            RuntimeState::Starting
+                        } else {
+                            RuntimeState::Dormant
+                        },
+                    })
                 })
             })
         })
@@ -1123,16 +1138,21 @@ impl<H: Host> Service<H> {
         let owner = owner.clone();
         let target = target.clone();
         let app = Arc::clone(&self.app);
+        let callers = Arc::clone(&self.callers);
         self.execute_typed(move |ctx| {
             Box::pin(async move {
-                check_target(&ctx, &app, &owner, &target)?;
-                if ctx.with(|pool| pool.entry(&target.tab).is_some_and(|entry| entry.busy())) {
+                let seq = admit_session(&callers, &ctx, &app, &owner, &target, || {
+                    if ctx.with(|pool| pool.entry(&target.tab).is_some_and(|entry| entry.busy())) {
+                        return Ok(None);
+                    }
+                    ctx.take_entry(&target.tab)
+                        .map(Some)
+                        .ok_or_else(|| Fault::new("tab_stale", "The session's tab is not open"))
+                })?;
+                let Some(seq) = seq else {
                     return Ok(SessionRelease::Busy);
-                }
-                let Some((mut result, disposed)) = ctx.release_entry_detail(&target.tab).await
-                else {
-                    return Err(Fault::new("tab_stale", "The session's tab is not open"));
                 };
+                let (mut result, disposed) = ctx.release_taken_detail(&target.tab, seq).await;
                 if result.is_ok() {
                     result = ctx.notify_window_tabs_changed(target.window).await;
                 }
@@ -1158,16 +1178,29 @@ impl<H: Host> Service<H> {
         let owner = owner.clone();
         let target = target.clone();
         let app = Arc::clone(&self.app);
+        let callers = Arc::clone(&self.callers);
         let work = self.execute(true, move |ctx, token| {
             Outcome::Later(Box::pin(async move {
-                check_target(&ctx, &app, &owner, &target)?;
-                ctx.stop_session_generation(
-                    token,
-                    &target.session_file,
-                    target.device.as_deref(),
-                    Some(target.generation),
-                )
-                .await?;
+                let stopping = admit_session(&callers, &ctx, &app, &owner, &target, || {
+                    Ok(ctx.stop_session_start(
+                        token,
+                        &target.session_file,
+                        target.device.as_deref(),
+                    ))
+                })?;
+                if let Some(stopping) = stopping {
+                    let admitted = match ctx.on_running_change().await {
+                        Err(error) => Err(error),
+                        Ok(()) => admit_session(&callers, &ctx, &app, &owner, &target, || {
+                            ctx.stop_session_finish(token, stopping, Some(target.generation));
+                            Ok(())
+                        }),
+                    };
+                    if let Err(error) = admitted {
+                        ctx.with(|pool| pool.stop_waits.retain(|wait| wait.token != token));
+                        return Err(error);
+                    }
+                }
                 Ok(Value::Null)
             }))
         });
@@ -1183,20 +1216,25 @@ impl<H: Host> Service<H> {
         let owner = owner.clone();
         let target = target.clone();
         let app = Arc::clone(&self.app);
+        let callers = Arc::clone(&self.callers);
         self.execute(false, move |ctx, _| {
-            if let Err(error) = check_target(&ctx, &app, &owner, &target) {
-                return Outcome::Now(Err(error));
-            }
-            if !ctx.with(|pool| {
-                pool.entry(&target.tab)
-                    .is_some_and(|entry| entry.status == "ready")
+            match admit_session(&callers, &ctx, &app, &owner, &target, || {
+                if !ctx.with(|pool| {
+                    pool.entry(&target.tab)
+                        .is_some_and(|entry| entry.status == "ready")
+                }) {
+                    return Ok(None);
+                }
+                Ok(Some(app.host.command_for_generation(
+                    Arc::clone(&target.sidecar),
+                    target.generation,
+                    command,
+                )))
             }) {
-                return Outcome::Now(Ok(Value::Null));
+                Err(error) => Outcome::Now(Err(error)),
+                Ok(None) => Outcome::Now(Ok(Value::Null)),
+                Ok(Some(command)) => Outcome::Later(Box::pin(command)),
             }
-            let command =
-                app.host
-                    .command_for_generation(target.sidecar, target.generation, command);
-            Outcome::Later(Box::pin(command))
         })
     }
 
@@ -1210,14 +1248,15 @@ impl<H: Host> Service<H> {
         let target = target.clone();
         let title = title.to_owned();
         let app = Arc::clone(&self.app);
+        let callers = Arc::clone(&self.callers);
         self.execute_typed(move |ctx| {
             Box::pin(async move {
-                check_target(&ctx, &app, &owner, &target)?;
-                let wins = ctx
-                    .note_session_name_start(&target.tab, &title)
-                    .ok_or_else(|| {
-                        Fault::new("tab_stale", "The captured session is no longer open")
-                    })?;
+                let wins = admit_session(&callers, &ctx, &app, &owner, &target, || {
+                    ctx.note_session_name_start(&target.tab, &title)
+                        .ok_or_else(|| {
+                            Fault::new("tab_stale", "The captured session is no longer open")
+                        })
+                })?;
                 ctx.note_session_name_finish(&target.tab, &title, wins)
                     .await
             })

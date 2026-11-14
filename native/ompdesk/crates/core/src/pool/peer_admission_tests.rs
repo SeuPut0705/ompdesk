@@ -73,13 +73,7 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
         Arc::new(DirectSpawn),
     )
     .unwrap();
-    app.handles().insert(
-        super::super::super::HandleKey::Tab("peer:original:rtab".into()),
-        super::super::super::Handle {
-            sidecar: Arc::clone(&source),
-            device: None,
-        },
-    );
+    set_test_source(&app, "peer:original:rtab", Arc::clone(&source));
     let (dormant_events, _keep_dormant, _dormant_frames) = crate::server::Events::capture();
     let (dormant, dormant_held) = SidecarService::new(
         lane_config(format!("native-peer-dormant-{}", std::process::id())),
@@ -88,13 +82,7 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
         Arc::new(DirectSpawn),
     )
     .unwrap();
-    app.handles().insert(
-        super::super::super::HandleKey::Tab("peer:original:dormant".into()),
-        super::super::super::Handle {
-            sidecar: Arc::clone(&dormant),
-            device: None,
-        },
-    );
+    set_test_source(&app, "peer:original:dormant", Arc::clone(&dormant));
     let (first, first_remote, _keep_first) = crate::remote::requests::tests::pair().await;
     let (next, next_remote, _keep_next) = crate::remote::requests::tests::pair().await;
     let admitted = callers
@@ -206,6 +194,21 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
         pool.release_peer_execution(&dormant_target).await.unwrap();
         assert!(pool.execution_selected(&dormant_target).await.is_err());
         assert_eq!(run_source.facts()["processAlive"], true);
+        pool.call(
+            "noteSessionFile",
+            json!({
+                "tab": "peer:original:rtab", "file": "/peer-original.jsonl"
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+        let frozen = pool
+            .session_target(&execution, "/peer-original.jsonl", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(pool.session_runtime(&execution, &frozen).await.is_ok());
         assert!(callers.retire_execution(&execution));
         assert!(
             pool.peer_execution_command(
@@ -218,6 +221,44 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
             .is_err()
         );
         assert!(pool.execution_selected(&target).await.is_err());
+        assert_eq!(
+            pool.session_runtime(&execution, &frozen)
+                .await
+                .err()
+                .unwrap()
+                .code,
+            "caller_closed"
+        );
+        assert_eq!(
+            pool.stop_session(&execution, &frozen)
+                .await
+                .unwrap_err()
+                .code,
+            "caller_closed"
+        );
+        assert_eq!(
+            pool.command_for_session(&execution, &frozen, json!({"type":"get_state"}))
+                .await
+                .unwrap_err()
+                .code,
+            "caller_closed"
+        );
+        assert_eq!(
+            pool.note_name_for_session(&execution, &frozen, "not authorized")
+                .await
+                .unwrap_err()
+                .code,
+            "caller_closed"
+        );
+        assert_eq!(
+            pool.close_session_tab(&execution, &frozen)
+                .await
+                .err()
+                .unwrap()
+                .code,
+            "caller_closed"
+        );
+        assert!(run_source.facts()["processAlive"].as_bool().unwrap());
     })
     .await;
     source.dispose(std::time::Duration::ZERO);
@@ -229,5 +270,91 @@ async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_cur
         connection.disconnect_for_test();
         changes.wait_for(|online| !*online).await.unwrap();
     }
+    scenario.unwrap();
+}
+
+#[tokio::test]
+async fn retirement_during_the_stop_observer_refuses_the_queued_abort() {
+    let callers = Arc::new(Callers::new(65));
+    let page = callers
+        .admit_page(ompdesk_app_contract::NativeCaller::Desktop {
+            win_id: 17,
+            wc_id: 17,
+        })
+        .unwrap();
+    let reservation = callers
+        .reserve_execution(&page.owner, "stopping", 17)
+        .unwrap();
+    let owner = callers.execution_owner("stopping").unwrap();
+    callers.finish_execution_reservation(reservation, true);
+    let host = test_host(Arc::clone(&callers));
+    let app = Arc::new(Application::new(Arc::clone(&host)));
+    let pool = Service::new(
+        Config {
+            id: 0x706f_6f6c_7374_6f70,
+            layout_version: 1,
+            max_former_tab_ids: 8,
+            stop_session_wait_ms: 60_000,
+            window_tabs_hook: false,
+            now_ms: || 1234,
+            callers: Arc::clone(&callers),
+            removal_claims: RemovalClaims::new(),
+        },
+        Arc::clone(&app),
+    )
+    .await
+    .unwrap();
+    pool.call(
+        "seed",
+        json!({"tabs":[{
+            "tab":"stopping", "win":17, "status":"ready", "sessionFile":"/stopping.jsonl"
+        }]}),
+        false,
+    )
+    .await
+    .unwrap();
+    let (events, _transport, _frames) = crate::server::Events::capture();
+    let (source, held) = SidecarService::new(
+        lane_config("native-stop-retirement".into()),
+        events,
+        Arc::new(SidecarSink),
+        Arc::new(DirectSpawn),
+    )
+    .unwrap();
+    set_test_source(&app, "stopping", Arc::clone(&source));
+    let captured = Arc::clone(&source);
+    let scenario = tokio::spawn(async move {
+        pool.feed("stopping", "events", json!([{"type":"agent_start"}]), false)
+            .await
+            .unwrap();
+        let target = pool
+            .session_target(&owner, "/stopping.jsonl", None)
+            .await
+            .unwrap()
+            .unwrap();
+        *locked(&host.retire_on_running) = Some((callers, owner.clone()));
+        let (seen, command_seen) = oneshot::channel();
+        *locked(&host.command_seen) = Some(seen);
+        let error = tokio::select! {
+            result = pool.stop_session(&owner, &target) => result.unwrap_err(),
+            _ = command_seen => panic!("retired execution admitted an abort command"),
+        };
+        assert_eq!(error.code, "caller_closed");
+        let waits = pool
+            .execute(false, |ctx, _| {
+                Outcome::Now(Ok(json!(ctx.with(|pool| pool.stop_waits.len()))))
+            })
+            .await
+            .unwrap();
+        assert_eq!(waits, 0);
+        assert_eq!(captured.facts()["processAlive"], false);
+    })
+    .await;
+    let exited = source.when_exited();
+    source.dispose(std::time::Duration::ZERO);
+    let exit = exited.await;
+    let joined = held.await;
+    exit.unwrap();
+    joined.unwrap();
     scenario.unwrap();
 }

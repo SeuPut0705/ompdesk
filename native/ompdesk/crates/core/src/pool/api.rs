@@ -1010,13 +1010,17 @@ impl Ctx {
         Ok(true)
     }
 
-    pub(super) async fn note_stopped(&self, tab: &str) -> R<()> {
-        let found = self.with(|pool| {
+    pub(super) fn note_stopped_start(&self, tab: &str) -> bool {
+        self.with(|pool| {
             pool.entry_mut(tab).map(|entry| {
                 entry.tracking.stopped = true;
             })
-        });
-        if found.is_some() {
+        })
+        .is_some()
+    }
+
+    pub(super) async fn note_stopped(&self, tab: &str) -> R<()> {
+        if self.note_stopped_start(tab) {
             self.on_running_change().await?;
         }
         Ok(())
