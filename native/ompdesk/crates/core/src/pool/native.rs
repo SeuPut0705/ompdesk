@@ -51,7 +51,7 @@ pub trait Host: effects::Host<Sidecar: Sidecar<Error = Fault>> + 'static {
     /// The actual release receipt registered inside Application::dispose, not a wait captured before release.
     fn when_released(&self, tab: String) -> EffectFuture<'static, ()>;
     /// Called on the hub thread with the snapshot captured at this activity, before the next job can change it.
-    fn announce(&self, activity: Value, tabs: Value);
+    fn announce(&self, activity: Value, tabs: Value, outcome_id: Option<u64>);
 }
 
 struct Reserved<H: Host> {
@@ -120,7 +120,16 @@ impl<H: Host> NativeSink for Sink<H> {
             let ctx = engine::POOLS.with(|pools| pools.borrow().get(&self.id).cloned());
             let result = ctx.ok_or_else(closed).map(|ctx| {
                 let tabs = snapshot(&ctx, &self.app);
-                self.app.host.announce(payload["activity"].clone(), tabs);
+                let activity = &payload["activity"];
+                let outcome_id = (activity["type"] == "idle")
+                    .then(|| {
+                        ctx.with(|pool| {
+                            pool.entry_any(activity["tabId"].as_str().unwrap_or_default())
+                                .and_then(|entry| entry.tracking.last_run_id)
+                        })
+                    })
+                    .flatten();
+                self.app.host.announce(activity.clone(), tabs, outcome_id);
                 Value::Null
             });
             return Box::pin(std::future::ready(result));

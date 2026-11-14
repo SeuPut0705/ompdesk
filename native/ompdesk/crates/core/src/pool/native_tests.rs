@@ -4,7 +4,7 @@ use crate::pool::application::{Released, Spawn, asks::Collaborators};
 #[derive(Default)]
 struct TestHost {
     listening: Mutex<Vec<i64>>,
-    announcements: Mutex<Vec<(Value, Value)>>,
+    announcements: Mutex<Vec<(Value, Value, Option<u64>)>>,
     running_changes: std::sync::atomic::AtomicUsize,
 }
 
@@ -109,8 +109,8 @@ impl Host for TestHost {
     fn when_released(&self, _: String) -> EffectFuture<'static, ()> {
         unreachable!()
     }
-    fn announce(&self, activity: Value, tabs: Value) {
-        locked(&self.announcements).push((activity, tabs));
+    fn announce(&self, activity: Value, tabs: Value, outcome_id: Option<u64>) {
+        locked(&self.announcements).push((activity, tabs, outcome_id));
     }
 }
 
@@ -150,6 +150,22 @@ async fn native_pool_finishes_effects_before_answer_and_keeps_seeded_host_identi
     service.feed("local", "events", json!([{"type": "agent_end", "messages": [
         {"role": "assistant", "stopReason": "stop", "content": [{"type": "text", "text": "done"}]}
     ]}]), false).await.unwrap();
+    service
+        .execute(false, |ctx, _| {
+            Outcome::Later(Box::pin(async move {
+                ctx.announce_run("local").await?;
+                Ok(Value::Null)
+            }))
+        })
+        .await
+        .unwrap();
+    service
+        .feed("local", "events", json!([{"type": "agent_start"}]), false)
+        .await
+        .unwrap();
+    service.feed("local", "events", json!([{"type": "agent_end", "messages": [
+        {"role": "assistant", "stopReason": "stop", "content": [{"type": "text", "text": "done"}]}
+    ]}]), false).await.unwrap();
     {
         let announcements = locked(&host.announcements);
         assert_eq!(announcements[0].0["type"], "busy");
@@ -158,7 +174,11 @@ async fn native_pool_finishes_effects_before_answer_and_keeps_seeded_host_identi
         assert_eq!(announcements[1].0["type"], "idle");
         assert_eq!(announcements[1].1[0]["facts"]["busy"], false);
         assert_eq!(announcements[1].0["outcome"]["reply"], "done");
-        assert_eq!(host.running_changes.load(Ordering::SeqCst), 2);
+        assert_eq!(announcements[0].2, None);
+        assert!(announcements[1].2.is_some());
+        assert_eq!(announcements[1].2, announcements[2].2);
+        assert_ne!(announcements[1].2, announcements[4].2);
+        assert_eq!(host.running_changes.load(Ordering::SeqCst), 4);
     }
     let out = service.out;
     drop(service);
