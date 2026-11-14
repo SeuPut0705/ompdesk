@@ -262,6 +262,20 @@ pub struct ViewCloseFacts {
     pub full_enabled: bool,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewRoster {
+    pub views: Vec<ViewCloseFacts>,
+    pub unavailable: Vec<UnavailableViewHost>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnavailableViewHost {
+    pub view_host: String,
+    pub reason: String,
+}
+
 /// What the tab holding a saved session elsewhere does with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

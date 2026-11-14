@@ -20,7 +20,7 @@ use super::types::{
     AgentMessage, BranchEvidence, BranchFacts, ClosedChild, ControlDevice, ControlTab,
     LandingFacts, MergeOutcome, OpenedChild, RpcCommand, RpcResponse, ScheduleCreated,
     ScheduleDraft, SchedulesState, SessionSummary, SessionViewHandle, SpawnRequest, Spawned,
-    StoredSession, ViewCloseFacts, WorktreeRef, WorktreeRemoval,
+    StoredSession, ViewRoster, WorktreeRef, WorktreeRemoval,
 };
 use crate::agentctl::app::AppState;
 use crate::agentctl::journal::Clock;
@@ -597,7 +597,7 @@ impl Host {
         .await
     }
 
-    pub async fn list_views(&self) -> R<Vec<ViewCloseFacts>> {
+    pub async fn list_views(&self) -> R<ViewRoster> {
         self.ask("listViews", json!({})).await
     }
 

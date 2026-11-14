@@ -1186,6 +1186,14 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			const neighbor = state.tabs[index + 1] ?? state.tabs[index - 1];
 			if (neighbor) await get().switchTab(neighbor.id);
 		}
+		if (closeRequest) {
+			const latest = useUiStore.getState();
+			if (latest.fileEditDirty && (latest.fileEditTabId === id || latest.fileEditTabId === null)) {
+				closedTabIds.delete(id);
+				await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
+				return;
+			}
+		}
 		const closed = state.tabs[index];
 		set(current => {
 			const closedTabs = closed?.sessionPath

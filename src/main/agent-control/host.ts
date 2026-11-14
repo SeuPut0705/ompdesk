@@ -122,6 +122,7 @@ import {
 	type ToolOutcome,
 	type Tuning,
 	type ViewCloseFacts,
+	type ViewRoster,
 } from "./service";
 import type { LocalViewSurface } from "./view-host";
 
@@ -188,7 +189,7 @@ export interface AgentControlHostDeps {
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
 	};
 	views?: {
-		list(): Promise<ViewCloseFacts[]>;
+		list(): Promise<ViewRoster>;
 		close(callerTabId: string, handle: SessionViewHandle): Promise<void>;
 	};
 	/**

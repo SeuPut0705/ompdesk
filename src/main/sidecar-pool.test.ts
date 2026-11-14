@@ -296,6 +296,36 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(sidecars[0]?.disposed).toBe(false);
 	});
 
+	it("keeps long session paths out of bounded view identities and fences a reused tab id", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8110);
+		const sessionPath = `/sessions/${"long-directory/".repeat(40)}session.jsonl`;
+		pool.acquire("/a", owner.win, "reused", sessionPath);
+		const first = pool.viewIdentity(owner.win, "reused");
+		if (!first) throw new Error("expected a view identity");
+		expect(first.length).toBeLessThanOrEqual(200);
+		expect(first).not.toContain(sessionPath);
+		expect(pool.releaseTab("reused")).toBe(true);
+		pool.acquire("/a", owner.win, "reused", sessionPath);
+		expect(pool.viewIdentity(owner.win, "reused")).not.toBe(first);
+		expect(await pool.leaveWindowView(owner.win, "reused", first, sessionPath, () => true)).toBe(false);
+		expect(sidecars[1]?.disposed).toBe(false);
+	});
+
+	it("fences a view identity across a core generation loss and reseed", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8111);
+		pool.acquire("/a", owner.win, "generation", SESSION);
+		const first = pool.viewIdentity(owner.win, "generation");
+		if (!first) throw new Error("expected a view identity");
+		core().abandon("test view identity across core loss");
+		const after = pool.viewIdentity(owner.win, "generation");
+		expect(after).not.toBeNull();
+		expect(after).not.toBe(first);
+		expect(await pool.leaveWindowView(owner.win, "generation", first, SESSION, () => true)).toBe(false);
+		expect(sidecars[0]?.disposed).toBe(false);
+	});
+
 	it("leaves the original owner while keeping every local viewer and the one execution", async () => {
 		const { pool, sidecars } = fakePool();
 		const owner = fakeWindow(8201);
@@ -425,23 +455,30 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(revived.sidecars[0]?.disposed).toBe(true);
 	});
 
-	it.each(["dirty", "draft", "ask", "person-turn"] as const)(
-		"retains the exact local surface when %s changes while its upstream leave is pending",
+	it.each(["dirty", "draft", "ask", "person-turn", "revoke"] as const)(
+		"keeps the relay attached when %s changes before the local close commits",
 		async change => {
 			const { pool, owner, sidecar, entered, acknowledgement, sent } = await remoteProxy();
-			const local = { dirty: false, draft: "" };
+			const beforeCommit = Promise.withResolvers<void>();
+			const authorize = Promise.withResolvers<() => boolean>();
+			const local = { dirty: false, draft: "", connected: true };
 			const identity = pool.viewIdentity(owner.win, "remote-proxy");
 			if (!identity) throw new Error("expected a relay view identity");
-			const closing = pool.leaveWindowView(
+			const closing: Promise<boolean> = Reflect.apply(pool.leaveWindowView, pool, [
 				owner.win,
 				"remote-proxy",
 				identity,
 				SESSION,
 				() => !local.dirty && local.draft === "" && pool.openRequests(owner.win).length === 0,
-			);
-			await entered.promise;
+				async () => {
+					beforeCommit.resolve();
+					return authorize.promise;
+				},
+			]);
+			await Promise.race([beforeCommit.promise, entered.promise]);
 			if (change === "dirty") local.dirty = true;
 			if (change === "draft") local.draft = "keep this draft";
+			if (change === "revoke") local.connected = false;
 			if (change === "ask")
 				sidecar.handleEvent({
 					rtab: "remote-proxy",
@@ -456,24 +493,28 @@ describe("SidecarPool exact window-view leave", () => {
 					arg: [{ type: "agent_start" }, { type: "agent_end" }],
 				});
 			}
+			authorize.resolve(() => local.connected);
 			acknowledgement.resolve(null);
 			expect(await closing).toBe(false);
 			expect(pool.sidecarForTab(owner.win, "remote-proxy")).toBe(sidecar);
 			expect(pool.tabsForWindow(owner.win).map(tab => tab.tabId)).toEqual(["remote-proxy"]);
-			expect(sidecar.status).toBe("exited");
-			expect(sidecar.processAlive).toBe(false);
-			expect(sidecar.rpcClient).toBeNull();
+			expect(sidecar.status).toBe("ready");
+			expect(sidecar.processAlive).toBe(true);
+			expect(sidecar.rpcClient).not.toBeNull();
+			expect(sent).not.toContain("tab.leave");
+			expect(sent).not.toContain("tab.close");
 			if (change === "dirty") expect(local.dirty).toBe(true);
 			if (change === "draft") expect(local.draft).toBe("keep this draft");
 			if (change === "ask") expect(pool.openRequests(owner.win).map(open => open.request.id)).toEqual(["new-ask"]);
 			if (change === "person-turn") expect(pool.viewIdentity(owner.win, "remote-proxy")).not.toBe(identity);
-			await sidecar.leaveView(SESSION);
-			expect(sent.filter(method => method === "tab.leave")).toHaveLength(1);
-			expect(sent.filter(method => method === "tab.open")).toHaveLength(1);
-			expect(sent).not.toContain("tab.close");
-			sidecar.linkStateChanged("offline");
-			sidecar.linkStateChanged("online");
-			expect(sent.filter(method => method === "tab.open")).toHaveLength(1);
+			const events: unknown[] = [];
+			sidecar.on("extensionUi", event => events.push(event));
+			sidecar.handleEvent({
+				rtab: "remote-proxy",
+				name: "extensionUi",
+				arg: { type: "extension_ui_request", id: "still-attached", method: "notify", message: "live" },
+			});
+			expect(events).toHaveLength(1);
 		},
 	);
 

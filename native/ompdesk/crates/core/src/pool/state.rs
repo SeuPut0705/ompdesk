@@ -173,7 +173,8 @@ impl Entry {
             return None;
         }
         let generation = self.view_generations.get(&win)?;
-        serde_json::to_string(&(
+        Some(format!(
+            "{:x}.{:x}.{:x}.{:x}.{:x}.{:x}.{:x}",
             self.seq,
             generation,
             self.session_generation,
@@ -181,10 +182,7 @@ impl Entry {
             self.touched,
             self.exits,
             self.run_revision,
-            &self.session_id,
-            &self.session_file,
         ))
-        .ok()
     }
 
     pub(super) fn busy(&self) -> bool {

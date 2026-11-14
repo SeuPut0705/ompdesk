@@ -1422,7 +1422,9 @@ export class SidecarPool {
 	/** This surface's attachment and session identity, not just the tab id it happens to show. */
 	viewIdentity(win: ClientWindow, tabId: string): string | null {
 		const identity = this.#call<string | null>("viewIdentity", { win: this.#windowId(win), tab: tabId });
-		return identity === null ? null : `${this.#viewEpoch}/${identity}`;
+		return identity === null
+			? null
+			: `${this.#hub.generation.toString(16)}.${this.#viewEpoch.toString(16)}/${identity}`;
 	}
 
 	async leaveWindowView(

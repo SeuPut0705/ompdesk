@@ -106,6 +106,9 @@ impl Ctx {
             let held = entry.awaiting_connection;
             let tab = entry.tab_id.clone();
             pool.drop_session_owner(seq);
+            if let Some(entry) = pool.by_seq_mut(seq) {
+                entry.session_generation += 1;
+            }
             Some((held, tab))
         });
         let Some((held, tab)) = held else {

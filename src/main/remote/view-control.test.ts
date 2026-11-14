@@ -23,7 +23,7 @@ function view(host: string, incarnation = "first"): ViewCloseFacts {
 	};
 }
 
-function network() {
+function network(beforeCommitGate?: Promise<void>, onChallenge?: (data: unknown) => void) {
 	const controls = new Map<string, ViewControl>();
 	const rows = new Map<string, ViewCloseFacts[]>([
 		["A", []],
@@ -49,6 +49,7 @@ function network() {
 						emit: (event, data) => {
 							if (event !== "views.challenge") throw new Error("unexpected event");
 							challenges.push({ peer, identity, data });
+							onChallenge?.(data);
 							void controls
 								.get(id)
 								?.challenge(peer, identity, data)
@@ -69,7 +70,13 @@ function network() {
 			new ViewControl({
 				deviceId: () => id,
 				listLocal: () => rows.get(id) ?? [],
-				closeLocal: async handle => {
+				closeLocal: async (handle, ...args: unknown[]) => {
+					if (id === "B" && beforeCommitGate) await beforeCommitGate;
+					const beforeCommit = args[1];
+					if (typeof beforeCommit === "function") {
+						const current = await beforeCommit();
+						if (typeof current !== "function" || !current()) throw new Error("view authorization expired");
+					}
 					rows.set(
 						id,
 						(rows.get(id) ?? []).filter(item => item.handle.incarnation !== handle.incarnation),
@@ -94,7 +101,7 @@ describe("view control", () => {
 	it("lists both remote views and closes only the authorized view", async () => {
 		const rig = network();
 		const a = rig.controls.get("A")!;
-		expect((await a.list()).map(item => item.handle.viewHost)).toEqual(["B", "C"]);
+		expect((await a.list()).views.map(item => item.handle.viewHost)).toEqual(["B", "C"]);
 		const authorize = vi.fn(async () => {});
 		await a.close(view("B").handle, authorize);
 		expect(authorize).toHaveBeenCalledOnce();
@@ -102,6 +109,31 @@ describe("view control", () => {
 		expect(rig.rows.get("C")).toEqual([view("C")]);
 		expect(rig.saved.has("saved")).toBe(true);
 		expect(rig.execution.has("saved")).toBe(true);
+	});
+
+	it("keeps available views and reports an older unavailable peer", async () => {
+		const control = new ViewControl({
+			deviceId: () => "A",
+			listLocal: () => [],
+			closeLocal: async () => {
+				throw new Error("unexpected close");
+			},
+			remote: {
+				peers: () => ["B", "C"],
+				channel: peer => ({
+					identity: {},
+					request: async () => {
+						if (peer === "C") throw new Error("unsupported method");
+						return [view("B")];
+					},
+				}),
+			},
+			timeoutMs: 1000,
+		});
+		expect(await control.list()).toEqual({
+			views: [view("B")],
+			unavailable: [{ viewHost: "C", reason: "unsupported method" }],
+		});
 	});
 
 	it("propagates denial and refuses a replaced incarnation", async () => {
@@ -134,6 +166,70 @@ describe("view control", () => {
 			}),
 		).rejects.toThrow();
 		expect(rig.rows.get("B")).toEqual([view("B", "second")]);
+	});
+
+	it("revalidates the original caller after the renderer is ready to commit", async () => {
+		const ready = Promise.withResolvers<void>();
+		const initiallyAuthorized = Promise.withResolvers<void>();
+		const rig = network(ready.promise);
+		let active = true;
+		const authorization = {
+			authorize: vi.fn(async () => {
+				initiallyAuthorized.resolve();
+			}),
+			validate: vi.fn(async () => {
+				if (!active) throw new Error("caller revoked");
+			}),
+			current: () => active,
+			release: vi.fn(async () => {
+				active = false;
+			}),
+		};
+		const closing: Promise<void> = Reflect.apply(rig.controls.get("A")!.close, rig.controls.get("A"), [
+			view("B").handle,
+			authorization,
+		]);
+		const denied = expect(closing).rejects.toThrow("caller revoked");
+		await Promise.race([initiallyAuthorized.promise, closing]);
+		active = false;
+		ready.resolve();
+		await denied;
+		expect(authorization.authorize).toHaveBeenCalledOnce();
+		expect(authorization.validate).toHaveBeenCalledOnce();
+		expect(authorization.release).toHaveBeenCalledOnce();
+		expect(rig.rows.get("B")).toEqual([view("B")]);
+		expect(rig.rows.get("C")).toEqual([view("C")]);
+	});
+
+	it("refuses a final challenge replay and a disconnected final receipt", async () => {
+		const finalChallenge = Promise.withResolvers<void>();
+		const validation = Promise.withResolvers<void>();
+		const rig = network(undefined, data => {
+			const event = z.object({ phase: z.string() }).safeParse(data);
+			if (event.success && event.data.phase === "final") finalChallenge.resolve();
+		});
+		const a = rig.controls.get("A")!;
+		const b = rig.controls.get("B")!;
+		const authorization = {
+			authorize: vi.fn(async () => {}),
+			validate: vi.fn(() => validation.promise),
+			current: () => true,
+			release: vi.fn(async () => {}),
+		};
+		const closing: Promise<void> = Reflect.apply(a.close, a, [view("B").handle, authorization]);
+		const denied = expect(closing).rejects.toThrow();
+		await Promise.race([finalChallenge.promise, closing]);
+		const challenge = rig.challenges.at(-1)!;
+		const initial = z.object({ nonce: z.string() }).parse(rig.challenges[0]!.data);
+		const final = z.object({ nonce: z.string() }).parse(challenge.data);
+		expect(final.nonce).not.toBe(initial.nonce);
+		await expect(a.challenge("B", challenge.identity, challenge.data)).rejects.toThrow();
+		b.disconnected("A", rig.channels.get("A:B")!.conn);
+		validation.resolve();
+		await denied;
+		expect(authorization.validate).toHaveBeenCalledOnce();
+		expect(authorization.release).toHaveBeenCalledOnce();
+		expect(rig.rows.get("B")).toEqual([view("B")]);
 	});
 
 	it("rejects wrong peers, connections, and replayed challenges", async () => {
@@ -244,7 +340,7 @@ describe("view control", () => {
 		});
 		a.connected("B", incoming);
 		b.connectedOutgoing(outgoing);
-		expect(await a.list()).toEqual([view("B")]);
+		expect((await a.list()).views).toEqual([view("B")]);
 		await a.close(view("B").handle, async () => {});
 		expect(visible).toEqual([]);
 	});

@@ -221,6 +221,9 @@ impl Ctx {
             let mut changed = false;
             if let Some(id) = frame.get("sessionId").and_then(Value::as_str) {
                 let previous = entry.session_id.replace(id.to_string());
+                if previous.as_deref() != Some(id) {
+                    entry.session_generation += 1;
+                }
                 // Another session's automatic title is not this one's.
                 if previous.as_deref().is_some_and(|previous| previous != id) {
                     entry.auto_title = None;
@@ -259,6 +262,9 @@ impl Ctx {
             let previous_title = entry.title.clone();
             if let Some(id) = identity["sessionId"].as_str().filter(|id| !id.is_empty()) {
                 entry.session_id = Some(id.to_string());
+                if previous_id.as_deref() != Some(id) {
+                    entry.session_generation += 1;
+                }
             }
             // The live omp's name is the session's name. Another session now under this tab without a name drops the
             // old one's; the same session reported without one keeps it.

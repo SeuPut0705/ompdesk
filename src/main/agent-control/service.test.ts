@@ -6413,7 +6413,10 @@ describe("closing one exact relay view", () => {
 		const host = new FakeHost({ tabId: "source-a" });
 		const other = { ...handle, viewHost: "host-c", tabId: "view-c", incarnation: "incarnation-c" };
 		Object.assign(host, {
-			listViews: async () => [facts(), { ...facts({ tabId: other.tabId }), handle: other }],
+			listViews: async () => ({
+				views: [facts(), { ...facts({ tabId: other.tabId }), handle: other }],
+				unavailable: [],
+			}),
 		});
 		const result = await control(host).run("source-a", T.list, { scope: "app" });
 		expect(result.isError, result.text).toBe(false);
@@ -6632,9 +6635,11 @@ describe("closing one exact relay view", () => {
 		},
 	);
 
-	it.each([true, false])(
-		"routes native listing and exact close through the original caller and B's final acknowledgement (%s)",
-		async personTurn => {
+	it.each(["person", "agent", "caller-gone", "grants", "provenance"])(
+		"routes native listing and fences source changes before B's final acknowledgement (%s)",
+		async scenario => {
+			const personTurn = scenario !== "agent";
+			const revoked = scenario !== "person" && scenario !== "agent";
 			const host = new FakeHost({
 				tabId: "source-a",
 				title: "Source",
@@ -6678,6 +6683,13 @@ describe("closing one exact relay view", () => {
 								.object({ tabId: z.string(), how: z.literal("close"), closeRequest: z.string() })
 								.parse(payload);
 							requests.push({ viewHost, tabId: request.tabId, token: request.closeRequest });
+							if (scenario === "caller-gone") host.tabsById.delete("source-a");
+							if (scenario === "grants") host.full = false;
+							if (scenario === "provenance") {
+								const source = host.tabsById.get("source-a");
+								if (!source) throw new Error("Missing source fixture");
+								source.personTurn = false;
+							}
 							queueMicrotask(() => {
 								acknowledgements.push(local.complete(win, request.tabId, request.closeRequest, false));
 							});
@@ -6736,8 +6748,16 @@ describe("closing one exact relay view", () => {
 					throw new Error("A has no target view to close");
 				},
 				remote: {
-					peers: () => ["host-b", "host-c"],
+					peers: () => ["host-b", "host-c", "old-peer"],
 					channel: peer => {
+						if (peer === "old-peer") {
+							return {
+								identity: {},
+								request: async () => {
+									throw new Error("unsupported view protocol");
+								},
+							};
+						}
 						const existing = connections.get(peer);
 						if (existing) return existing.channel;
 						const target = controls.get(peer);
@@ -6781,6 +6801,9 @@ describe("closing one exact relay view", () => {
 			try {
 				const listed = await service.run("source-a", T.list, { scope: "app" });
 				expect(listed.isError, listed.text).toBe(false);
+				expect(listed.text).toContain("Source");
+				expect(listed.text).toContain("old-peer");
+				expect(listed.text).toContain("unsupported view protocol");
 				const handleSchema = z
 					.object({
 						viewHost: z.string(),
@@ -6804,26 +6827,29 @@ describe("closing one exact relay view", () => {
 					close: true,
 					view: selected,
 				});
-				expect(result.isError, result.text).toBe(!personTurn);
-				expect(result.text).toMatch(personTurn ? /Closed view/ : /not started by the user's own message/);
+				expect(result.isError, result.text).toBe(!personTurn || revoked);
+				expect(result.text).toMatch(
+					!personTurn
+						? /not started by the user's own message/
+						: revoked
+							? /caller|grant|authorization|turn/i
+							: /Closed view/,
+				);
 				expect(authorize).toHaveBeenCalledTimes(1);
 				expect(authorize.mock.calls[0]?.[0]).toBe("source-a");
-				expect(host.sent.slice(beforeClose).map(entry => [entry.tabId, entry.command.type])).toEqual(
-					personTurn
-						? [
-								["source-a", "agent_control_turn"],
-								["source-a", "agent_control_turn"],
-							]
-						: [["source-a", "agent_control_turn"]],
-				);
-				expect(b.local.list().map(item => item.handle)).toEqual(personTurn ? [] : [b.viewHandle]);
+				expect(
+					host.sent
+						.slice(beforeClose)
+						.every(entry => entry.tabId === "source-a" && entry.command.type === "agent_control_turn"),
+				).toBe(true);
+				expect(b.local.list().map(item => item.handle)).toEqual(personTurn && !revoked ? [] : [b.viewHandle]);
 				expect(c.local.list().map(item => item.handle)).toEqual([c.viewHandle]);
-				expect(b.detach).toHaveBeenCalledTimes(personTurn ? 1 : 0);
+				expect(b.detach).toHaveBeenCalledTimes(personTurn && !revoked ? 1 : 0);
 				expect(c.detach).not.toHaveBeenCalled();
 				expect(requests.map(request => [request.viewHost, request.tabId])).toEqual(
 					personTurn ? [["host-b", "view-b"]] : [],
 				);
-				expect(await Promise.all(acknowledgements)).toEqual(personTurn ? [true] : []);
+				expect(await Promise.all(acknowledgements)).toEqual(personTurn ? [!revoked] : []);
 				expect(host.storedRows).toEqual([saved]);
 				expect(host.localRows).toEqual([execution]);
 				expect(host.spawned).toEqual([]);
@@ -6831,11 +6857,58 @@ describe("closing one exact relay view", () => {
 				expect(host.deletedStored).toEqual([]);
 				expect(host.views).toEqual([]);
 				expect(host.sent.some(entry => entry.command.type === "abort")).toBe(false);
+				const unavailableClose = await service.run("source-a", T.stop, {
+					session: handle.session,
+					close: true,
+					view: { ...handle, viewHost: "old-peer" },
+				});
+				expect(unavailableClose.isError).toBe(true);
+				expect(unavailableClose.text).not.toContain("Closed view");
+				expect(b.local.list().map(item => item.handle)).toEqual(personTurn && !revoked ? [] : [b.viewHandle]);
+				expect(c.local.list().map(item => item.handle)).toEqual([c.viewHandle]);
 			} finally {
 				for (const { target, conn } of connections.values()) target.disconnected("host-a", conn);
 			}
 		},
 	);
+
+	it("binds each source authorization receipt to its exact view and consumes it only once", async () => {
+		const host = new FakeHost({ tabId: "source-a", personTurn: true });
+		host.full = true;
+		const service: unknown = control(host);
+		if (
+			typeof service !== "object" ||
+			service === null ||
+			!("authorizeView" in service) ||
+			typeof service.authorizeView !== "function" ||
+			!("validateViewAuthorization" in service) ||
+			typeof service.validateViewAuthorization !== "function" ||
+			!("releaseViewAuthorization" in service) ||
+			typeof service.releaseViewAuthorization !== "function"
+		) {
+			throw new Error("View authorization receipts are unavailable");
+		}
+		const receipt: unknown = await service.authorizeView("source-a", facts(), "host-a");
+		if (typeof receipt !== "string" || receipt.length === 0) throw new Error("Missing source authorization receipt");
+		await expect(
+			service.validateViewAuthorization(receipt, { ...handle, incarnation: "replacement" }),
+		).rejects.toThrow();
+		await expect(service.validateViewAuthorization(receipt, handle)).rejects.toThrow();
+		await expect(service.releaseViewAuthorization(receipt)).resolves.toBeUndefined();
+
+		const fresh: unknown = await service.authorizeView("source-a", facts(), "host-a");
+		if (typeof fresh !== "string" || fresh.length === 0) throw new Error("Missing source authorization receipt");
+		await expect(service.validateViewAuthorization(fresh, handle)).resolves.toBeUndefined();
+		await expect(service.validateViewAuthorization(fresh, handle)).rejects.toThrow();
+		await expect(service.releaseViewAuthorization(fresh)).resolves.toBeUndefined();
+
+		const released: unknown = await service.authorizeView("source-a", facts(), "host-a");
+		if (typeof released !== "string" || released.length === 0)
+			throw new Error("Missing source authorization receipt");
+		await service.releaseViewAuthorization(released);
+		await expect(service.validateViewAuthorization(released, handle)).rejects.toThrow();
+		await expect(service.releaseViewAuthorization(released)).resolves.toBeUndefined();
+	});
 
 	it("validates receiver facts without dropping a real waiting request", () => {
 		const view = facts({ asks: [select("Continue?", ["Yes", "No"])] });

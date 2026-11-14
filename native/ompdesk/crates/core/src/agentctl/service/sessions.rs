@@ -289,8 +289,11 @@ impl AgentControl {
             .collect::<Vec<_>>()
             .join("\n");
         let mut views = Vec::new();
+        let mut unavailable = Vec::new();
         if args.scope.as_deref() == Some("app") && !mine {
-            for view in self.host.list_views().await? {
+            let roster = self.host.list_views().await?;
+            unavailable = roster.unavailable;
+            for view in roster.views {
                 let tab = &view.tab;
                 let kind = if waits(tab) {
                     "waiting"
@@ -321,8 +324,26 @@ impl AgentControl {
                 views.join("\n")
             )
         };
+        let unavailable_lines = if unavailable.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\nView rosters unavailable:\n{}",
+                unavailable
+                    .iter()
+                    .map(|host| {
+                        format!(
+                            "- {}: {}",
+                            one_line(&host.view_host, 200),
+                            one_line(&host.reason, 500)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        };
         Ok(format!(
-            "{} session{} {where_}:\n{shown}{more}{others}\n{}{view_lines}",
+            "{} session{} {where_}:\n{shown}{more}{others}\n{}{view_lines}{unavailable_lines}",
             kept.len(),
             if kept.len() == 1 { "" } else { "s" },
             self.devices_line(&state)

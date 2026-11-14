@@ -2903,6 +2903,24 @@ describe("agent control view requests", () => {
 		expect(useUiStore.getState().pendingFileSwitch).toBeNull();
 	});
 
+	it("preserves desktop Files edits made while the last view's placeholder is being prepared", async () => {
+		await bootWith("relay");
+		const entered = Promise.withResolvers<void>();
+		const spawned = Promise.withResolvers<IpcSpawnTabResult | null>();
+		omp.tabs.spawn.mockImplementation(() => {
+			entered.resolve();
+			return spawned.promise;
+		});
+		const closing = useTabsStore.getState().applyAgentView({ tabId: "relay", how: "close", closeRequest: "one-use" });
+		await entered.promise;
+		useUiStore.setState({ fileEditDirty: true, fileEditTabId: "relay" });
+		spawned.resolve({ tabId: "start", cwd: "/workspace" });
+		await closing;
+		expect(omp.tabs.close).toHaveBeenCalledExactlyOnceWith("relay", "one-use", true);
+		expect(tabOf("relay")).toBeDefined();
+		expect(useUiStore.getState().fileEditDirty).toBe(true);
+	});
+
 	it("a tab main spawns in the background appears without switching the current view", async () => {
 		await bootWith("t0");
 		omp.tabs.list.mockResolvedValue(live("t0", "t5"));

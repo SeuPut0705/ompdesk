@@ -139,6 +139,12 @@ export interface ViewCloseFacts {
 	fullEnabled: boolean;
 }
 
+/** Actual views gathered from reachable hosts and the hosts whose roster could not be read. */
+export interface ViewRoster {
+	views: ViewCloseFacts[];
+	unavailable: { viewHost: string; reason: string }[];
+}
+
 const viewKey = z.string().min(1).max(200);
 const viewText = z.string().max(65_536);
 const viewAskBase = { type: z.literal("extension_ui_request"), id: viewKey, timeout: z.number().optional() };
@@ -431,7 +437,7 @@ export interface AgentControlHost {
 	/** Every open tab of this app once, in the pool's order, with the window it is in (a tab of any window). */
 	tabs(): HostTab[];
 	/** Actual local and paired visible views, not execution or saved-session summaries. */
-	listViews?(): Promise<ViewCloseFacts[]>;
+	listViews?(): Promise<ViewRoster>;
 	/** Close only this exact view, after authorizing its host's current facts against the original caller. */
 	closeView?(callerTabId: string, handle: SessionViewHandle): Promise<void>;
 	/**
@@ -1164,7 +1170,7 @@ export class AgentControl {
 				}),
 			release: ({ callerTabId, tabId }: { callerTabId: string; tabId: string }) =>
 				coded(() => host.release(callerTabId, tabId)),
-			listViews: () => coded(async () => (await host.listViews?.()) ?? []),
+			listViews: () => coded(async () => (await host.listViews?.()) ?? { views: [], unavailable: [] }),
 			closeView: ({ callerTabId, handle }: { callerTabId: string; handle: SessionViewHandle }) =>
 				coded(async () => {
 					if (!host.closeView) throw new Error("Exact view closing is not available here.");

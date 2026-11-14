@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { SessionViewHandle } from "../../shared/session-view";
-import { parseViewCloseFacts, type ViewCloseFacts } from "../agent-control/service";
+import { parseViewCloseFacts, type ViewCloseFacts, type ViewRoster } from "../agent-control/service";
 import type { HostConnection } from "./host-server";
 
 export interface HostedViewControl {
@@ -154,22 +154,31 @@ export class ViewControl implements HostedViewControl {
 		return found;
 	}
 
-	async list(): Promise<ViewCloseFacts[]> {
+	async list(): Promise<ViewRoster> {
 		const local = this.#local();
 		const remote = await Promise.all(
-			this.deps.remote.peers().map(async peer => {
-				const channel = this.deps.remote.channel(peer);
-				if (!channel) throw new Error("View host unavailable");
-				const answer = await channel.request("views.list", {}, this.deps.timeoutMs);
-				if (!Array.isArray(answer)) throw new Error("Invalid view list");
-				return answer.map(item => {
-					const value = facts(item);
-					if (value.handle.viewHost !== peer) throw new Error("Invalid view host");
-					return value;
-				});
+			this.deps.remote.peers().map(async viewHost => {
+				try {
+					const channel = this.deps.remote.channel(viewHost);
+					if (!channel) throw new Error("View host unavailable");
+					const answer = await channel.request("views.list", {}, this.deps.timeoutMs);
+					if (!Array.isArray(answer)) throw new Error("Invalid view list");
+					const views = answer.map(item => {
+						const value = facts(item);
+						if (value.handle.viewHost !== viewHost) throw new Error("Invalid view host");
+						return value;
+					});
+					return { views, unavailable: [] };
+				} catch (error) {
+					const reason = error instanceof Error ? error.message : String(error);
+					return { views: [], unavailable: [{ viewHost, reason }] };
+				}
 			}),
 		);
-		return local.concat(...remote);
+		return {
+			views: local.concat(...remote.map(result => result.views)),
+			unavailable: remote.flatMap(result => result.unavailable),
+		};
 	}
 
 	async close(raw: SessionViewHandle, authorize: (fresh: ViewCloseFacts) => Promise<void>): Promise<void> {
