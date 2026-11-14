@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
@@ -8,6 +8,7 @@ use crate::agentctl::inbox::{
     NativeInboxEntry, NativeInboxReply, NativeInboxTransferEntry, NativeInboxUpload,
 };
 use crate::agentctl::journal::attachments::{AttachedSet, AttachmentRef, LandedFile, sha256_hex};
+use crate::agentctl::journal::inbox_ledger::InboxLedger;
 use crate::agentctl::runtime::tests::{rig, told_of};
 use crate::agentctl::service::Files;
 use crate::web::uploads::Limits;
@@ -114,6 +115,12 @@ fn params(port: u64, transfer: NativeInboxTransfer) -> AcceptParams {
         expected_runtime_instance: "actual-rpc-client".into(),
         expected_route: Some(hosted_route()),
     }
+}
+
+fn assert_unowned_after_restart(path: &Path, entries: &[NativeInboxTransferEntry]) {
+    let reopened = InboxLedger::new(Some(path.to_path_buf()));
+    assert!(reopened.known(&receiver(), entries).unwrap().is_empty());
+    assert!(reopened.pending(&receiver()).unwrap().1.is_empty());
 }
 
 #[tokio::test]
@@ -258,7 +265,7 @@ async fn missing_peer_capture_cannot_keep_and_local_admission_requires_the_local
     let mut missing_capture = params(7_492, input.clone());
     missing_capture.expected_route = None;
     assert!(runtime.accept_inbox(missing_capture).await.is_err());
-    assert!(!ledger_file.exists());
+    assert_unowned_after_restart(&ledger_file, &input.entries);
     assert!(inbox.ledger.pending(&receiver()).unwrap().1.is_empty());
     assert!(told_of(&told, "deliverInbox").is_empty());
 
@@ -282,7 +289,7 @@ async fn missing_peer_capture_cannot_keep_and_local_admission_requires_the_local
             .await
             .is_err()
     );
-    assert!(!ledger_file.exists());
+    assert_unowned_after_restart(&ledger_file, &local.transfer.entries);
     local.upload_device_id = crate::web::uploads::LOCAL_DEVICE.into();
     let accepted = runtime.accept_inbox(local).await.unwrap();
     assert_eq!(accepted.persistence, Persistence::Disk);

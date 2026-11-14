@@ -201,7 +201,7 @@ async fn exercise(revocation: Revocation, id: u64) {
             let disk_ack = outcome
                 .as_ref()
                 .is_ok_and(|accepted| accepted.persistence == Persistence::Disk);
-            let no_keep = held.is_empty() && !ledger_file.exists();
+            let no_keep = held.is_empty();
             control.host.port().close();
             host_task.abort();
             let _ = host_task.await;
@@ -212,6 +212,7 @@ async fn exercise(revocation: Revocation, id: u64) {
                 held.len(),
                 ledger_file.exists()
             );
+            assert_unowned_after_restart(&ledger_file, &original.entries);
             assert_eq!(std::fs::read(upload.path).unwrap(), bytes);
         }
         Revocation::AfterDisk => {
