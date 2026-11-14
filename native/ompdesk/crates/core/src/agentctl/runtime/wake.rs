@@ -13,13 +13,12 @@ use serde_json::json;
 use tokio::task::JoinHandle;
 
 use super::activity::{Activity, ActivityKind};
-use super::{Runtime, runtime_of};
+use super::{Runtime, check_mail_target, runtime_of};
 use crate::agentctl::journal::Persistence;
 use crate::agentctl::journal::mail_outbox::OutboxMail;
 use crate::agentctl::rules::mail::{Mail, MailDelivery, MailKind, mail_details, mail_text};
 use crate::agentctl::service::fail::{Fail, R, fail};
 use crate::agentctl::service::host::HostState;
-use crate::agentctl::service::types::DeviceState;
 use crate::server::{Call, Fault, Registry, Reply, at_once};
 
 /// A run waiting for the turn its wake-up mail starts.
@@ -106,14 +105,13 @@ impl Runtime {
             return fail("A durable mail delivery needs its source id.");
         }
         let state = self.host().state();
-        if !state.enabled {
-            return fail("OMPdesk control tools are disabled.");
-        }
         let target = state
             .tabs
             .iter()
+            .chain(state.mail_targets.iter())
             .find(|tab| tab.tab_id == tab_id)
             .ok_or_else(|| Fail::other("The resolved mail target is no longer open."))?;
+        check_mail_target(&state, target)?;
         let path = target
             .session_path
             .as_deref()
@@ -128,16 +126,6 @@ impl Runtime {
                     .filter(|device| !device.is_empty())
         {
             return fail("The resolved mail recipient changed before acceptance.");
-        }
-        if target.hidden || state.deleted_at_path(path, device).is_some() {
-            return fail("The resolved mail recipient is hidden or deleted.");
-        }
-        if let Some(device) = device
-            && !state
-                .device(device)
-                .is_some_and(|peer| peer.state == DeviceState::Online)
-        {
-            return fail("The resolved mail recipient is offline or no longer paired.");
         }
         let outbox = self
             .host()

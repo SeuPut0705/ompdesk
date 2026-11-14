@@ -849,3 +849,83 @@ async fn paired_mail_acceptance_rechecks_online_pairing_before_keep() {
         control.host.port().close();
     }
 }
+
+#[tokio::test]
+async fn authenticated_mail_targets_rebind_by_session_without_reusing_stale_tokens() {
+    use crate::agentctl::journal::{Persistence, mail_outbox::RedeliverDeps};
+    let mut initial = state(Vec::new());
+    initial["mailTargets"] = json!([tab("connection-a:tab:omp-1", "/s/boss.jsonl")]);
+    let (control, runtime, told) = rig(7_470, initial, with_outbox(), |method, _| {
+        if method == "mail" {
+            Ok(json!({ "duplicate": false }))
+        } else {
+            Err(format!("unexpected {method}"))
+        }
+    });
+    let expected = recipient("/s/boss.jsonl");
+    assert_eq!(
+        runtime
+            .enqueue_mail(
+                "checks:hub:entry-1:result",
+                "connection-a:tab:omp-1",
+                "Checks",
+                "answer",
+                &expected
+            )
+            .unwrap(),
+        Persistence::Memory
+    );
+    let entry = control.host.outbox().unwrap().pending().remove(0);
+    let routes = super::MailTabs {
+        host: &control.host,
+    };
+    assert_eq!(
+        routes.tab_of("/s/boss.jsonl", None).as_deref(),
+        Some("connection-a:tab:omp-1")
+    );
+    let mut reconnected = state(Vec::new());
+    reconnected["mailTargets"] = json!([tab("connection-b:tab:omp-2", "/s/boss.jsonl")]);
+    crate::ports::apply_state(control.host.port(), 1, &reconnected.to_string()).unwrap();
+    assert!(
+        runtime
+            .enqueue_mail(
+                "checks:hub:entry-2:result",
+                "connection-a:tab:omp-1",
+                "Checks",
+                "answer",
+                &expected
+            )
+            .is_err()
+    );
+    assert_eq!(
+        routes.tab_of("/s/boss.jsonl", None).as_deref(),
+        Some("connection-b:tab:omp-2")
+    );
+    assert!(
+        routes
+            .send("connection-a:tab:omp-1", &entry)
+            .await
+            .is_none()
+    );
+    assert!(
+        routes
+            .send("connection-b:tab:omp-2", &entry)
+            .await
+            .is_some()
+    );
+    assert_eq!(told_of(&told, "mail")[0]["tabId"], "connection-b:tab:omp-2");
+    reconnected["mailTargets"] = json!([tab("connection-b:tab:omp-2", "/s/changed.jsonl")]);
+    crate::ports::apply_state(control.host.port(), 2, &reconnected.to_string()).unwrap();
+    assert!(
+        routes
+            .send("connection-b:tab:omp-2", &entry)
+            .await
+            .is_none()
+    );
+    assert!(routes.tab_of("/s/boss.jsonl", None).is_none());
+    crate::ports::apply_state(control.host.port(), 3, &state(Vec::new()).to_string()).unwrap();
+    assert!(routes.tab_of("/s/changed.jsonl", None).is_none());
+    assert_eq!(told_of(&told, "mail").len(), 1);
+    assert_eq!(control.host.outbox().unwrap().pending()[0].id, entry.id);
+    control.host.port().close();
+}

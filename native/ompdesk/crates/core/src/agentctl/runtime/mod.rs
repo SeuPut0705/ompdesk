@@ -38,8 +38,9 @@ use tokio::task::JoinHandle;
 
 use super::journal::mail_outbox::{MailAnswer, OutboxMail, RedeliverDeps, redeliver_mail};
 use super::service::AgentControl;
-use super::service::host::Host;
-use super::service::types::ClosedChild;
+use super::service::fail::{R, fail};
+use super::service::host::{Host, HostState};
+use super::service::types::{ClosedChild, ControlTab, DeviceState};
 use crate::server::{Call, Fault, Registry, Reply, at_once};
 
 pub use activity::Activity;
@@ -313,6 +314,31 @@ impl Runtime {
     }
 }
 
+fn check_mail_target(state: &HostState, target: &ControlTab) -> R<()> {
+    if !state.enabled {
+        return fail("OMPdesk control tools are disabled.");
+    }
+    let Some(path) = target
+        .session_path
+        .as_deref()
+        .filter(|path| !path.is_empty())
+    else {
+        return fail("The resolved mail target has no saved session path.");
+    };
+    let device = target.device.as_deref().filter(|device| !device.is_empty());
+    if target.hidden || state.deleted_at_path(path, device).is_some() {
+        return fail("The resolved mail recipient is hidden or deleted.");
+    }
+    if let Some(device) = device
+        && !state
+            .device(device)
+            .is_some_and(|peer| peer.state == DeviceState::Online)
+    {
+        return fail("The resolved mail recipient is offline or no longer paired.");
+    }
+    Ok(())
+}
+
 /// The live tab holding a receiver's session, and the receiver's bridge answer to a report again (`RedeliverDeps`).
 struct MailTabs<'a> {
     host: &'a Host,
@@ -324,13 +350,31 @@ impl RedeliverDeps for MailTabs<'_> {
         state
             .tabs
             .iter()
+            .chain(state.mail_targets.iter())
             .find(|tab| {
-                tab.session_path.as_deref() == Some(session_path) && tab.device.as_deref() == device
+                tab.session_path.as_deref() == Some(session_path)
+                    && tab.device.as_deref().filter(|device| !device.is_empty()) == device
+                    && check_mail_target(&state, tab).is_ok()
             })
             .map(|tab| tab.tab_id.clone())
     }
 
     async fn send(&self, tab_id: &str, mail: &OutboxMail) -> Option<MailAnswer> {
+        {
+            let state = self.host.state();
+            let target = state
+                .tabs
+                .iter()
+                .chain(state.mail_targets.iter())
+                .find(|target| target.tab_id == tab_id)?;
+            if target.session_path.as_deref() != Some(mail.session_path.as_str())
+                || target.device.as_deref().filter(|device| !device.is_empty())
+                    != mail.device.as_deref()
+                || check_mail_target(&state, target).is_err()
+            {
+                return None;
+            }
+        }
         self.host.redeliver_mail(tab_id, mail).await
     }
 }
