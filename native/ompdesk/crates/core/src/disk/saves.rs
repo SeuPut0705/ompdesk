@@ -118,6 +118,26 @@ impl Saves {
         result
     }
 
+    fn remove(&self, file: &Path) -> Result<(), Fault> {
+        let mut state = self.lock();
+        match std::fs::remove_file(file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(crate::fs::error::NodeError::new(
+                    &error,
+                    "unlink",
+                    Some(&file.to_string_lossy()),
+                )
+                .fault(crate::fs::error::Codes::None));
+            }
+        }
+        if state.kept.remove(file).is_some() {
+            state.tell("store.saved", file);
+        }
+        Ok(())
+    }
+
     fn retry(self: &Arc<Self>, file: &Path) {
         let saves = Arc::clone(self);
         let file = file.to_path_buf();
@@ -126,27 +146,32 @@ impl Saves {
             loop {
                 std::thread::sleep(saves.delay(tries));
                 tries += 1;
-                let mut state = saves.lock();
-                let Some(kept) = state.kept.get(&file).cloned() else {
+                if !saves.retry_once(&file) {
                     return;
-                };
-                let (path, bytes) = (file.as_path(), kept.bytes.as_slice());
-                let result = (saves.writer)(path, bytes, kept.mode, kept.dir_mode);
-                if matches!(&result, Err(fault) if disk_full(fault)) {
-                    continue;
                 }
-                if let Err(fault) = result {
-                    eprintln!(
-                        "ompdesk-core: couldn't save {} after the disk was full: {}",
-                        file.display(),
-                        fault.message
-                    );
-                }
-                state.kept.remove(&file);
-                state.tell("store.saved", &file);
-                return;
             }
         });
+    }
+
+    fn retry_once(&self, file: &Path) -> bool {
+        let mut state = self.lock();
+        let Some(kept) = state.kept.get(file) else {
+            return false;
+        };
+        let result = (self.writer)(file, &kept.bytes, kept.mode, kept.dir_mode);
+        if matches!(&result, Err(fault) if disk_full(fault)) {
+            return true;
+        }
+        if let Err(fault) = result {
+            eprintln!(
+                "ompdesk-core: couldn't save {} after the disk was full: {}",
+                file.display(),
+                fault.message
+            );
+        }
+        state.kept.remove(file);
+        state.tell("store.saved", file);
+        false
     }
 }
 
@@ -168,6 +193,11 @@ pub(crate) fn write_kept(
     dir_mode: u32,
 ) -> Result<bool, Fault> {
     SAVES.write(file, bytes, mode, dir_mode)
+}
+
+/// Deletes a store and withdraws a pending retry under the same lock as saves.
+pub(crate) fn remove_kept(file: &Path) -> Result<(), Fault> {
+    SAVES.remove(file)
 }
 
 /// Where `store.saveFailed` and `store.saved` go: the connection main speaks on.
@@ -306,6 +336,48 @@ mod tests {
         assert!(heard(&mut frames).is_empty());
         assert!(saves.lock().kept.is_empty());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn removing_a_full_disk_save_withdraws_its_retry_without_recreating_the_file() {
+        let dir = temp("remove");
+        let file = dir.join("state.json");
+        fs::write(&file, "old").unwrap();
+        let full = Arc::new(AtomicBool::new(true));
+        let saves = Arc::new(Saves::new(disk(&full, None), vec![60_000]));
+        let (events, _keep, mut frames) = Events::capture();
+        saves.attach(events);
+        assert!(saves.write(&file, b"stale", None, 0o700).is_err());
+        saves.remove(&file).unwrap();
+        full.store(false, Ordering::SeqCst);
+        assert!(!saves.retry_once(&file));
+        assert!(!file.exists());
+        saves.remove(&file).unwrap();
+        let events: Vec<_> = heard(&mut frames)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(events, ["store.saveFailed", "store.saved"]);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_removal_keeps_the_pending_save_and_its_warning() {
+        let dir = temp("remove-failed");
+        let full = Arc::new(AtomicBool::new(true));
+        let saves = Arc::new(Saves::new(disk(&full, None), vec![60_000]));
+        let (events, _keep, mut frames) = Events::capture();
+        saves.attach(events);
+        assert!(saves.write(&dir, b"pending", None, 0o700).is_err());
+        assert!(saves.remove(&dir).is_err());
+        assert!(saves.lock().kept.contains_key(&dir));
+        let events: Vec<_> = heard(&mut frames)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(events, ["store.saveFailed"]);
+        saves.lock().kept.clear();
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
