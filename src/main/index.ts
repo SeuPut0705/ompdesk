@@ -701,7 +701,6 @@ function closeHostDeletedTabs(host: string, paths: readonly string[]): void {
 let desktopWindowLayouts: WindowLayout[] = [];
 const restoringWindowLayouts = new Set<number>();
 
-/** Persist confirmed window layouts without querying a core that may have been lost after a close commit. */
 function persistTabLayouts(changed?: WindowLayout): void {
 	const windows = windowManager.getAllWindows();
 	desktopWindowLayouts = projectWindowLayouts(
@@ -1450,7 +1449,6 @@ app.whenReady().then(async () => {
 		} else if (!restoringWindowLayouts.has(win.webContents.id)) {
 			persistTabLayouts({ window: win.webContents.id, layout });
 		}
-		// Publish the acknowledged layout before callbacks that may read or recover the core.
 		hostServices.listingChanged();
 		hostServices.workChanged();
 	};

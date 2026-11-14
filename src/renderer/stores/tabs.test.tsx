@@ -2836,7 +2836,6 @@ describe("agent control view requests", () => {
 
 	it("keeps edits made while its close action chunk is loading", async () => {
 		await bootWith("t0", "t1");
-		// The loading boundary is under test; a static import cannot be held at this barrier.
 		const actions = await import("./tab-actions");
 		const loaded = Promise.withResolvers<typeof actions>();
 		vi.spyOn(chunkLoading, "loadChunk").mockReturnValueOnce(loaded.promise);

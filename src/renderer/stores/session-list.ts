@@ -121,7 +121,6 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 		);
 	};
 	let holders = 0;
-	/** Bumped on release or deletion: answers taken before either are dropped. */
 	let generation = 0;
 	let loaded = false;
 	let inFlight = false;
@@ -258,7 +257,6 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 		retain,
 		refresh,
 		forgetSession: path => {
-			// Both scopes may already be reading the row that was just deleted.
 			generation++;
 			inFlight = false;
 			queued = false;

@@ -1510,7 +1510,6 @@ export class SidecarPool {
 		}
 		const closed = committed;
 		const effects: Promise<void>[] = [];
-		// Invoke each effect immediately, but collect synchronous throws as well as asynchronous failures.
 		const run = (effect: () => void | Promise<void>): void => {
 			effects.push(
 				(async () => {

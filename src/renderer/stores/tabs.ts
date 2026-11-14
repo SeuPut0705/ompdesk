@@ -684,7 +684,6 @@ export interface TabsStore {
 
 async function loadTabActions(title: "tabs.closeFailed" | "tabs.switchFailed") {
 	try {
-		// Action-only code stays outside the phone's first-screen byte budget.
 		return await loadChunk(() => import("./tab-actions"));
 	} catch (error) {
 		toastError({ title: translate(title), error });

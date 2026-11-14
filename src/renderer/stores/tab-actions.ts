@@ -92,7 +92,6 @@ export async function closeTab(id: string, closeRequest: string | undefined, clo
 		failure = error;
 	}
 	if (failure !== null) {
-		// A lost reply can follow a successful close; main's list, not the reply, decides whether its runtime stays.
 		closedTabIds.delete(id);
 		const listed = await get().reconcileTabs();
 		if (listed && !get().tabs.some(tab => tab.id === id)) {

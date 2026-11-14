@@ -241,7 +241,6 @@ impl AgentControl {
         by_person.unwrap_or(false)
     }
 
-    /// The existing stop/close/delete card policy, shared with an exact view close.
     async fn confirm_stop(
         &self,
         caller: &ControlTab,
@@ -298,7 +297,6 @@ impl AgentControl {
         let Some(tabs) = state.tabs(caller_tab_id) else {
             return fail(crate::agentctl::service::TAB_GONE);
         };
-        // An outside caller's stand-in is never the source of a view-close authorization.
         if !tabs.iter().any(|tab| tab.tab_id == caller_tab_id) {
             return fail("The original caller's tab is gone.");
         }
@@ -352,7 +350,6 @@ impl AgentControl {
         if local && target.tab_id == caller_tab_id {
             return fail("You cannot close your own session with this tool.");
         }
-        // A remote view carries no source-local opener record, so it never inherits local ownership.
         let own = local
             && self
                 .opened_by(&state, caller_tab_id, &tabs)
@@ -365,7 +362,6 @@ impl AgentControl {
             return fail(in_use_refusal(target, flags));
         }
         let source_grants = (state.full_enabled, state.manage_enabled);
-        // Both authenticated hosts must grant elevated control; either host can require the original caller's card.
         if !self
             .confirm_stop(
                 &caller,
