@@ -77,9 +77,9 @@ export const KO_GROUP_TITLES: Record<string, string> = {
 export const KO_SETTINGS: Record<string, { label: string; description?: string }> = {
 	"auth.accountPolicies": { label: "계정별 인증 정책" },
 	"auth.unpausedProviders": {
-		label: "일시 중지된 프로바이더 다시 사용",
+		label: "일시정지된 프로바이더 다시 사용",
 		description:
-			"일시 중지된 프로바이더의 로그인·토큰 갱신·저장된 인증 정보를 다시 사용해요. 각 중지 사유에 표시된 계정 위험을 수락하는 설정이에요. 프로젝트 설정으로는 켤 수 없어요.",
+			"일시정지된 프로바이더의 로그인·토큰 갱신·저장된 인증 정보를 다시 사용해요. 각 중지 사유에 표시된 계정 위험을 수락하는 설정이에요. 프로젝트 설정으로는 켤 수 없어요.",
 	},
 	"todo.midRunNudges": {
 		label: "작업 중 할 일 알림",
