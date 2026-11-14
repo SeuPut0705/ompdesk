@@ -79,6 +79,19 @@ pub trait Host: Send + Sync + 'static {
         &self,
         target: &Self::Target,
     ) -> impl Future<Output = Result<SessionRuntime, Fault>> + Send;
+    /// Each effect must admit this exact captured target in the authoritative native pool.
+    fn stop_session(&self, target: &Self::Target)
+    -> impl Future<Output = Result<(), Fault>> + Send;
+    fn command_session(
+        &self,
+        target: &Self::Target,
+        command: Value,
+    ) -> impl Future<Output = Result<Value, Fault>> + Send;
+    fn note_session_name(
+        &self,
+        target: &Self::Target,
+        name: &str,
+    ) -> impl Future<Output = Result<(), Fault>> + Send;
     /// Atomically recheck the target incarnation and activity, enqueue disposal, and join its exact exit receipt.
     fn close_session(
         &self,
@@ -336,6 +349,52 @@ impl<H: Host> HostServices<H> {
             holders,
             notices: SessionNotices(notices),
         })
+    }
+
+    fn session_ticket_target<'a>(
+        &self,
+        ticket: &'a SessionTicket<H::Target>,
+    ) -> Result<&'a H::Target, Fault> {
+        if !lock(&self.state)
+            .tabs
+            .values()
+            .any(|tab| tab.serial == ticket.serial)
+        {
+            return Err(Fault::new(
+                "session_changed",
+                "The captured hosted tab is no longer present",
+            ));
+        }
+        Ok(&ticket.target)
+    }
+
+    pub async fn stop_session_ticket(
+        &self,
+        ticket: &SessionTicket<H::Target>,
+    ) -> Result<(), Fault> {
+        self.host
+            .stop_session(self.session_ticket_target(ticket)?)
+            .await
+    }
+
+    pub async fn command_session_ticket(
+        &self,
+        ticket: &SessionTicket<H::Target>,
+        command: Value,
+    ) -> Result<Value, Fault> {
+        self.host
+            .command_session(self.session_ticket_target(ticket)?, command)
+            .await
+    }
+
+    pub async fn note_session_name_ticket(
+        &self,
+        ticket: &SessionTicket<H::Target>,
+        name: &str,
+    ) -> Result<(), Fault> {
+        self.host
+            .note_session_name(self.session_ticket_target(ticket)?, name)
+            .await
     }
 
     /// Detach only the captured incarnation, even if it was rekeyed.

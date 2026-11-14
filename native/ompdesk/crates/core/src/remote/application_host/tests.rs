@@ -30,6 +30,8 @@ struct Effects {
     runtime_started: Semaphore,
     runtime_release: Semaphore,
     fail_after_close: AtomicBool,
+    session_effects: Mutex<Vec<(Arc<Target>, Value)>>,
+    fail_session_effect: AtomicBool,
 }
 impl Effects {
     fn new() -> Arc<Self> {
@@ -50,7 +52,20 @@ impl Effects {
             runtime_started: Semaphore::new(0),
             runtime_release: Semaphore::new(0),
             fail_after_close: AtomicBool::new(false),
+            session_effects: Mutex::default(),
+            fail_session_effect: AtomicBool::new(false),
         })
+    }
+
+    fn record_session_effect(&self, target: &Arc<Target>, command: Value) -> Result<(), Fault> {
+        lock(&self.session_effects).push((Arc::clone(target), command));
+        if self.fail_session_effect.load(Ordering::SeqCst) {
+            return Err(Fault::new(
+                "session_effect_failed",
+                "The native session effect failed",
+            ));
+        }
+        Ok(())
     }
 }
 impl Host for Effects {
@@ -103,6 +118,22 @@ impl Host for Effects {
     }
     fn snapshot(&self, target: &Arc<Target>) -> Result<Snapshot, Fault> {
         Ok(lock(&target.state).clone())
+    }
+    async fn stop_session(&self, target: &Arc<Target>) -> Result<(), Fault> {
+        self.record_session_effect(target, json!({"type":"stop"}))
+    }
+    async fn command_session(&self, target: &Arc<Target>, command: Value) -> Result<Value, Fault> {
+        self.record_session_effect(target, command)?;
+        Ok(json!({
+            "type":"response",
+            "command":"set_session_name",
+            "success":false,
+            "error":"Stock rejected the name",
+            "data":{"preserved":true}
+        }))
+    }
+    async fn note_session_name(&self, target: &Arc<Target>, name: &str) -> Result<(), Fault> {
+        self.record_session_effect(target, json!({"type":"note_session_name","name":name}))
     }
     async fn session_runtime(&self, target: &Arc<Target>) -> Result<SessionRuntime, Fault> {
         self.runtime_started.add_permits(1);
@@ -805,4 +836,143 @@ async fn runtime_await_keeps_the_previously_captured_target_across_rekey() {
         &service.target("peer", "new").unwrap(),
         &original
     ));
+}
+
+#[tokio::test]
+async fn captured_session_effects_keep_the_original_target_and_full_reply_after_rekey() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("old"), &host)
+        .await
+        .unwrap();
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    let ticket = &captured.holders[0].runtime;
+    let original = ticket.target();
+    service.disconnected(&owner, &host);
+    let (_new_device, new_host, _new_keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("new"), &new_host)
+        .await
+        .unwrap();
+
+    service.stop_session_ticket(ticket).await.unwrap();
+    let command = json!({"type":"set_session_name","name":"sample"});
+    let reply = service
+        .command_session_ticket(ticket, command.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        reply,
+        json!({
+            "type":"response",
+            "command":"set_session_name",
+            "success":false,
+            "error":"Stock rejected the name",
+            "data":{"preserved":true}
+        })
+    );
+    service
+        .note_session_name_ticket(ticket, "sample")
+        .await
+        .unwrap();
+    {
+        let effects = lock(&effects.session_effects);
+        assert_eq!(effects.len(), 3);
+        assert!(
+            effects
+                .iter()
+                .all(|(target, _)| Arc::ptr_eq(target, original))
+        );
+        assert_eq!(effects[0].1, json!({"type":"stop"}));
+        assert_eq!(effects[1].1, command);
+        assert_eq!(
+            effects[2].1,
+            json!({"type":"note_session_name","name":"sample"})
+        );
+    }
+    assert!(Arc::ptr_eq(
+        &service.target("peer", "new").unwrap(),
+        original
+    ));
+    service.drop_peer("peer").await.unwrap();
+}
+
+#[tokio::test]
+async fn replaced_hosted_ticket_refuses_all_session_effects_before_dispatch() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("same"), &host)
+        .await
+        .unwrap();
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    let ticket = &captured.holders[0].runtime;
+    service.close_session_ticket(ticket).await.unwrap();
+    lock(&effects.targets).remove("/session/one.jsonl");
+    service
+        .call(&owner, "tab.open", open("same"), &host)
+        .await
+        .unwrap();
+    let replacement = service.target("peer", "same").unwrap();
+    assert!(!Arc::ptr_eq(ticket.target(), &replacement));
+    assert_eq!(
+        service.stop_session_ticket(ticket).await.unwrap_err().code,
+        "session_changed"
+    );
+    assert_eq!(
+        service
+            .command_session_ticket(ticket, json!({"type":"get_state"}))
+            .await
+            .unwrap_err()
+            .code,
+        "session_changed"
+    );
+    assert_eq!(
+        service
+            .note_session_name_ticket(ticket, "obsolete")
+            .await
+            .unwrap_err()
+            .code,
+        "session_changed"
+    );
+    assert!(lock(&effects.session_effects).is_empty());
+    assert!(Arc::ptr_eq(
+        &service.target("peer", "same").unwrap(),
+        &replacement
+    ));
+    service.drop_peer("peer").await.unwrap();
+}
+
+#[tokio::test]
+async fn captured_session_effect_failures_are_not_reported_as_success() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("one"), &host)
+        .await
+        .unwrap();
+    let captured = service.capture_session("/session/one.jsonl").await.unwrap();
+    let ticket = &captured.holders[0].runtime;
+    effects.fail_session_effect.store(true, Ordering::SeqCst);
+    let expected = Fault::new("session_effect_failed", "The native session effect failed");
+    assert_eq!(
+        service.stop_session_ticket(ticket).await,
+        Err(expected.clone())
+    );
+    assert_eq!(
+        service
+            .command_session_ticket(ticket, json!({"type":"get_state"}))
+            .await,
+        Err(expected.clone())
+    );
+    assert_eq!(
+        service.note_session_name_ticket(ticket, "sample").await,
+        Err(expected)
+    );
+    assert_eq!(lock(&effects.session_effects).len(), 3);
+    service.drop_peer("peer").await.unwrap();
 }
