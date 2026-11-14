@@ -5,13 +5,7 @@
  * read it inline.
  */
 import { app, autoUpdater } from "electron";
-import {
-	type BackgroundWork,
-	backgroundWorkSentence,
-	hasBackgroundWork,
-	NO_BACKGROUND_WORK,
-} from "../../background-work";
-import { getMainLanguage, mainT } from "../../i18n";
+import { type BackgroundWork, NO_BACKGROUND_WORK } from "../../background-work";
 import { assessQuitRisk, type QuitRisk, type WindowTabFact } from "../../quit-guard";
 import { chrome } from "./chrome";
 import { markMainStep } from "./chrome-hang";
@@ -40,8 +34,8 @@ export interface QuitSpec {
 		approved: { run: boolean };
 	};
 	asks: {
-		quitFacts: { params: NoParams; result: QuitRisk & { resumes: boolean } };
-		backgroundWork: { params: NoParams; result: { has: boolean; sentence: string } };
+		quitSettings: { params: NoParams; result: { resumes: boolean } };
+		backgroundWork: { params: NoParams; result: BackgroundWork };
 		forcedExit: { params: { reason: QuitWatchdogReason; timeoutMs: number }; result: NoParams };
 	};
 }
@@ -131,15 +125,8 @@ export function installQuitGuard(
 	settled: () => Promise<void>,
 ): void {
 	inventory = tabInventory;
-	chrome().serve("quitFacts", () => ({ ...assessQuitRisk(inventory()), resumes: resumesInterrupted() }));
-	chrome().serve("backgroundWork", async () => {
-		const work = await readWork();
-		const language = getMainLanguage();
-		return {
-			has: hasBackgroundWork(work),
-			sentence: backgroundWorkSentence(work, (key, params) => mainT(key, language, params)),
-		};
-	});
+	chrome().serve("quitSettings", () => ({ resumes: resumesInterrupted() }));
+	chrome().serve("backgroundWork", () => readWork());
 	chrome().serve("forcedExit", () => {
 		// `app.exit` skips `will-quit`, so whatever hangs off it (the relaunch swap) runs here first.
 		for (const hook of forcedExitHooks) {

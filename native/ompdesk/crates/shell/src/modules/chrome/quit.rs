@@ -9,9 +9,9 @@ use std::time::Duration;
 use cef::ImplWindow;
 use serde_json::{Value, json};
 use shell_core::chrome_core::quit::{
-    ActivateAction, BackgroundWork, Confirmation, QUIT_EXIT_TIMEOUT_MS, QuitFacts, Reason,
-    Watchdog, activate_action, confirm_quit as quit_plan, confirm_update_restart as update_plan,
-    needs_background_work, watchdog_report,
+    ActivateAction, BackgroundWork, Confirmation, QUIT_EXIT_TIMEOUT_MS, QuitFacts, QuitRisk,
+    Reason, Watchdog, activate_action, confirm_quit as quit_plan,
+    confirm_update_restart as update_plan, needs_background_work, watchdog_report,
 };
 
 use super::window;
@@ -108,19 +108,37 @@ fn say(key: &str, params: &[(&str, &str)]) -> String {
     shell_core::labels::label(key, params).unwrap_or_else(|| key.to_string())
 }
 
-/// `chrome.quitFacts`: what a quit would stop. None when Node cannot say: the quit or restart is then refused
-/// (`Confirmation::Refuse`), never approved blind.
+/// The resume setting and the core's authoritative inventory. Failed or malformed answers refuse the quit.
 fn read_facts(ctx: Ctx, then: impl FnOnce(Option<QuitFacts>) + Send + 'static) {
-    ctx.ask("quitFacts", json!({}), None, move |answer, _| {
-        let facts = match answer {
-            Ok(value) => QuitFacts::from_json(&value),
-            Err(error) => {
-                log("quit.facts_failed", json!({ "error": error.message }));
-                None
-            }
+    ctx.ask("quitSettings", json!({}), None, move |answer, _| {
+        let resumes = answer.ok().and_then(|value| value["resumes"].as_bool());
+        let Some(resumes) = resumes else {
+            log("quit.settings_failed", json!({}));
+            return then(None);
         };
-        then(facts)
+        read_risk(ctx, move |risk| {
+            then(risk.map(|risk| QuitFacts { risk, resumes }))
+        });
     });
+}
+
+/// The quit and the changed-resource restart share the native core's inventory.
+pub(super) fn read_risk(ctx: Ctx, then: impl FnOnce(Option<QuitRisk>) + Send + 'static) {
+    ctx.core(
+        "pool.tabInventory",
+        json!({}),
+        None,
+        None,
+        move |answer, _| {
+            let risk = answer
+                .ok()
+                .and_then(|value| QuitRisk::from_inventory(&value));
+            if risk.is_none() {
+                log("quit.inventory_failed", json!({}));
+            }
+            then(risk);
+        },
+    );
 }
 
 /// True when nothing would stop or the person chose to quit anyway.
@@ -144,7 +162,7 @@ fn confirm_update_restart(ctx: Ctx, then: impl FnOnce(bool) + Send + 'static) {
             None,
             move |answer, _| match answer
                 .ok()
-                .and_then(|value| BackgroundWork::from_json(&value))
+                .and_then(|value| BackgroundWork::from_summary(&value, &say))
             {
                 Some(work) => present(update_plan(Some(&facts), Some(&work), &say), then),
                 None => {

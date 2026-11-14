@@ -97,6 +97,10 @@ async function session(env: Record<string, string>): Promise<Session> {
 			{ windowId: 1, tabId: "b", inFlight: false },
 		],
 	};
+	shell.client.handle("core.call", ({ method }: { method: string }) => {
+		if (method !== "pool.tabInventory") throw new Error(`unexpected core request ${method}`);
+		return inventory.facts;
+	});
 	const finalized = vi.fn(async () => {});
 	const ompsExited = Promise.withResolvers<void>();
 	quit.installQuitGuard(

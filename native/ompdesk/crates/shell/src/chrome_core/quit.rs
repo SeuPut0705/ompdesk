@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 
-/// The "sessions are still working" inventory Node answers `chrome.quitFacts` with (`assessQuitRisk`).
+/// The "sessions are still working" counts, derived from the core's `pool.tabInventory`.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct QuitRisk {
     pub working_tabs: u64,
@@ -13,24 +13,31 @@ pub struct QuitRisk {
     pub working_windows: u64,
 }
 
-/// `chrome.quitFacts`' answer: the risk, and whether Settings › General › Continue interrupted work is on (a quit then
-/// leaves its running turns to the next launch).
+/// The core's tab inventory and Settings › General › Continue interrupted work.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct QuitFacts {
     pub risk: QuitRisk,
     pub resumes: bool,
 }
 
-impl QuitFacts {
-    pub fn from_json(value: &Value) -> Option<Self> {
-        let count = |key: &str| value.get(key).and_then(Value::as_u64);
+impl QuitRisk {
+    /// `pool.tabInventory` is authoritative. A malformed inventory refuses the quit rather than reading as idle.
+    pub fn from_inventory(value: &Value) -> Option<Self> {
+        let tabs = value.as_array()?;
+        let mut windows = std::collections::BTreeSet::new();
+        let mut working_tabs = 0;
+        for tab in tabs {
+            let window = tab.get("windowId")?.as_u64()?;
+            let in_flight = tab.get("inFlight")?.as_bool()?;
+            if in_flight {
+                working_tabs += 1;
+                windows.insert(window);
+            }
+        }
         Some(Self {
-            risk: QuitRisk {
-                working_tabs: count("workingTabs")?,
-                total_tabs: count("totalTabs")?,
-                working_windows: count("workingWindows")?,
-            },
-            resumes: value.get("resumes").and_then(Value::as_bool)?,
+            working_tabs,
+            total_tabs: tabs.len() as u64,
+            working_windows: windows.len() as u64,
         })
     }
 }
@@ -67,7 +74,7 @@ pub fn needs_background_work(resumes: bool) -> bool {
     resumes
 }
 
-/// `chrome.backgroundWork`'s answer: whether work would start over, and the sentence naming it in the UI language.
+/// The localized confirmation subject, derived here from raw background-work counts and labels.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BackgroundWork {
     pub has: bool,
@@ -75,12 +82,105 @@ pub struct BackgroundWork {
 }
 
 impl BackgroundWork {
-    pub fn from_json(value: &Value) -> Option<Self> {
+    /// `chrome.backgroundWork` returns the native work probe's raw summary, not a Node-localized sentence.
+    pub fn from_summary(value: &Value, say: Say) -> Option<Self> {
+        let subagents = value.get("subagents")?.as_u64()?;
+        let jobs = value.get("jobs")?.as_u64()?;
+        let unknown = value.get("unknown").map_or(Some(0), Value::as_u64)?;
+        let mut remaining_names = 3;
+        let subagents_text = named_work(
+            subagents,
+            value.get("subagentLabels")?.as_array()?,
+            &mut remaining_names,
+            "updates.restartWork.subagents",
+            say,
+        )?;
+        let jobs_text = named_work(
+            jobs,
+            value.get("jobLabels")?.as_array()?,
+            &mut remaining_names,
+            "updates.restartWork.jobs",
+            say,
+        )?;
+        let unknown_text = if unknown == 0 {
+            String::new()
+        } else {
+            say(
+                "updates.restartWork.unknown",
+                &[("count", &unknown.to_string())],
+            )
+        };
+        let sentence = [subagents_text, jobs_text, unknown_text]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(&say("updates.restartWork.and", &[]));
         Some(Self {
-            has: value.get("has")?.as_bool()?,
-            sentence: value.get("sentence")?.as_str()?.to_string(),
+            has: subagents > 0 || jobs > 0 || unknown > 0,
+            sentence,
         })
     }
+}
+
+fn js_space(c: char) -> bool {
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
+}
+
+fn short_label(label: &str) -> String {
+    let mut text = String::with_capacity(label.len().min(160));
+    for part in label.split(js_space).filter(|part| !part.is_empty()) {
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(part);
+    }
+    if text.encode_utf16().count() <= 40 {
+        return text;
+    }
+    // The old String.slice(0, 39) counted UTF-16 units. An isolated half is replaced at the native UTF-8 boundary.
+    let mut units = [0; 39];
+    for (target, unit) in units.iter_mut().zip(text.encode_utf16()) {
+        *target = unit;
+    }
+    let mut shortened = String::from_utf16_lossy(&units);
+    shortened.push('…');
+    shortened
+}
+
+fn named_work(
+    count: u64,
+    labels: &[Value],
+    remaining: &mut usize,
+    key: &str,
+    say: Say,
+) -> Option<String> {
+    let mut names = Vec::new();
+    let mut more = false;
+    for label in labels {
+        let label = label.as_str()?;
+        if label.trim_matches(js_space).is_empty() {
+            continue;
+        }
+        if *remaining == 0 {
+            more = true;
+        } else {
+            names.push(short_label(label));
+            *remaining -= 1;
+        }
+    }
+    if count == 0 {
+        return Some(String::new());
+    }
+    let mut text = say(key, &[("count", &count.to_string())]);
+    if !names.is_empty() {
+        text.push_str(" (");
+        text.push_str(&names.join(", "));
+        if more {
+            text.push_str(", …");
+        }
+        text.push(')');
+    }
+    Some(text)
 }
 
 /// The text of a label key with its `{name}` placeholders filled (`shell_core::labels::label`).
@@ -142,7 +242,7 @@ pub enum Confirmation {
     Ask(Value),
 }
 
-/// `confirmQuit`; `facts` None when `chrome.quitFacts` failed or answered something else.
+/// `confirmQuit`; `facts` None when the core inventory or the resume setting failed or answered something else.
 pub fn confirm_quit(facts: Option<&QuitFacts>, say: Say) -> Confirmation {
     let Some(facts) = facts else {
         return Confirmation::Refuse;
@@ -154,8 +254,8 @@ pub fn confirm_quit(facts: Option<&QuitFacts>, say: Say) -> Confirmation {
     }
 }
 
-/// `confirmUpdateRestart`; `facts` None when `chrome.quitFacts` failed; `work` is what `chrome.backgroundWork`
-/// answered, asked only when `needs_background_work` (None there: it failed or answered something else).
+/// `confirmUpdateRestart`; `facts` None when the inventory or setting failed; `work` is the background summary,
+/// asked only when `needs_background_work` (None there: it failed or answered something else).
 pub fn confirm_update_restart(
     facts: Option<&QuitFacts>,
     work: Option<&BackgroundWork>,
@@ -300,6 +400,51 @@ mod tests {
     use super::*;
     use crate::chrome_core::captured::{of, steps};
     use crate::labels::fill;
+
+    #[test]
+    fn aggregates_the_core_inventory_as_assess_quit_risk_did() {
+        let captured: Value =
+            serde_json::from_str(include_str!("captured/quit-work.json")).unwrap();
+        for case in captured["inventories"].as_array().unwrap() {
+            assert_eq!(
+                QuitRisk::from_inventory(&case["input"]),
+                Some(risk(&case["output"]))
+            );
+        }
+        for invalid in [
+            Value::Null,
+            json!({}),
+            json!([{}]),
+            json!([{"windowId":1,"inFlight":"yes"}]),
+        ] {
+            assert_eq!(QuitRisk::from_inventory(&invalid), None);
+        }
+    }
+
+    #[test]
+    fn names_background_work_as_the_typescript_did_in_both_languages() {
+        let captured: Value =
+            serde_json::from_str(include_str!("captured/quit-work.json")).unwrap();
+        for case in captured["summaries"].as_array().unwrap() {
+            let say = |key: &str, params: &[(&str, &str)]| {
+                fill(case["labels"][key].as_str().unwrap(), params)
+            };
+            let work = BackgroundWork::from_summary(&case["input"], &say).unwrap();
+            assert_eq!(
+                json!({"has": work.has, "sentence": work.sentence}),
+                case["output"]
+            );
+        }
+        let say = |_: &str, _: &[(&str, &str)]| String::new();
+        for invalid in [
+            Value::Null,
+            json!({"has": false, "sentence": ""}),
+            json!({"subagents": -1, "jobs": 0, "subagentLabels": [], "jobLabels": []}),
+            json!({"subagents": 1, "jobs": 0, "subagentLabels": [null], "jobLabels": []}),
+        ] {
+            assert_eq!(BackgroundWork::from_summary(&invalid, &say), None);
+        }
+    }
 
     fn risk(value: &Value) -> QuitRisk {
         QuitRisk {
@@ -542,19 +687,22 @@ mod tests {
             },
             resumes: true,
         };
-        // `chrome.quitFacts` failed or was malformed.
+        // The core inventory failed or was malformed.
         assert_eq!(confirm_quit(None, &say), Confirmation::Refuse);
         assert_eq!(
             confirm_update_restart(None, None, &say),
             Confirmation::Refuse
         );
-        assert_eq!(QuitFacts::from_json(&json!({ "workingTabs": 1 })), None);
-        // Continue interrupted work on: the restart needs `chrome.backgroundWork`, which failed or was malformed.
+        assert_eq!(QuitRisk::from_inventory(&json!({ "workingTabs": 1 })), None);
+        // Continue interrupted work on: the restart needs background work, which failed or was malformed.
         assert_eq!(
             confirm_update_restart(Some(&idle), None, &say),
             Confirmation::Refuse
         );
-        assert_eq!(BackgroundWork::from_json(&json!({ "has": true })), None);
+        assert_eq!(
+            BackgroundWork::from_summary(&json!({ "has": true }), &say),
+            None
+        );
         // Setting off: the work is never asked, and nothing running proceeds as before.
         let off = QuitFacts {
             resumes: false,

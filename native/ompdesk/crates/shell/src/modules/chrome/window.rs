@@ -577,10 +577,10 @@ fn message_box(
 
 fn confirm_restart_for_changed_resources(win_id: u64) {
     let Some(ctx) = ctx() else { return };
-    ctx.ask("quitFacts", json!({}), None, move |answer, _| {
-        let facts = answer.unwrap_or_else(|_| json!({}));
-        let working = facts["workingTabs"].as_u64().unwrap_or(0).to_string();
-        let total = facts["totalTabs"].as_u64().unwrap_or(0).to_string();
+    quit::read_risk(ctx, move |risk| {
+        let Some(risk) = risk else { return };
+        let working = risk.working_tabs.to_string();
+        let total = risk.total_tabs.to_string();
         let options = json!({
             "type": "question",
             "buttons": [text("restart.now", &[]), text("restart.later", &[])],
