@@ -1,0 +1,342 @@
+{
+  "provenance": {
+    "generator": "Bun oracle capture invoking the current TypeScript exports",
+    "source": "resources/gui-bridge/redactor.ts",
+    "sourceSha256": "7f508ea43196676eadca13d23f03961ee5db0d9315a4ae2f7cd810e8d4f11b68",
+    "testSource": "src/main/redactor.test.ts",
+    "testSourceSha256": "0e5afe8a01d9502d6ca23787af154d332798ed732d509be3ee5381dc54f44d28"
+  },
+  "cases": [
+    {
+      "name": "vendor ghp_",
+      "operation": "text",
+      "input": "auth failed with ghp_a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2 for repo",
+      "output": "auth failed with <token> for repo"
+    },
+    {
+      "name": "vendor gho_",
+      "operation": "text",
+      "input": "auth failed with gho_x9Y8x9Y8x9Y8x9Y8x9Y8x9Y8 for repo",
+      "output": "auth failed with <token> for repo"
+    },
+    {
+      "name": "vendor ghs_",
+      "operation": "text",
+      "input": "auth failed with ghs_QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ for repo",
+      "output": "auth failed with <token> for repo"
+    },
+    {
+      "name": "vendor github_pat_",
+      "operation": "text",
+      "input": "auth failed with github_pat_11ABCDEFG0kkkkkkkkkkkkkkkkkkkkkkkkkkkkkk_zzzzzzzzzzzzzzzzzzzz for repo",
+      "output": "auth failed with <token> for repo"
+    },
+    {
+      "name": "provider keys",
+      "operation": "text",
+      "input": "key sk-ant-api03-AbCdEf0123456789_xyz-AbCdEf sk-proj-0123456789abcdefABCDEF",
+      "output": "key <token> <token>"
+    },
+    {
+      "name": "bearer",
+      "operation": "text",
+      "input": "Authorization: Bearer abc.DEF-123_456~xyz+/= header Bearer 8f14e45fceea167a",
+      "output": "Authorization: <secret> <token> header Bearer <token>"
+    },
+    {
+      "name": "jwt",
+      "operation": "text",
+      "input": "token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U end",
+      "output": "token <token> end"
+    },
+    {
+      "name": "other vendor",
+      "operation": "text",
+      "input": "AKIAIOSFODNN7EXAMPLE xoxb-1234567890-abcdefghij AIzaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "output": "<token> <token> <token>"
+    },
+    {
+      "name": "assignments",
+      "operation": "text",
+      "input": "OPENAI_API_KEY=hunter2hunter2\npassword: correcthorse\n{\"client_secret\":\"abc def\",\"a\":1}\nGET /x?access_token=abc123&other=1\nrefreshToken = 'a b c'",
+      "output": "OPENAI_API_KEY=<secret>\npassword: <secret>\n{\"client_secret\":<secret>,\"a\":1}\nGET /x?access_token=<secret>&other=1\nrefreshToken = <secret>"
+    },
+    {
+      "name": "escaped json string",
+      "operation": "text",
+      "input": "{\"message\":\"got \\\"token\\\":\\\"abcd1234\\\" back\"}",
+      "output": "{\"message\":\"got \\\"token\\\":<secret>\\\" back\"}"
+    },
+    {
+      "name": "pem multiple",
+      "operation": "text",
+      "input": "a -----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkq\\n-----END PRIVATE KEY----- b -----BEGIN PRIVATE KEY-----\\nQWxsb3dlZA\\n-----END PRIVATE KEY----- c",
+      "output": "a <secret> b <secret> c"
+    },
+    {
+      "name": "pem truncated",
+      "operation": "text",
+      "input": "key -----BEGIN RSA PRIVATE KEY-----\\nMIIEowIBAAKCAQEA…",
+      "output": "key <secret>"
+    },
+    {
+      "name": "userinfo",
+      "operation": "text",
+      "input": "clone https://alice:s3cret@example.com/o/r.git",
+      "output": "clone https://<secret>@example.com/o/r.git"
+    },
+    {
+      "name": "long runs",
+      "operation": "text",
+      "input": "key 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef end blob aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6kL9n",
+      "output": "key <token> end blob <token>"
+    },
+    {
+      "name": "false positives",
+      "operation": "text",
+      "input": "OMPdesk 0.35.1 omp 18.11.1 Electron 36.4.0 Chrome 136.0.7103.113 Node 22.16.0\nWindows 10.0.22631.4890 build 1.2.3.4 v10.1.2.3\nsession 550e8400-e29b-41d4-a716-446655440000 and 550E8400-E29B-41D4-A716-446655440000\ncommit e4c6599 on branch omp/agent/orca-hygiene\nmaxTokens: 4096 totalTokens=1234 tokens: 12 hasToken: false token: null\nordinary words stay: password manager, secret santa, tokenizer",
+      "output": "OMPdesk 0.35.1 omp 18.11.1 Electron 36.4.0 Chrome 136.0.7103.113 Node 22.16.0\nWindows 10.0.22631.4890 build 1.2.3.4 v10.1.2.3\nsession 550e8400-e29b-41d4-a716-446655440000 and 550E8400-E29B-41D4-A716-446655440000\ncommit e4c6599 on branch omp/agent/orca-hygiene\nmaxTokens: 4096 totalTokens=1234 tokens: 12 hasToken: false token: null\nordinary words stay: password manager, secret santa, tokenizer"
+    },
+    {
+      "name": "paths identifiers",
+      "operation": "text",
+      "input": "~/.omp/wt/gui-orca-hygiene-540bd7d/node_modules/@oh-my-pi/pi-coding-agent/src/UpdatesSectionRow2 useMachineSetupStoreForTheWholeApp",
+      "output": "~/.omp/wt/gui-orca-hygiene-540bd7d/node_modules/@oh-my-pi/pi-coding-agent/src/UpdatesSectionRow2 useMachineSetupStoreForTheWholeApp"
+    },
+    {
+      "name": "inert",
+      "operation": "text",
+      "input": "token=<token> password= flagToken=true token=false token=null token=undefined token=none token=1234",
+      "output": "token=<token> password= <secret> token=false token=null token=undefined token=none token=1234"
+    },
+    {
+      "name": "emails",
+      "operation": "text",
+      "input": "from Alice.Smith+x@example.co.uk, cc bob@corp.example.com git@github.com:example/thing.git @oh-my-pi/pi-coding-agent@18.11.1 foo@latest 12345+alice@users.noreply.example.com",
+      "output": "from <email>, cc <email> git@github.com:example/thing.git @oh-my-pi/pi-coding-agent@18.11.1 foo@latest <email>"
+    },
+    {
+      "name": "tailnet addresses",
+      "operation": "text",
+      "input": "peer 100.64.0.1 100.101.102.103 100.127.255.254 100.63.255.255 100.128.0.1",
+      "output": "peer <tailnet-ip> <tailnet-ip> <tailnet-ip> 100.63.255.255 100.128.0.1"
+    },
+    {
+      "name": "tailnet host",
+      "operation": "text",
+      "input": "https://macbook-pro.tail1234.ts.net:443/pair host.TS.NET ts.net is mentioned; nets.ts.example",
+      "output": "https://<tailnet-host>:443/pair <tailnet-host> ts.net is mentioned; nets.ts.example"
+    },
+    {
+      "name": "private ipv4",
+      "operation": "text",
+      "input": "10.0.0.0 10.255.255.255 192.168.1.20:47831 172.16.0.1 172.31.255.9 172.15.0.1 172.32.0.1 192.169.0.1 11.0.0.1",
+      "output": "<lan-ip> <lan-ip> <lan-ip>:47831 <lan-ip> <lan-ip> 172.15.0.1 172.32.0.1 192.169.0.1 11.0.0.1"
+    },
+    {
+      "name": "invalid dotted",
+      "operation": "text",
+      "input": "127.0.0.1 8.8.8.8 1.2.3.4 10.0.22631.4890 192.168.999.1 10.256.0.1 999.1.2.3 v10.1.2.3 x10.1.2.3 10.1.2.3.4",
+      "output": "127.0.0.1 8.8.8.8 1.2.3.4 10.0.22631.4890 192.168.999.1 10.256.0.1 999.1.2.3 v10.1.2.3 x10.1.2.3 10.1.2.3.4"
+    },
+    {
+      "name": "ipv6",
+      "operation": "text",
+      "input": "fe80::1ff:fe23:4567:890a%en0 fd12:3456:789a::1 fd7a:115c:a1e0:ab12:4843:cd96:6258:1234 2001:db8::1 ::1 12:34:56 fd:00",
+      "output": "<lan-ip> <lan-ip> <tailnet-ip> 2001:db8::1 ::1 12:34:56 fd:00"
+    },
+    {
+      "name": "homes",
+      "operation": "text",
+      "input": "/Users/alice/.omp/wt/x C:\\Users\\Jane Doe\\Documents\\x opened C:\\Users\\bob in the editor D:/Users/김스풋/work file:///Users/alice/a.txt /home/alice/project /Users/Shared/x C:\\Users\\Public\\y /usr/local/bin",
+      "output": "~/.omp/wt/x ~\\Documents\\x opened ~ in the editor ~/work file://~/a.txt ~/project /Users/Shared/x C:\\Users\\Public\\y /usr/local/bin"
+    },
+    {
+      "name": "escaped windows home",
+      "operation": "text",
+      "input": "{\"cwd\":\"C:\\\\Users\\\\alice\\\\proj\"}",
+      "output": "{\"cwd\":\"~\\\\proj\"}"
+    },
+    {
+      "name": "unicode",
+      "operation": "text",
+      "input": "안녕 😀 alice@example.com /Users/김스풋/작업 token=비밀값 192.168.1.5",
+      "output": "안녕 😀 <email> ~/작업 token=<secret> <lan-ip>"
+    },
+    {
+      "name": "long s and kelvin",
+      "operation": "text",
+      "input": "ſecret=value paſſword=value toKen=value Key=abc bearer abcdefgh Bearer abcdefgh",
+      "output": "ſecret=value paſſword=value toKen=value Key=abc bearer <token> Bearer <token>"
+    },
+    {
+      "name": "unicode digit and whitespace",
+      "operation": "text",
+      "input": "token=١٢٣ token=１２３ token=123 Bearer abcdefgh Bearer abcdefgh /home/alice project ١10.0.0.1",
+      "output": "token=<secret> token=<secret> token=123 Bearer <token> Bearer <token> ~ project ١<lan-ip>"
+    },
+    {
+      "name": "word boundaries unicode",
+      "operation": "text",
+      "input": "ſghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa K10.1.2.3 한10.1.2.3 _10.1.2.3",
+      "output": "ſ<token> K<lan-ip> 한<lan-ip> _10.1.2.3"
+    },
+    {
+      "name": "credentials only",
+      "operation": "secret",
+      "input": "export GH_TOKEN=ghp_a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2\ncurl -H 'Authorization: Bearer abc.DEF-123_456~xyz' https://alice:s3cret@example.com/x\nOPENAI_API_KEY=hunter2hunter2 sk-proj-0123456789abcdefABCDEF\naws AKIAIOSFODNN7EXAMPLE and 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "output": "export GH_TOKEN=<token>\ncurl -H 'Authorization: <secret> <token>' https://<secret>@example.com/x\nOPENAI_API_KEY=<secret> <token>\naws <token> and <token>"
+    },
+    {
+      "name": "personal data remains",
+      "operation": "secret",
+      "input": "mail alice@example.com from /Users/alice/work on 100.64.0.1 and 192.168.1.5 via box.tail1234.ts.net",
+      "output": "mail alice@example.com from /Users/alice/work on 100.64.0.1 and 192.168.1.5 via box.tail1234.ts.net"
+    },
+    {
+      "name": "credentials and email",
+      "operation": "secret",
+      "input": "token=abc123def and 0123456789abcdef0123456789abcdef by bob@corp.example.com",
+      "output": "token=<secret> and <token> by bob@corp.example.com"
+    },
+    {
+      "name": "unicode regex secret",
+      "operation": "secret",
+      "input": "ſecret=value toKen=value token=١٢٣ Bearer abcdefgh",
+      "output": "ſecret=value toKen=value token=<secret> Bearer <token>"
+    },
+    {
+      "name": "original pretty JSON",
+      "operation": "file",
+      "file": "llm-request.json",
+      "input": "{\n  \"systemPrompt\": \"cwd /Users/jane/proj\",\n  \"apiKey\": \"hunter2-hunter2\",\n  \"credentials\": {\n    \"type\": \"oauth\",\n    \"tokens\": 3\n  },\n  \"maxTokens\": 4096,\n  \"messages\": [\n    {\n      \"content\": \"mail jane@example.com\"\n    }\n  ]\n}\n",
+      "output": "{\n  \"systemPrompt\": \"cwd ~/proj\",\n  \"apiKey\": \"<secret>\",\n  \"credentials\": {\n    \"type\": \"oauth\",\n    \"tokens\": 3\n  },\n  \"maxTokens\": 4096,\n  \"messages\": [\n    {\n      \"content\": \"mail <email>\"\n    }\n  ]\n}\n"
+    },
+    {
+      "name": "original JSONL",
+      "operation": "file",
+      "file": "session.jsonl",
+      "input": "{\"systemPrompt\":\"cwd /Users/jane/proj\",\"apiKey\":\"hunter2-hunter2\",\"credentials\":{\"type\":\"oauth\",\"tokens\":3},\"maxTokens\":4096,\"messages\":[{\"content\":\"mail jane@example.com\"}]}\nraw /Users/jane/x\n",
+      "output": "{\"systemPrompt\":\"cwd ~/proj\",\"apiKey\":\"<secret>\",\"credentials\":{\"type\":\"oauth\",\"tokens\":3},\"maxTokens\":4096,\"messages\":[{\"content\":\"mail <email>\"}]}\nraw ~/x\n"
+    },
+    {
+      "name": "malformed JSON",
+      "operation": "file",
+      "file": "llm-request.json",
+      "input": "{\"cut\": \"/Users/jane/x",
+      "output": "{\"cut\": \"~/x"
+    },
+    {
+      "name": "plain text file",
+      "operation": "file",
+      "file": "session.md",
+      "input": "token=abc123def from /Users/jane",
+      "output": "token=<secret> from ~"
+    },
+    {
+      "name": "nested secret propagation",
+      "operation": "file",
+      "file": "nested.JSON",
+      "input": "{\"token\":[\"alpha\",\"false\",42,null,[\"beta\",{\"plain\":\"visible\",\"token\":\"gamma\"}]],\"credentials\":{\"type\":\"oauth\",\"nested\":[\"hello\",{\"password\":\"private\"}]},\"TOKEN\":\"alpha\",\"TokenS\":\"123\",\"mail alice@example.com\":\"/home/alice/😀\",\"api\\\\u004bey\":\"value\"}",
+      "output": "{\"token\":[\"<secret>\",\"false\",42,null,[\"<secret>\",{\"plain\":\"visible\",\"token\":\"<secret>\"}]],\"credentials\":{\"type\":\"oauth\",\"nested\":[\"hello\",{\"password\":\"<secret>\"}]},\"TOKEN\":\"<secret>\",\"TokenS\":\"123\",\"mail <email>\":\"~/😀\",\"api\\\\u004bey\":\"value\"}"
+    },
+    {
+      "name": "escaped key names",
+      "operation": "file",
+      "file": "escaped.json",
+      "input": "{\"api\\u004bey\":\"abc123\",\"tok\\u0065n\":\"secret value\",\"message\":\"escaped \\\"token\\\":\\\"abc123\\\" and C:\\\\Users\\\\alice\\\\proj\"}",
+      "output": "{\"apiKey\":\"<secret>\",\"token\":\"<secret>\",\"message\":\"escaped \\\"token\\\":<secret> and ~\\\\proj\"}"
+    },
+    {
+      "name": "JSONL blanks and malformed",
+      "operation": "file",
+      "file": "trace.JsOnL",
+      "input": "\n  \n{\"TOKEN\":[\"abc\", \"none\", {\"plain\":\"mail alice@example.com\"}]}\nnot json token=abc123 /home/alice/x\n{\"broken\":\n\n",
+      "output": "\n  \n{\"TOKEN\":[\"<secret>\",\"none\",{\"plain\":\"mail <email>\"}]}\nnot json token=<secret> ~/x\n{\"broken\":\n\n"
+    },
+    {
+      "name": "compact JSON no newline",
+      "operation": "file",
+      "file": "compact.JSON",
+      "input": "{\"password\":\"a\",\"count\":1,\"message\":\"안녕 😀\"}",
+      "output": "{\"password\":\"<secret>\",\"count\":1,\"message\":\"안녕 😀\"}"
+    },
+    {
+      "name": "JSON array formatted",
+      "operation": "file",
+      "file": "array.json",
+      "input": "[\n  {\"token\": [\"alpha\", \"false\"]},\n  \"mail alice@example.com\"\n]\n",
+      "output": "[\n  {\n    \"token\": [\n      \"<secret>\",\n      \"false\"\n    ]\n  },\n  \"mail <email>\"\n]\n"
+    },
+    {
+      "name": "non-json extension",
+      "operation": "file",
+      "file": "report.JSON.backup",
+      "input": "{\"token\":\"abc\", \"cwd\":\"/Users/alice/x\"}",
+      "output": "{\"token\":<secret>, \"cwd\":\"~/x\"}"
+    },
+    {
+      "name": "unicode secret keys",
+      "operation": "file",
+      "file": "unicode.json",
+      "input": "{\"ſecret\":\"abc\",\"toKen\":\"abc\",\"token\":\"١٢٣\",\"TOKEN\":\"123\",\"패스워드\":\"안녕 😀\"}",
+      "output": "{\"ſecret\":\"abc\",\"toKen\":\"abc\",\"token\":\"<secret>\",\"TOKEN\":\"123\",\"패스워드\":\"안녕 😀\"}"
+    },
+    {
+      "name": "number overflow rounding negative zero",
+      "operation": "file",
+      "file": "numbers.json",
+      "input": "{\"positive\":1e400,\"negative\":-1e400,\"huge\":9007199254740993,\"hugeNegative\":-9007199254740993,\"zero\":-0,\"decimal\":-0.0,\"exponent\":-0e10,\"large\":123456789012345678901234567890}",
+      "output": "{\"positive\":null,\"negative\":null,\"huge\":9007199254740992,\"hugeNegative\":-9007199254740992,\"zero\":0,\"decimal\":0,\"exponent\":0,\"large\":1.2345678901234568e+29}"
+    },
+    {
+      "name": "depth 200 secret and ordinary arrays",
+      "operation": "file",
+      "file": "deep.json",
+      "input": "{\"token\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[\"sensitive fictional value\"]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"ordinaryfield\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[\"alice@example.com /Users/alice/x\"]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+      "output": "{\"token\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[\"<secret>\"]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"ordinaryfield\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[\"<email> ~/x\"]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}"
+    },
+    {
+      "name": "lone surrogate strings and keys",
+      "operation": "file",
+      "file": "surrogates.json",
+      "input": "{\"token\":\"\\ud800\",\"password\":\"\\udc00\",\"ordinary\":\"before\\ud800after\\udc00\",\"\\ud800\":\"value\",\"key\\udc00\":\"alice@example.com\",\"\\ud800token\":\"secret value\",\"token\\udc00\":\"secret value\"}",
+      "output": "{\"token\":\"<secret>\",\"password\":\"<secret>\",\"ordinary\":\"before\\ud800after\\udc00\",\"\\ud800\":\"value\",\"key\\udc00\":\"<email>\",\"\\ud800token\":\"secret value\",\"token\\udc00\":\"secret value\"}"
+    },
+    {
+      "name": "valid surrogate pairs",
+      "operation": "file",
+      "file": "pairs.json",
+      "input": "{\"token\":\"\\ud83d\\ude00\",\"ordinary\":\"\\ud83d\\ude00 alice@example.com\",\"\\ud83d\\ude00\":\"\\ud83d\\ude00\",\"nested\":[\"\\ud83d\\ude00\",{\"password\":\"\\ud83d\\ude00\"}]}",
+      "output": "{\"token\":\"<secret>\",\"ordinary\":\"😀 <email>\",\"😀\":\"😀\",\"nested\":[\"😀\",{\"password\":\"<secret>\"}]}"
+    },
+    {
+      "name": "duplicate keys",
+      "operation": "file",
+      "file": "duplicates.json",
+      "input": "{\"first\":1,\"token\":\"initial\",\"first\":2,\"token\":\"last\",\"ordinary\":\"first\",\"ordinary\":\"alice@example.com\"}",
+      "output": "{\"first\":2,\"token\":\"<secret>\",\"ordinary\":\"<email>\"}"
+    },
+    {
+      "name": "redacted key collisions",
+      "operation": "file",
+      "file": "collisions.json",
+      "input": "{\"alice@example.com\":\"first\",\"bob@example.com\":\"second\",\"/Users/alice\":\"third\",\"/home/bob\":\"fourth\",\"<email>\":\"last\"}",
+      "output": "{\"<email>\":\"last\",\"~\":\"fourth\"}"
+    },
+    {
+      "name": "numeric index object ordering",
+      "operation": "file",
+      "file": "ordering.json",
+      "input": "{\"10\":\"ten\",\"2\":\"two\",\"01\":\"leading\",\"4294967295\":\"max\",\"4294967294\":\"index\",\"0\":\"zero\",\"3\":\"three\",\"00\":\"double zero\",\"-0\":\"negative zero\",\"1\":\"one\",\"10\":\"ten again\"}",
+      "output": "{\"0\":\"zero\",\"1\":\"one\",\"2\":\"two\",\"3\":\"three\",\"10\":\"ten again\",\"4294967294\":\"index\",\"01\":\"leading\",\"4294967295\":\"max\",\"00\":\"double zero\",\"-0\":\"negative zero\"}"
+    },
+    {
+      "name": "numeric and surrogate JSONL",
+      "operation": "file",
+      "file": "edge.jsonl",
+      "input": "{\"token\":\"\\ud800\",\"number\":1e400}\n{\"2\":\"two\",\"1\":\"one\",\"n\":-0,\"s\":\"\\ud83d\\ude00\"}\n",
+      "output": "{\"token\":\"<secret>\",\"number\":null}\n{\"1\":\"one\",\"2\":\"two\",\"n\":0,\"s\":\"😀\"}\n"
+    }
+  ]
+}

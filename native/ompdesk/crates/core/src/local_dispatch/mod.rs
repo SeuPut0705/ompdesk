@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::pool::application::Sidecar;
 use crate::server::Fault;
 
+pub mod archive;
 pub mod authoring;
 pub mod composer;
 pub mod delivery;
@@ -41,6 +42,7 @@ pub struct Config {
 }
 
 static METADATA: LazyLock<metadata::Metadata> = LazyLock::new(metadata::Metadata::default);
+static ARCHIVES: LazyLock<archive::Archives> = LazyLock::new(archive::Archives::default);
 
 #[derive(Clone, Copy)]
 pub enum Area {
@@ -54,6 +56,7 @@ pub enum Area {
     Authoring,
     Live,
     Stock,
+    Archive,
 }
 
 pub struct CommandTable(HashMap<&'static str, Area>);
@@ -83,6 +86,7 @@ impl CommandTable {
             ("authoring", Area::Authoring, authoring::COMMANDS),
             ("live", Area::Live, live::COMMANDS),
             ("stock", Area::Stock, stock_commands::COMMANDS),
+            ("archive", Area::Archive, archive::COMMANDS),
         ])
     }
 }
@@ -151,6 +155,7 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
             Area::Authoring => authoring::handle(&command, &spawn.session, &self.config.templates).await,
             Area::Live => live::handle(&command, &spawn.session).await,
             Area::Stock => stock_commands::handle(&command, &self.config.stock).await,
+            Area::Archive => ARCHIVES.handle(&command, &spawn.session).await,
         };
         self.source.before_response();
         serde_json::to_value(RpcResponse::local(&command, result)).map_err(|error| Fault::new("internal", error.to_string()))
