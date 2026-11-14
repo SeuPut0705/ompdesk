@@ -1199,8 +1199,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	closeTab: async (id, closeRequest) => {
+		const view = get().tabs.find(tab => tab.id === id);
 		const actions = await loadTabActions("tabs.closeFailed");
-		if (!actions) {
+		const current = get().tabs.find(tab => tab.id === id);
+		if (!actions || !view || !current || current.viewId !== view.viewId) {
 			if (closeRequest) await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
 			return;
 		}
@@ -1208,7 +1210,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	closeDeletedSession: async (sessionPath, tabId) => {
+		const view = get().tabs.find(tab => tab.id === tabId);
 		const actions = await loadTabActions("tabs.closeFailed");
+		const current = get().tabs.find(tab => tab.id === tabId);
+		if (current?.viewId !== view?.viewId || Boolean(current) !== Boolean(view)) return false;
 		return actions ? actions.closeDeletedSession(sessionPath, tabId) : false;
 	},
 
@@ -1325,8 +1330,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			list = current;
 			closed = closed?.filter(id => !current.some(info => info.tabId === id));
 		}
+		const originalViews = new Map(get().tabs.map(tab => [tab.id, tab]));
 		for (const id of closed ?? []) {
-			const tab = get().tabs.find(entry => entry.id === id);
+			const tab = originalViews.get(id);
+			const current = get().tabs.find(entry => entry.id === id);
+			if (current?.viewId !== tab?.viewId || Boolean(current) !== Boolean(tab)) continue;
 			if (tab && !tab.shared) await get().closeDeletedSession(tab.sessionPath ?? "", id);
 			// Main closed it before this window listed it (a paired host refused a tab `openTab` is still adding): the
 			// open finds it gone instead of adding a tab main no longer has.
@@ -1361,8 +1369,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		// A tab another window owned and closed is gone for this viewer too.
 		if (!unseen) {
-			for (const tab of get().tabs) {
-				if (tab.shared && !listed.has(tab.id)) await get().closeTab(tab.id);
+			for (const tab of originalViews.values()) {
+				const current = get().tabs.find(entry => entry.id === tab.id);
+				if (tab.shared && current?.shared && !listed.has(tab.id) && tab.viewId === current.viewId)
+					await get().closeTab(tab.id);
 			}
 		}
 		if (!shown) return;

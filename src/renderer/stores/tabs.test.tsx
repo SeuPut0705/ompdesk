@@ -1649,6 +1649,7 @@ describe("retained execution view races", () => {
 		});
 		expect(sessionRuntime("t2")).toBe(freshRuntimeB);
 		expect(sessionRuntimeStore<ComposerStore>("t2", "composer")?.getState().draft).toBe("work in reopened B");
+		expect(useTabsStore.getState().closedTabs.some(tab => tab.sessionPath === freshB.sessionPath)).toBe(false);
 	});
 
 	it("keeps the second reopened view while an earlier deleted-session close is pending", async () => {
