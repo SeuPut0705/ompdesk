@@ -44,7 +44,8 @@ DeleteLocalClosed(d) ==
 StorageRemove(d) ==
     /\ dpc[d] = "store" /\ file' = FALSE /\ dpc' = [dpc EXCEPT ![d] = "removed"]
     /\ UNCHANGED <<tombstone, fence, acknowledged, detail>>
-\* @code src/main/session-index.ts:329-338,441-444 Notify after storage removal.
+\* @code src/main/session-index.ts:329-338 Remove the stored session.
+\* @code src/main/session-index.ts:441-444 Notify after storage removal.
 \* @code src/main/session-list-share.ts:46-60 Invalidate the shared list.
 DeleteNotify(d) ==
     /\ dpc[d] = "removed" /\ dpc' = [dpc EXCEPT ![d] = "notified"]
@@ -82,7 +83,8 @@ ShareStale ==
     /\ Mode = "list" /\ ~detail.shared.bumped
     /\ detail' = [detail EXCEPT !.shared.gen = @ + 1, !.shared.bumped = TRUE]
     /\ UNCHANGED <<file, tombstone, dpc, fence, acknowledged>>
-\* @code src/main/session-list-share.ts:34-43,77-89 Start a shared read and capture its generation.
+\* @code src/main/session-list-share.ts:34-43 Wait for the wanted generation.
+\* @code src/main/session-list-share.ts:77-89 Start a shared read and capture its generation.
 ShareReadStart ==
     /\ Mode = "list" /\ ~detail.shared.reading /\ detail.shared.copyGen < detail.shared.gen
     /\ detail' = [detail EXCEPT !.shared.reading = TRUE, !.shared.sampleGen = detail.shared.gen, !.shared.sampleRow = file]
@@ -117,12 +119,14 @@ Reconnect ==
     /\ detail' = [detail EXCEPT !.connection = 1, !.online = TRUE, !.feed = detail.snapshot]
     /\ UNCHANGED <<file, tombstone, dpc, fence, acknowledged>>
 \* @code src/main/tab-layout.ts:80-108 Bridge the deleted query to the tombstone.
-\* @code native/ompdesk/crates/core/src/pool/layout.rs:156-158,270-277 Filter deleted sessions during restore.
+\* @code native/ompdesk/crates/core/src/pool/layout.rs:156-158 Filter deleted sessions.
+\* @code native/ompdesk/crates/core/src/pool/layout.rs:270-277 Apply the restore filter.
 Restore ==
     /\ Mode = "restore" /\ ~detail.restored /\ tombstone
     /\ detail' = [detail EXCEPT !.restored = TRUE, !.restoredRow = ~tombstone]
     /\ UNCHANGED <<file, tombstone, dpc, fence, acknowledged>>
-\* @code src/main/remote/host-services.ts:1929-1951,2127-2160 Check and publish a view without another await.
+\* @code src/main/remote/host-services.ts:1929-1951 Check the existing hosted view.
+\* @code src/main/remote/host-services.ts:2127-2160 Publish a view without another await.
 OpenView(o) ==
     /\ Mode = "open" /\ detail.op[o] = "unused" /\ OpenAllowed
     /\ detail' = [detail EXCEPT !.op[o] = "published", !.published = IF detail.published = {} THEN {o} ELSE detail.published]
@@ -142,7 +146,8 @@ OpenCwd(o) ==
     /\ Mode = "open" /\ detail.op[o] = "cwd"
     /\ detail' = [detail EXCEPT !.op[o] = IF OpenAllowed THEN "directory" ELSE "refused"]
     /\ UNCHANGED <<file, tombstone, dpc, fence, acknowledged>>
-\* @code src/main/remote/host-services.ts:1967-2004,2127-2160 Recheck and publish synchronously.
+\* @code src/main/remote/host-services.ts:1967-2004 Recheck after the folder lookups.
+\* @code src/main/remote/host-services.ts:2127-2160 Publish synchronously.
 OpenPublish(o) ==
     /\ Mode = "open" /\ detail.op[o] = "directory"
     /\ LET allowed == IF RecheckOpen THEN OpenAllowed ELSE TRUE IN
