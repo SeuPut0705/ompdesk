@@ -163,6 +163,15 @@ impl<S: DeserializeOwned + Send + Sync + 'static> Port<S> {
         rx
     }
 
+    #[cfg(test)]
+    pub(crate) fn active_change_waiters(&self) -> usize {
+        self.lock()
+            .watchers
+            .iter()
+            .filter(|watcher| !watcher.is_closed())
+            .count()
+    }
+
     /// Main's state now: one ask, answered with the state.
     pub async fn fresh(&self) -> Result<Arc<S>, PortError> {
         self.ask_raw("state", &()).await?;

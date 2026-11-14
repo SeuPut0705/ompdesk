@@ -119,6 +119,33 @@ pub(crate) fn native_rig<F>(
 where
     F: Fn(&str, &Value) -> Result<Value, String> + Send + Sync + 'static,
 {
+    native_rig_async(
+        id,
+        state,
+        caps,
+        files,
+        tuning,
+        move |method: String, args: Value| std::future::ready(reply(&method, &args)),
+    )
+}
+
+pub(crate) fn native_rig_async<F, Fut>(
+    id: u64,
+    state: Value,
+    caps: Caps,
+    files: &Files,
+    tuning: Tuning,
+    reply: F,
+) -> (
+    AgentControl,
+    Told,
+    tokio::sync::mpsc::UnboundedReceiver<Value>,
+    impl Drop + use<F, Fut>,
+)
+where
+    F: Fn(String, Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, String>> + Send + 'static,
+{
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -390,14 +417,16 @@ fn native_port(
     (port, BufReader::new(reader).lines(), tx)
 }
 
-fn native_main(
+fn native_main<F, Fut>(
     port: Arc<Port<HostState>>,
     mut lines: tokio::io::Lines<BufReader<tokio::io::DuplexStream>>,
     tx: tokio::sync::mpsc::UnboundedSender<crate::wire::Frame>,
-    context: Arc<
-        NativeMain<impl Fn(&str, &Value) -> Result<Value, String> + Send + Sync + 'static>,
-    >,
-) -> tokio::task::JoinHandle<()> {
+    context: Arc<NativeMain<F>>,
+) -> tokio::task::JoinHandle<()>
+where
+    F: Fn(String, Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, String>> + Send + 'static,
+{
     tokio::spawn(async move {
         let _tx = tx;
         let mut tasks = tokio::task::JoinSet::new();
@@ -428,7 +457,7 @@ fn native_main(
             let port = port.clone();
             let context = context.clone();
             tasks.spawn(async move {
-                let result = native_answer(&method, &args, &context).await;
+                let result = native_answer(method, args, &context).await;
                 match result {
                     Ok(value) => crate::ports::apply_answer(&port, ask, Ok(&value.to_string())),
                     Err(message) => crate::ports::apply_answer(&port, ask, Err((&message, None))),
@@ -440,11 +469,15 @@ fn native_main(
     })
 }
 
-async fn native_answer(
-    method: &str,
-    args: &Value,
-    context: &NativeMain<impl Fn(&str, &Value) -> Result<Value, String> + Send + Sync>,
-) -> Result<Value, String> {
+async fn native_answer<F, Fut>(
+    method: String,
+    args: Value,
+    context: &NativeMain<F>,
+) -> Result<Value, String>
+where
+    F: Fn(String, Value) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<Value, String>> + Send,
+{
     use base64::Engine;
 
     let journal = &context.journal;
@@ -453,7 +486,7 @@ async fn native_answer(
     let host_id = &context.host_id;
     let reply = &context.reply;
 
-    match method {
+    match method.as_str() {
         "state" => Ok(Value::Null),
         "inboxStatus" => {
             let path = args["sessionPath"]
@@ -558,7 +591,7 @@ async fn native_answer(
                 .await
             }
         }
-        _ => reply(method, args),
+        _ => reply(method, args).await,
     }
 }
 
