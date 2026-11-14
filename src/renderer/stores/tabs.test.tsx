@@ -1708,12 +1708,10 @@ describe("retained execution view races", () => {
 		const oldListingStarted = Promise.withResolvers<void>();
 		const newRelease = Promise.withResolvers<boolean>();
 		const newReleaseStarted = Promise.withResolvers<void>();
-		omp.tabs.close
-			.mockResolvedValueOnce(false)
-			.mockImplementationOnce(() => {
-				newReleaseStarted.resolve();
-				return newRelease.promise;
-			});
+		omp.tabs.close.mockResolvedValueOnce(false).mockImplementationOnce(() => {
+			newReleaseStarted.resolve();
+			return newRelease.promise;
+		});
 		omp.tabs.list.mockImplementationOnce(() => {
 			oldListingStarted.resolve();
 			return oldListing.promise;
