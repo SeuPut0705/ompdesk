@@ -22,7 +22,7 @@ it("does not let an ambient executable shadow a resolved toolchain child", () =>
 		const expected = execFileSync(process.execPath, ["--version"], { encoding: "utf8" });
 		const actual = execFileSync(
 			process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "/bin/sh",
-			process.platform === "win32" ? ["/d", "/s", "/c", `"${name}" --version`] : ["-c", `"${name}" --version`],
+			process.platform === "win32" ? ["/d", "/s", "/c", name, "--version"] : ["-c", `"${name}" --version`],
 			{ cwd: work, env, encoding: "utf8" },
 		);
 		expect(actual).toBe(expected);
