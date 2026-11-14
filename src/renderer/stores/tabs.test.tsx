@@ -1605,6 +1605,49 @@ describe("retained execution view races", () => {
 		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("new shared view work");
 	});
 
+	it("keeps a retired view rejected when deletion races a replacement during neighbor routing", async () => {
+		const neighbor = tabInfo("t0", "/alpha");
+		const initial = { ...oldView, viewId: "pool/entry/view-1", active: true, shared: undefined };
+		const replacement = { ...newView, viewId: "pool/entry/view-2", active: false, shared: undefined };
+		omp.tabs.list.mockResolvedValue([neighbor, initial]);
+		await useTabsStore.getState().reconcileTabs();
+		const oldRuntime = sessionRuntime("t1");
+		const route = Promise.withResolvers<boolean>();
+		const routeStarted = Promise.withResolvers<void>();
+		omp.tabs.setActive.mockImplementationOnce(() => {
+			routeStarted.resolve();
+			return route.promise;
+		});
+
+		const closing = useTabsStore.getState().closeDeletedSession(initial.sessionPath ?? "", "t1");
+		await routeStarted.promise;
+		const adopted = Promise.withResolvers<void>();
+		const unsubscribe = useTabsStore.subscribe(state => {
+			if (state.tabs.find(tab => tab.id === "t1")?.viewId === replacement.viewId) adopted.resolve();
+		});
+		omp.tabs.list.mockResolvedValue([neighbor, replacement]);
+		const reconciling = useTabsStore.getState().reconcileTabs();
+		await adopted.promise;
+		unsubscribe();
+		const freshRuntime = sessionRuntime("t1");
+		expect(freshRuntime).not.toBeNull();
+		expect(freshRuntime).not.toBe(oldRuntime);
+		sessionRuntimeStore<ComposerStore>("t1", "composer")?.setState({ draft: "replacement work" });
+
+		route.resolve(true);
+		await closing;
+		await reconciling;
+		omp.tabs.list.mockResolvedValue([neighbor, initial]);
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(omp.tabs.close).not.toHaveBeenCalledWith("t1");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.viewId).toBe(replacement.viewId);
+		expect(sessionRuntime("t1")).toBe(freshRuntime);
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("replacement work");
+		expect(acceptsTabViewFrame("t1", initial.viewId)).toBe(false);
+		expect(acceptsTabViewFrame("t1", replacement.viewId)).toBe(true);
+	});
+
 	it("keeps the second shared view replaced while an absent-list close is pending", async () => {
 		const viewA = { ...oldView, tabId: "t1", viewId: "pool/a/view-1" };
 		const viewB = {
