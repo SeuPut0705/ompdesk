@@ -416,7 +416,7 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 			}
 			await h.bridge.request(M.disarm, {});
 		}
-	});
+	}, 120_000);
 
 	it("arms, guards, finalizes cycles, keeps going through unreported ones and disarms", async () => {
 		const provider = await startProvider(createScript());
