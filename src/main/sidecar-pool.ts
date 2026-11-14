@@ -1508,38 +1508,49 @@ export class SidecarPool {
 			prepared?.cancel();
 			return false;
 		}
-		const handle = this.#live(tabId);
+		const closed = committed;
+		const effects: Promise<void>[] = [];
+		// Invoke each effect immediately, but collect synchronous throws as well as asynchronous failures.
+		const run = (effect: () => void | Promise<void>): void => {
+			effects.push(
+				(async () => {
+					await effect();
+				})(),
+			);
+		};
 		let flush: (() => void) | undefined;
-		if (handle) {
-			if (committed.owner) handle.ownerDetached = true;
+		run(() => {
+			const handle = this.#live(tabId);
+			if (!handle) return;
+			if (closed.owner) handle.ownerDetached = true;
 			else handle.viewers.delete(winId);
 			const full = handle.full;
 			if (full?.windows.delete(winId)) {
+				flush = full.flush;
 				if (full.windows.size === 0) {
 					handle.full = null;
 					full.remove();
 				}
-				flush = full.flush;
 			}
-		}
-		this.onWindowTabsChanged?.(win, committed.layout);
-		flush?.();
-		const upstream = prepared && committed.last ? prepared.commit() : Promise.resolve();
-		if (!committed.last) prepared?.cancel();
-		const cleanup = this.#laterBound<void>(
-			"finishExactWindowView",
-			{ win: winId, tab: tabId, ...committed, remote: prepared !== undefined },
-			generation,
-			epoch,
+		});
+		run(() => this.onWindowTabsChanged?.(win, closed.layout));
+		run(() => flush?.());
+		run(() => {
+			if (prepared && closed.last) return prepared.commit();
+			prepared?.cancel();
+		});
+		run(() =>
+			this.#laterBound<void>(
+				"finishExactWindowView",
+				{ win: winId, tab: tabId, ...closed, remote: prepared !== undefined },
+				generation,
+				epoch,
+			),
 		);
-		const [remoteResult, cleanupResult] = await Promise.allSettled([upstream, cleanup]);
-		if (remoteResult.status === "rejected" || cleanupResult.status === "rejected") {
-			const cause =
-				remoteResult.status === "rejected"
-					? remoteResult.reason
-					: cleanupResult.status === "rejected"
-						? cleanupResult.reason
-						: undefined;
+		const results = await Promise.allSettled(effects);
+		const failure = results.find(result => result.status === "rejected");
+		if (failure?.status === "rejected") {
+			const cause = failure.reason;
 			const details = {
 				code: "remote_leave_unconfirmed",
 				localViewClosed: true,
