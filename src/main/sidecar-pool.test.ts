@@ -599,6 +599,78 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(sent.filter(method => method === "tab.open")).toHaveLength(1);
 	});
 
+	it("reports a persistence failure after commit while still settling upstream and local cleanup", async () => {
+		const { pool, owner, acknowledgement, sent } = await remoteProxy();
+		const identity = pool.viewIdentity(owner.win, "remote-proxy");
+		if (!identity) throw new Error("expected a relay view identity");
+		const failure = new Error("fixture persistence failed");
+		let callbacks = 0;
+		pool.onWindowTabsChanged = () => {
+			if (++callbacks === 1) throw failure;
+		};
+		const sharedHub = hub();
+		const originalCall = sharedHub.call.bind(sharedHub);
+		let finishes = 0;
+		const spy = vi
+			.spyOn(sharedHub, "call")
+			.mockImplementation(<T>(to: number, method: string, params?: unknown): T => {
+				if (method === "finishExactWindowView") finishes++;
+				return originalCall<T>(to, method, params);
+			});
+		let outcome: unknown;
+		try {
+			acknowledgement.resolve(null);
+			outcome = await pool
+				.leaveWindowView(owner.win, "remote-proxy", identity, SESSION, () => true, authorize)
+				.catch((error: unknown) => error);
+		} finally {
+			spy.mockRestore();
+		}
+		const details = {
+			code: "remote_leave_unconfirmed",
+			localViewClosed: true,
+			cleanupUnconfirmed: true,
+			retryAvailable: false,
+			target: { device: "host-source", rtab: "remote-proxy", sessionPath: SESSION },
+		};
+		expect(outcome).toMatchObject({
+			...details,
+			message: `The local view closed, but its cleanup was not confirmed: ${JSON.stringify(details)}`,
+			cause: failure,
+		});
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		expect(finishes).toBe(1);
+		expect(sent.filter(method => method === "tab.leave")).toHaveLength(1);
+		expect(sent).not.toContain("tab.close");
+	});
+
+	it("preserves a remaining viewer when committed layout persistence throws", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8651);
+		const viewer = fakeWindow(-8652);
+		pool.acquire("/a", owner.win, "retained-after-error", SESSION);
+		pool.attachViewer(viewer.win, "retained-after-error");
+		sidecars[0]?.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "retained-after-error");
+		if (!identity) throw new Error("expected an owner view identity");
+		const failure = new Error("fixture persistence failed");
+		let callbacks = 0;
+		pool.onWindowTabsChanged = () => {
+			if (++callbacks === 1) throw failure;
+		};
+		await expect(
+			pool.leaveWindowView(owner.win, "retained-after-error", identity, SESSION, () => true, authorize),
+		).rejects.toMatchObject({
+			localViewClosed: true,
+			cleanupUnconfirmed: true,
+			retryAvailable: false,
+			cause: failure,
+		});
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		expect(pool.tabsForWindow(viewer.win).map(tab => tab.tabId)).toEqual(["retained-after-error"]);
+		expect(sidecars[0]?.disposed).toBe(false);
+	});
+
 	it("never replays an exact view commit after losing its core answer", async () => {
 		const { pool, owner, sidecar, acknowledgement, sent } = await remoteProxy();
 		const identity = pool.viewIdentity(owner.win, "remote-proxy");
