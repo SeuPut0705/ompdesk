@@ -76,4 +76,16 @@ impl<P: PoolHost, R: HostedHost> Runtime<P, R> {
             Ok(())
         })
     }
+
+    pub fn note_name(&self, name: &str) -> Effect<()> {
+        match self {
+            Self::Local { pool, owner, target } => pool.note_name_for_session(owner, target, name),
+            Self::Hosted { service, ticket } => {
+                let service = Arc::clone(service);
+                let ticket = Arc::clone(ticket);
+                let name = name.to_owned();
+                Box::pin(async move { service.note_session_name_ticket(&ticket, &name).await })
+            }
+        }
+    }
 }
