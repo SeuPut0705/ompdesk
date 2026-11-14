@@ -33,6 +33,7 @@ pub mod routines;
 mod run;
 pub mod schedules;
 pub mod server;
+pub mod session_ownership;
 pub mod sessions;
 pub mod setup;
 pub mod sidecar;
