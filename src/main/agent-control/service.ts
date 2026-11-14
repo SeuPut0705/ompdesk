@@ -353,6 +353,9 @@ export interface AgentControlHost {
 	reviewChanged?(parentTabId: string): void;
 	/** Every open tab of this app once, in the pool's order, with the window it is in (a tab of any window). */
 	tabs(): HostTab[];
+	/** Actual hosted executions, not window or sidebar rows. */
+	mailTargets?(): ControlTab[];
+	mailBlocked?(targets: readonly ControlTab[]): readonly string[];
 	/**
 	 * Processes outside OMPdesk calling over the control socket (src/main/control-socket), by id: each has no tab, so it
 	 * is this stand-in, never listed among `tabs`.
@@ -592,6 +595,8 @@ interface HostSnapshot {
 	devices: ControlDevice[];
 	closedChildren: ClosedChild[];
 	tabs: ControlTab[];
+	mailTargets: ControlTab[];
+	mailBlocked: readonly string[];
 	windowOf: Record<string, string>;
 	outsideCallers: Record<string, ControlTab>;
 	outsideWindow: string | null;
@@ -933,6 +938,16 @@ export class AgentControl {
 		} catch (error) {
 			if (!this.#last) throw error;
 			console.warn(`[agent-control] snapshot: ${error instanceof Error ? error.message : String(error)}`);
+			return {
+				...this.#last,
+				mailBlocked: [
+					...new Set([
+						...this.#last.mailBlocked,
+						...this.#last.tabs.map(tab => tab.tabId),
+						...this.#last.mailTargets.map(tab => tab.tabId),
+					]),
+				],
+			};
 		}
 		return this.#last as HostSnapshot;
 	}
@@ -946,6 +961,8 @@ export class AgentControl {
 			tabs.push(tab);
 			windowOf[tab.tabId] = window;
 		}
+		const mailTargets = host.mailTargets?.() ?? [];
+		const mailBlocked = host.mailBlocked?.([...tabs, ...mailTargets]) ?? [];
 		const devices = host.devices();
 		const parents: HostSnapshot["parents"] = {};
 		const checkoutPeers: HostSnapshot["checkoutPeers"] = {};
@@ -977,6 +994,8 @@ export class AgentControl {
 			devices,
 			closedChildren: [...(host.closedChildren?.() ?? [])],
 			tabs,
+			mailTargets,
+			mailBlocked,
 			windowOf,
 			outsideCallers: host.outsideCallers?.() ?? {},
 			outsideWindow: host.outsideWindow?.() ?? null,

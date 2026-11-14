@@ -269,6 +269,7 @@ export interface IpcDeps {
 		| "sidecarOf"
 		| "attachAutopilot"
 		| "attachAgentReview"
+		| "mailTargets"
 		| "agentReviewChanged"
 		| "chargeRun"
 		| "runEvents"
@@ -1369,6 +1370,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		deviceId: remoteDevices.deviceId,
+		mailTargets: () => deps.hostedTabs.mailTargets(peer => remoteDevices.allowsPeer(peer)),
 		fileEdits: fileEditReports,
 		releaseTab: async (win, tabId, stillReleasable) => {
 			const released = await closeWindowTab(tabRelease, win, tabId, win.webContents.id, stillReleasable);

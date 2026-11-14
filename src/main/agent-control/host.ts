@@ -76,6 +76,7 @@ import {
 } from "../remote/app-protocol";
 import { uploadToHost } from "../remote/host-upload";
 import type { RunProcess, ScheduleService } from "../schedules";
+import { sessionDeleteInProgress } from "../session-mutations";
 import type { Pace } from "../session-pace";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import type { SidecarPool, TabActivity } from "../sidecar-pool";
@@ -183,6 +184,7 @@ export interface AgentControlHostDeps {
 		hosts(): HostView[];
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
 	};
+	mailTargets?: () => ControlTab[];
 	/**
 	 * The session summaries of this computer (no device) or of a paired host as this computer holds them: what every
 	 * row shows, so a list line and a row cannot disagree. Null for a host offline or too old to send them.
@@ -1007,6 +1009,15 @@ export class AgentControlRuntime {
 			},
 			reviewChanged: parentTabId => void this.control.runtime.pushReview(parentTabId).catch(() => undefined),
 			tabs: () => this.#hostTabs(),
+			mailTargets: () => deps.mailTargets?.() ?? [],
+			mailBlocked: targets =>
+				targets
+					.filter(
+						target =>
+							typeof target.sessionPath === "string" &&
+							sessionDeleteInProgress(target.sessionPath, target.device),
+					)
+					.map(target => target.tabId),
 			outsideCallers: () =>
 				Object.fromEntries(
 					[...this.#outside].map(([id, caller]) => [

@@ -71,6 +71,8 @@ import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation } from "../../shared/terminal-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import { localInboxRuntimeInstance } from "../agent-control/inbox-runtime-instance";
+import type { ControlTab } from "../agent-control/service";
 import { type AnswerStep, TargetAnswer } from "../agent-control/target-answer";
 import { AtomicSaver } from "../atomic-file";
 import type { BackgroundWorkMember } from "../background-work";
@@ -935,6 +937,38 @@ export class LocalHostServices implements HostServices {
 		for (const tab of this.#tabs.values())
 			if (tab.peerId === peerId && tab.sessionFile === sessionPath) return tab.resumeId;
 		return null;
+	}
+	mailTargets(allowsPeer: (deviceId: string) => boolean): ControlTab[] {
+		const hidden = this.#deps.agentHidden?.() ?? new Set<string>();
+		return [...this.#tabs.values()].flatMap(tab => {
+			const { sidecar, sessionFile, conn } = tab;
+			if (
+				tab.viewing ||
+				!sessionFile ||
+				!conn ||
+				!this.#conns.has(conn) ||
+				conn.peer.deviceId !== tab.peerId ||
+				!allowsPeer(tab.peerId) ||
+				!sidecar.processAlive ||
+				sidecar.status !== "ready"
+			)
+				return [];
+			const runtimeInstance = localInboxRuntimeInstance(sidecar.rpcClient);
+			if (!runtimeInstance) return [];
+			return [
+				{
+					tabId: tab.resumeId,
+					runtimeInstance,
+					title: tab.title ?? "",
+					cwd: sidecar.cwd,
+					status: sidecar.status,
+					busy: runBusy(tab.run),
+					asks: [...tab.asks.values()].map(request => ({ id: request.id, request })),
+					hidden: hidden.has(sessionFile),
+					sessionPath: sessionFile,
+				},
+			];
+		});
 	}
 
 	/** The sessions the tabs here run for paired devices, for the one summary builder (session-summaries.ts). */

@@ -23,6 +23,10 @@ use super::types::{
     WorktreeRef, WorktreeRemoval,
 };
 use crate::agentctl::app::AppState;
+use crate::agentctl::inbox::{
+    InboxAdmission, InboxLogicalSource, NativeInboxAcceptance, NativeInboxReply,
+    NativeInboxRequest, NativeInboxTransfer,
+};
 use crate::agentctl::journal::Clock;
 use crate::agentctl::journal::attachments::{AttachedSet, AttachmentStore, LandedCache};
 use crate::agentctl::journal::mail_outbox::{MailAnswer, MailOutbox, OutboxMail};
@@ -448,7 +452,7 @@ impl Host {
         details: &Value,
         delivery: MailDelivery,
     ) -> R<()> {
-        self.mail_attached(tab_id, content, details, delivery, None)
+        self.mail_attached(tab_id, content, details, delivery, None, None)
             .await
     }
 
@@ -461,7 +465,43 @@ impl Host {
         details: &Value,
         delivery: MailDelivery,
         attached: Option<&AttachedSet>,
+        native: Option<(&InboxAdmission, &str)>,
     ) -> R<()> {
+        if let Some((admission, logical_content)) = native {
+            let state = self.state();
+            let logical = &admission.logical;
+            let entry = OutboxMail {
+                id: details
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| Fail::other("A native report requires its original report id"))?
+                    .to_owned(),
+                session_path: logical.target.session_path.clone(),
+                device: (logical.target.device_id != state.device_id)
+                    .then(|| logical.target.device_id.clone()),
+                from: Some(logical.producer.session_path.clone()),
+                from_device: (logical.producer.device_id != state.device_id)
+                    .then(|| logical.producer.device_id.clone()),
+                content: content.to_owned(),
+                details: details.clone(),
+                delivery_id: Some(logical.delivery_id().map_err(Fail::other)?),
+                logical_content: Some(logical_content.to_owned()),
+                native_source: InboxLogicalSource::Bound(logical.clone()),
+                delivery,
+                attachments: attached.cloned(),
+                attachments_corrupt: false,
+                at: (self.clock)(),
+            };
+            crate::agentctl::runtime::inbox_source::post_report(
+                self.port.id(),
+                tab_id,
+                entry,
+                &admission.execution,
+            )
+            .await?;
+            return Ok(());
+        }
         let images = self.stored_images(attached).await?;
         let kept = self
             .outbox
@@ -491,6 +531,9 @@ impl Host {
                     from_device: sender.as_ref().and_then(|(_, device)| device.clone()),
                     content: content.to_owned(),
                     details: details.clone(),
+                    delivery_id: None,
+                    logical_content: None,
+                    native_source: InboxLogicalSource::Legacy,
                     delivery,
                     attachments: attached.cloned(),
                     attachments_corrupt: false,
@@ -550,6 +593,39 @@ impl Host {
             duplicate: answer.get("duplicate").and_then(Value::as_bool) == Some(true),
             journaled: answer.get("journaled").and_then(Value::as_bool) == Some(true),
         }))
+    }
+    pub(crate) async fn inbox_status(
+        &self,
+        tab_id: &str,
+        session_path: &str,
+        device: Option<&str>,
+    ) -> R<NativeInboxReply> {
+        self.ask(
+            "inboxStatus",
+            json!({ "tabId": tab_id, "sessionPath": session_path, "device": device }),
+        )
+        .await
+    }
+
+    pub(crate) async fn inbox(
+        &self,
+        tab_id: &str,
+        transfer: &NativeInboxTransfer,
+    ) -> R<NativeInboxAcceptance> {
+        self.ask("inbox", json!({ "tabId": tab_id, "transfer": transfer }))
+            .await
+    }
+
+    pub(crate) async fn deliver_inbox(
+        &self,
+        tab_id: &str,
+        request: &NativeInboxRequest,
+    ) -> R<NativeInboxReply> {
+        self.ask(
+            "deliverInbox",
+            json!({ "tabId": tab_id, "request": request }),
+        )
+        .await
     }
 
     /// `reach {sessionPath}`: the tab holding a session this computer runs, started when it is asleep; with none, the

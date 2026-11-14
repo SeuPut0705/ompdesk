@@ -5,6 +5,7 @@
 //! - `app`: `ompdesk_app` and `ompdesk_app_list` (9l).
 
 pub mod app;
+pub(crate) mod inbox;
 pub mod journal;
 pub mod rules;
 pub mod runtime;

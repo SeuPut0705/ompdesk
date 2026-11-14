@@ -39,6 +39,7 @@ import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState }
 import { applySummaryChange, type SummaryDelta, type VersionedSummaries } from "../../shared/session-summary";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
+import { localInboxRuntimeInstance } from "../agent-control/inbox-runtime-instance";
 import type { MemoryPageCopy } from "../ai-memory/client";
 import { serveMemoryStore } from "../ai-memory/memory-store-test-rig";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
@@ -47,7 +48,7 @@ import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
-import { RpcTimeoutError } from "../rpc-client";
+import { RpcClient, RpcTimeoutError } from "../rpc-client";
 import { SessionSummaries, SUMMARY_DEBOUNCE_MS } from "../session-summaries";
 import { SidebarProjects } from "../sidebar-projects";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
@@ -399,6 +400,79 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 	});
 	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine, recordedCwd };
 }
+
+describe("hosted inbox execution inventory", () => {
+	it("projects only a connected permitted local execution and keeps its runtime identity exact", async () => {
+		const { services, sidecars, local } = setup();
+		const connection = new FakeConnection(peer("producer"));
+		await services.call(connection.peer, "tab.open", { rtab: "receiver", cwd: workDir, fresh: true }, connection);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("Missing hosted fixture");
+		const client = new RpcClient({
+			send: () => {
+				throw new Error("No command may run during inventory");
+			},
+		});
+		Object.defineProperty(sidecar, "rpcClient", { value: client, configurable: true });
+		sidecar.emit("session", { sessionFile: "/s/recipient.jsonl", sessionId: "recipient" });
+		expect(services.mailTargets(() => true)).toEqual([]);
+		sidecar.setStatus("ready");
+		const first = services.mailTargets(id => id === connection.peer.deviceId);
+		expect(first).toEqual([
+			expect.objectContaining({
+				sessionPath: "/s/recipient.jsonl",
+				runtimeInstance: localInboxRuntimeInstance(client),
+				hidden: false,
+			}),
+		]);
+		expect(local.owned.size).toBe(0);
+		expect(services.mailTargets(() => false)).toEqual([]);
+		services.disconnected(connection.peer, connection);
+		expect(services.mailTargets(() => true)).toEqual([]);
+		const reconnected = new FakeConnection(connection.peer);
+		await services.call(reconnected.peer, "tab.open", { rtab: "receiver" }, reconnected);
+		expect(services.mailTargets(() => true)).toEqual(first);
+		const replacement = new RpcClient({
+			send: () => {
+				throw new Error("No command may run during inventory");
+			},
+		});
+		Object.defineProperty(sidecar, "rpcClient", { value: replacement, configurable: true });
+		expect(services.mailTargets(() => true)).toEqual([
+			expect.objectContaining({ runtimeInstance: localInboxRuntimeInstance(replacement) }),
+		]);
+		expect(localInboxRuntimeInstance(replacement)).not.toBe(first[0]?.runtimeInstance);
+		sidecar.emit("session", { sessionFile: "/s/moved.jsonl", sessionId: "moved" });
+		expect(services.mailTargets(() => true)).toEqual([expect.objectContaining({ sessionPath: "/s/moved.jsonl" })]);
+		await services.call(reconnected.peer, "tab.close", { rtab: "receiver" }, reconnected);
+		sidecar.exited.resolve();
+		expect(services.mailTargets(() => true)).toEqual([]);
+	});
+
+	it("does not promote a proxy RPC client and preserves the current privacy flag", async () => {
+		const hidden = new Set<string>();
+		const { services, sidecars } = setup(60_000, { agentHidden: () => hidden });
+		const connection = new FakeConnection(peer("producer"));
+		await services.call(connection.peer, "tab.open", { rtab: "receiver", cwd: workDir, fresh: true }, connection);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("Missing hosted fixture");
+		sidecar.setStatus("ready");
+		sidecar.emit("session", { sessionFile: "/s/recipient.jsonl", sessionId: "recipient" });
+		expect(services.mailTargets(() => true)).toEqual([]);
+		const client = new RpcClient({
+			send: () => {
+				throw new Error("No command may run during inventory");
+			},
+		});
+		Object.defineProperty(sidecar, "rpcClient", { value: client, configurable: true });
+		hidden.add("/s/recipient.jsonl");
+		expect(services.mailTargets(() => true)).toEqual([
+			expect.objectContaining({ hidden: true, runtimeInstance: localInboxRuntimeInstance(client) }),
+		]);
+		await services.call(connection.peer, "tab.close", { rtab: "receiver" }, connection);
+		sidecar.exited.resolve();
+	});
+});
 
 describe("LocalHostServices", () => {
 	it("scopes rtabs per peer: one device can never reach another device's tab", async () => {
