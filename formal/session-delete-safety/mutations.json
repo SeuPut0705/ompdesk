@@ -1,0 +1,155 @@
+{
+  "checker": {
+    "kind": "tlc",
+    "config": "MC_list.cfg",
+    "timeoutSec": 7200,
+    "deadlock": false
+  },
+  "properties": ["NoFeedReinsert", "NoOpenDuringDelete", "FenceCount", "ReconnectReadAbsent", "RestoredDeletedAbsent"],
+  "mutations": [
+    {
+      "name": "accept-pre-delete-feed-generation",
+      "why": "Acknowledgement does not invalidate a pending feed read.",
+      "search": "IF InvalidateReads THEN detail.generation[s] + 1 ELSE detail.generation[s]",
+      "replace": "detail.generation[s]",
+      "breaks": "NoFeedReinsert",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "read-finish-skips-generation",
+      "why": "A same-connection read can overwrite the deleted feed after acknowledgement.",
+      "search": "detail.readConn[s][r] = detail.connection /\\ detail.readGen[s][r] = detail.generation[s]",
+      "replace": "detail.readConn[s][r] = detail.connection",
+      "breaks": "NoFeedReinsert",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "skip-wanted-source-generation",
+      "why": "A rebuilt reader can consume a shared copy older than its captured wanted generation.",
+      "search": "detail.shared.copyGen >= detail.shared.wants[s][r]",
+      "replace": "TRUE",
+      "breaks": "ReconnectReadAbsent",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "publish-old-sample-as-current",
+      "why": "A read spanning invalidation mislabels an old row with the new source generation.",
+      "search": "!.shared.copyGen = detail.shared.sampleGen",
+      "replace": "!.shared.copyGen = detail.shared.gen",
+      "breaks": "ReconnectReadAbsent",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "delete-notify-keeps-source-generation",
+      "why": "Deletion fails to invalidate the numbered shared copy.",
+      "search": "IF Mode = \"list\" THEN [detail EXCEPT !.shared.gen = @ + 1] ELSE detail",
+      "replace": "detail",
+      "breaks": "ReconnectReadAbsent",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "ack-keeps-feed-row",
+      "why": "Successful deletion fails to remove the current feed row.",
+      "search": "!.feed = [s \\in Scopes |-> FALSE]",
+      "replace": "!.feed = detail.feed",
+      "breaks": "NoFeedReinsert",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "ack-keeps-snapshot-row",
+      "why": "Successful deletion leaves the saved snapshot row available for rebuild.",
+      "search": "!.snapshot = [s \\in Scopes |-> FALSE]",
+      "replace": "!.snapshot = detail.snapshot",
+      "breaks": "NoFeedReinsert",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "snapshot-saves-deleted-row",
+      "why": "A late save writes the known-old row instead of the current feed; this models a wrong result, not timer scheduling.",
+      "search": "!.snapshot[s] = detail.feed[s]",
+      "replace": "!.snapshot[s] = TRUE",
+      "breaks": "NoFeedReinsert",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "accept-old-connection-and-generation",
+      "why": "A rebuilt consumer accepts a stale pending read without either validation.",
+      "search": "detail.readConn[s][r] = detail.connection /\\ detail.readGen[s][r] = detail.generation[s]",
+      "replace": "TRUE",
+      "breaks": "ReconnectReadAbsent",
+      "config": "MC_list.cfg",
+      "isolate": true
+    },
+    {
+      "name": "start-without-count",
+      "why": "An admitted delete owns an active phase without incrementing its count.",
+      "search": "fence' = fence + 1",
+      "replace": "fence' = fence",
+      "breaks": "FenceCount",
+      "config": "MC_open.cfg",
+      "isolate": true
+    },
+    {
+      "name": "release-count-before-local-and-storage-awaits",
+      "why": "The hosted-close continuation releases a count while local close and storage awaits remain.",
+      "search": "DeleteHostClosed(d) ==\n    /\\ dpc[d] = \"host\" /\\ dpc' = [dpc EXCEPT ![d] = \"local\"]\n    /\\ UNCHANGED <<file, tombstone, fence, acknowledged, detail>>",
+      "replace": "DeleteHostClosed(d) ==\n    /\\ dpc[d] = \"host\" /\\ dpc' = [dpc EXCEPT ![d] = \"local\"]\n    /\\ fence' = fence - 1\n    /\\ UNCHANGED <<file, tombstone, acknowledged, detail>>",
+      "breaks": "FenceCount",
+      "config": "MC_open.cfg",
+      "isolate": true
+    },
+    {
+      "name": "commit-clears-all-delete-counts",
+      "why": "A committing delete releases another overlapping delete count.",
+      "search": "/\\ dpc' = [dpc EXCEPT ![d] = \"done\"] /\\ fence' = fence - 1",
+      "replace": "/\\ dpc' = [dpc EXCEPT ![d] = \"done\"] /\\ fence' = 0",
+      "breaks": "FenceCount",
+      "config": "MC_open.cfg",
+      "isolate": true
+    },
+    {
+      "name": "failure-clears-all-delete-counts",
+      "why": "A failed delete releases another overlapping delete count.",
+      "search": "/\\ dpc' = [dpc EXCEPT ![d] = \"failed\"] /\\ fence' = fence - 1",
+      "replace": "/\\ dpc' = [dpc EXCEPT ![d] = \"failed\"] /\\ fence' = 0",
+      "breaks": "FenceCount",
+      "config": "MC_open.cfg",
+      "isolate": true
+    },
+    {
+      "name": "final-open-ignores-active-delete",
+      "why": "The final publication gate ignores the in-flight count.",
+      "search": "IF RecheckOpen THEN OpenAllowed ELSE TRUE",
+      "replace": "IF RecheckOpen THEN ~tombstone ELSE TRUE",
+      "breaks": "NoOpenDuringDelete",
+      "config": "MC_open.cfg",
+      "isolate": true
+    },
+    {
+      "name": "final-open-ignores-tombstone",
+      "why": "The final publication gate ignores a completed deletion.",
+      "search": "IF RecheckOpen THEN OpenAllowed ELSE TRUE",
+      "replace": "IF RecheckOpen THEN fence = 0 ELSE TRUE",
+      "breaks": "NoOpenDuringDelete",
+      "config": "MC_open.cfg",
+      "isolate": true
+    },
+    {
+      "name": "restore-keeps-tombstoned-row",
+      "why": "A post-delete restore keeps the row despite its tombstone query.",
+      "search": "!.restoredRow = ~tombstone",
+      "replace": "!.restoredRow = TRUE",
+      "breaks": "RestoredDeletedAbsent",
+      "config": "MC_restore.cfg",
+      "isolate": true
+    }
+  ]
+}
