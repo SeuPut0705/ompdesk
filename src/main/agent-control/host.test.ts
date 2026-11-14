@@ -1024,7 +1024,11 @@ describe("AgentControlRuntime", () => {
 			const world = setup({
 				tabs: [{ tabId: "main0001" }, { tabId: "old00001", sessionPath: "/s/old.jsonl" }],
 				owners: { "/s/held.jsonl": { tabId: "busy0002", winId: null } },
-				sessions: { list: async () => [row("/s", "held") as never], search: async () => [], read: async () => [] as never },
+				sessions: {
+					list: async () => [row("/s", "held") as never],
+					search: async () => [],
+					read: async () => [] as never,
+				},
 			});
 			world.deps.spawnTab = async (_win, payload) => {
 				world.spawned.push(payload);
