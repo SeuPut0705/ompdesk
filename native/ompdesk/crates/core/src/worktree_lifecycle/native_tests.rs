@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::git::session_lifecycle::{Service as SessionGit, test_support};
 use crate::server::{Events, Scope};
+use crate::pool::application::Sidecar;
 use crate::sidecar::application::{Answer, Ask, Command as LaunchCommand, EffectFuture};
 use crate::sidecar::application::native::{Config as SourceConfig, DirectSpawn, Service, Sink};
 use tokio::sync::mpsc;
@@ -85,21 +86,33 @@ impl native::Hooks for Hooks {
         if let UiEvent::Notice(notice) = event { panic!("unexpected lifecycle notice: {notice:?}"); }
     }
     fn branch_prefix(&self) -> Option<String> { None }
-    fn connected(&self, source: &Arc<Service>) -> bool { source.bridge_connected() }
-    fn create(&self, spawn: &Spawn, source: &Arc<Service>, params: Option<Value>) -> Work<Value> {
-        if !self.live.load(Ordering::SeqCst) || spawn.owner != self.owner || !Arc::ptr_eq(source, &self.source) {
+    fn create(&self, spawn: &Spawn, captured: &native::Captured<Service>, params: Option<Value>) -> Work<Value> {
+        if !self.live.load(Ordering::SeqCst) || spawn.owner != self.owner || !Arc::ptr_eq(&captured.source, &self.source) {
             return Box::pin(async { Err(Fault::new("owner_revoked", "owner revoked")) });
         }
-        source.bridge("worktree_lifecycle_create".into(), params, None)
+        captured.source.bridge_for_generation(captured.generation, "worktree_lifecycle_create".into(), params, None)
     }
-    fn bind_if_live(&self, spawn: &Spawn, source: &Arc<Service>, binding: Value) -> Work<bool> {
-        let matched = self.live.load(Ordering::SeqCst) && spawn.owner == self.owner && Arc::ptr_eq(source, &self.source);
+    fn bind_if_live(&self, spawn: &Spawn, captured: &native::Captured<Service>, binding: Value) -> Work<bool> {
+        let matched = self.live.load(Ordering::SeqCst) && spawn.owner == self.owner
+            && Arc::ptr_eq(&captured.source, &self.source) && captured.source.generation() == captured.generation;
         if matched { *lock(&self.binding) = Some(binding); }
         Box::pin(async move { Ok(matched) })
     }
-    fn release(&self, _: &Spawn, source: &Arc<Service>) -> Work<()> {
-        let exited = source.when_exited();
-        source.dispose(Duration::ZERO);
+    fn refresh(&self, _: &Spawn, captured: &native::Captured<Service>) -> Work<Value> {
+        let generation = captured.source.generation();
+        captured.source.bridge_for_generation(generation, "worktree_lifecycle_settings".into(), None, None)
+    }
+    fn stop_turn(&self, _: &Spawn, captured: &native::Captured<Service>) -> Work<()> {
+        let generation = captured.source.generation();
+        let stopped = captured.source.stock_for_generation(generation, json!({"type":"abort"}), None);
+        Box::pin(async move {
+            let reply = stopped.await?;
+            if reply["success"] == true { Ok(()) } else { Err(Fault::new("abort_failed", "abort failed")) }
+        })
+    }
+    fn release(&self, _: &Spawn, captured: &native::Captured<Service>) -> Work<()> {
+        let exited = captured.source.when_exited();
+        captured.source.dispose(Duration::ZERO);
         exited
     }
 }
@@ -131,6 +144,7 @@ async fn native_gate_creates_binds_restarts_and_removes_only_after_its_owned_chi
     source.start();
     let mut launches = 0;
     let mut gated = false;
+    let mut captured = None;
     let mut addresses = Vec::new();
     loop {
         let event = recorded.recv().await.expect("native lane stays open until dispose");
@@ -152,7 +166,9 @@ async fn native_gate_creates_binds_restarts_and_removes_only_after_its_owned_chi
                 }, host_tools:json!([]) });
             }
             "sidecar.gateAsk" => {
-                let cwd = lifecycle.start(spawn.clone(), source.clone()).await.unwrap();
+                let gate = Arc::new(native::Captured { source: source.clone(), generation: source.generation() });
+                let cwd = lifecycle.start(spawn.clone(), gate.clone()).await.unwrap();
+                captured = Some(gate);
                 assert_eq!(cwd.as_deref(), root.join("wt").to_str());
                 assert!(root.join("wt").join("README.md").exists());
                 source.answer(ask, Answer::Gated(cwd));
@@ -168,10 +184,15 @@ async fn native_gate_creates_binds_restarts_and_removes_only_after_its_owned_chi
     assert_eq!(lock(&hooks.binding).as_ref().unwrap()["lifecycle"], true);
     let response = source.stock(json!({"type":"get_state"}), Some(Duration::from_secs(2))).await.unwrap();
     assert_eq!(response["data"]["cwd"], root.join("wt").to_str().unwrap());
+    let creation = captured.as_ref().unwrap();
+    let stale = lifecycle.host.settings(creation).await.unwrap_err();
+    assert_eq!(stale.code, "sidecar_disconnected");
+    let current = lifecycle.host.refresh(&spawn, creation).await.unwrap();
+    assert_eq!(current["onExit"], "remove");
     let exited = source.when_exited();
     hooks.live.store(false, Ordering::SeqCst);
     source.dispose(Duration::ZERO);
-    lifecycle.released(&spawn.owner, &spawn.tab, &source, exited);
+    lifecycle.released(&spawn.owner, &spawn.tab, captured.as_ref().unwrap(), exited);
     lifecycle.settle().await;
     held.await.unwrap();
     assert!(!root.join("wt").exists());

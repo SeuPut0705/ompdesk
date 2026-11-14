@@ -98,6 +98,8 @@ pub trait Host: Send + Sync + 'static {
     fn send(&self, window: Window, event: UiEvent);
     fn connected(&self, source: &Arc<Self::Source>) -> bool;
     fn settings(&self, source: &Arc<Self::Source>) -> Work<Value>;
+    /// Root captures the source's current run atomically when admitting this exit-policy read.
+    fn refresh(&self, spawn: &Spawn, source: &Arc<Self::Source>) -> Work<Value>;
     /// Base admits this mutation and queues stock's create atomically against owner/source revocation.
     fn create(&self, spawn: &Spawn, source: &Arc<Self::Source>, params: Option<Value>) -> Work<Value>;
     fn branch_prefix(&self) -> Option<String>;
@@ -106,7 +108,7 @@ pub trait Host: Send + Sync + 'static {
     fn inspect<'a>(&'a self, worktree: &'a Worktree) -> Effect<'a, Snapshot>;
     /// Existing canonical-root guard and repository lock surround the native session removal effect.
     fn remove<'a>(&'a self, worktree: &'a Worktree, moved: bool) -> Effect<'a, ()>;
-    fn stop_turn(&self, source: &Arc<Self::Source>) -> Work<()>;
+    fn stop_turn(&self, spawn: &Spawn, source: &Arc<Self::Source>) -> Work<()>;
     /// Must capture the exact pool disposal's exit future before releasing the tab.
     fn release(&self, spawn: &Spawn, source: &Arc<Self::Source>) -> Work<()>;
 }
@@ -273,7 +275,10 @@ impl<H: Host> Lifecycle<H> {
     }
 
     async fn refresh_owned(&self, owned: &Owned<H::Source>) {
-        if let Some(settings) = self.settings(&owned.source, self.config.exit_settings).await {
+        let refreshed = tokio::time::timeout(self.config.exit_settings,
+            self.host.refresh(&owned.spawn, &owned.source)).await;
+        if let Ok(Ok(value)) = refreshed
+            && let Ok(settings) = serde_json::from_value::<Settings>(value) {
             *lock(&owned.policy) = settings.on_exit;
         }
     }
@@ -336,7 +341,7 @@ impl<H: Host> Lifecycle<H> {
 
     async fn finalize_one(&self, owned: Arc<Owned<H::Source>>) {
         self.withdraw_tab(&owned.spawn.tab);
-        let _ = self.host.stop_turn(&owned.source).await;
+        let _ = self.host.stop_turn(&owned.spawn, &owned.source).await;
         self.refresh_owned(&owned).await;
         let taken = {
             let mut state = lock(&self.state);

@@ -38,6 +38,7 @@ impl Host for Rig {
     }
     fn send(&self, window: Window, event: UiEvent) { let _ = self.events.send((window, event)); }
     fn connected(&self, _: &Arc<()>) -> bool { self.live.load(Ordering::SeqCst) }
+    fn refresh(&self, _: &Spawn, source: &Arc<()>) -> Work<Value> { self.settings(source) }
     fn settings(&self, _: &Arc<()>) -> Work<Value> {
         lock(&self.calls).push(("worktree_lifecycle_settings".into(), None));
         let gate = self.settings_gate.clone();
@@ -72,7 +73,7 @@ impl Host for Rig {
         self.removed.fetch_add(1, Ordering::SeqCst); self.moved.store(moved, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     }
-    fn stop_turn(&self, _: &Arc<()>) -> Work<()> {
+    fn stop_turn(&self, _: &Spawn, _: &Arc<()>) -> Work<()> {
         let _ = self.entered.send("stop".into());
         let gate = self.stop_gate.clone();
         Box::pin(async move { let _permit = gate.acquire().await.unwrap(); Ok(()) })
