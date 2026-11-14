@@ -13,10 +13,9 @@
 //!   `EXTENSIONS_IDLE_EXIT` after its last answer.
 //! - `stock`: everything else, one serial lane (the worker's own queue; a few read-only probes answer beside it).
 //!
-//! Main hands in how a worker starts, when one is needed: the core asks with the event `stock.launch`
-//! `{host, worker, launch}` and main answers `stock.launched` with the binary, its arguments, the whole environment
-//! and the file whose time and size identify the installed omp, or with why none can start. So omp is resolved only
-//! when a worker starts, as before, and a request carries no environment.
+//! Legacy callers hand in how a worker starts through `stock.launch` and `stock.launched`. Native callers inject a
+//! typed launcher into `native::Service`; both paths use the same lanes, and a host cannot mix their launchers.
+//! The launcher resolves omp only when a worker starts, and a request carries no environment.
 //!
 //! Each request has its own timeout (main names it), armed before any worker starts. It fails only that request; the
 //! worker is told to skip it if it has not started it (a mutation never runs after its caller was told it failed) and
@@ -34,10 +33,10 @@
 //! core: their stdin is the core's pipe, the core's job object holds them on Windows and main kills its process
 //! group on POSIX.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
@@ -51,6 +50,8 @@ use crate::fs::error::uv_code;
 use crate::json::whole_surrogates;
 use crate::run::{Runner, terminate};
 use crate::server::{Call, Events, Fault, Registry, Reply};
+
+pub mod native;
 
 /// How long past its timeout a stock request may stay unanswered before its worker counts as hung.
 const RECYCLE_GRACE: Duration = Duration::from_secs(30);
@@ -82,11 +83,13 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Worker {
+pub enum WorkerKind {
     Stock,
     Terminals,
     Extensions,
 }
+
+type Worker = WorkerKind;
 
 impl Worker {
     /// The worker a method runs in.
@@ -128,16 +131,7 @@ struct RequestParams {
     tuning: Tuning,
 }
 
-/// How a worker starts, as main hands it over.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Launch {
-    bin: String,
-    args: Vec<String>,
-    env: BTreeMap<String, String>,
-    /// omp's `package.json`: its time and size tell one install from the next.
-    stamp_file: Option<PathBuf>,
-}
+use native::LaunchCommand as Launch;
 
 #[derive(Deserialize)]
 struct LaunchFailure {
@@ -216,9 +210,32 @@ struct Entry {
     inbox: mpsc::UnboundedSender<Msg>,
     /// The output of the lane's last request: what tells whose lane it is when a connection ends.
     events: Events,
+    source: LaunchSource,
 }
 
+#[derive(Clone)]
+enum LaunchSource {
+    Legacy,
+    Native {
+        id: u64,
+        launcher: Arc<dyn native::Launcher>,
+        closed: Arc<AtomicBool>,
+    },
+}
+
+impl LaunchSource {
+    fn same_owner(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Legacy, Self::Legacy) => true,
+            (Self::Native { id: a, .. }, Self::Native { id: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+}
 static LANES: LazyLock<Mutex<HashMap<(String, Worker), Entry>>> = LazyLock::new(Default::default);
+/// Removed lanes keep their host ownership until every worker they started has exited.
+static STOPPING: LazyLock<Mutex<HashMap<u64, (String, LaunchSource, watch::Receiver<bool>)>>> =
+    LazyLock::new(Default::default);
 /// Names requests and starts: one sequence, so no two of either share a number in this process.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -257,27 +274,62 @@ fn place(call: &Call) -> Result<Placed, Fault> {
             "stock.request's params hold a line break",
         ));
     }
-    let worker = tuning.worker.unwrap_or_else(|| Worker::of(&method));
+    place_request(
+        &host,
+        &method,
+        call.bin.as_deref(),
+        Duration::from_millis(timeout_ms),
+        tuning,
+        &call.events,
+        LaunchSource::Legacy,
+    )
+}
+
+fn place_request(
+    host: &str,
+    method: &str,
+    params: Option<&[u8]>,
+    timeout: Duration,
+    tuning: Tuning,
+    events: &Events,
+    source: LaunchSource,
+) -> Result<Placed, Fault> {
+    let worker = tuning.worker.unwrap_or_else(|| Worker::of(method));
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let timeout = Duration::from_millis(timeout_ms);
     let (reply, answer) = oneshot::channel();
     let inbox = {
-        // Sent under the table's lock, so a stop that takes the lane out never leaves a request behind it.
         let mut lanes = locked(&LANES);
+        if matches!(&source, LaunchSource::Native { closed, .. } if closed.load(Ordering::Acquire))
+        {
+            return Err(stopped());
+        }
+        if lanes
+            .iter()
+            .any(|((lane_host, _), entry)| lane_host == host && !entry.source.same_owner(&source))
+            || locked(&STOPPING)
+                .values()
+                .any(|(lane_host, owner, _)| lane_host == host && !owner.same_owner(&source))
+        {
+            return Err(Fault::new(
+                "stock_host_conflict",
+                "Stock host belongs to another launcher",
+            ));
+        }
         let entry = lanes
-            .entry((host.clone(), worker))
+            .entry((host.to_owned(), worker))
             .or_insert_with(|| Entry {
-                inbox: Lane::start(host, worker, call.events.clone()),
-                events: call.events.clone(),
+                inbox: Lane::start(host.to_owned(), worker, events.clone(), source.clone()),
+                events: events.clone(),
+                source,
             });
-        entry.events = call.events.clone();
+        entry.events = events.clone();
         let _ = entry.inbox.send(Msg::Request {
             id,
-            line: request_line(id, &method, call.bin.as_deref()),
-            method,
+            line: request_line(id, method, params),
+            method: method.to_owned(),
             timeout,
             tuning,
-            events: call.events.clone(),
+            events: events.clone(),
             reply,
         });
         entry.inbox.clone()
@@ -340,7 +392,10 @@ fn launched(call: &Call) -> Result<Reply, Fault> {
         )),
     };
     // A lane that was stopped since it asked has nobody left to tell.
-    if let Some(entry) = locked(&LANES).get(&(host, worker)) {
+    if let Some(entry) = locked(&LANES)
+        .get(&(host, worker))
+        .filter(|entry| matches!(entry.source, LaunchSource::Legacy))
+    {
         let _ = entry.inbox.send(Msg::Launched { launch, how });
     }
     Reply::json(&Done {})
@@ -348,14 +403,24 @@ fn launched(call: &Call) -> Result<Reply, Fault> {
 
 async fn stop(call: Call) -> Result<Reply, Fault> {
     let StopParams { host } = call.params()?;
-    end_lanes(|(lane_host, _), _| *lane_host == host, STOP_WAIT).await;
+    end_lanes(
+        |(lane_host, _), entry| *lane_host == host && matches!(entry.source, LaunchSource::Legacy),
+        STOP_WAIT,
+    )
+    .await;
     Reply::json(&Done {})
 }
 
 /// Ends every lane whose last request came over the output `events` writes to (or over one that is gone): the
 /// connection ended, and what waited on its workers has nobody to answer.
 pub async fn close_all(events: &Events) {
-    end_lanes(|_, entry| !entry.events.reaches_another(events), CLOSE_WAIT).await;
+    end_lanes(
+        |_, entry| {
+            matches!(entry.source, LaunchSource::Legacy) && !entry.events.reaches_another(events)
+        },
+        CLOSE_WAIT,
+    )
+    .await;
 }
 
 /// Takes the chosen lanes out of the table, stops each and waits, at most `wait`, for their workers to exit.
@@ -368,22 +433,43 @@ async fn end_lanes(chosen: impl Fn(&(String, Worker), &Entry) -> bool, wait: Dur
             .map(|(key, _)| key.clone())
             .collect();
         keys.into_iter()
-            .filter_map(|key| lanes.remove(&key))
-            .map(|entry| {
+            .filter_map(|key| lanes.remove(&key).map(|entry| (key.0, entry)))
+            .map(|(host, entry)| {
+                let token = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+                let (done, finished) = watch::channel(false);
+                locked(&STOPPING).insert(token, (host, entry.source, finished));
                 let (stopped, exits) = oneshot::channel();
                 let _ = entry.inbox.send(Msg::Stop(stopped));
-                exits
+                tokio::spawn(async move {
+                    for mut exit in exits.await.unwrap_or_default() {
+                        let _ = exit.wait_for(|exited| *exited).await;
+                    }
+                    locked(&STOPPING).remove(&token);
+                    done.send_replace(true);
+                })
             })
             .collect()
     };
     let exited = async {
-        for exits in stopping {
-            for mut exit in exits.await.unwrap_or_default() {
-                let _ = exit.wait_for(|exited| *exited).await;
-            }
+        for task in stopping {
+            let _ = task.await;
         }
     };
     let _ = tokio::time::timeout(wait, exited).await;
+}
+
+async fn wait_stopping(source: &LaunchSource, deadline: tokio::time::Instant) {
+    let waiting: Vec<_> = locked(&STOPPING)
+        .values()
+        .filter(|(_, owner, _)| owner.same_owner(source))
+        .map(|(_, _, finished)| finished.clone())
+        .collect();
+    let _ = tokio::time::timeout_at(deadline, async {
+        for mut finished in waiting {
+            let _ = finished.wait_for(|done| *done).await;
+        }
+    })
+    .await;
 }
 
 fn stopped() -> Fault {
@@ -487,6 +573,7 @@ struct Lane {
     inbox: mpsc::UnboundedSender<Msg>,
     tuning: Tuning,
     events: Events,
+    source: LaunchSource,
     /// Requests whose caller still waits.
     pending: HashMap<u64, Pending>,
     /// Those that wait for a worker to start, in the order they came.
@@ -502,7 +589,12 @@ struct Lane {
 }
 
 impl Lane {
-    fn start(host: String, worker: Worker, events: Events) -> mpsc::UnboundedSender<Msg> {
+    fn start(
+        host: String,
+        worker: Worker,
+        events: Events,
+        source: LaunchSource,
+    ) -> mpsc::UnboundedSender<Msg> {
         let (inbox, mut messages) = mpsc::unbounded_channel();
         let mut lane = Lane {
             host,
@@ -510,6 +602,7 @@ impl Lane {
             inbox: inbox.clone(),
             tuning: Tuning::default(),
             events,
+            source,
             pending: HashMap::new(),
             waiting: Vec::new(),
             launching: None,
@@ -577,12 +670,25 @@ impl Lane {
             // never taken for the answer to this one.
             let launch = NEXT_ID.fetch_add(1, Ordering::Relaxed);
             self.launching = Some(launch);
-            let ask = LaunchAsk {
-                host: &self.host,
-                worker: self.worker,
-                launch,
-            };
-            self.events.send("stock.launch", &ask);
+            match &self.source {
+                LaunchSource::Legacy => {
+                    let ask = LaunchAsk {
+                        host: &self.host,
+                        worker: self.worker,
+                        launch,
+                    };
+                    self.events.send("stock.launch", &ask);
+                }
+                LaunchSource::Native { launcher, .. } => {
+                    let launcher = Arc::clone(launcher);
+                    let inbox = self.inbox.clone();
+                    let worker = self.worker;
+                    tokio::spawn(async move {
+                        let how = launcher.launch(worker).await;
+                        let _ = inbox.send(Msg::Launched { launch, how });
+                    });
+                }
+            }
         }
     }
 
@@ -909,30 +1015,17 @@ pub(crate) async fn request_in_process(
     // `Value`'s compact JSON never holds a raw line break, which a worker would read as two requests.
     let text =
         serde_json::to_vec(params).map_err(|error| Fault::new("internal", error.to_string()))?;
-    let worker = Worker::of(method);
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let (reply, answer) = oneshot::channel();
-    let inbox = {
-        // Sent under the table's lock, so a stop that takes the lane out never leaves a request behind it.
-        let mut lanes = locked(&LANES);
-        let entry = lanes
-            .entry((host.to_owned(), worker))
-            .or_insert_with(|| Entry {
-                inbox: Lane::start(host.to_owned(), worker, events.clone()),
-                events: events.clone(),
-            });
-        entry.events = events.clone();
-        let _ = entry.inbox.send(Msg::Request {
-            id,
-            line: request_line(id, method, Some(&text)),
-            method: method.to_owned(),
-            timeout,
-            tuning: Tuning::default(),
-            events: events.clone(),
-            reply,
-        });
-        entry.inbox.clone()
-    };
+    let Placed {
+        inbox, id, answer, ..
+    } = place_request(
+        host,
+        method,
+        Some(&text),
+        timeout,
+        Tuning::default(),
+        events,
+        LaunchSource::Legacy,
+    )?;
     let mut withdraw = Withdraw {
         inbox,
         id,
