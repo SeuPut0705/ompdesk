@@ -21,11 +21,13 @@ pub mod policy;
 pub mod protocol;
 pub mod provider_files;
 pub mod provider_input;
+pub mod provider_service;
 pub mod provider_yaml;
 pub mod providers;
 pub mod queue;
 pub mod session;
 pub mod settings;
+pub mod stock_commands;
 pub mod transcript;
 
 use protocol::{RpcCommand, RpcResponse};
@@ -35,6 +37,7 @@ use session::Session;
 pub struct Config {
     pub version: Arc<str>,
     pub templates: Arc<[authoring::Template]>,
+    pub stock: Arc<crate::stock::native::Service>,
 }
 
 static METADATA: LazyLock<metadata::Metadata> = LazyLock::new(metadata::Metadata::default);
@@ -50,6 +53,7 @@ pub enum Area {
     Extensions,
     Authoring,
     Live,
+    Stock,
 }
 
 pub struct CommandTable(HashMap<&'static str, Area>);
@@ -78,6 +82,7 @@ impl CommandTable {
             ("extensions", Area::Extensions, extensions::COMMANDS),
             ("authoring", Area::Authoring, authoring::COMMANDS),
             ("live", Area::Live, live::COMMANDS),
+            ("stock", Area::Stock, stock_commands::COMMANDS),
         ])
     }
 }
@@ -145,6 +150,7 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
             Area::Extensions => extensions::handle(&command, &spawn.session).await,
             Area::Authoring => authoring::handle(&command, &spawn.session, &self.config.templates).await,
             Area::Live => live::handle(&command, &spawn.session).await,
+            Area::Stock => stock_commands::handle(&command, &self.config.stock).await,
         };
         self.source.before_response();
         serde_json::to_value(RpcResponse::local(&command, result)).map_err(|error| Fault::new("internal", error.to_string()))

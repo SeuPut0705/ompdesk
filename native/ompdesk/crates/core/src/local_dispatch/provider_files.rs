@@ -28,6 +28,10 @@ pub struct Snapshot {
     pub raw: Value,
 }
 
+impl Snapshot {
+    pub fn exists(&self) -> bool { self.stamp.is_some() }
+}
+
 /// One instance per actual machine's agent directory. The service's mutation lock covers reads, stock schema
 /// awaits and this final write, so concurrent edits from windows and paired devices cannot overwrite each other.
 #[derive(Clone)]

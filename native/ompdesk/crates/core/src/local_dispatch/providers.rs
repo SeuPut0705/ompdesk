@@ -15,8 +15,8 @@ pub struct ProviderPolicy {
 impl ProviderPolicy {
     pub fn new(options: Value) -> R<Self> {
         for key in ["builtinProviders", "apis", "auth", "discovery", "thinkingModes", "efforts"] {
-            if !options.get(key).is_some_and(|value| value.as_array().is_some_and(|rows| rows.iter().all(Value::is_string))) {
-                return Err(CommandError::Other(format!("Installed omp has no models config {key} options")));
+            if !options.get(key).is_some_and(|value| value.as_array().is_some_and(|rows| !rows.is_empty() && rows.iter().all(Value::is_string))) {
+                return Err(CommandError::Other("Installed omp cannot determine models.yml provider roster or option vocabularies".into()));
             }
         }
         Ok(Self { options })
@@ -112,12 +112,16 @@ impl ProviderPolicy {
         Some(Value::Object(view))
     }
 
+    pub fn check_custom_id(&self, id: &str) -> R<()> {
+        if self.contains("builtinProviders", &json!(id)) {
+            Err(CommandError::local("provider_id_builtin", format!("\"{id}\" is a built-in provider id; choose a distinct custom id.")))
+        } else { Ok(()) }
+    }
+
     /// Returns None for insert-only when the person already owns this id. Unrendered fields stay in `before`.
     pub fn upsert(&self, before: Option<&Value>, input: &Value, only_if_absent: bool) -> R<Option<Value>> {
         let id = input["id"].as_str().ok_or_else(|| CommandError::Other("Invalid provider id".into()))?;
-        if self.contains("builtinProviders", &json!(id)) {
-            return Err(CommandError::local("provider_id_builtin", format!("\"{id}\" is a built-in provider id; choose a distinct custom id.")));
-        }
+        self.check_custom_id(id)?;
         if only_if_absent && before.is_some() { return Ok(None); }
         let mut entry = object(before.unwrap_or(&Value::Null));
         for field in ["baseUrl", "api"] { entry.insert(field.into(), input.get(field).cloned().unwrap_or(Value::Null)); }
