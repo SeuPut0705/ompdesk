@@ -6,6 +6,7 @@ import { type DefinitionTags, indexDefinitions } from "./code-tags";
 import { onInterrupt, run } from "./proc";
 import { removeTree } from "./scratch";
 import type { TlaEnv } from "./tla-env";
+import { createTlcDiagnostics } from "./tlc-diagnostics";
 import { parseTlcOutput, type TlcResult } from "./tlc-parse";
 
 /**
@@ -35,6 +36,7 @@ export interface TlcRunOptions {
 	timeoutMs?: number;
 	/** Keep `tlc.log` here. */
 	outDir?: string;
+	diagnostics?: { outDir: string };
 	/** Called with each `Progress(...)` line TLC prints while it runs (about one a minute). */
 	onProgress?: (line: string) => void;
 }
@@ -117,6 +119,7 @@ export async function runTlc(options: TlcRunOptions): Promise<TlcRun> {
 		const args = [
 			"-XX:+UseParallelGC",
 			...JAVA_ENCODING,
+			...(options.diagnostics ? ["-Dtlc2.output.MP.noDebug=true"] : []),
 			`-Djava.io.tmpdir=${javaTmp}`,
 			"-cp",
 			options.tla.classpath,
@@ -133,16 +136,35 @@ export async function runTlc(options: TlcRunOptions): Promise<TlcRun> {
 			...(options.extraArgs ?? []),
 			path.basename(specPath),
 		];
-		let pending = "";
-		const onData = options.onProgress
-			? (chunk: string): void => {
-					pending += chunk;
-					const lines = pending.split(/\r?\n/);
-					pending = lines.pop() ?? "";
-					for (const line of lines) if (/^Progress\(/.test(line)) options.onProgress?.(line);
-				}
+		const diagnostics = options.diagnostics
+			? createTlcDiagnostics({
+					outDir: options.diagnostics.outDir,
+					scratch,
+					metadir: path.join(scratch, "states"),
+					javaTmp,
+					java: options.tla.java,
+					javaSource: options.tla.javaSource,
+					javaMajor: options.tla.javaMajor,
+					jars: [options.tla.tla2tools, options.tla.community],
+					args,
+					extraArgs: options.extraArgs ?? [],
+				})
 			: undefined;
+		diagnostics?.start();
+		let pending = "";
+		const onData =
+			options.onProgress || diagnostics
+				? (chunk: string): void => {
+						diagnostics?.data(chunk);
+						if (!options.onProgress) return;
+						pending += chunk;
+						const lines = pending.split(/\r?\n/);
+						pending = lines.pop() ?? "";
+						for (const line of lines) if (/^Progress\(/.test(line)) options.onProgress?.(line);
+					}
+				: undefined;
 		const result = await run(options.tla.java, args, { cwd: specDir, timeoutMs: options.timeoutMs, onData });
+		diagnostics?.close(result);
 		const text = `${result.stdout}${result.stderr}`;
 		let logPath: string | undefined;
 		if (options.outDir) {
