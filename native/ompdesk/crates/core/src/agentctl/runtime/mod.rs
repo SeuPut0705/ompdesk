@@ -429,7 +429,7 @@ impl RedeliverDeps for MailTabs<'_> {
 
 // ---- the wire ---------------------------------------------------------------------------------------------------------
 
-fn runtime_of(port: u64) -> Result<Arc<Runtime>, Fault> {
+pub(crate) fn runtime_of(port: u64) -> Result<Arc<Runtime>, Fault> {
     lock(&RUNTIMES).get(&port).cloned().ok_or_else(|| {
         Fault::new(
             "no_runtime",

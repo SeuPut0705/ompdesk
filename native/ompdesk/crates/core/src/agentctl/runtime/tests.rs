@@ -527,7 +527,7 @@ where
             let _ = delivered.send(args.clone());
             Ok(result)
         }
-        "land" | "inbox" => {
+        "land" | "inbox" | "lookupInbox" => {
             let tab = args["tabId"]
                 .as_str()
                 .ok_or("native transport missing tabId")?;
@@ -579,23 +579,28 @@ where
                     .runtime_instance
                     .as_deref()
                     .ok_or("receiver missing runtime instance")?;
-                native_accept(json!({
+                let (method, field) = if method == "lookupInbox" {
+                    ("agentRuntime.lookupInbox", "query")
+                } else {
+                    ("agentRuntime.acceptInbox", "transfer")
+                };
+                let mut params = json!({
                     "port": destination.control.host.port().id(),
                     "tabId": tab,
-                    "transfer": args["transfer"],
                     "uploadDeviceId": owner,
                     "expectedProducerDeviceId": host_id,
                     "expectedRuntimeInstance": runtime,
                     "expectedRoute": destination.route,
-                }))
-                .await
+                });
+                params[field] = args[field].clone();
+                native_request(method, params).await
             }
         }
         _ => reply(method, args).await,
     }
 }
 
-async fn native_accept(params: Value) -> Result<Value, String> {
+async fn native_request(method: &str, params: Value) -> Result<Value, String> {
     use tokio::io::AsyncWriteExt;
 
     let (client, server) = tokio::io::duplex(1 << 24);
@@ -618,7 +623,7 @@ async fn native_accept(params: Value) -> Result<Value, String> {
     if ready["event"] != "ready" {
         return Err(format!("native server expected ready, got {ready}"));
     }
-    let request = json!({ "id": 1, "method": "agentRuntime.acceptInbox", "params": params });
+    let request = json!({ "id": 1, "method": method, "params": params });
     write
         .write_all(format!("{request}\n").as_bytes())
         .await
@@ -634,7 +639,7 @@ async fn native_accept(params: Value) -> Result<Value, String> {
             return if frame["ok"] == true {
                 Ok(frame["result"].clone())
             } else {
-                Err(format!("native acceptInbox failed: {}", frame["error"]))
+                Err(format!("native {method} failed: {}", frame["error"]))
             };
         }
     }

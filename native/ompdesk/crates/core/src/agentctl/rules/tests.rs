@@ -1174,3 +1174,105 @@ async fn identical_native_done_and_question_calls_join_before_the_first_preparat
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn queued_native_attachment_bytes_are_not_retained_by_board_or_superseded_mail() {
+    use super::mail::NativeAttachmentPlan;
+    use crate::agentctl::journal::attachments::{AttachmentRef, Resolved, sha256_hex};
+    for forget in [false, true] {
+        let bytes = Arc::new(b"private original attachment bytes".to_vec());
+        let weak_bytes = Arc::downgrade(&bytes);
+        let reference = AttachmentRef {
+            sha256: sha256_hex(&bytes),
+            name: "private.txt".into(),
+            mime_type: "text/plain".into(),
+            size: bytes.len() as u64,
+        };
+        let plan = Arc::new(NativeAttachmentPlan::new(
+            Vec::new(),
+            vec![Resolved {
+                file: reference,
+                bytes,
+            }],
+        ));
+        let mut mail = native_report("old", "report", MailKind::Progress);
+        mail.native_attachment_plan = Some(plan);
+        let log: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mailbox = mailbox_with(log.clone());
+        let mut original = Box::pin(mailbox.post(mail));
+        assert_pending(original.as_mut()).await;
+        assert!(
+            mailbox
+                .state("child", "parent")
+                .unwrap()
+                .last
+                .native_attachment_plan
+                .is_none()
+        );
+        if forget {
+            mailbox.forget("child");
+        } else {
+            mailbox
+                .post(native_report("done", "finished", MailKind::Done))
+                .await
+                .unwrap();
+        }
+        assert!(original.await.is_err());
+        assert!(weak_bytes.upgrade().is_none());
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn forgetting_retry_queued_progress_keeps_the_prior_attempt_outcome_unconfirmed() {
+    let (attempt_tx, attempt_rx) = tokio::sync::oneshot::channel();
+    let attempted = Arc::new(Mutex::new(Some(attempt_tx)));
+    let mailbox = Mailbox::new(Arc::new(move |_: Mail| {
+        if let Some(attempted) = attempted.lock().unwrap().take() {
+            attempted.send(()).unwrap();
+        }
+        Box::pin(async { Err("receiver acknowledgement was lost".into()) })
+    }));
+    let mut report = Box::pin(mailbox.post(native_report("same", "report", MailKind::Progress)));
+    assert_pending(report.as_mut()).await;
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+    attempt_rx.await.unwrap();
+    mailbox.forget("child");
+    let failure = report.await.unwrap_err();
+    assert!(failure.contains("unconfirmed"), "{failure}");
+}
+
+#[tokio::test]
+async fn forget_before_native_delivery_starts_fences_the_old_claim_and_its_late_cleanup() {
+    use super::mail::DeliveryReceipt;
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let entered = Arc::new(Mutex::new(Some(entered_tx)));
+    let release = Arc::new(Mutex::new(Some(release_rx)));
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    let mailbox = Mailbox::new(Arc::new(move |_: Mail| {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let release = release.lock().unwrap().take();
+        if let Some(entered) = entered.lock().unwrap().take() {
+            entered.send(()).unwrap();
+        }
+        Box::pin(async move {
+            release
+                .expect("old and replacement claims both delivered")
+                .await
+                .unwrap()
+        })
+    }));
+    let mut old = Box::pin(mailbox.post(native_report("same", "report", MailKind::Done)));
+    assert_pending(old.as_mut()).await;
+    mailbox.forget("child");
+    assert!(old.await.is_err());
+    let mut replacement = Box::pin(mailbox.post(native_report("same", "report", MailKind::Done)));
+    assert_pending(replacement.as_mut()).await;
+    entered_rx.await.unwrap();
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    release_tx.send(Ok(DeliveryReceipt::New)).unwrap();
+    assert_eq!(replacement.await.unwrap(), Posted::Delivered);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

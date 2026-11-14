@@ -299,9 +299,15 @@ impl AgentControl {
             ReceivingInbox::new(files, host.attachment_store().clone(), clock.clone())
         });
         let deliver_host = host.clone();
-        let deliver: Deliver = Arc::new(move |mail: Mail| {
+        let deliver: Deliver = Arc::new(move |mut mail: Mail| {
             let host = deliver_host.clone();
             Box::pin(async move {
+                if let Some(receipt) = attach::prepare_native_report(&host, &mut mail)
+                    .await
+                    .map_err(|error| error.message())?
+                {
+                    return Ok(receipt);
+                }
                 let native_content = mail
                     .native_source
                     .as_ref()
@@ -1192,7 +1198,10 @@ async fn call_method(call: Call) -> Result<Reply, Fault> {
             }
             Reply::json(&())
         }
-        "redeliverSends" => reply(control.redeliver_sends().await),
+        "redeliverSends" => {
+            crate::agentctl::runtime::runtime_of(params.port)?.redeliver_inbox();
+            reply(control.redeliver_sends().await)
+        }
         "reviewItems" => reply(
             control
                 .review_items(&text_arg(&args, "callerTabId", method)?)

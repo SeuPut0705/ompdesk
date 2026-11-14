@@ -315,7 +315,7 @@ impl NativeInboxTransferEntry {
             &self.logical,
             self.attachments.as_ref().map(|set| {
                 (
-                    set.images.as_slice(),
+                    set.images.iter(),
                     set.files.iter().map(|landed| &landed.file),
                 )
             }),
@@ -325,12 +325,15 @@ impl NativeInboxTransferEntry {
 
 pub(crate) fn logical_payload<'a>(
     logical: &InboxLogicalMessage,
-    attachments: Option<(&[AttachmentRef], impl Iterator<Item = &'a AttachmentRef>)>,
+    attachments: Option<(
+        impl Iterator<Item = &'a AttachmentRef>,
+        impl Iterator<Item = &'a AttachmentRef>,
+    )>,
 ) -> Result<Value, serde_json::Error> {
     let mut value = serde_json::to_value(logical)?;
     if let Some((images, files)) = attachments {
         value["attachments"] = serde_json::json!({
-            "images": images.iter().map(AttachmentRef::to_json).collect::<Vec<_>>(),
+            "images": images.map(AttachmentRef::to_json).collect::<Vec<_>>(),
             "files": files.map(AttachmentRef::to_json).collect::<Vec<_>>(),
         });
     }
@@ -513,7 +516,7 @@ impl NativeInboxLookupEntry {
             &self.logical,
             self.attachments
                 .as_ref()
-                .map(|set| (set.images.as_slice(), set.files.iter())),
+                .map(|set| (set.images.iter(), set.files.iter())),
         )
     }
 }
