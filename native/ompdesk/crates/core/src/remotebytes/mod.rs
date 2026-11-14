@@ -13,6 +13,7 @@
 //! `remotebytes.signInEnded`, `remotebytes.relay`.
 
 mod blobs;
+mod callback;
 mod folder;
 pub mod native;
 mod relay;

@@ -15,6 +15,7 @@ use super::events::delta::{ReadEncoder, encoded_read_key};
 use super::events::encoder::{BATCH_INTERVAL, Options, Sender};
 use super::quota::{PeerQuota, assistant_tokens, command_uses_model};
 use super::requests::{RemoteError, RemoteRequests};
+use crate::remotebytes::native::LoopbackCallback;
 use crate::server::Fault;
 
 const GRACE: Duration = Duration::from_secs(10 * 60);
@@ -128,7 +129,6 @@ pub enum RequestKind {
     Terminal,
     LaunchProfile,
     Workspace,
-    SignIn,
     Device,
 }
 #[derive(Clone, Debug)]
@@ -160,6 +160,7 @@ struct Tab<T> {
     reads: HashMap<String, ReadEncoder>,
     sent_commands: Option<String>,
     epoch: String,
+    callback: Option<LoopbackCallback>,
 }
 struct State<T> {
     serial: u64,
@@ -214,12 +215,41 @@ fn rtab(params: &Value) -> Result<&str, RemoteError> {
         .filter(|id| !id.is_empty() && id.encode_utf16().count() <= 128)
         .ok_or_else(|| invalid("Invalid rtab"))
 }
+fn sign_in_unavailable() -> RemoteError {
+    Fault::new(
+        "sign_in_unavailable",
+        "No browser sign-in in this tab waits for that callback",
+    )
+    .into()
+}
+fn callback_params(params: &Value) -> Result<(&str, &str), RemoteError> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| invalid("Invalid callback"))?;
+    if object
+        .keys()
+        .any(|key| !matches!(key.as_str(), "rtab" | "path" | "query"))
+    {
+        return Err(invalid("Invalid callback"));
+    }
+    rtab(params)?;
+    let path = params["path"]
+        .as_str()
+        .filter(|path| path.starts_with('/') && path.encode_utf16().count() <= 2048)
+        .ok_or_else(|| invalid("Invalid callback path"))?;
+    let query = params["query"]
+        .as_str()
+        .filter(|query| query.encode_utf16().count() <= 16384)
+        .ok_or_else(|| invalid("Invalid callback query"))?;
+    Ok((path, query))
+}
 
 struct Admission<T> {
     target: Option<T>,
     serial: u64,
     closed: Option<T>,
     revision: u64,
+    callback: Option<LoopbackCallback>,
 }
 
 impl<H: Host> HostServices<H> {
@@ -297,12 +327,16 @@ impl<H: Host> HostServices<H> {
         connection: &RemoteRequests,
     ) -> impl Future<Output = ResultValue> + Send + 'static {
         let prepared = (|| {
+            if method == "host.signIn.callback" {
+                callback_params(&params)?;
+            }
             let peer = self.host.peer(owner);
             let mut admission = Admission {
                 target: None,
                 serial: 0,
                 closed: None,
                 revision: 0,
+                callback: None,
             };
             if method == "tab.open" {
                 let key = (peer.device_id, rtab(&params)?.to_owned());
@@ -310,7 +344,8 @@ impl<H: Host> HostServices<H> {
             } else if method == "tab.close" {
                 let key = (peer.device_id, rtab(&params)?.to_owned());
                 admission.closed = self.take_close(&key, Some(connection), None)?;
-            } else if method.starts_with("tab.")
+            } else if method == "host.signIn.callback"
+                || method.starts_with("tab.")
                 || (params.get("rtab").is_some()
                     && (method.starts_with("fs.")
                         || method.starts_with("host.fs.")
@@ -319,11 +354,11 @@ impl<H: Host> HostServices<H> {
                             "host.bench.run" | "terminal.request" | "host.signIn.callback"
                         )))
             {
-                let state = lock(&self.state);
+                let mut state = lock(&self.state);
                 let key = (peer.device_id, rtab(&params)?.to_owned());
                 let tab = state
                     .tabs
-                    .get(&key)
+                    .get_mut(&key)
                     .ok_or_else(|| RemoteError::from(Fault::new("unknown_tab", "Unknown tab")))?;
                 if !tab
                     .connection
@@ -338,6 +373,18 @@ impl<H: Host> HostServices<H> {
                 }
                 admission.target = Some(tab.target.clone());
                 admission.serial = tab.serial;
+                if method == "host.signIn.callback" {
+                    let (path, query) = callback_params(&params)?;
+                    if self.host.snapshot(&tab.target)?.sign_ins.is_empty()
+                        || !tab
+                            .callback
+                            .as_ref()
+                            .is_some_and(|callback| callback.matches(path, query))
+                    {
+                        return Err(sign_in_unavailable());
+                    }
+                    admission.callback = tab.callback.take();
+                }
             }
             Ok::<_, RemoteError>(admission)
         })();
@@ -356,7 +403,7 @@ impl<H: Host> HostServices<H> {
         self: &Arc<Self>,
         owner: &H::Owner,
         method: &str,
-        params: Value,
+        mut params: Value,
         connection: &RemoteRequests,
         admission: Admission<H::Target>,
     ) -> ResultValue {
@@ -368,6 +415,14 @@ impl<H: Host> HostServices<H> {
                 .ok_or_else(|| RemoteError::from(Fault::new("unknown_tab", "Unknown tab")))
         };
         match method {
+            "host.signIn.callback" => {
+                let callback = admission.callback.ok_or_else(sign_in_unavailable)?;
+                let Value::String(query) = params["query"].take() else {
+                    return Err(invalid("Invalid callback query"));
+                };
+                let page = callback.replay(query).await?;
+                serde_json::to_value(page).map_err(|_| invalid("Invalid callback page"))
+            }
             "tab.open" => {
                 self.open(owner, params, connection, admission.revision)
                     .await
@@ -514,12 +569,11 @@ impl<H: Host> HostServices<H> {
                     None
                 };
                 let result = operation.await;
-                if result.as_ref().is_err()
-                    || result.as_ref().is_ok_and(|value| value["success"] == false)
+                if (result.as_ref().is_err()
+                    || result.as_ref().is_ok_and(|value| value["success"] == false))
+                    && let Some(reservation) = reservation
                 {
-                    if let Some(reservation) = reservation {
-                        reservation.refund()?;
-                    }
+                    reservation.refund()?;
                 }
                 result
             }
@@ -715,6 +769,7 @@ impl<H: Host> HostServices<H> {
                         reads: HashMap::new(),
                         sent_commands: None,
                         epoch: super::crypto::random_device_id(),
+                        callback: None,
                     },
                 );
                 Some(serial)
@@ -803,10 +858,10 @@ impl<H: Host> HostServices<H> {
             .as_object()
             .cloned()
             .ok_or_else(|| invalid("command must be an object"))?;
-        if !command
+        if command
             .get("type")
             .and_then(Value::as_str)
-            .is_some_and(|kind| !kind.is_empty())
+            .is_none_or(str::is_empty)
         {
             return Err(invalid("command type required"));
         }
@@ -836,14 +891,13 @@ impl<H: Host> HostServices<H> {
                 .host
                 .command(&owner, &target, command.clone(), timeout)
                 .await;
-            if result.as_ref().is_err()
+            if (result.as_ref().is_err()
                 || result
                     .as_ref()
-                    .is_ok_and(|response| response["success"] != true)
+                    .is_ok_and(|response| response["success"] != true))
+                && let Some(reservation) = reservation
             {
-                if let Some(reservation) = reservation {
-                    reservation.refund()?;
-                }
+                reservation.refund()?;
             }
             if let Ok(response) = &mut result
                 && response["success"] == true
@@ -924,6 +978,20 @@ impl<H: Host> HostServices<H> {
             }
             if name == "status" && arg["status"] != "ready" {
                 tab.calls.clear();
+                tab.callback = None;
+            }
+            if name == "signIn" && arg["active"].as_array().is_some_and(Vec::is_empty) {
+                tab.callback = None;
+            }
+            if name == "extensionUi"
+                && arg["method"] == "open_url"
+                && arg["launchUrl"].is_string()
+                && self
+                    .host
+                    .snapshot(&tab.target)
+                    .is_ok_and(|snapshot| !snapshot.sign_ins.is_empty())
+            {
+                tab.callback = arg["url"].as_str().and_then(LoopbackCallback::parse);
             }
             if name == "frame"
                 && matches!(
@@ -950,13 +1018,13 @@ impl<H: Host> HostServices<H> {
                     .map_or(0.0, |events| events.iter().map(assistant_tokens).sum());
             }
         }
-        if tokens > 0.0 {
-            if let Err(error) = self.quota.record(&key.0, 0.0, tokens) {
-                self.host.publish(
-                    "quota.saveFailed",
-                    &json!({"code":error.code,"message":error.message}),
-                );
-            }
+        if tokens > 0.0
+            && let Err(error) = self.quota.record(&key.0, 0.0, tokens)
+        {
+            self.host.publish(
+                "quota.saveFailed",
+                &json!({"code":error.code,"message":error.message}),
+            );
         }
         if name == "beforeResponse" {
             self.flush(&key);
@@ -1245,7 +1313,6 @@ fn host_method(method: &str) -> Option<(RequestKind, &'static str)> {
         "launchProfile.update" => (LaunchProfile, "launchProfile.update"),
         "terminal.shells" => (Terminal, "terminal.shells"),
         "terminal.request" => (Terminal, "terminal.request"),
-        "host.signIn.callback" => (SignIn, "host.signIn.callback"),
         "peer.name" => (Device, "peer.name"),
         "host.rename" => (Device, "host.rename"),
         "host.models.list" => (Machine, "host.models.list"),

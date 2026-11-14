@@ -28,6 +28,7 @@ use tokio::net::TcpListener;
 use tokio::sync::watch;
 
 use super::ask;
+use super::callback::{LoopbackCallback, Page};
 use crate::server::{Call, Events, Fault, PushCall, Reply};
 
 struct Relay {
@@ -72,26 +73,11 @@ impl NativeRelay {
         failure: Words,
         ended: Arc<dyn Fn() + Send + Sync>,
     ) -> Option<Self> {
-        let authorize = url::Url::parse(authorization_url).ok()?;
-        let redirect = authorize
-            .query_pairs()
-            .find(|(key, _)| key == "redirect_uri")?
-            .1
-            .into_owned();
-        let callback = url::Url::parse(&redirect).ok()?;
+        let callback = LoopbackCallback::parse(authorization_url)?;
+        let state = callback.state?;
+        let callback = callback.url;
         let host = callback.host_str()?;
-        if callback.scheme() != "http" || !matches!(host, "localhost" | "127.0.0.1" | "[::1]") {
-            return None;
-        }
         let port = callback.port()?;
-        let state = authorize
-            .query_pairs()
-            .find(|(key, _)| key == "state")?
-            .1
-            .into_owned();
-        if state.is_empty() {
-            return None;
-        }
         let hosts = if host == "localhost" {
             vec!["127.0.0.1".into(), "::1".into()]
         } else {
@@ -350,14 +336,6 @@ pub(super) fn failure_page(title: &str, message: &str) -> String {
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>{title}</title></head><body style=\"font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:4rem auto;padding:0 1rem\"><h1 style=\"font-size:1.25rem\">{title}</h1><p>{message}</p></body></html>"
     )
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Page {
-    pub status: u16,
-    pub content_type: String,
-    pub body: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

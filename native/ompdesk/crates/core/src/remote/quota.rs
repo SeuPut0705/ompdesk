@@ -81,9 +81,10 @@ impl QuotaStore for PeerStore {
 pub struct PeerQuota {
     store: Arc<dyn QuotaStore>,
     day: Arc<dyn Fn() -> String + Send + Sync>,
-    listeners: Arc<Mutex<Vec<std::sync::Weak<dyn Fn() + Send + Sync>>>>,
+    listeners: Arc<Mutex<Vec<std::sync::Weak<QuotaCallback>>>>,
 }
-pub type QuotaListener = Arc<dyn Fn() + Send + Sync>;
+type QuotaCallback = dyn Fn() + Send + Sync;
+pub type QuotaListener = Arc<QuotaCallback>;
 
 fn local_day() -> String {
     let ms = std::time::SystemTime::now()

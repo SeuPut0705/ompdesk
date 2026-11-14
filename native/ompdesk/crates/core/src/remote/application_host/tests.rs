@@ -444,3 +444,123 @@ async fn native_validation_errors_precede_quota_admission() {
     device.disconnect_for_test();
     host.disconnect_for_test();
 }
+
+#[tokio::test]
+async fn sign_in_callback_is_bound_to_live_target_state_and_consumed_before_polling() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (service, effects, quota) = service();
+    let owner = Caller("peer".into());
+    let (device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("one"), &host)
+        .await
+        .unwrap();
+    let target = lock(&effects.targets)
+        .get("/session/one.jsonl")
+        .unwrap()
+        .clone();
+    lock(&target.state).sign_ins.push("provider".into());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let authorization = format!(
+        "https://provider.invalid/?redirect_uri=http%3A%2F%2F127.0.0.1%3A{}%2Fcallback&state=expected",
+        listener.local_addr().unwrap().port()
+    );
+    let advertise = || {
+        for listener in lock(&target.listeners).clone() {
+            listener(
+                "extensionUi".into(),
+                json!({"method":"open_url","url":authorization,"launchUrl":authorization}),
+            );
+        }
+    };
+    advertise();
+    let params = json!({"rtab":"one","path":"/callback","query":"state=expected&code=opaque"});
+    for invalid in [
+        json!({"rtab":"one","path":"/wrong","query":"state=expected"}),
+        json!({"rtab":"one","path":"/callback","query":"state=wrong&state=expected"}),
+    ] {
+        assert_eq!(
+            service
+                .call(&owner, "host.signIn.callback", invalid, &host)
+                .await
+                .unwrap_err()
+                .fault
+                .code,
+            "sign_in_unavailable"
+        );
+    }
+    let mut extra = params.clone();
+    extra["url"] = json!("http://127.0.0.1:1/forbidden");
+    assert_eq!(
+        service
+            .call(&owner, "host.signIn.callback", extra, &host)
+            .await
+            .unwrap_err()
+            .fault
+            .code,
+        "invalid_params"
+    );
+    let first = service.call(&owner, "host.signIn.callback", params.clone(), &host);
+    assert_eq!(
+        service
+            .call(&owner, "host.signIn.callback", params.clone(), &host)
+            .await
+            .unwrap_err()
+            .fault
+            .code,
+        "sign_in_unavailable"
+    );
+    let respond = async {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            request.push(stream.read_u8().await.unwrap());
+        }
+        assert!(
+            String::from_utf8(request)
+                .unwrap()
+                .starts_with("GET /callback?state=expected&code=opaque HTTP/1.1\r\n")
+        );
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone").await.unwrap();
+    };
+    let (page, ()) = tokio::join!(first, respond);
+    assert_eq!(
+        page.unwrap(),
+        json!({"status":200,"contentType":"text/plain","body":"done"})
+    );
+    advertise();
+    drop(listener);
+    assert_eq!(
+        service
+            .call(&owner, "host.signIn.callback", params.clone(), &host)
+            .await
+            .unwrap_err()
+            .fault
+            .code,
+        "sign_in_unavailable"
+    );
+    assert!(
+        lock(&service.state)
+            .tabs
+            .values()
+            .all(|tab| tab.callback.is_none())
+    );
+    advertise();
+    lock(&target.state).sign_ins.clear();
+    for listener in lock(&target.listeners).clone() {
+        listener("signIn".into(), json!({"active":[]}));
+    }
+    assert_eq!(
+        service
+            .call(&owner, "host.signIn.callback", params, &host)
+            .await
+            .unwrap_err()
+            .fault
+            .code,
+        "sign_in_unavailable"
+    );
+    assert_eq!(quota.usage("peer").unwrap().requests, 0.0);
+    service.drop_peer("peer").await.unwrap();
+    device.disconnect_for_test();
+    host.disconnect_for_test();
+}

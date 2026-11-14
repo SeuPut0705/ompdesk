@@ -947,14 +947,14 @@ impl State {
                 Input::RelayEnded(generation) if generation == self.relay_generation => {
                     self.end_relay()
                 }
-                Input::Notify(method, mut params) => {
-                    if self.link.is_online() && matches!(self.phase, BringUp::Open) {
-                        params["rtab"] = self.options.rtab.clone().into();
-                        let link = self.link.clone();
-                        tokio::spawn(async move {
-                            let _ = link.request(method, params, REQUEST).await;
-                        });
-                    }
+                Input::Notify(method, mut params)
+                    if self.link.is_online() && matches!(self.phase, BringUp::Open) =>
+                {
+                    params["rtab"] = self.options.rtab.clone().into();
+                    let link = self.link.clone();
+                    tokio::spawn(async move {
+                        let _ = link.request(method, params, REQUEST).await;
+                    });
                 }
                 Input::Dispose(keep) => {
                     if self.opened_once && !keep {
