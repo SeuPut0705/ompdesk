@@ -50,6 +50,30 @@ impl Fault {
 pub struct Scope {
     cancel: Arc<watch::Sender<bool>>,
     _alive: mpsc::Sender<()>,
+    retained: Arc<Mutex<Vec<Box<dyn Send>>>>,
+}
+
+fn scope(cancel: Arc<watch::Sender<bool>>) -> (Scope, Gone) {
+    let (alive, ended) = mpsc::channel(1);
+    let retained = Arc::new(Mutex::new(Vec::new()));
+    (
+        Scope {
+            cancel,
+            _alive: alive,
+            retained: Arc::clone(&retained),
+        },
+        Gone { ended, retained },
+    )
+}
+
+impl Scope {
+    /// Holds a cleanup resource until all scope clones are gone. The resource must not hold this scope.
+    pub fn retain<T: Send + 'static>(&self, value: T) {
+        self.retained
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(Box::new(value));
+    }
 }
 
 /// A cancellation signal without a hold on the request's supervised effects.
@@ -75,45 +99,41 @@ impl Scope {
     /// Resolves once the request is cancelled (at once when it already was).
     pub async fn on_cancel(&self) {
         let mut cancelled = self.cancel.subscribe();
-        // The sender lives in this scope, so the wait ends only by the flag.
         let _ = cancelled.wait_for(|cancelled| *cancelled).await;
     }
 
-    /// A scope no frame cancels and nothing waits on, for code run outside a request (a lane's own work, a reconnect
-    /// attempt, tests).
+    /// A scope no frame cancels and nothing waits on.
     pub fn detached() -> Scope {
-        Scope {
-            cancel: Arc::new(watch::channel(false).0),
-            _alive: mpsc::channel(1).0,
-        }
+        scope(Arc::new(watch::channel(false).0)).0
     }
 
-    /// A detached scope with the means to wait for the work it was handed to end: `Gone` resolves once every clone of the
-    /// scope is dropped, which a process being ended after its cancel holds off until it exited.
+    /// A detached scope with the means to wait for all supervised work to end.
     pub fn watched() -> (Scope, Gone) {
-        let (alive, gone) = mpsc::channel(1);
-        (
-            Scope {
-                cancel: Arc::new(watch::channel(false).0),
-                _alive: alive,
-            },
-            Gone(gone),
-        )
+        scope(Arc::new(watch::channel(false).0))
     }
 
-    /// Cancels the scope as a `cancel` frame cancels its request (tests, and work that ends what it ran).
+    /// Cancels the scope as a `cancel` frame cancels its request.
     pub fn cancel(&self) {
         self.cancel.send_replace(true);
     }
 }
 
 /// The end of a `Scope::watched` scope's last clone.
-pub struct Gone(mpsc::Receiver<()>);
+pub struct Gone {
+    ended: mpsc::Receiver<()>,
+    retained: Arc<Mutex<Vec<Box<dyn Send>>>>,
+}
 
 impl Gone {
     pub async fn wait(mut self) {
-        // Nothing is ever sent: `recv` answers `None` once the last sender (a clone of the scope) is gone.
-        while self.0.recv().await.is_some() {}
+        while self.ended.recv().await.is_some() {}
+        let retained = std::mem::take(
+            &mut *self
+                .retained
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
+        drop(retained);
     }
 }
 
@@ -411,7 +431,7 @@ where
 /// A request whose handler was called: its answer to come, and the receiver that ends once its last scope is gone.
 struct Started {
     answer: Result<Answer, Fault>,
-    ended: mpsc::Receiver<()>,
+    ended: Gone,
 }
 
 fn begin(
@@ -420,7 +440,7 @@ fn begin(
     cancel: Arc<watch::Sender<bool>>,
     events: Events,
 ) -> Started {
-    let (alive, ended) = mpsc::channel(1);
+    let (scope, ended) = scope(cancel);
     let Some(handler) = registry.get(&request.method) else {
         return Started {
             answer: Err(Fault::new(
@@ -433,10 +453,7 @@ fn begin(
     let call = Call {
         params: request.params,
         bin: request.bin,
-        scope: Scope {
-            cancel,
-            _alive: alive,
-        },
+        scope,
         events,
     };
     // A panic in the handler's synchronous part fails this request, as one in its future does, not the connection.
@@ -446,7 +463,7 @@ fn begin(
 }
 
 async fn finish(started: Started) -> Result<Reply, Fault> {
-    let Started { answer, mut ended } = started;
+    let Started { answer, ended } = started;
     let outcome = match answer {
         // Its own task, so a panic fails this request instead of the connection.
         Ok(future) => match tokio::spawn(future).await {
@@ -461,8 +478,7 @@ async fn finish(started: Started) -> Result<Reply, Fault> {
         },
         Err(fault) => Err(fault),
     };
-    // Nothing is ever sent: `recv` ends once the last scope (a process's supervisor) is gone.
-    let _ = ended.recv().await;
+    ended.wait().await;
     outcome
 }
 
@@ -526,6 +542,44 @@ mod tests {
     use tokio::io::{
         AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf,
     };
+
+    #[tokio::test]
+    async fn retained_cancellation_token_does_not_keep_the_scope_or_resource_alive() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Resource {
+            cancellation: Cancellation,
+            drops: Arc<AtomicUsize>,
+        }
+
+        impl Drop for Resource {
+            fn drop(&mut self) {
+                self.cancellation.cancel();
+                self.drops.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let (scope, gone) = Scope::watched();
+        let effect = scope.clone();
+        let cancellation = scope.cancellation();
+        let weak = Arc::downgrade(&cancellation.0);
+        let drops = Arc::new(AtomicUsize::new(0));
+        scope.retain(Resource {
+            cancellation,
+            drops: Arc::clone(&drops),
+        });
+        let mut gone = Box::pin(gone.wait());
+        drop(scope);
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(gone.as_mut().poll(cx).is_pending()))
+                .await
+        );
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(effect);
+        gone.await;
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        assert!(weak.upgrade().is_none());
+    }
 
     type Lines = tokio::io::BufReader<ReadHalf<DuplexStream>>;
 
