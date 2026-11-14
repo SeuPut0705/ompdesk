@@ -309,3 +309,74 @@ async fn routes_only_the_native_selected_host_and_its_workspace() {
         "invalid_remote_reply"
     );
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn closing_during_runtime_resolution_never_starts_a_child() {
+    use crate::models::test_rig::Fixture;
+    use tokio::sync::Notify;
+    struct Blocked {
+        entered: Notify,
+        release: Notify,
+    }
+    impl Proxy for Blocked {
+        fn configured(&self) -> Option<String> {
+            None
+        }
+        fn system<'a>(&'a self, _: &'a str) -> Boxed<'a, Result<String, Fault>> {
+            Box::pin(async {
+                self.entered.notify_one();
+                self.release.notified().await;
+                Ok("DIRECT".into())
+            })
+        }
+    }
+    for setup in [false, true] {
+        let fixture = Fixture::new("owner-resolving");
+        let marker = fixture.dir.join("started");
+        let runtime = fixture.runtime(&format!("printf started > '{}'; exit 1", marker.display()));
+        let shell = fixture.script(
+            "shell",
+            "printf '%s\\n' '__OMP_ENV_BEGIN__' '__OMP_ENV_END__'",
+        );
+        let proxy = Arc::new(Blocked {
+            entered: Notify::new(),
+            release: Notify::new(),
+        });
+        let service = Service::new(
+            Config {
+                platform: Platform::Other,
+                home: fixture.dir.clone(),
+                user_data: fixture.dir.clone(),
+                tools_dir: fixture.dir.join("tools"),
+                agent_desktop_bundle: None,
+                core_bin: fixture.dir.join("core"),
+                agent_dir: fixture.dir.join("agent"),
+                inherited_env: Environment::from([(
+                    "SHELL".into(),
+                    shell.to_string_lossy().into_owned(),
+                )]),
+            },
+            proxy.clone(),
+        );
+        *service.runtime.lock().await = Some(runtime);
+        let (_, host) = app(false);
+        let application = Application::new(service, host);
+        let command = if setup {
+            Command::ModelSetup(
+                json!({"researchModel":"p/r","models":[{"selector":"p/m","provider":"p"}],"roles":[{"id":"default","name":"Default"}]}),
+            )
+        } else {
+            Command::Benchmark(json!({"models":["p/m"],"profile":"chat","runs":1,"parallel":1}))
+        };
+        let task_app = application.clone();
+        let cwd = fixture.dir.clone();
+        let task =
+            tokio::spawn(async move { task_app.local("owner".into(), Some(cwd), command).await });
+        proxy.entered.notified().await;
+        application.close_owner(&"owner".into());
+        proxy.release.notify_one();
+        let result = task.await.unwrap().unwrap();
+        assert!(!marker.exists(), "closed owner's child started: {result}");
+    }
+}
