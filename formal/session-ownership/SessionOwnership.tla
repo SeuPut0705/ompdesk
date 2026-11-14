@@ -1,10 +1,9 @@
 --------------------------- MODULE SessionOwnership ---------------------------
 EXTENDS Naturals, FiniteSets
 
-CONSTANTS Sessions, Tags, OwnerIds, MaxLaunches
+CONSTANTS Sessions, Tags, OwnerIds, MaxLaunches, None
 Kinds == {"local", "hosted"}
 Owners == Sessions \X Kinds \X OwnerIds
-None == "none"
 
 VARIABLES app, frozen, launches, tab, held, state, session, kind, owner,
           used, alive, inflight, allowed, saved, keep, swept, queue,
