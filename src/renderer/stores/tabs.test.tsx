@@ -726,6 +726,43 @@ describe("tabs store switch", () => {
 		expect(isTabClosed("t1")).toBe(false);
 	});
 
+	it("shows a fresh retained view opened by an agent without reviving its retired view", async () => {
+		seedTabs();
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, viewId: "pool/entry/view-1" } : tab)),
+		}));
+		await useTabsStore.getState().closeTab("t1");
+		const oldView = Object.assign(tabInfo("t1", "/beta", "running"), { viewId: "pool/entry/view-1" });
+		const freshView = { ...oldView, viewId: "pool/entry/view-2" };
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), freshView, tabInfo("t2", "/gamma")]);
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "focus" });
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(isTabClosed("t1")).toBe(false);
+		await useTabsStore.getState().closeTab("t1");
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha"), oldView, tabInfo("t2", "/gamma")]);
+		await useTabsStore.getState().reconcileTabs();
+		expect(useTabsStore.getState().tabs.some(tab => tab.id === "t1")).toBe(false);
+		expect(isTabClosed("t1")).toBe(true);
+	});
+
+	it("does not revive a retained view closed while its reopen reconciliation is awaiting", async () => {
+		seedTabs();
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t1", attached: true });
+		const reading = Promise.withResolvers<IpcTabInfo[]>();
+		const started = Promise.withResolvers<void>();
+		omp.tabs.list.mockImplementationOnce(() => {
+			started.resolve();
+			return reading.promise;
+		});
+		const opening = useTabsStore.getState().openTab({ sessionPath: "/sessions/retained.jsonl" });
+		await started.promise;
+		await useTabsStore.getState().closeTab("t1");
+		reading.resolve([tabInfo("t0", "/alpha"), tabInfo("t1", "/beta"), tabInfo("t2", "/gamma")]);
+		expect(await opening).toBeNull();
+		expect(useTabsStore.getState().tabs.some(tab => tab.id === "t1")).toBe(false);
+		expect(isTabClosed("t1")).toBe(true);
+	});
+
 	it("fires SET_ACTIVE_TAB before hydrating from the target sidecar", async () => {
 		seedTabs();
 
