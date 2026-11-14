@@ -22,7 +22,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cargoEnv, cargoPath, rustcPath } from "./cargo";
+import { cargoEnv, cargoPath, cargoTargetDir, rustcPath } from "./cargo";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const NATIVE_DIR = path.join(REPO_ROOT, "native", "ompdesk");
@@ -111,9 +111,10 @@ export function buildNative(options: { quiet?: boolean } = {}): string {
 				"run `bun run build:native` again.",
 		);
 	const started = Date.now();
+	const env = cargoEnv(cargo);
 	const run = spawnSync(cargo, ["build", "--locked", "--release", "--workspace"], {
 		cwd: NATIVE_DIR,
-		env: cargoEnv(cargo),
+		env,
 		stdio: options.quiet ? ["ignore", "ignore", "pipe"] : "inherit",
 		encoding: "utf8",
 	});
@@ -124,7 +125,7 @@ export function buildNative(options: { quiet?: boolean } = {}): string {
 	const binaries: Record<string, string> = {};
 	for (const name of BINARIES) {
 		const file = binaryFile(name);
-		const built = path.join(NATIVE_DIR, "target", "release", file);
+		const built = path.join(cargoTargetDir(NATIVE_DIR, env), "release", file);
 		if (!fs.existsSync(built)) throw new BuildError(`${built} was not produced.`);
 		const bytes = fs.readFileSync(built);
 		binaries[file] = createHash("sha256").update(bytes).digest("hex");

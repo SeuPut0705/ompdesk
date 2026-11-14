@@ -52,3 +52,8 @@ export function rustcPath(cargo: string): string {
 export function cargoEnv(cargo: string): NodeJS.ProcessEnv {
 	return { ...process.env, PATH: `${path.dirname(cargo)}${path.delimiter}${process.env.PATH ?? ""}` };
 }
+
+/** Cargo resolves an explicit target directory against the command's working directory. */
+export function cargoTargetDir(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+	return env.CARGO_TARGET_DIR ? path.resolve(cwd, env.CARGO_TARGET_DIR) : path.join(cwd, "target");
+}
