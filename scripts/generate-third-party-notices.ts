@@ -295,9 +295,10 @@ function vendoredSections(): string {
 			eccLicense,
 		].join("\n"),
 		[
-			"AI provider brand symbols of @lobehub/icons (@lobehub/icons-static-svg 1.95.1,",
-			"https://github.com/lobehub/lobe-icons), Copyright (c) 2023 LobeHub, licensed under the MIT",
-			"License (LICENSES/MIT-lobe-icons.txt). The monochrome SVG files are copied unmodified into",
+			"AI provider brand symbols of @lobehub/icons (@lobehub/icons-static-svg 1.95.1;",
+			"Chutes: 1.102.0; https://github.com/lobehub/lobe-icons), Copyright (c) 2023 LobeHub,",
+			"licensed under the MIT License (LICENSES/MIT-lobe-icons.txt). The monochrome SVG files",
+			"are copied unmodified into",
 			"src/renderer/assets/provider-marks/ and shown beside the provider they identify. The symbols",
 			"are trademarks or logos of their owners (Anthropic, OpenAI, Google, xAI, DeepSeek, Meta,",
 			"GitHub and the others) and identify those providers only; their use here implies no",
