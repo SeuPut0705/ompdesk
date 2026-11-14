@@ -1523,44 +1523,6 @@ export const SURFACES: readonly Surface[] = [
 		parity: { session: "work" },
 	},
 	{
-		id: "usage-rotation",
-		area: "B",
-		title: "Insights › Usage: the line under the in-use account saying why the session is on it",
-		// The host's fake omp answers two Claude accounts, the session's with a rotation decision
-		// (e2e/fixture/rpc-ui.ts "fixture:usage-rotation"); `after` gives the host its empty usage back.
-		open: async page => {
-			const tab = await shownTab(page);
-			if (!tab) throw new Error("the view shows no session to read usage for");
-			await page.evaluate(
-				tabId => window.omp.rpc.commandForTab(tabId, { type: "bash", command: "fixture:usage-rotation" }),
-				tab.tabId,
-			);
-			await openPageTab(page, "stats", "usage");
-			// The tab's usage poll read before the fixture answered accounts (a surface mounting into a running poll
-			// reads nothing), so ask for the read the person's Refresh makes.
-			await page
-				.locator('section[data-destination="insights"]')
-				.getByRole("button", { name: "Refresh", exact: true })
-				.click();
-		},
-		ready: "[data-usage-rotation]",
-		settle: 900,
-		// The audits' harness page has no fake omp behind the usage read.
-		when: () => false,
-		parity: {
-			session: "work",
-			after: async page => {
-				const tab = await shownTab(page);
-				if (tab) {
-					await page.evaluate(
-						tabId => window.omp.rpc.commandForTab(tabId, { type: "bash", command: "fixture:usage-accounts:0" }),
-						tab.tabId,
-					);
-				}
-			},
-		},
-	},
-	{
 		id: "autopilot-start",
 		area: "B",
 		title: "Mode popover › Autopilot (start sheet)",

@@ -4,7 +4,6 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageLimit, UsageReport } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
-import { en } from "../../../locales/en";
 import { useSessionStore } from "../../../stores/session";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useTabsStore } from "../../../stores/tabs";
@@ -102,6 +101,7 @@ afterEach(async () => {
 	container?.remove();
 	useSidebarFolds.getState().reset();
 	useSessionStore.getState().reset();
+	vi.restoreAllMocks();
 });
 
 describe("SidebarUsage", () => {
@@ -112,9 +112,9 @@ describe("SidebarUsage", () => {
 		expect(ids).toEqual(["anthropic", "openai-codex"]);
 		const counts = groups.map(group => group.querySelector("[data-account-count]")?.textContent);
 		expect(counts.map(count => count?.replace("· ", ""))).toEqual(["4 accounts", "4 accounts"]);
-		const labels = [...(block?.querySelectorAll("[data-usage-account] [data-account-label]") ?? [])];
+		const rows = [...(block?.querySelectorAll("[data-usage-account]") ?? [])];
 		const wanted = [1, 2, 3, 4].flatMap(id => [`chatgpt${id}@example.com`, `claude${id}@example.com`]);
-		expect(labels.map(label => label.textContent).sort()).toEqual(wanted.sort());
+		expect(rows.map(row => row.getAttribute("aria-label")).sort()).toEqual(wanted.sort());
 	});
 
 	it("marks the account this session uses, and no other", async () => {
@@ -144,22 +144,43 @@ describe("SidebarUsage", () => {
 	it("shows every window of an account with its reset: 5H, 7D and a model's own", async () => {
 		const block = await mount(fourAndFour());
 		const gauges = [...(row(block, 2)?.querySelectorAll(".omp-usage-gauge") ?? [])];
-		expect(gauges.map(gauge => gauge.querySelector(".omp-usage-gauge-text")?.textContent)).toEqual([
-			"5H20%",
-			"7D30%",
-			"Fable10%",
+		expect(gauges.map(gauge => gauge.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow"))).toEqual([
+			"20",
+			"30",
+			"10",
 		]);
-		for (const gauge of gauges) expect(gauge.querySelector(".omp-usage-gauge-reset")?.textContent).toMatch(/^↻ \d/);
+		for (const gauge of gauges) expect(gauge.querySelector(".omp-usage-gauge-reset")?.textContent).toMatch(/^\d/);
 	});
 
-	it("shows a long address whole: it wraps, and the label is its tooltip", async () => {
-		const long = "a.very.long.address.of.somebody.with.many.dots@a-rather-long-company-domain.example.com";
-		const block = await mount([report("anthropic", 1, long)]);
-		const label = row(block, 1)?.querySelector("[data-account-label]");
-		expect(label?.textContent).toBe(long);
-		expect(label?.getAttribute("title")).toBe(long);
-		expect(label?.className).toContain("[overflow-wrap:anywhere]");
-		expect(label?.className).not.toContain("truncate");
+	it("preserves both reset units and the full reset timestamp in a shared-column cell", async () => {
+		const now = 1_800_000_000_000;
+		vi.spyOn(Date, "now").mockReturnValue(now);
+		const resetsAt = now + (3 * 24 + 11) * HOUR;
+		const block = await mount([
+			report("anthropic", 1, "full@example.com", {
+				limits: [{ id: "anthropic:7d", label: "7 day", windowId: "7d", usedFraction: 0.42, resetsAt }],
+			}),
+		]);
+		const reset = row(block, 1)?.querySelector(".omp-usage-gauge-reset");
+		expect(reset?.textContent).toBe("3d11h");
+		expect(reset?.getAttribute("title")).toBe(new Date(resetsAt).toISOString());
+		expect(reset?.getAttribute("aria-label")).toContain(new Date(resetsAt).toISOString());
+	});
+
+	it("distinguishes similar and duplicate long identifiers while retaining full accessible names", async () => {
+		const labels = [
+			"avery.long.account@first-company.example",
+			"avery.long.account@second-company.example",
+			"avery.long.account@first-company.example (Team)",
+		];
+		const block = await mount(labels.map((label, index) => report("anthropic", index + 1, label)));
+		const visible = labels.map((_, index) => row(block, index + 1)?.querySelector("[data-account-label]"));
+		expect(new Set(visible.map(label => label?.textContent)).size).toBe(3);
+		for (const [index, label] of labels.entries()) {
+			expect(row(block, index + 1)?.getAttribute("aria-label")).toBe(label);
+			expect(visible[index]?.getAttribute("title")).toBe(label);
+			expect(visible[index]?.textContent?.length).toBeLessThanOrEqual(7);
+		}
 	});
 
 	it("folds one provider's accounts and remembers it, the others stay", async () => {
@@ -181,17 +202,6 @@ describe("SidebarUsage", () => {
 		expect(block?.hasAttribute("data-collapsed")).toBe(true);
 		expect(block?.querySelector("[data-sidebar-usage-toggle]")).not.toBeNull();
 		expect(block?.querySelectorAll("[data-usage-account]")).toHaveLength(0);
-	});
-
-	it("says only why the session is on its current account", async () => {
-		const rotation = { why: "better", moved: true, phase: "turn-start", at: Date.now() };
-		const block = await mount([
-			report("anthropic", 1, "a@example.com", { active: true, rotation }),
-			report("anthropic", 2, "b@example.com", { rotation }),
-		]);
-		const reasons = block?.querySelectorAll("[data-account-reason]");
-		expect(reasons).toHaveLength(1);
-		expect(reasons?.[0]?.textContent).toBe(en["usage.rotation.better"]);
 	});
 
 	it("lists no API-key provider and renders nothing with no account", async () => {

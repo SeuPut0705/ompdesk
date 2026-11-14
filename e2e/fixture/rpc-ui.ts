@@ -6777,50 +6777,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				// Insights › Usage with the line saying why this session is on its account (the parity sheet's
-				// `usage-rotation`): two Claude accounts, the session's with the rotation's last decision.
-				if (line === "fixture:usage-rotation") {
-					const now = Date.now();
-					const windows = (used5: number, used7: number) => [
-						{
-							id: "anthropic:5h",
-							label: "Claude 5 Hour",
-							windowId: "5h",
-							usedFraction: used5,
-							resetsAt: now + 3 * 3_600_000,
-						},
-						{
-							id: "anthropic:7d",
-							label: "Claude 7 Day",
-							windowId: "7d",
-							usedFraction: used7,
-							resetsAt: now + 4 * 86_400_000,
-						},
-					];
-					usageAccounts = [
-						{
-							provider: "anthropic",
-							fetchedAt: now,
-							account: "work@example.com",
-							credentialId: 1,
-							active: true,
-							lastUsedAt: now - 30_000,
-							rotation: { why: "mid-turn", moved: false, phase: "mid-turn", at: now - 45_000 },
-							limits: windows(0.71, 0.38),
-						},
-						{
-							provider: "anthropic",
-							fetchedAt: now,
-							account: "side@example.com",
-							credentialId: 2,
-							active: false,
-							lastUsedAt: now - 3_600_000,
-							limits: windows(0.12, 0.2),
-						},
-					];
-					ok();
-					break;
-				}
 				// The work board's showcase (`fixture:board`): a running turn with a few steps, agents on named models,
 				// a todo list part done, a goal with a budget and a question waiting on the user.
 				if (line.startsWith("fixture:usage-accounts:")) {

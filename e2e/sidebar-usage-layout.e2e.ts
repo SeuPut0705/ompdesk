@@ -9,7 +9,7 @@ import { chromium, expect, test } from "@playwright/test";
 import { createServer } from "vite";
 
 // One test owns its server and browser, so no fixture state crosses tests or workers.
-test("the narrow sidebar keeps its accounts reachable and its blocked notice clear of Settings", async () => {
+test("the narrow sidebar shows all three accounts and resets together above Settings", async () => {
 	const probe = createNetServer();
 	const listening = Promise.withResolvers<void>();
 	probe.once("error", listening.reject);
@@ -31,13 +31,11 @@ test("the narrow sidebar keeps its accounts reachable and its blocked notice cle
 		await server.listen();
 		const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
 		await page.addInitScript(() => localStorage.setItem("omp.sidebarWidth", "227"));
-		await page.goto(`http://127.0.0.1:${port}/harness.html?theme=dark&lang=ko&usage=blocked`);
+		await page.goto(`http://127.0.0.1:${port}/harness.html?theme=dark&lang=ko&usage=blocked&platform=darwin`);
 		const block = page.locator("[data-rail-pin='usage']");
 		const scroller = page.locator("[data-sidebar-usage-scroll]");
-		const notice = block.locator("[data-account-reason]");
 		await expect(block.locator("[data-usage-account]")).toHaveCount(3);
 		await expect(block.locator("[data-in-use]")).toHaveCount(1);
-		await expect(notice).toContainText("다음 요청은 다른 계정을 써요.");
 		for (const height of [860, 560]) {
 			await page.setViewportSize({ width: 1280, height });
 			const geometry = await block.evaluate(element => {
@@ -45,28 +43,26 @@ test("the narrow sidebar keeps its accounts reachable and its blocked notice cle
 				const sidebar = document.querySelector(".omp-session-sidebar")?.getBoundingClientRect();
 				const list = document.querySelector(".omp-sidebar-list")?.getBoundingClientRect();
 				const settings = document.querySelector("[data-destination='settings']")?.getBoundingClientRect();
-				const note = element.querySelector("[data-account-reason]")?.getBoundingClientRect();
+				const scroller = element.querySelector("[data-sidebar-usage-scroll]")?.getBoundingClientRect();
 				return {
 					height: box.height,
 					width: sidebar?.width,
 					listHeight: list?.height,
 					settingsTop: settings?.top,
-					noteTop: note?.top,
-					noteBottom: note?.bottom,
+					bottom: box.bottom,
+					visibleAccounts: [...element.querySelectorAll("[data-usage-account]")].filter(row => {
+						const rect = row.getBoundingClientRect();
+						return scroller && rect.top >= scroller.top && rect.bottom <= scroller.bottom;
+					}).length,
 				};
 			});
 			expect(geometry.width).toBe(227);
-			expect(
-				geometry.height,
-				"the whole usage block, including its notice, takes at most a third",
-			).toBeLessThanOrEqual(height / 3);
+			expect(geometry.height, "the whole usage block takes at most a third").toBeLessThanOrEqual(height / 3);
 			expect(geometry.listHeight, "session rows retain at least a quarter of the sidebar").toBeGreaterThan(
 				height / 4,
 			);
-			expect(geometry.noteBottom, "the complete notice stays above Settings").toBeLessThan(
-				geometry.settingsTop ?? 0,
-			);
-			expect(geometry.noteTop).toBeGreaterThanOrEqual(0);
+			expect(geometry.bottom, "all account data stays above Settings").toBeLessThan(geometry.settingsTop ?? 0);
+			expect(geometry.visibleAccounts, "all three accounts are readable without scrolling").toBe(3);
 			// Every window's label, percentage and reset remain readable at this width.
 			const cut = await block.locator(".omp-usage-gauge-text, .omp-usage-gauge-reset").evaluateAll(
 				elements =>
@@ -85,11 +81,13 @@ test("the narrow sidebar keeps its accounts reachable and its blocked notice cle
 					}).length,
 			);
 			expect(cut, "no window label, percentage or reset is cut").toBe(0);
-			await scroller.evaluate(element => {
-				element.scrollTop = element.scrollHeight;
+			await test.info().attach(`geometry-${height}`, {
+				body: JSON.stringify({ viewportHeight: height, ...geometry, cut }),
+				contentType: "application/json",
 			});
+			expect(await scroller.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
 			const last = block.locator("[data-usage-account]").last();
-			await expect(last).toContainText("taylor.r@example.com");
+			await expect(last).toHaveAttribute("aria-label", "taylor.r@example.com");
 			await expect(last.locator(".omp-usage-gauge-reset")).toHaveCount(3);
 			const end = await last.evaluate(element => {
 				const box = element.getBoundingClientRect();
@@ -97,7 +95,6 @@ test("the narrow sidebar keeps its accounts reachable and its blocked notice cle
 				return { bottom: box.bottom, cap: list?.bottom ?? 0 };
 			});
 			expect(end.bottom, "the last account's reset line clears the scroller edge").toBeLessThanOrEqual(end.cap);
-			await expect(notice).toBeInViewport({ ratio: 1 });
 			await page.screenshot({ path: test.info().outputPath(`sidebar-usage-${height}-end.png`) });
 		}
 	} finally {
