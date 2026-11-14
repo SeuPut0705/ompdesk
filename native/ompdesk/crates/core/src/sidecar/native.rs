@@ -619,4 +619,4 @@ impl crate::pool::application::Sidecar for Service {
 
 #[cfg(test)]
 #[path = "native_tests.rs"]
-mod tests;
+pub(crate) mod tests;
