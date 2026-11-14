@@ -4,6 +4,7 @@
 
 pub mod agentctl;
 pub mod aimemory;
+pub mod application;
 pub mod autopilot;
 pub mod browsers;
 pub mod care;
@@ -19,6 +20,7 @@ pub mod hub;
 pub mod ipc;
 mod json;
 pub mod keepawake;
+pub mod machine;
 pub mod memory;
 mod memsync;
 pub mod models;
