@@ -503,6 +503,37 @@ impl<H: Host> Service<H> {
         })
     }
 
+    pub fn execution_note_stopped(
+        &self,
+        owner: &Owner,
+        tab: &str,
+        source: Arc<H::Sidecar>,
+        generation: u64,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
+        let owner = owner.clone();
+        let tab = tab.to_owned();
+        let app = Arc::clone(&self.app);
+        let callers = Arc::clone(&self.callers);
+        self.execute_typed(move |ctx| {
+            Box::pin(async move {
+                callers.admit_execution(&owner, &tab, None, || {
+                    execution_source(&ctx, &app, &tab, &source, None)?;
+                    if source.generation() != generation {
+                        return Err(Fault::new("tab_stale", "The execution's run has changed"));
+                    }
+                    ctx.with(|pool| {
+                        pool.entry_mut(&tab)
+                            .expect("admitted execution remains in this hub step")
+                            .tracking
+                            .stopped = true;
+                    });
+                    Ok(())
+                })?;
+                ctx.on_running_change().await
+            })
+        })
+    }
+
     pub fn bind_execution(
         &self,
         callers: Arc<crate::application::callers::Callers>,
