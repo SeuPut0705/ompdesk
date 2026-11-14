@@ -1532,6 +1532,146 @@ describe("tabs store close races and failures", () => {
 	});
 });
 
+describe("retained execution view races", () => {
+	const oldView: IpcTabInfo = {
+		...tabInfo("t1", "/beta", "ready"),
+		viewId: "pool/entry/view-1",
+		sessionPath: "/sessions/retained.jsonl",
+		title: "Old view",
+		shared: true,
+		viewerCount: 1,
+	};
+	const newView: IpcTabInfo = {
+		...oldView,
+		viewId: "pool/entry/view-2",
+		status: "running",
+		title: "New view",
+		viewerCount: 2,
+	};
+	const otherTabs = [tabInfo("t0", "/alpha"), tabInfo("t2", "/gamma")];
+	const seedOldView = () => {
+		seedTabs("t0");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab =>
+				tab.id === "t1"
+					? {
+							...tab,
+							viewId: oldView.viewId,
+							sessionPath: oldView.sessionPath ?? undefined,
+							title: oldView.title ?? undefined,
+							shared: true,
+							viewerCount: 1,
+						}
+					: tab,
+			),
+		}));
+	};
+
+	it("keeps a freshly reconciled shared view when an older list push omitted it", async () => {
+		seedOldView();
+		await useTabsStore.getState().closeTab("t1");
+		omp.tabs.close.mockClear();
+		const listing = Promise.withResolvers<IpcTabInfo[]>();
+		const listingStarted = Promise.withResolvers<void>();
+		const route = Promise.withResolvers<boolean>();
+		const routeStarted = Promise.withResolvers<void>();
+		omp.tabs.list.mockImplementationOnce(() => {
+			listingStarted.resolve();
+			return listing.promise;
+		});
+		omp.tabs.setActive.mockImplementationOnce(() => {
+			routeStarted.resolve();
+			return route.promise;
+		});
+
+		const oldPush = useTabsStore.getState().applyTabList([...otherTabs, tabInfo("t9", "/delta")]);
+		await listingStarted.promise;
+		listing.resolve([...otherTabs, newView, tabInfo("t9", "/delta")]);
+		await routeStarted.promise;
+		const newRuntime = sessionRuntime("t1");
+		sessionRuntimeStore<ComposerStore>("t1", "composer")?.setState({ draft: "new shared view work" });
+		route.resolve(true);
+		await oldPush;
+
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")).toMatchObject({
+			viewId: newView.viewId,
+			shared: true,
+			viewerCount: 2,
+		});
+		expect(omp.tabs.close).not.toHaveBeenCalledWith("t1");
+		expect(newRuntime).not.toBeNull();
+		expect(sessionRuntime("t1")).toBe(newRuntime);
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("new shared view work");
+	});
+
+	it("keeps the reopened focused view and its work when the old close succeeds late", async () => {
+		seedOldView();
+		const oldRuntime = sessionRuntime("t1");
+		const release = Promise.withResolvers<boolean>();
+		const releaseStarted = Promise.withResolvers<void>();
+		omp.tabs.close.mockImplementationOnce(() => {
+			releaseStarted.resolve();
+			return release.promise;
+		});
+
+		const closing = useTabsStore.getState().closeTab("t1");
+		await releaseStarted.promise;
+		omp.tabs.list.mockResolvedValue([...otherTabs, newView]);
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "focus" });
+		const newRuntime = sessionRuntime("t1");
+		fillLiveStores("new-view");
+		release.resolve(true);
+		await closing;
+
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.viewId).toBe(newView.viewId);
+		expect(newRuntime).not.toBeNull();
+		expect(newRuntime).not.toBe(oldRuntime);
+		expect(sessionRuntime("t1")).toBe(newRuntime);
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("draft-new-view");
+		expect(useComposerStore.getState().draft).toBe("draft-new-view");
+		expect(useSessionStore.getState().sessionId).toBe("s-new-view");
+		expect(useMessagesStore.getState().messages).toEqual([msg("hello-new-view")]);
+	});
+
+	it("keeps the new view after a failed close rolls back and an older list arrives late", async () => {
+		seedOldView();
+		const oldRuntime = sessionRuntime("t1");
+		omp.tabs.close.mockResolvedValueOnce(false);
+		omp.tabs.list.mockResolvedValue([...otherTabs, oldView]);
+		await useTabsStore.getState().closeTab("t1");
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.viewId).toBe(oldView.viewId);
+
+		const staleListing = Promise.withResolvers<IpcTabInfo[]>();
+		const staleStarted = Promise.withResolvers<void>();
+		omp.tabs.list.mockImplementationOnce(() => {
+			staleStarted.resolve();
+			return staleListing.promise;
+		});
+		const staleReconcile = useTabsStore.getState().reconcileTabs();
+		await staleStarted.promise;
+		omp.tabs.list.mockResolvedValue([...otherTabs, newView]);
+		await useTabsStore.getState().reconcileTabs();
+		const newRuntime = sessionRuntime("t1");
+		sessionRuntimeStore<ComposerStore>("t1", "composer")?.setState({ draft: "work in new view" });
+		staleListing.resolve([...otherTabs, oldView]);
+		await staleReconcile;
+
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")).toMatchObject({
+			viewId: newView.viewId,
+			title: "New view",
+			status: "running",
+			shared: true,
+			viewerCount: 2,
+		});
+		expect(newRuntime).not.toBeNull();
+		expect(newRuntime).not.toBe(oldRuntime);
+		expect(sessionRuntime("t1")).toBe(newRuntime);
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("work in new view");
+		expect(sessionRuntimeStore<SessionStore>("t1", "session")?.getState().isStreaming).toBe(true);
+	});
+});
+
 describe("tabs store position jumps", () => {
 	it("focuses the tab at a strip position and the last tab, ignoring positions past the end", async () => {
 		seedTabs("t0");
