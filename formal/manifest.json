@@ -186,6 +186,27 @@
 			],
 			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/stock-lane-verify/SKILL.md"
+		},
+		{
+			"id": "agent-inbox-wake-policy",
+			"title": "Native inbox first intent, current proof and card-safe receiver wake",
+			"kind": "tla",
+			"dir": "agent-inbox/tla/policy",
+			"spec": "InboxWakePolicy.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"native/ompdesk/crates/core/src/agentctl/inbox.rs:49-98",
+				"native/ompdesk/crates/core/src/agentctl/journal/inbox_ledger.rs:143-147",
+				"native/ompdesk/crates/core/src/agentctl/journal/inbox_ledger.rs:345-426",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_delivery.rs:120-150",
+				"native/ompdesk/crates/core/src/agentctl/runtime/inbox_delivery.rs:243-353",
+				"native/ompdesk/crates/core/src/agentctl/service/messages.rs:291-478",
+				"native/ompdesk/crates/core/src/agentctl/service/mod.rs:346-349",
+				"resources/gui-bridge/agent-inbox-engine.ts:459-481",
+				"resources/gui-bridge/agent-inbox-context.ts:48-84"
+			],
+			"syncCommit": null
 		}
 	]
 }
