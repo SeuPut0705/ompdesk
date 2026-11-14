@@ -120,6 +120,22 @@ impl Callers {
             .ok_or_else(|| Fault::new("caller_closed", "The caller is no longer admitted"))
     }
 
+    /// Run a synchronous native admission under the same lock as caller revocation.
+    pub fn admit_owner<T>(
+        &self,
+        owner: &Owner,
+        effect: impl FnOnce() -> Result<T, Fault>,
+    ) -> Result<T, Fault> {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if state.stopped || !state.owners.contains_key(owner) {
+            return Err(Fault::new(
+                "caller_closed",
+                "The caller is no longer admitted",
+            ));
+        }
+        effect()
+    }
+
     /// Reject a revoked owner, old app generation or request identity that is already in flight.
     pub fn begin(&self, owner: &Owner, id: RequestId) -> Result<(Scope, Gone), Fault> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
