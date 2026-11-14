@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"paths": {
+			"@shared/*": ["../../src/shared/*"],
+			"@renderer/*": ["../../src/renderer/*"],
+			"playwright": ["./playwright-shell.ts"]
+		}
+	}
+}

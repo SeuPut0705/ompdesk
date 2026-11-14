@@ -1,0 +1,28 @@
+# The checks of the CEF shell's own cargo workspace (native/ompdesk/crates/shell), on Windows and macOS arm64 only: the
+# shell links CEF, which only those two OSes ship, so it is not in `native-check` (which `cargo test --workspace`s the
+# core on three OSes without ever needing CEF). Run after oven-sh/setup-bun; scripts/build-shell.ts runs cargo in the
+# environment the CEF wrapper needs (a `subst` drive on Windows for MAX_PATH, Visual Studio's cmake and Ninja, INCLUDE
+# only for cef-dll-sys). Each step runs even when the one before it failed, so one red step never hides another.
+name: Check the CEF shell's Rust
+description: cargo fmt, clippy with warnings denied and the tests of native/ompdesk/crates/shell.
+
+runs:
+  using: composite
+  steps:
+    - id: toolchain
+      uses: ./.github/actions/shell-toolchain
+
+    - name: cargo fmt
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      run: bun scripts/build-shell.ts --cargo fmt --all --check
+
+    - name: cargo clippy
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      run: bun scripts/build-shell.ts --cargo clippy --locked --all-targets -- -D warnings
+
+    - name: cargo test
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      run: bun scripts/build-shell.ts --cargo test --locked

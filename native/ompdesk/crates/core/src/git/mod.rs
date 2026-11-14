@@ -22,7 +22,7 @@ pub(crate) mod read;
 pub(crate) mod run;
 mod scm;
 mod seed;
-mod triggers;
+pub(crate) mod triggers;
 mod unlanded;
 mod worktree;
 

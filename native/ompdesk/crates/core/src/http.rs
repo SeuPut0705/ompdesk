@@ -112,7 +112,7 @@ fn extra_roots(file: Option<OsString>) -> Vec<CertificateDer<'static>> {
 static MACHINE_TLS: LazyLock<Result<Arc<ClientConfig>, String>> =
     LazyLock::new(|| client_config(extra_roots(std::env::var_os("NODE_EXTRA_CA_CERTS"))));
 
-fn machine_tls() -> Result<Arc<ClientConfig>, Failure> {
+pub(crate) fn machine_tls() -> Result<Arc<ClientConfig>, Failure> {
     MACHINE_TLS.clone().map_err(Failure::Tls)
 }
 
@@ -290,9 +290,13 @@ pub async fn open(request: Request<'_>) -> Result<hyper::Response<Incoming>, Fai
 /// answer here and is not followed: Web Push's one attempt takes a push service's 3xx as a refusal, as `https.request`
 /// did (the redirect rules above are `fetch`'s).
 pub async fn status_once(request: Request<'_>) -> Result<u16, Failure> {
+    Ok(open_once(request).await?.status().as_u16())
+}
+
+/// One validated exchange without following redirects; the caller bounds and consumes the returned body.
+pub(crate) async fn open_once(request: Request<'_>) -> Result<hyper::Response<Incoming>, Failure> {
     let url = Url::parse(request.url).map_err(|_| Failure::Request)?;
-    let response = exchange_once(&url, request.headers, request.body, machine_tls).await?;
-    Ok(response.status().as_u16())
+    exchange_once(&url, request.headers, request.body, machine_tls).await
 }
 
 #[cfg(test)]
@@ -884,6 +888,24 @@ pub(crate) mod tests {
                 ("POST /end HTTP/1.1".to_owned(), false),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_single_exchange_retains_the_redirect_head_and_body_without_replaying_it() {
+        let (port, seen) = redirecting().await;
+        let redirect = format!("http://127.0.0.1:{port}/to/307");
+        let response = open_once(get(&redirect)).await.unwrap();
+        assert_eq!(response.status().as_u16(), 307);
+        assert!(response.headers().contains_key(LOCATION));
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        let bare = format!("http://127.0.0.1:{port}/bare");
+        let response = open_once(get(&bare)).await.unwrap();
+        assert_eq!(response.status().as_u16(), 302);
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            b"bare"[..]
+        );
+        assert_eq!(seen.lock().unwrap().len(), 2);
     }
 
     #[tokio::test]

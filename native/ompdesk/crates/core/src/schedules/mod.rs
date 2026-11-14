@@ -24,11 +24,14 @@
 //! The clock is the system's, read at every check. A test's service is opened `manual`: then the core keeps no timer,
 //! every request says what time it is and `schedules.tick` is the check.
 
+pub mod application;
+mod draft;
 mod engine;
 mod launch;
 pub(crate) mod rules;
 #[cfg(test)]
 mod tests;
+mod triggers;
 
 use std::collections::HashMap;
 use std::fs;
@@ -204,6 +207,18 @@ struct Files {
     prompt: String,
 }
 
+fn prepare_files(log_dir: &Path, run: &str, prompt: &str, cwd: Option<&str>) -> Option<String> {
+    if let Err(error) = fs::create_dir_all(log_dir) {
+        return Some(node_fault(&error, "mkdir", log_dir).message);
+    }
+    let cwd = cwd?;
+    let file = log_dir.join(format!("{run}.prompt"));
+    if let Err(error) = fs::write(&file, prompt) {
+        return Some(node_fault(&error, "open", &file).message);
+    }
+    (!Path::new(cwd).exists()).then(|| format!("Project folder not found: {cwd}"))
+}
+
 impl Service {
     fn tell<T: Serialize>(&self, event: &str, told: T) {
         self.events.send(
@@ -268,7 +283,7 @@ impl Service {
                 self.tell("schedules.refund", serde_json::json!({ "charge": charge }))
             }
             Out::Prepare { run, prompt, cwd } => {
-                let failed = self.prepare(&run, &prompt, cwd.as_deref());
+                let failed = prepare_files(&self.log_dir, &run, &prompt, cwd.as_deref());
                 engine.prepared(&run, failed, now);
             }
             Out::Start {
@@ -307,20 +322,6 @@ impl Service {
                 }
             }
         }
-    }
-
-    /// A run's files; why they could not be made, or that its folder is gone.
-    fn prepare(&self, run: &str, prompt: &str, cwd: Option<&str>) -> Option<String> {
-        if let Err(error) = fs::create_dir_all(&self.log_dir) {
-            return Some(node_fault(&error, "mkdir", &self.log_dir).message);
-        }
-        // A wake-up's prompt goes into its session: it has no file and needs no folder.
-        let cwd = cwd?;
-        let file = self.prompt_file(run);
-        if let Err(error) = fs::write(&file, prompt) {
-            return Some(node_fault(&error, "open", &file).message);
-        }
-        (!Path::new(cwd).exists()).then(|| format!("Project folder not found: {cwd}"))
     }
 
     fn close(&self, given: Option<f64>) {
@@ -558,16 +559,10 @@ fn reserved(call: &Call) -> Result<Reply, Fault> {
     Reply::json(&())
 }
 
-/// The run's captured output, from its end when long.
-fn log(call: &Call) -> Result<Reply, Fault> {
+fn read_log_tail(path: &Path) -> Result<String, Fault> {
     use std::io::{Read, Seek, SeekFrom};
-    let (service, _, params): (_, _, RunParams) = asked(call)?;
-    if !locked(&service.engine).has_run(&params.run) {
-        return Err(Fault::new("schedule_error", "Run not found"));
-    }
-    let path = service.log_file(&params.run);
-    let Ok(mut file) = fs::File::open(&path) else {
-        return Reply::json(&"");
+    let Ok(mut file) = fs::File::open(path) else {
+        return Ok(String::new());
     };
     let read = (|| {
         let size = file.metadata()?.len();
@@ -576,8 +571,16 @@ fn log(call: &Call) -> Result<Reply, Fault> {
         file.take(LOG_TAIL_BYTES).read_to_end(&mut tail)?;
         Ok(tail)
     })();
-    let tail = read.map_err(|error: std::io::Error| node_fault(&error, "read", &path))?;
-    Reply::json(&String::from_utf8_lossy(&tail))
+    let tail = read.map_err(|error: std::io::Error| node_fault(&error, "read", path))?;
+    Ok(String::from_utf8_lossy(&tail).into_owned())
+}
+
+fn log(call: &Call) -> Result<Reply, Fault> {
+    let (service, _, params): (_, _, RunParams) = asked(call)?;
+    if !locked(&service.engine).has_run(&params.run) {
+        return Err(Fault::new("schedule_error", "Run not found"));
+    }
+    Reply::json(&read_log_tail(&service.log_file(&params.run))?)
 }
 
 async fn closed(call: Call) -> Result<Reply, Fault> {

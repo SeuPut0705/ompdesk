@@ -1,7 +1,7 @@
-//! What machine setup fetches from the network (was `src/main/setup/download.ts` and the lookups of
-//! `src/main/setup/archives.ts`): a verified download to disk with byte progress (`download`) and the release
-//! lookups for the archives setup installs itself (`archives`: Node.js, GitHub CLI, agent-desktop, Tailscale).
-//! `net` holds what both read the network with. Main keeps how a failure is shown and when a download starts.
+//! Native machine setup: verified archive downloads and the typed application installation service.
+//! `service::SetupService` serializes required setup, optional installs, tool updates and explicit Git ASLR actions.
+//! Machine supplies canonical detection/environment through `types::Host`; Base owns the actual app graph and IPC.
+//! The service reuses `download` and the core `--supervise` runner. No method accepts a page-supplied command.
 //!
 //! Methods:
 //! - `setup.download` `{id, url, sha256, file, accept?, mirror?}` answers `{}` once `file` holds bytes that match
@@ -13,10 +13,21 @@
 //! - `mirror` is a test's server on 127.0.0.1 standing in for every host (`net::routed`).
 
 mod archives;
+pub mod compiled;
+mod desktop;
 mod download;
+pub mod git_aslr;
+mod ledger;
 mod net;
+pub mod plans;
+pub mod runner;
+mod scripts;
+pub mod service;
 #[cfg(test)]
 mod tests;
+pub mod types;
+
+pub use desktop::detect_agent_desktop;
 
 use serde::Deserialize;
 

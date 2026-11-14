@@ -66,7 +66,7 @@ impl Kind {
         })
     }
 
-    fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             Kind::PullRequest => "pull_request",
             Kind::Issue => "issue",

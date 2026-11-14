@@ -1,0 +1,358 @@
+# Batch S's checks that need a machine other than this Windows desktop (native-rust ledger › S). A branch-only workflow:
+# it exists only on `omp/agent/rust-batch-shell` and runs nothing on main. A pushed workflow file is not dispatchable
+# from a branch until it is on the default branch, so it also runs on a push to that branch that touches it (or the move
+# scripts); `gh workflow run shell-batch-checks.yml --ref omp/agent/rust-batch-shell` runs it by hand once it is there.
+#  shell-mac   the shell builds on macos-15 and macos-26 (`bun run build:shell`, clippy, cargo test): compile errors of the
+#              macOS code written without a Mac come back here.
+#  title-bar   the real title-bar drag check (scripts/shell-drag-check.ts, written by the shell's owner) on windows-latest,
+#              macos-15 and macos-26.
+#  move-mac    the whole update move on the Mac (scripts/shell-move/move-mac.sh): the released v0.127.0, re-signed with a
+#              throwaway certificate, updates itself into the real shell bundle through its unchanged updater (check found …
+#              swap helper, swap.log installed, the shell on Electron's profile with Local Storage and the seeded token), and
+#              a move that fails (read-only apps folder) rolls back; no SecurityAgent or coreauthd line.
+#  move-win    the whole update move on windows-latest (scripts/shell-move/run-move.ts, a test identity, silent): the released
+#              v0.127.0 and v0.128.0 each update through their unchanged updater into the real shell (the success run: the main's
+#              app-started.json of the new version appears and the old folder's backup is gone), an unpack made incomplete
+#              puts the Electron app back, and a new shell that exits after CEF init (OMP_GUI_TEST_SHELL_FAIL_START=1)
+#              gets Electron back too, started, `swap result outcome rolled back`, no window, no dialog; and the same
+#              version offered again after that failure is held (v0.127.0's NSIS guard, v0.128.0's updater).
+#  move-mac-release1  the same move from the real v0.128.0 DMG, re-signed with the throwaway certificate:
+#              its start-checked swap script keeps `<app>.previous` until the
+#              new app writes app-started.json for the offered version (the success path says `started`), and puts it back
+#              by itself when the shell does not come up (OMP_GUI_TEST_SHELL_FAIL_START=1), no dialog.
+#  keychain    S's landing gate for the macOS keychain (scripts/shell-move/keychain-ci.sh): a release-signed item read by the
+#              shell, an ad-hoc item never asked about, a profile without ciphertext never reading; no SecurityAgent or
+#              coreauthd line. macOS 27 has no hosted runner: the owner's Mac covers it.
+# macOS jobs follow main's check queue (queue-gate.yml): a push runs only the Windows jobs (move-win, title-bar on
+# windows-latest). The macOS jobs need a dispatch (`bun scripts/ci-run.ts`) the gate admits: main, or a branch named in
+# the repository variable MAC_REFS; any other ref fails closed at the gate and no macOS job starts. They share the
+# account-wide `mac-dispatch` lane (one holder, one waiting request), so they also run one after the other here (`needs`
+# chain, `max-parallel: 1` on the two-OS matrices): a lane group seen by sibling jobs of one run would cancel the waiting one.
+# Deleted with the branch's landing; the checks that stay move into ci.yml's batch run.
+name: shell-batch-checks
+run-name: ${{ github.event_name == 'workflow_dispatch' && 'shell-batch-checks [mac]' || '' }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [omp/agent/rust-batch-shell]
+    paths:
+      - .github/workflows/shell-batch-checks.yml
+      - .github/actions/shell*/**
+      - scripts/shell-move/**
+      - .github/actions/shell-mac-inputs/**
+      - scripts/package-mac.ts
+      - scripts/build-shell.ts
+      - scripts/shell-drag-check.ts
+      - resources/installer.nsh
+      - electron-builder.win.yml
+      - scripts/after-pack.cjs
+      - native/ompdesk/crates/shell/**
+
+# A run in progress finishes (the hour a macOS run takes is lost to every push otherwise); the newest push waits its turn.
+concurrency:
+  group: shell-batch-checks-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The queue's admission (queue-gate.yml): skipped on a push (nothing to admit; only the Windows jobs run), on a dispatch it
+  # lets the macOS jobs start for main and MAC_REFS branches only, and cancels a commit's second identical run.
+  gate:
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/queue-gate.yml
+    with:
+      workflow: shell-batch-checks.yml
+      mac: true
+      mac-refs: ${{ vars.MAC_REFS }}
+
+  shell-mac:
+    name: shell-mac (${{ matrix.os }})
+    needs: [gate]
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && needs.gate.outputs.mac_ok == 'true'"
+    concurrency:
+      group: mac-dispatch
+      cancel-in-progress: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-check
+      - name: Build and stage the shell
+        run: bun run build:shell
+      - name: Keep the compile errors in the summary
+        if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  title-bar:
+    name: title-bar (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install
+      - uses: ./.github/actions/shell
+      - run: bun run build
+      - name: The shell's title-bar drag check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/shell-drag-check.ts || { echo "::error::scripts/shell-drag-check.ts is not there yet"; exit 1; }
+          bun scripts/shell-drag-check.ts
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+
+  title-bar-mac:
+    name: title-bar (${{ matrix.os }})
+    needs: [gate, shell-mac]
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && needs.gate.outputs.mac_ok == 'true'"
+    concurrency:
+      group: mac-dispatch
+      cancel-in-progress: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      # macOS runs the shell from an .app bundle (CEF finds its framework and helpers by that layout),
+      # ad-hoc signed, assembled by scripts/package-mac.ts.
+      - uses: ./.github/actions/shell-mac-inputs
+      - name: The .app bundle
+        shell: bash
+        run: bun scripts/package-mac.ts --no-dmg --version 0.200.0 --sign-with -
+      - name: The shell's title-bar drag check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/shell-drag-check.ts || { echo "::error::scripts/shell-drag-check.ts is not there yet"; exit 1; }
+          if [ "$RUNNER_OS" = macOS ]; then export OMPDESK_SHELL_EXE="$PWD/dist/mac-arm64/OMPdesk.app/Contents/MacOS/OMPdesk"; fi
+          bun scripts/shell-drag-check.ts
+      # The stopgap's question: only `OMPdesk Helper*` apps in the bundle (the shell names CEF's helper path itself). Its
+      # result is an EVIDENCE line, not a gate: while it is red the bundle keeps both sets.
+      - name: One helper set (decides whether the second set can go)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          export OMP_HELPER_SETS=product
+          bun scripts/package-mac.ts --no-dmg --version 0.200.0 --sign-with -
+          ls "$PWD/dist/mac-arm64/OMPdesk.app/Contents/Frameworks" | sed 's/^/EVIDENCE: one-set bundle holds: /'
+          export OMPDESK_SHELL_EXE="$PWD/dist/mac-arm64/OMPdesk.app/Contents/MacOS/OMPdesk"
+          if bun scripts/shell-drag-check.ts; then echo "EVIDENCE: ONE helper set (OMPdesk Helper*): the shell's drag check passes on ${{ matrix.os }}"; else echo "EVIDENCE: ONE helper set: the drag check FAILS on ${{ matrix.os }}"; exit 1; fi
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  move-mac:
+    name: move-mac (${{ matrix.os }})
+    needs: [gate, title-bar-mac]
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && needs.gate.outputs.mac_ok == 'true'"
+    concurrency:
+      group: mac-dispatch
+      cancel-in-progress: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-mac-inputs
+      - name: The update move (success, then a failed move)
+        shell: bash
+        run: set -o pipefail; bash scripts/shell-move/move-mac.sh 2>&1 | tee move-mac.log
+      - name: Evidence lines
+        if: always()
+        shell: bash
+        run: |
+          { echo "### update move, ${{ matrix.os }}"; echo '```'; grep -E '^(EVIDENCE|ok|FAILED)' move-mac.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: move-mac-${{ matrix.os }}
+          path: move-mac.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  move-win:
+    name: move-win (${{ matrix.released-tag }})
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        released-tag: [v0.127.0, v0.128.0]
+    env:
+      ELECTRON_BUILDER_COMPRESSION_LEVEL: "4"
+      OMP_MOVE_RELEASED_TAG: ${{ matrix.released-tag }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - name: Put bun's cache on the workspace volume
+        shell: bash
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      # Rebuild each old setup under the test identity using its own released installer.nsh.
+      - name: The released tag
+        shell: bash
+        run: git fetch --no-tags --depth=1 origin tag "$OMP_MOVE_RELEASED_TAG"
+      - uses: ./.github/actions/shell-mac-inputs
+        with:
+          builder: "true"
+          playwright: "false"
+      # Each run starts from nothing (a fresh profile, update log and setup log); the old setup is kept between them.
+      - name: The success move
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --label success 2>&1 | tee move-win-success.log
+      - name: A move whose unpack is incomplete
+        if: always()
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at swap 2>&1 | tee move-win-fail-swap.log
+      - name: A move whose new shell does not start
+        if: always()
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at start 2>&1 | tee move-win-fail-start.log
+      - name: A new shell that does not start, twice in a row (the second round is skipped)
+        if: always()
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at start-twice 2>&1 | tee move-win-fail-start-twice.log
+      - name: Evidence lines
+        if: always()
+        shell: bash
+        run: |
+          { echo "### update move from $OMP_MOVE_RELEASED_TAG, windows-latest"; for f in move-win-*.log; do echo "#### $f"; echo '```'; grep -E '"step":"(ok|FAILED)|^RESULT|OWNER CHANGED' "$f" | cut -c1-400 || true; echo '```'; done; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: move-win-${{ matrix.released-tag }}
+          path: |
+            move-win-*.log
+            ${{ runner.temp }}/omv/runs/*/evidence.json
+            ${{ runner.temp }}/omv/runs/*/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  move-mac-release1:
+    name: move-mac-release1 (${{ matrix.os }})
+    needs: [gate, move-mac]
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && needs.gate.outputs.mac_ok == 'true'"
+    concurrency:
+      group: mac-dispatch
+      cancel-in-progress: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-mac-inputs
+      - name: The update move from released v0.128.0 (success, then a new shell that does not start)
+        shell: bash
+        run: set -o pipefail; OMP_MOVE_RELEASED_TAG=v0.128.0 bash scripts/shell-move/move-mac.sh 2>&1 | tee move-mac-release1.log
+      - name: Evidence lines
+        if: always()
+        shell: bash
+        run: |
+          { echo "### update move from release 1, ${{ matrix.os }}"; echo '```'; grep -E '^(EVIDENCE|ok|FAILED)' move-mac-release1.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: move-mac-release1-${{ matrix.os }}
+          path: move-mac-release1.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  keychain:
+    name: keychain (${{ matrix.os }})
+    needs: [gate, move-mac-release1]
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && needs.gate.outputs.mac_ok == 'true'"
+    concurrency:
+      group: mac-dispatch
+      cancel-in-progress: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-mac-inputs
+      - name: The keychain gate (release-signed item, ad-hoc item, profile without ciphertext)
+        run: set -o pipefail; bash scripts/shell-move/keychain-ci.sh 2>&1 | tee keychain-ci.log
+        shell: bash
+      - name: Evidence lines
+        if: always()
+        run: |
+          { echo "### keychain gate, ${{ matrix.os }}"; echo '```'; grep -E '^(EVIDENCE|ok|FAILED)' keychain-ci.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: keychain-${{ matrix.os }}
+          path: keychain-ci.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}

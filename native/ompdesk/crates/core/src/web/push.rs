@@ -433,6 +433,28 @@ fn now_seconds() -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
+/// One native sender's attempt, using the same encryption and HTTP path as the wire method.
+pub async fn send_message(
+    vapid: &Vapid,
+    subscription: &Subscription,
+    payload: &[u8],
+    options: &Options,
+    timeout: Duration,
+) -> Result<u16, Fault> {
+    let mut salt = [0u8; 16];
+    crate::sys::random(&mut salt).map_err(|error| Fault::new("random", error.to_string()))?;
+    let prepared = prepare(
+        vapid,
+        subscription,
+        payload,
+        options,
+        &random_secret(),
+        &salt,
+        now_seconds(),
+    )?;
+    deliver(&prepared, timeout).await
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VapidParams {
@@ -477,19 +499,15 @@ async fn send(call: Call) -> Result<Reply, Fault> {
         urgency: params.urgency,
         topic: params.topic,
     };
-    let mut salt = [0u8; 16];
-    crate::sys::random(&mut salt).expect("the system's random generator failed");
-    let prepared = prepare(
+    let sending = send_message(
         &vapid,
         &params.subscription,
         params.payload.as_bytes(),
         &options,
-        &random_secret(),
-        &salt,
-        now_seconds(),
-    )?;
+        Duration::from_millis(params.timeout_ms),
+    );
     let status = tokio::select! {
-        status = deliver(&prepared, Duration::from_millis(params.timeout_ms)) => status?,
+        status = sending => status?,
         () = call.scope.on_cancel() => return Err(Fault::cancelled()),
     };
     Reply::json(&json!({ "statusCode": status }))

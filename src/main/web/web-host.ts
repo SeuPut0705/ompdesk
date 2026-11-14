@@ -69,7 +69,7 @@ export interface WebHostDeps {
 		/** The window missed pushes: its tabs' next streamed update carries the whole message (`SidecarPool.resnapshotWindow`). */
 		resnapshot(win: ClientWindow): void;
 	};
-	/** `MediaStreams.handle`: answers a range request for an `omp-media://` stream. */
+	/** Answers a range request for an `omp-media://` stream, which the shell serves (`mediaResponse`, `boot.mediaHead`). */
 	openMedia: (url: string, range: string | undefined) => Promise<Response>;
 	/** The host's own screen: open a file (launcher types are only revealed), reveal it, open a link. */
 	shell: {
@@ -167,7 +167,7 @@ export class WebHost {
 				openExternal: deps.shell.openExternal,
 				models: { read: readModelsText, write: writeModelsText },
 			}),
-			// The phone's streamed Preview (preview-stream.ts) is built in; a host build without it passes `preview: false`.
+			// The phone's streamed Preview (the shell's preview module) is built in; a host build without it passes `preview: false`.
 			features: () => ({ push: true, preview: true, upload: true, passkey: false, ...deps.features }),
 			build: () => this.#build,
 			activeTab: win => deps.tabs.activeTab(win),
@@ -203,7 +203,7 @@ export class WebHost {
 			whois: deps.whois,
 			onDeviceConnected: device => this.#toDesktop(WEB_DEVICE_CONNECTED, device),
 			router: this.router,
-			staticRoot: () => this.#staticRoot(),
+			staticRoot: () => this.#deps.staticRoot(),
 			onUnpairedAuth: deps.onUnpairedAuth,
 			...(deps.hooks ? { hooks: deps.hooks } : {}),
 			log: deps.log,
@@ -239,7 +239,7 @@ export class WebHost {
 		// Before the server answers a page that asks for the key.
 		if ((await this.sender.open()).created) this.devices.dropAllPushSubscriptions();
 		await this.ready();
-		const root = this.#staticRoot();
+		const root = this.#deps.staticRoot();
 		// Before the first connection: its `hello` names it.
 		if (root) this.#build = await servedBuild(root);
 		const started = await this.server.start(options);
@@ -364,15 +364,6 @@ export class WebHost {
 		this.windows.destroy(deviceId);
 		this.blobs.releaseDevice(deviceId);
 		void this.uploads.removeDevice(deviceId).catch(() => {});
-	}
-
-	/**
-	 * The built renderer as plain files: in a packaged app it is unpacked beside the asar (electron-builder's
-	 * `asarUnpack`), and the core, which reads it, knows no asar.
-	 */
-	#staticRoot(): string | null {
-		const root = this.#deps.staticRoot();
-		return root === null ? null : root.replace(/([\\/])app\.asar(?=[\\/]|$)/, "$1app.asar.unpacked");
 	}
 
 	#toDesktop(channel: string, payload: unknown): void {

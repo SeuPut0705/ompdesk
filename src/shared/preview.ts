@@ -9,7 +9,7 @@ export const PREVIEW_VISUALS = "preview:visuals";
 export const PREVIEW_VISUAL = "preview:visual";
 /**
  * Web viewers only (a paired phone or tablet): its page is an offscreen page on this computer streamed as JPEG
- * frames over the socket (main/web/preview-stream.ts). `POLL` acknowledges the last frame and holds until the
+ * frames over the socket (the shell's preview module). `POLL` acknowledges the last frame and holds until the
  * next one (the pacer sends none before the ack); the rest carry the viewer's input, a JS dialog's answer, the
  * page's selected text and its PDF. An Electron window never calls them.
  */
@@ -18,7 +18,7 @@ export const PREVIEW_STREAM_INPUT = "preview:stream-input";
 export const PREVIEW_STREAM_DIALOG = "preview:stream-dialog";
 export const PREVIEW_STREAM_COPY = "preview:stream-copy";
 export const PREVIEW_STREAM_PDF = "preview:stream-pdf";
-/** Pages the agent's `gui_visualize` tool shows load from this scheme (main/preview/visuals.ts). */
+/** Pages the agent's `gui_visualize` tool shows load from this scheme (the shell's preview module). */
 export const VISUAL_SCHEME = "omp-visual";
 
 export interface PreviewBounds {
@@ -27,7 +27,7 @@ export interface PreviewBounds {
 	width: number;
 	height: number;
 }
-/** The agent driving the preview through stock's browser relay (main/preview/agent-relay.ts). */
+/** The agent driving the preview through stock's browser relay (the shell's preview module). */
 export interface PreviewAgentState {
 	/** Tab whose agent was let in. */
 	tabId: string;
@@ -56,7 +56,7 @@ export type PreviewNotice =
 	/** The page has stopped responding to input. */
 	| { kind: "unresponsive" }
 	/**
-	 * The judge model (main/preview/preview-check.ts, only while a native judge answers) looked at the page an agent
+	 * The judge model (the shell's preview module, only while a native judge answers) looked at the page an agent
 	 * visual just loaded and saw an error message or nothing. A quiet line; the page shows as usual.
 	 */
 	| { kind: "check"; problem: "error" | "blank" };

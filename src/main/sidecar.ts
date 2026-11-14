@@ -46,7 +46,7 @@ import {
 } from "./omp-launch";
 import { ompLogTail } from "./omp-log-tail";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
-import { VISUALIZE_DEFINITION } from "./preview/visuals";
+import { VISUALIZE_DEFINITION } from "./preview/definition";
 import { createLinkEventDecoder } from "./remote/link-events";
 import { RpcClient, RpcTimeoutError } from "./rpc-client";
 import type { SessionProcesses, SessionProcessHandle } from "./session-processes";

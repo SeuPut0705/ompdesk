@@ -20,11 +20,11 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::MainPort;
 use super::land_check::{self, Input as CheckInput, LandCheck};
 use super::steps::{Ended, Steps};
 use crate::fs::order::{is_js_space, js_trim};
 use crate::git::run::Git;
-use crate::ports::Port;
 use crate::run::{Opts, Output};
 use crate::server::Fault;
 
@@ -402,7 +402,7 @@ impl Drop for FailRunningOnDrop {
 
 pub struct ShipRunner {
     hooks: Arc<dyn Hooks>,
-    port: Arc<Port<()>>,
+    port: MainPort,
     state: Mutex<State>,
     chain: Steps,
     drain_max: Duration,
@@ -411,7 +411,7 @@ pub struct ShipRunner {
 
 impl ShipRunner {
     pub fn new(
-        port: Arc<Port<()>>,
+        port: MainPort,
         hooks: Arc<dyn Hooks>,
         drain_max: Duration,
         stop_grace: Duration,
@@ -519,6 +519,18 @@ impl ShipRunner {
         }
         self.broadcast();
         true
+    }
+
+    pub fn close(&self) {
+        self.chain.close();
+        let mut state = self.lock();
+        state.items.retain(|item| item.state != "queued");
+        state.modes.clear();
+        state.checks.clear();
+    }
+
+    pub async fn idle(&self) {
+        self.chain.idle().await;
     }
 
     /// Whether a queued item is waiting.

@@ -197,14 +197,94 @@ pub fn run() -> i32 {
 
 /// The started command; on Windows with its job.
 struct Held {
-    child: Child,
+    child: SupervisedChild,
     #[cfg(windows)]
     tree: crate::sys::ProcessTree,
+}
+
+enum SupervisedChild {
+    Standard(Child),
+    #[cfg(windows)]
+    Restricted(crate::sys::RestrictedChild),
+}
+
+impl SupervisedChild {
+    #[cfg(unix)]
+    fn id(&self) -> u32 {
+        match self {
+            Self::Standard(child) => child.id(),
+        }
+    }
+
+    fn wait(&mut self) -> io::Result<ExitStatus> {
+        match self {
+            Self::Standard(child) => child.wait(),
+            #[cfg(windows)]
+            Self::Restricted(child) => child.wait(),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn start_isolated(spec: &Spec) -> Result<Held, String> {
+    let input = match spec.input_file.as_deref().filter(|path| !path.is_empty()) {
+        Some(path) => File::open(path).map_err(|error| opening(&error, path))?,
+        None => File::open("NUL").map_err(|error| opening(&error, "NUL"))?,
+    };
+    let output = spec
+        .log
+        .as_ref()
+        .filter(|log| log.redirect)
+        .map(|log| File::create(&log.path).map_err(|error| opening(&error, &log.path)))
+        .transpose()?;
+    let (program, raw) = if spec.shell {
+        let shell = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_owned());
+        let mut line = spec.file.clone();
+        for arg in &spec.args {
+            line.push(' ');
+            line.push_str(arg);
+        }
+        (shell, Some(format!("/d /s /c \"{line}\"")))
+    } else {
+        (spec.file.clone(), None)
+    };
+    let mut child = crate::sys::spawn_restricted(
+        std::ffi::OsStr::new(&program),
+        &spec.args,
+        raw.as_deref(),
+        &input,
+        output.as_ref(),
+    )
+    .map_err(|error| format!("spawn {program} {}", uv_code(&error)))?;
+    let held = crate::sys::ProcessTree::outliving(child.raw_handle()).and_then(|tree| {
+        if let Err(error) = crate::sys::resume_process(child.id()) {
+            tree.end();
+            return Err(error);
+        }
+        Ok(tree)
+    });
+    match held {
+        Ok(tree) => Ok(Held {
+            child: SupervisedChild::Restricted(child),
+            tree,
+        }),
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(format!(
+                "spawn {program}: cannot hold its process tree: {error}"
+            ))
+        }
+    }
 }
 
 /// Starts the command as node's `spawn(file, args, {stdio, detached: !windows, shell, windowsHide: true})` did; a
 /// failure is the message node gave (`spawn <file> ENOENT`, `ENOENT: no such file or directory, open '<path>'`).
 fn start(spec: &Spec) -> Result<Held, String> {
+    #[cfg(windows)]
+    if spec.isolated {
+        return start_isolated(spec);
+    }
     let (mut command, program) = if spec.shell {
         shell_command(spec)
     } else {
@@ -249,17 +329,16 @@ fn start(spec: &Spec) -> Result<Held, String> {
     {
         use std::os::windows::io::AsRawHandle;
         // Suspended until it is in the job, so nothing it starts escapes the tree.
-        let tree = if spec.isolated {
-            crate::sys::ProcessTree::outliving(child.as_raw_handle())
-        } else {
-            crate::sys::ProcessTree::of(child.as_raw_handle())
-        };
+        let tree = crate::sys::ProcessTree::of(child.as_raw_handle());
         let held = tree.and_then(|tree| {
             crate::sys::resume_process(child.id())?;
             Ok(tree)
         });
         match held {
-            Ok(tree) => Ok(Held { child, tree }),
+            Ok(tree) => Ok(Held {
+                child: SupervisedChild::Standard(child),
+                tree,
+            }),
             Err(error) => {
                 let mut child = child;
                 let _ = child.kill();
@@ -271,7 +350,9 @@ fn start(spec: &Spec) -> Result<Held, String> {
         }
     }
     #[cfg(unix)]
-    Ok(Held { child })
+    Ok(Held {
+        child: SupervisedChild::Standard(child),
+    })
 }
 
 /// The command through the shell, as node's `shell: true` runs it: `[file, ...args]` joined by spaces, given to

@@ -1,0 +1,1175 @@
+{
+	"capturedFrom": "16bacf61c",
+	"localPath": [
+		{
+			"platform": "posix",
+			"target": null,
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": 42,
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": " \n",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/workspace/file.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "./dir/../file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/workspace/file.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "../sibling/file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Path escapes the workspace",
+				"code": "path_escapes_workspace"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "../workspace/file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/workspace/file.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": ".",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/workspace"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "missing.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "nul\u0000.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "~/notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/home/notes.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "~/",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/home"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "~//notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/home/notes.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "~/../workspace/file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/workspace/file.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "﻿",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "/home/notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/home/notes.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "file.txt",
+			"context": {
+				"remote": false,
+				"cwd": null,
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "No workspace",
+				"code": "no_workspace"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "/home/notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": null,
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "/home/notes.txt"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "",
+			"context": {
+				"remote": true,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "The file is on another device",
+				"code": "remote_path_native"
+			}
+		},
+		{
+			"platform": "posix",
+			"target": "/home/notes.txt",
+			"context": {
+				"remote": true,
+				"cwd": "/workspace",
+				"home": "/home"
+			},
+			"existing": [
+				"/workspace/file.txt",
+				"/workspace",
+				"/home",
+				"/home/notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "The file is on another device",
+				"code": "remote_path_native"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": null,
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": 42,
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": " \n",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\workspace\\file.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "./dir/../file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\workspace\\file.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "../sibling/file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Path escapes the workspace",
+				"code": "path_escapes_workspace"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "../workspace/file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\workspace\\file.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": ".",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\workspace"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "missing.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "nul\u0000.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "~/notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\home\\notes.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "~/",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\home"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "~//notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\home\\notes.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "~/../workspace/file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\workspace\\file.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "﻿",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Empty path",
+				"code": "empty_path"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "C:\\home\\notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\home\\notes.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "file.txt",
+			"context": {
+				"remote": false,
+				"cwd": null,
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "No workspace",
+				"code": "no_workspace"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "C:\\home\\notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": null,
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\home\\notes.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "",
+			"context": {
+				"remote": true,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "The file is on another device",
+				"code": "remote_path_native"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "C:\\home\\notes.txt",
+			"context": {
+				"remote": true,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "The file is on another device",
+				"code": "remote_path_native"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "C:file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": true,
+				"path": "C:\\workspace\\file.txt"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "\\home\\notes.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "D:file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "Path escapes the workspace",
+				"code": "path_escapes_workspace"
+			}
+		},
+		{
+			"platform": "win32",
+			"target": "\\\\server\\share\\file.txt",
+			"context": {
+				"remote": false,
+				"cwd": "C:\\workspace",
+				"home": "C:\\home"
+			},
+			"existing": [
+				"C:\\workspace\\file.txt",
+				"C:\\workspace",
+				"C:\\home",
+				"C:\\home\\notes.txt"
+			],
+			"result": {
+				"ok": false,
+				"error": "File not found",
+				"code": "file_not_found"
+			}
+		}
+	],
+	"externalUrl": [
+		{
+			"url": "https://example.com/a?b=1",
+			"allowed": true
+		},
+		{
+			"url": "http://localhost:3000",
+			"allowed": true
+		},
+		{
+			"url": "mailto:dev@example.com",
+			"allowed": true
+		},
+		{
+			"url": "MAILTO:dev@example.com?subject=Hi%20there",
+			"allowed": true
+		},
+		{
+			"url": "mailto:?subject=Draft",
+			"allowed": true
+		},
+		{
+			"url": "mailto:ab",
+			"allowed": false
+		},
+		{
+			"url": "mailto:a﻿b",
+			"allowed": false
+		},
+		{
+			"url": "mailto:a​b",
+			"allowed": true
+		},
+		{
+			"url": "mailto:a\u001fb",
+			"allowed": false
+		},
+		{
+			"url": "mailto:a b",
+			"allowed": false
+		},
+		{
+			"url": "mailto:",
+			"allowed": false
+		},
+		{
+			"url": "file:///etc/passwd",
+			"allowed": false
+		},
+		{
+			"url": "javascript:alert(1)",
+			"allowed": false
+		},
+		{
+			"url": "vscode://open",
+			"allowed": false
+		},
+		{
+			"url": "HTTPS://example.com",
+			"allowed": false
+		},
+		{
+			"url": " https://example.com",
+			"allowed": false
+		},
+		{
+			"url": 42,
+			"allowed": false
+		},
+		{
+			"url": null,
+			"allowed": false
+		}
+	],
+	"privacyPane": [
+		{
+			"pane": "accessibility",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+		},
+		{
+			"pane": "screen_recording",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+		},
+		{
+			"pane": "input_monitoring",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+		},
+		{
+			"pane": "automation",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+		},
+		{
+			"pane": "full_disk_access",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+		},
+		{
+			"pane": "files_and_folders",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
+		},
+		{
+			"pane": "microphone",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+		},
+		{
+			"pane": "camera",
+			"url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+		}
+	],
+	"openDialog": [
+		{
+			"input": {},
+			"options": {
+				"properties": [
+					"openFile",
+					"multiSelections"
+				],
+				"filters": []
+			}
+		},
+		{
+			"input": {
+				"filters": []
+			},
+			"options": {
+				"properties": [
+					"openFile",
+					"multiSelections"
+				],
+				"filters": []
+			}
+		},
+		{
+			"input": {
+				"directory": true,
+				"title": "Project",
+				"buttonLabel": "Choose"
+			},
+			"options": {
+				"properties": [
+					"openDirectory",
+					"createDirectory"
+				],
+				"filters": [],
+				"title": "Project",
+				"buttonLabel": "Choose",
+				"message": "Project"
+			}
+		},
+		{
+			"input": {
+				"directory": false,
+				"title": "Attach",
+				"filters": [
+					{
+						"name": "Text",
+						"extensions": [
+							"txt",
+							"md"
+						]
+					}
+				]
+			},
+			"options": {
+				"properties": [
+					"openFile",
+					"multiSelections"
+				],
+				"filters": [
+					{
+						"name": "Text",
+						"extensions": [
+							"txt",
+							"md"
+						]
+					}
+				],
+				"title": "Attach",
+				"message": "Attach"
+			}
+		}
+	],
+	"saveDialog": [
+		{
+			"input": {},
+			"options": {
+				"defaultPath": "session.html",
+				"filters": [
+					{
+						"name": "HTML",
+						"extensions": [
+							"html"
+						]
+					}
+				]
+			}
+		},
+		{
+			"input": {
+				"defaultPath": "",
+				"filters": []
+			},
+			"options": {
+				"defaultPath": "",
+				"filters": []
+			}
+		},
+		{
+			"input": {
+				"defaultPath": "reply.md",
+				"filters": [
+					{
+						"name": "Markdown",
+						"extensions": [
+							"md"
+						]
+					}
+				]
+			},
+			"options": {
+				"defaultPath": "reply.md",
+				"filters": [
+					{
+						"name": "Markdown",
+						"extensions": [
+							"md"
+						]
+					}
+				]
+			}
+		}
+	]
+}

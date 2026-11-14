@@ -5,6 +5,11 @@
 name: OMPdesk's Rust toolchain
 description: The toolchain native/ompdesk/rust-toolchain.toml pins, with rustfmt and clippy, and the workspace's cargo cache.
 
+inputs:
+  workspaces:
+    description: "The cargo workspace Swatinem/rust-cache keeps: native/ompdesk, or native/ompdesk/crates/shell for the CEF shell."
+    default: native/ompdesk
+
 runs:
   using: composite
   steps:
@@ -27,4 +32,4 @@ runs:
 
     - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       with:
-        workspaces: native/ompdesk
+        workspaces: ${{ inputs.workspaces }}

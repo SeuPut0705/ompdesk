@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import MAIN_TEXT from "../../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import type { IpcTabRunOutcome } from "../../shared/ipc-types";
 import type { UiLanguage } from "../../shared/ui-language";
 import {
@@ -10,11 +11,15 @@ import {
 	type WebPushPayload,
 	type WebPushSubscriptionJson,
 } from "../../shared/web-push";
+import { seedLabels } from "../shell-host/modules/boot";
 import type { TabFacts } from "../sidecar-pool";
 import { type WebDevice, WebDevices } from "./devices-store";
 import type { PushOptions, PushResult } from "./push";
 import { seededDevice, writeWebDevices } from "./test-web-devices";
 import { COMPLETION_DEBOUNCE_MS, WebPushNotifier } from "./web-push-notifier";
+
+// Main's text is the shell's (`boot.labels`); the table itself stands in.
+seedLabels("en", MAIN_TEXT);
 
 interface Sent {
 	deviceId: string;

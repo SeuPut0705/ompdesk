@@ -11,9 +11,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import MAIN_TEXT from "../../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import { WEB_PAIRING_REQUEST, type WebPairingRequest } from "../../shared/mobile-web";
 import { WEB_DEVICE_CHANNELS } from "../../shared/web-host";
 import type { WebPushPayload, WebPushStateResponse } from "../../shared/web-push";
+import { seedLabels } from "../shell-host/modules/boot";
 import { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "./client-window";
@@ -21,6 +23,9 @@ import type { IpcCaller } from "./ipc-registry";
 import type { PushTransport } from "./push";
 import { WebHost } from "./web-host";
 import { COMPLETION_DEBOUNCE_MS } from "./web-push-notifier";
+
+// Main's text is the shell's (`boot.labels`); the table itself stands in.
+seedLabels("en", MAIN_TEXT);
 
 /** A stand-in for one tab's omp: only what the pool listens to. */
 class FakeOmp extends EventEmitter {

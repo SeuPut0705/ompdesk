@@ -6,7 +6,7 @@
  * bytes, base64url) and registers it with an ordered push, before the page can learn the URL from a frame that is
  * written after it.
  *
- * A file and bytes the core holds itself. A media stream only main can open (`MediaStreams.handle`, a fetch
+ * A file and bytes the core holds itself. A media stream only the shell can open (`mediaResponse`, a fetch
  * `Response`): the core asks (`web.media.open`), `pump` answers with the status, the headers and the body's chunks, as
  * fast as the core consumed them (`web.media.ack`), and stops when the HTTP client went (`web.media.cancel`).
  */
@@ -144,7 +144,7 @@ export class BlobStore {
 		return this.#add(deviceId, { kind: "bytes", mime, name }, bytes);
 	}
 
-	/** A stream main's `MediaStreams` serves (`url` is its `omp-media://` address); `open` answers a range request. */
+	/** A stream the shell serves (`url` is its `omp-media://` address); `open` answers a range request. */
 	addMedia(deviceId: string, stream: { url: string; mime: string; open: MediaOpen }): string {
 		listen();
 		return this.#add(

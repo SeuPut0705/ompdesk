@@ -79,23 +79,34 @@ impl Devices {
         };
         // Main's answer, or a refusal: no answer, or one that is not a list and a verdict, is a gate that failed
         // (`protocol`, as a gate that threw in main was), never an unset list or an unblocked node.
-        let policy = super::super::ask(
-            &self.events,
-            "policy",
-            json!({"devices": self.id, "nodeId": node_id, "login": login}),
-        )
-        .await
-        .unwrap_or(Value::Null);
-        let (Some(users), Some(blocked)) = (
-            policy.get("allowedUsers").and_then(Value::as_array),
-            policy.get("blocked").and_then(Value::as_bool),
-        ) else {
-            return Err("protocol".into());
+        let (listed, blocked) = if let Some(effects) = &self.effects {
+            let policy = effects
+                .policy(&node_id, &login)
+                .await
+                .map_err(|_| "protocol".to_owned())?;
+            (policy.allowed_users, policy.blocked)
+        } else {
+            let policy = super::super::ask(
+                &self.events,
+                "policy",
+                json!({"devices":self.id,"nodeId":node_id,"login":login}),
+            )
+            .await
+            .unwrap_or(Value::Null);
+            let (Some(users), Some(blocked)) = (
+                policy.get("allowedUsers").and_then(Value::as_array),
+                policy.get("blocked").and_then(Value::as_bool),
+            ) else {
+                return Err("protocol".into());
+            };
+            (
+                users
+                    .iter()
+                    .filter_map(|user| user.as_str().map(str::to_owned))
+                    .collect(),
+                blocked,
+            )
         };
-        let listed: Vec<String> = users
-            .iter()
-            .filter_map(|user| user.as_str().map(str::to_owned))
-            .collect();
         // Unset list: this computer's own account, as Mobile web reads it (its poll may not have stored it yet).
         let users = if listed.is_empty() {
             vec![
@@ -180,13 +191,29 @@ impl Devices {
                 }
             }
         }
-        let approved = super::super::ask(
-            &self.events,
-            "admit",
-            json!({"devices": self.id, "visitor": visitor, "name": name}),
-        )
-        .await
-            == Some(Value::Bool(true));
+        let approved = if let Some(effects) = &self.effects {
+            let visitor = super::native::Visitor {
+                node_id: node.clone(),
+                login: login.clone(),
+                ip: get(visitor, "ip"),
+                node_name: visitor
+                    .get("nodeName")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            };
+            effects
+                .approve(visitor, name.clone())
+                .await
+                .unwrap_or(false)
+        } else {
+            super::super::ask(
+                &self.events,
+                "admit",
+                json!({"devices":self.id,"visitor":visitor,"name":name}),
+            )
+            .await
+                == Some(Value::Bool(true))
+        };
         if !approved {
             return Err("declined".into());
         }

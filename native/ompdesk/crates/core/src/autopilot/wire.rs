@@ -11,7 +11,6 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::MainPort;
 use super::audit::{self, Scope, Snapshot};
 use super::branches;
 use super::land_check::{self, Input, LandCheck};
@@ -121,12 +120,12 @@ fn ship_of(port: u64) -> Result<Arc<ShipRunner>, Fault> {
 
 /// The ship queue's hooks as asks of the port's owner: a parity suite's recording stand-ins.
 struct PortHooks {
-    port: MainPort,
+    port: Arc<Port<()>>,
     custom_check: bool,
 }
 
 fn asked<T: serde::de::DeserializeOwned + Send + 'static>(
-    port: &MainPort,
+    port: &Arc<Port<()>>,
     method: &'static str,
     args: Value,
 ) -> Fut<Result<T, String>> {
@@ -296,12 +295,12 @@ pub fn register(registry: &mut Registry) {
     });
     registry.add("autopilot.landCheck", |call| {
         serve(call, |params: LandParams, call| async move {
-            let port: MainPort = Port::open_raw(&call.events, params.port, &params.state)?;
+            let port = Port::open_raw(&call.events, params.port, &params.state)?;
             let git = Git::new(params.git, call.scope.clone());
             let grace = params.stop_grace_ms.unwrap_or(land_check::STOP_GRACE_MS);
             let checked = land_check::check_candidate(
                 &git,
-                &port,
+                &super::host::Backend::Wire(port.clone()),
                 &params.input,
                 Duration::from_millis(grace),
                 &call.scope,
@@ -313,13 +312,13 @@ pub fn register(registry: &mut Registry) {
     });
     registry.add("autopilot.ship.open", |call| {
         sync(call, |params: ShipOpen, call| {
-            let port: MainPort = Port::open_raw(&call.events, params.port, &params.state)?;
+            let port = Port::open_raw(&call.events, params.port, &params.state)?;
             let hooks = Arc::new(PortHooks {
                 port: port.clone(),
                 custom_check: params.custom_check,
             });
             let runner = ShipRunner::new(
-                port.clone(),
+                Arc::new(super::host::Backend::Wire(port.clone())),
                 hooks,
                 Duration::from_millis(super::ship::SHIP_DRAIN_MAX_MS),
                 Duration::from_millis(params.stop_grace_ms.unwrap_or(land_check::STOP_GRACE_MS)),

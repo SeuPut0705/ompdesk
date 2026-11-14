@@ -6,7 +6,7 @@
 # notes, and exactly two assets, `ompdesk-mac-arm64.dmg` and
 # `ompdesk-windows-setup.exe`. The in-app updater reads their version, size and
 # SHA-512 from an HTML comment the publish job appends to the notes
-# (`<!-- ompdesk-update {json} -->`, parsed by src/main/update-release.ts).
+# (`<!-- ompdesk-update {json} -->`, parsed by native/ompdesk/crates/shell/src/updater_core/release.rs).
 # An `Unreleased` heading or an existing tag makes the run a no-op.
 # `workflow_dispatch` re-runs it; `dry_run` does everything except the tag and
 # release (the packages stay as run artifacts) and works on any branch.
@@ -279,6 +279,10 @@ jobs:
       - uses: ./.github/actions/install
         with:
           builder: "true"
+      # The CEF shell, Node and CEF's licence files for the package (the shell action: a cached build, the pinned Node).
+      - uses: ./.github/actions/shell
+        with:
+          licenses: "true"
       # The memory binary is built from native/memory (OMPdesk's own source) right here, while the build job
       # produces out/: the upstream's release build (`cargo build --locked --release -p ai-memory-cli`, scripts/build-memory.ts)
       # puts the binary and its build record in the gitignored resources/ai-memory-bin/; after-pack fails the package without them.
@@ -291,11 +295,12 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'native/ompdesk/crates/core/src/aimemory/prompt_policy.rs', 'native/ompdesk/crates/memory-policy/**', 'native/ompdesk/Cargo.lock', 'native/ompdesk/rust-toolchain.toml', 'scripts/build-memory*.ts', 'scripts/cargo.ts', 'resources/gui-bridge/memory-*.ts', 'resources/gui-bridge/redactor.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
+          targets: wasm32-unknown-unknown
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
@@ -339,10 +344,12 @@ jobs:
           OMPDESK_MAC_SIGNING_REQUIRED: ${{ github.ref == 'refs/heads/main' && '1' || '' }}
         run: |
           set -euo pipefail
+          # scripts/package-mac.ts assembles OMPdesk.app from the CEF shell, checks it (scripts/after-pack.cjs), signs
+          # it inside out and calls electron-builder --prepackaged for the DMG only.
           if [ "$LEGACY_UPDATE_FEED" = "true" ]; then
-            bunx electron-builder --mac dmg zip --arm64 --publish never
+            bun scripts/package-mac.ts --legacy-zip
           else
-            bunx electron-builder --mac --arm64 --publish never
+            bun scripts/package-mac.ts
           fi
       - name: Verify bundle
         run: |
@@ -390,6 +397,23 @@ jobs:
           codesign --verify --strict --verbose=2 "$CORE"
           "$CORE" < /dev/null | grep -F '"event":"ready"'
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
+          # The CEF shell: the app's executable and CEF's framework and five helper apps carry the app's signature (the
+          # update's `codesign --verify --deep --strict` above covers them all; each is named here so a failure says which).
+          FW="$APP/Contents/Frameworks/Chromium Embedded Framework.framework"
+          codesign --verify --strict --verbose=2 "$FW"
+          for H in "$APP/Contents/Frameworks/OMPdesk Helper"*.app; do codesign --verify --strict --verbose=2 "$H"; done
+          test "$(ls -d "$APP/Contents/Frameworks/OMPdesk Helper"*.app | wc -l | tr -d ' ')" = 5
+          test "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" = com.seuput.ompdesk
+          plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw -o - "$APP/Contents/Info.plist" | grep -Fx omp
+          # Node (scripts/node-runtime-pin.json) runs the main from the plain app folder.
+          NODE="$APP/Contents/Resources/node/node"
+          test -x "$NODE"
+          codesign --verify --strict --verbose=2 "$NODE"
+          "$NODE" --version | grep -Fx "v$(jq -r .version scripts/node-runtime-pin.json)"
+          test -f "$APP/Contents/Resources/app/out/main/index.js"
+          test -f "$APP/Contents/Resources/app/out/preload/shell.js"
+          test -f "$APP/Contents/Resources/LICENSES.chromium.html"
+          test -f "$APP/Contents/Resources/LICENSE.cef.txt"
       - name: Install omp
         run: |
           # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
@@ -451,6 +475,8 @@ jobs:
         with:
           bun-version: 1.4.4
       - uses: ./.github/actions/install
+      # The CEF shell and the pinned Node, which every e2e launches (the shell action: a cached build).
+      - uses: ./.github/actions/shell
       - name: Install omp
         run: |
           # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
@@ -525,6 +551,38 @@ jobs:
         with:
           path: node_modules/.vite/vitest
           key: vitest-results-win-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # The CEF shell's own Rust (native/ompdesk/crates/shell, a workspace of its own so `native` never needs CEF): fmt,
+  # clippy with warnings denied and `cargo test` on the two OSes that ship it, with CEF's archive and the workspace's
+  # cargo build cached (.github/actions/shell-check), as ci.yml's `shell`.
+  shell:
+    name: shell (${{ matrix.name }})
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos arm64
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-check
       - if: failure()
         shell: bash
         run: bash scripts/ci-failure.sh
@@ -627,16 +685,21 @@ jobs:
       - uses: ./.github/actions/install
         with:
           builder: "true"
+      # The CEF shell, Node and CEF's licence files for the package (the shell action: a cached build, the pinned Node).
+      - uses: ./.github/actions/shell
+        with:
+          licenses: "true"
       # The memory binary, built or restored from its cache and checked, as in the mac job.
       - id: memory-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'native/ompdesk/crates/core/src/aimemory/prompt_policy.rs', 'native/ompdesk/crates/memory-policy/**', 'native/ompdesk/Cargo.lock', 'native/ompdesk/rust-toolchain.toml', 'scripts/build-memory*.ts', 'scripts/cargo.ts', 'resources/gui-bridge/memory-*.ts', 'resources/gui-bridge/redactor.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
+          targets: wasm32-unknown-unknown
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
@@ -675,6 +738,17 @@ jobs:
         run: |
           set -euo pipefail
           test -f dist/win-unpacked/resources/gui-bridge/index.ts
+          # The CEF shell is OMPdesk.exe (electron-builder renamed ompdesk-shell.exe) beside CEF's runtime and exactly two
+          # locales; Node runs the main from a plain app folder; Chromium's and CEF's notices travel with it.
+          test -f dist/win-unpacked/OMPdesk.exe
+          test -f dist/win-unpacked/libcef.dll
+          test "$(ls dist/win-unpacked/locales | tr '\n' ' ')" = "en-US.pak ko.pak "
+          dist/win-unpacked/resources/node/node.exe --version | grep -Fx "v$(jq -r .version scripts/node-runtime-pin.json)"
+          test -f dist/win-unpacked/resources/app/out/main/index.js
+          test -f dist/win-unpacked/resources/app/out/preload/shell.js
+          test ! -e dist/win-unpacked/resources/app.asar
+          test -f dist/win-unpacked/resources/LICENSES.chromium.html
+          test -f dist/win-unpacked/resources/LICENSE.cef.txt
           AIM=dist/win-unpacked/resources/ai-memory-bin/ai-memory.exe
           test -f "$AIM"
           "$AIM" --version | grep -F "$(jq -r .version native/memory/ompdesk.json)"
@@ -721,13 +795,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # Runs when prepare, build, static, check (every vitest job), win-platform (every shard), native (every OS),
-  # mac-native, mac (@smoke), mac-real (real-core) and win (@smoke) succeeded (the job `if` keeps GitHub's
+  # shell (Windows and macOS), mac-native, mac (@smoke), mac-real (real-core) and win (@smoke) succeeded (the job `if` keeps GitHub's
   # implicit success(), so a failed or skipped need stops it). The full
   # Playwright suite is not part of a release: e2e-nightly.yml runs it
   # informationally. The pre-flight in ci.yml and local `bun run gate` are the
   # other proofs.
   publish:
-    needs: [prepare, build, static, check, mac, mac-real, win-platform, native, mac-native, win]
+    needs: [prepare, build, static, check, mac, mac-real, win-platform, native, shell, mac-native, win]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -767,7 +841,7 @@ jobs:
             fi
           fi
       # Version, size and SHA-512 (base64, as electron-updater writes it) of the
-      # two installers, for the in-app updater (src/main/update-release.ts). An
+      # two installers, for the in-app updater (updater_core/release.rs). An
       # HTML comment: GitHub does not render it.
       - name: Append update metadata
         run: |

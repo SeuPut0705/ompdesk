@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { micaSupported } from "../src/main/window-chrome";
+import { micaSupported } from "./fixture/mica";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 // A new window opens in the saved theme exactly like the first one, whatever the OS is set to:

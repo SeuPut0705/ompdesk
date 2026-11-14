@@ -672,6 +672,8 @@ export function isAutopilotArea(value: unknown): value is AutopilotArea {
 export const AUTOPILOT_BRIDGE_METHODS = {
 	/** {@link AutopilotArmParams}: journal `running` (or the resume), install overrides, tools, guard, prompt section. Completes before main sends `set_goal create|resume`. */
 	arm: "modes.autopilot_arm",
+	/** `{text}` -> `{reason: string | null}`: approval text checked against this session's run, never caller-supplied authority. */
+	approval: "modes.autopilot_approval",
 	/** `{}`: the whole status from the journal (+ the cycle in flight). `active:false` when this session is no run. */
 	status: "modes.autopilot_status",
 	/** {@link AutopilotConfigureParams}: settings and the facts main found; takes effect at the next `begin`. */

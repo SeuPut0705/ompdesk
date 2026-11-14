@@ -1,0 +1,1745 @@
+[
+  {
+    "action": "tick",
+    "now": 1000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "safe",
+        "details": {
+          "waitedMs": 0,
+          "running": false,
+          "resume": true
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 61000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 61000
+      }
+    ],
+    "restartAt": 61000
+  },
+  {
+    "action": "postpone",
+    "now": 2000,
+    "effects": [
+      {
+        "type": "log",
+        "event": "postponed",
+        "details": {
+          "by": "user"
+        }
+      },
+      {
+        "type": "withdraw"
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 2000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "busy turn",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1802000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "forced",
+        "details": {
+          "waitedMs": 1800000,
+          "maxWaitMs": 1800000,
+          "resume": true,
+          "reason": "busy turn"
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 1862000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 1862000
+      }
+    ],
+    "restartAt": 1862000
+  },
+  {
+    "action": "tick",
+    "now": 1862000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "held",
+        "details": {
+          "reason": "open ask"
+        }
+      }
+    ],
+    "restartAt": 1862000
+  },
+  {
+    "action": "tick",
+    "now": 2462000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "unattended",
+        "details": {
+          "heldMs": 600000,
+          "idleMs": 600000
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 2522000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 2522000
+      }
+    ],
+    "restartAt": 2522000
+  },
+  {
+    "action": "tick",
+    "now": 2522000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "auto"
+        }
+      },
+      {
+        "type": "install"
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 2523000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 2524000,
+    "facts": {
+      "enabled": true,
+      "installable": false,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 2525000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0,
+      "startFailedBefore": true
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "withdrawn",
+        "details": {
+          "reason": "start failed before"
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 2526000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0,
+      "startFailedBefore": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 2527000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "safe",
+        "details": {
+          "waitedMs": 0,
+          "running": false,
+          "resume": true
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 2587000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 2587000
+      }
+    ],
+    "restartAt": 2587000
+  },
+  {
+    "action": "installStarted",
+    "trigger": "user click",
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "user click"
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 2590000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "open ask",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 600000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 660000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 700000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1300000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1400000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "focused+active input",
+          "waitedMs": 1400000
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1460000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "quiet",
+        "details": {
+          "waitedMs": 1460000,
+          "idleMs": 0,
+          "focused": false
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 1520000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 1520000
+      }
+    ],
+    "restartAt": 1520000
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "open ask",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 600000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 660000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 700000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1300000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1400000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "focused+active input",
+          "waitedMs": 1400000
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1460000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "quiet",
+        "details": {
+          "waitedMs": 1460000,
+          "idleMs": 0,
+          "focused": false
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 1520000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 1520000
+      }
+    ],
+    "restartAt": 1520000
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "compaction",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 600000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 660000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 700000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1300000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1400000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "focused+active input",
+          "waitedMs": 1400000
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1460000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "quiet",
+        "details": {
+          "waitedMs": 1460000,
+          "idleMs": 0,
+          "focused": false
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 1520000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 1520000
+      }
+    ],
+    "restartAt": 1520000
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "quiet",
+        "details": {
+          "waitedMs": 0,
+          "idleMs": 0,
+          "focused": false
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 60000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 60000
+      }
+    ],
+    "restartAt": 60000
+  },
+  {
+    "action": "tick",
+    "now": 60000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "withdrawn",
+        "details": {
+          "reason": "work started, resume off"
+        }
+      },
+      {
+        "type": "withdraw"
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 120000,
+    "facts": {
+      "enabled": false,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 180000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "quiet",
+        "details": {
+          "waitedMs": 0,
+          "idleMs": 0,
+          "focused": false
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 240000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 240000
+      }
+    ],
+    "restartAt": 240000
+  },
+  {
+    "action": "installStarted",
+    "trigger": "quit",
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "quit"
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 240000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 300000,
+    "facts": {
+      "enabled": true,
+      "installable": false,
+      "resumes": false,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": false,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "focused+active input",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "open ask",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 600000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "unattended",
+        "details": {
+          "heldMs": 600000,
+          "idleMs": 600000
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 660000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 660000
+      }
+    ],
+    "restartAt": 660000
+  },
+  {
+    "action": "tick",
+    "now": 660000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "auto"
+        }
+      },
+      {
+        "type": "install"
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 700000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1300000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": false,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1400000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1460000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "open ask",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 600000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 660000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 700000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1300000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": true,
+      "planWaiting": true,
+      "compacting": false
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1400000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "safe",
+        "details": {
+          "waitedMs": 1400000,
+          "running": false,
+          "resume": true
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 1460000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 1460000
+      }
+    ],
+    "restartAt": 1460000
+  },
+  {
+    "action": "tick",
+    "now": 1460000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "auto"
+        }
+      },
+      {
+        "type": "install"
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "waiting",
+        "details": {
+          "reason": "compaction",
+          "waitedMs": 0
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 600000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 660000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 700000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1300000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 600000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 660000,
+      "asking": false,
+      "planWaiting": false,
+      "compacting": true
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 1400000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "safe",
+        "details": {
+          "waitedMs": 1400000,
+          "running": false,
+          "resume": true
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 1460000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 1460000
+      }
+    ],
+    "restartAt": 1460000
+  },
+  {
+    "action": "tick",
+    "now": 1460000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "auto"
+        }
+      },
+      {
+        "type": "install"
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "reset",
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 0,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "safe",
+        "details": {
+          "waitedMs": 0,
+          "running": false,
+          "resume": true
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 60000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 60000
+      }
+    ],
+    "restartAt": 60000
+  },
+  {
+    "action": "tick",
+    "now": 60000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": true,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "auto"
+        }
+      },
+      {
+        "type": "install"
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 120000,
+    "facts": {
+      "enabled": false,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 180000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": false,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "safe",
+        "details": {
+          "waitedMs": 0,
+          "running": false,
+          "resume": true
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 240000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 240000
+      }
+    ],
+    "restartAt": 240000
+  },
+  {
+    "action": "installStarted",
+    "trigger": "quit",
+    "effects": [
+      {
+        "type": "log",
+        "event": "install",
+        "details": {
+          "trigger": "quit"
+        }
+      }
+    ],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 240000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 300000,
+    "facts": {
+      "enabled": true,
+      "installable": false,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [],
+    "restartAt": null
+  },
+  {
+    "action": "tick",
+    "now": 360000,
+    "facts": {
+      "enabled": true,
+      "installable": true,
+      "resumes": true,
+      "busy": false,
+      "focused": true,
+      "idleMs": 0
+    },
+    "effects": [
+      {
+        "type": "log",
+        "event": "safe",
+        "details": {
+          "waitedMs": 0,
+          "running": false,
+          "resume": true
+        }
+      },
+      {
+        "type": "log",
+        "event": "countdown",
+        "details": {
+          "restartAt": 420000
+        }
+      },
+      {
+        "type": "announce",
+        "restartAt": 420000
+      }
+    ],
+    "restartAt": 420000
+  }
+]

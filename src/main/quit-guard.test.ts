@@ -1,22 +1,11 @@
 /**
- * What the quit confirmation is built from: the guard must count live runs, the
- * tabs they sit on, and the distinct windows to name in the message, and it
- * must stay silent when nothing would stop: nothing in flight (otherwise ⌘Q
- * becomes a two-step quit for every idle window), or running work that the next
- * launch continues (Continue interrupted work on; ⌘Q and the update restart alike).
+ * What the quit confirmation is built from: the inventory must count live runs, the tabs they sit on, and the
+ * distinct windows to name in the message. When a quit asks (nothing in flight, or running work the next launch
+ * continues, stays silent) is the shell's rule: `chrome_core::quit`, with these cases as Rust tests.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { closeToTrayEnabled } from "../shared/desktop-prefs";
-import {
-	activateAction,
-	assessQuitRisk,
-	lastWindowCloseAction,
-	QuitLatch,
-	quitNeedsConfirmation,
-	updateRestartConfirmation,
-	type WindowTabFact,
-} from "./quit-guard";
+import { describe, expect, it } from "vitest";
+import { assessQuitRisk, type WindowTabFact } from "./quit-guard";
 
 function fact(windowId: number, tabId: string, inFlight: boolean): WindowTabFact {
 	return { windowId, tabId, inFlight };
@@ -31,122 +20,5 @@ describe("quit guard risk assessment", () => {
 
 	it("names one window once even when several of its tabs are working", () => {
 		expect(assessQuitRisk([fact(7, "a", true), fact(7, "b", true), fact(7, "c", true)]).workingWindows).toBe(1);
-	});
-
-	it("asks only while work is in flight and quitting would stop it", () => {
-		const working = assessQuitRisk([fact(1, "a", true)]);
-		// Continue interrupted work off: the quit really stops the run.
-		expect(quitNeedsConfirmation(assessQuitRisk([]), false)).toBe(false);
-		expect(quitNeedsConfirmation(assessQuitRisk([fact(1, "a", false)]), false)).toBe(false);
-		expect(quitNeedsConfirmation(working, false)).toBe(true);
-		// On (the default): the marker stays and the next launch continues the run, so nothing asks.
-		expect(quitNeedsConfirmation(working, true)).toBe(false);
-		expect(quitNeedsConfirmation(assessQuitRisk([]), true)).toBe(false);
-	});
-});
-
-describe("an update restart a person starts", () => {
-	const idle = assessQuitRisk([]);
-	const working = assessQuitRisk([fact(1, "a", true)]);
-	const none = { subagents: 0, jobs: 0, subagentLabels: [], jobLabels: [] };
-	const subagents = { subagents: 2, jobs: 0, subagentLabels: ["LayoutSplit", "StreamFast"], jobLabels: [] };
-
-	it("with Continue interrupted work on asks only when background subagents or jobs would start over", () => {
-		expect(updateRestartConfirmation(working, true, none)).toBeNull();
-		expect(updateRestartConfirmation(idle, true, none)).toBeNull();
-		expect(updateRestartConfirmation(working, true, subagents)).toBe("background work");
-		expect(updateRestartConfirmation(working, true, { ...none, jobs: 1, jobLabels: ["dev server"] })).toBe(
-			"background work",
-		);
-	});
-
-	it("with it off keeps the quit confirm for running turns, background work included", () => {
-		expect(updateRestartConfirmation(working, false, subagents)).toBe("running work");
-		expect(updateRestartConfirmation(working, false, none)).toBe("running work");
-		expect(updateRestartConfirmation(idle, false, none)).toBeNull();
-	});
-});
-
-describe("quit latch", () => {
-	it("refuses an unapproved quit without tearing anything down", () => {
-		const teardown = vi.fn();
-		const latch = new QuitLatch();
-
-		expect(latch.proceed(teardown)).toBe(false);
-		expect(latch.approved).toBe(false);
-		expect(teardown).not.toHaveBeenCalled();
-	});
-
-	it("tears down once per approved quit", () => {
-		const teardown = vi.fn();
-		const latch = new QuitLatch();
-		latch.approve();
-
-		expect(latch.proceed(teardown)).toBe(true);
-		expect(latch.proceed(teardown)).toBe(true);
-		expect(teardown).toHaveBeenCalledTimes(1);
-	});
-
-	it("runs the ⌘Q teardown when an update quits, before its windows close", () => {
-		const teardown = vi.fn();
-		const latch = new QuitLatch();
-
-		// quitAndInstall() emits before-quit-for-update, then closes every window,
-		// then emits before-quit: the teardown must already have run, and the
-		// later before-quit must neither ask again nor tear down twice.
-		latch.proceedForUpdate(teardown);
-		expect(teardown).toHaveBeenCalledTimes(1);
-		expect(latch.proceed(teardown)).toBe(true);
-		expect(teardown).toHaveBeenCalledTimes(1);
-	});
-});
-
-describe("closing the last shown window", () => {
-	const close = (platform: NodeJS.Platform, closeToTray: boolean, quitApproved = false) =>
-		lastWindowCloseAction({ platform, closeToTray, quitApproved });
-
-	it("on Windows quits through the quit guard before the window goes, so running turns are asked about and resume", () => {
-		// Closed first, the window's tabs would end as if their turns had finished (markers cleared),
-		// and window-all-closed would quit afterwards with neither the confirmation nor a resume.
-		expect(close("win32", false)).toBe("quit");
-	});
-
-	it("hides to the tray unless the user turned close-to-tray off", () => {
-		expect(close("win32", true)).toBe("hide");
-	});
-
-	it("just closes once a quit is approved", () => {
-		expect(close("win32", false, true)).toBe("close");
-		expect(close("win32", true, true)).toBe("close");
-		expect(close("darwin", false, true)).toBe("close");
-	});
-
-	it("hides on macOS whatever the pref, so tabs and omp keep running and the Dock brings it back", () => {
-		expect(close("darwin", false)).toBe("hide");
-		expect(close("darwin", true)).toBe("hide");
-	});
-
-	it("reads the close-to-tray pref as on unless explicitly false", () => {
-		expect(closeToTrayEnabled(undefined)).toBe(true);
-		expect(closeToTrayEnabled(true)).toBe(true);
-		expect(closeToTrayEnabled(false)).toBe(false);
-	});
-});
-
-describe("a Dock click (macOS activate)", () => {
-	const click = (windowCount: number, anyVisible: boolean, quitApproved = false) =>
-		activateAction({ windowCount, anyVisible, quitApproved });
-
-	it("opens a window when none is left, and brings a hidden one back", () => {
-		expect(click(0, false)).toBe("spawn");
-		expect(click(2, false)).toBe("show");
-		expect(click(2, true)).toBe("ignore");
-	});
-
-	it("never rebuilds a window once a quit is approved: its services are torn down, and a restore on them drops tabs from the saved layout", () => {
-		// 21 Oct 2026: an update restart tore the services down, the quit stalled, and a Dock click restored
-		// the layout again; a paired host's tab got no tab (its link was disposed) and left the saved layout.
-		expect(click(0, false, true)).toBe("ignore");
-		expect(click(2, false, true)).toBe("ignore");
 	});
 });

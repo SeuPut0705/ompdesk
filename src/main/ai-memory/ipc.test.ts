@@ -126,9 +126,9 @@ describe("ai-memory IPC", () => {
 			const { call, clipboard } = setup();
 			await call(IPC_COMMANDS.AI_MEMORY_COPY_WEB_PASSWORD);
 			expect(clipboard()).toBe("tok");
-			vi.advanceTimersByTime(59_000);
+			await vi.advanceTimersByTimeAsync(59_000);
 			expect(clipboard()).toBe("tok");
-			vi.advanceTimersByTime(1_000);
+			await vi.advanceTimersByTimeAsync(1_000);
 			expect(clipboard()).toBe("");
 		});
 
@@ -137,7 +137,7 @@ describe("ai-memory IPC", () => {
 			const { call, clipboard, setClipboard } = setup();
 			await call(IPC_COMMANDS.AI_MEMORY_COPY_WEB_PASSWORD);
 			setClipboard("something the user copied");
-			vi.advanceTimersByTime(120_000);
+			await vi.advanceTimersByTimeAsync(120_000);
 			expect(clipboard()).toBe("something the user copied");
 		});
 

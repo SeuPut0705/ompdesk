@@ -5,12 +5,11 @@
  * exclusively, so no file already there is touched) and is renamed onto the destination once whole, so a
  * dropped link never leaves half a file under the chosen name. A host from before `host.fs.readRange` still sends a file
  * that fits one `host.fs.readBinary`; a larger one asks for that computer's OMPdesk to be updated.
- * The dialog and the host link are injected; the destination is the person's own folder, so it is written with
- * `original-fs` like other modules that touch user folders.
+ * The dialog and the host link are injected; the destination is the person's own folder.
  */
 import { randomUUID } from "node:crypto";
+import { promises as fsp } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import { promises as fsp } from "original-fs";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import {
 	HOST_DOWNLOAD_MAX_BYTES,

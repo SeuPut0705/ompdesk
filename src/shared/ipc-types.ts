@@ -580,7 +580,7 @@ export type RuntimeErrorSource =
 	 * path and the bytes it took.
 	 */
 	| "disk-care"
-	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
+	/** A previous run's main-thread stall (the shell's hang watchdog, `chrome_core::hang`): `details.unresponsiveMs`, `selfRecovered`. */
 	| "main-thread-hang"
 	/**
 	 * A paired web page reloaded itself, or was about to (src/renderer/web/reload-reason.ts): `message` is the reason
@@ -611,9 +611,9 @@ export type RuntimeErrorSource =
 	 * `closed` (`reason`, `ms`) on the host; `details.deviceId` names the other computer.
 	 */
 	| "remote-link"
-	/** The GPU fallback (src/main/gpu-fallback.ts): software rendering, a relaunch or why none, a hardware trial. */
+	/** The GPU fallback (the shell's `chrome_core::gpu`): software rendering, a relaunch or why none, a hardware trial. */
 	| "gpu-fallback"
-	/** The crash-loop guard (src/main/launch-guard.ts): this launch starts in safe mode. */
+	/** The crash-loop guard (the shell's `chrome_core::launch`): this launch starts in safe mode. */
 	| "launch-guard"
 	/** The pre-rename profile moved into userData (src/main/legacy-user-data.ts). */
 	| "user-data-migration"
@@ -622,8 +622,10 @@ export type RuntimeErrorSource =
 	 * override and its outcome; `details.level` is `warn` or `info`.
 	 */
 	| "setup"
-	/** The lid-awake hold (src/main/keep-awake, wired in index.ts): `message` is held, released, skipped, recovered or failed. */
+	/** The lid-awake hold (the shell's `boot` module, `boot_core::lid`): `message` is held, released, skipped, recovered or failed. */
 	| "keep-awake"
+	/** A `boot.*` request to the shell that failed (src/main/index.ts `bootWarn`): theme, shortcut, media, blockers. */
+	| "shell-boot"
 	/** A paired-host event outside the link and tab sources (src/main/remote/devices.ts `log`): `message` is the event. */
 	| "remote"
 	/** Memory shared between paired computers (src/main/ai-memory/sync.ts): `message` is conflict, round or failed. */
@@ -770,6 +772,11 @@ export interface UpdateAuthInfo {
 	hasStoredToken: boolean;
 	/** False when the OS cannot encrypt secrets (safeStorage unavailable): pasting is disabled. */
 	canStore: boolean;
+	/**
+	 * Why a stored token was removed: the macOS keychain would have asked for the login password to read it
+	 * (`KEYCHAIN_WOULD_ASK`), so main dropped the file instead (native-rust › S › The keychain on macOS). Null when none was.
+	 */
+	droppedReason: string | null;
 }
 
 export interface UpdateAuthTestResult {

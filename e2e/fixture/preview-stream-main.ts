@@ -1,24 +1,17 @@
 /**
- * Electron main for e2e/preview-stream.e2e.ts: the real preview host (src/main/preview/host.ts) with a paired
- * viewer's virtual window behind the real WsRouter, driven by a fake WebSocket client, against a local test
- * page. Run by Electron itself (the spec bundles this file with bun), prints `RESULT <json>` and exits.
- *
- * What it proves, on real offscreen pages: frames arrive as JPEGs of the size the viewer's surface asks for,
- * none before the acknowledgement and at most 12 a second, a still page sends nothing, a tap reaches the page
- * as a trusted click (and keys and text as trusted input), a pinch zooms, a page's `confirm` waits for the
- * viewer's answer. It also measures: fps, bytes a frame, CPU of every Electron process while streaming and idle.
+ * Node side of e2e/preview-stream.e2e.ts (run by bun): a paired phone's Preview on the real shell. The shell's `preview`
+ * module owns the offscreen pages; this process is main's part of §15.6 (`registerPreview` over a test shell, the
+ * WebSocket router without its edge, a fake client) against a local test page whose own script reports the events it saw.
  */
-import { mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
-import { app, screen } from "electron";
-import { registerPreviewHost } from "../../src/main/preview/host";
-import { parseVisualUrl } from "../../src/main/preview/visual-navigation";
-import type { VisualStore } from "../../src/main/preview/visuals";
+import { shellModule } from "../../src/main/shell-host/modules/client";
+import { type PreviewSpec, registerPreview } from "../../src/main/shell-host/modules/preview";
+import { startTestShell, testShellExecutable } from "../../src/main/shell-host/modules/test-shell";
 import { BlobStore } from "../../src/main/web/blobs";
 import type { WebDevice } from "../../src/main/web/devices-store";
 import { IpcRegistry } from "../../src/main/web/ipc-registry";
-import { writeDialogPreload } from "../../src/main/web/preview-dialog";
 import { WebWindows } from "../../src/main/web/web-client-window";
 import type { WsRouter } from "../../src/main/web/ws-router";
 import { TestRouterHost } from "../../src/main/web/ws-router-test-rig";
@@ -30,13 +23,6 @@ import {
 	PREVIEW_STREAM_INPUT,
 	PREVIEW_STREAM_POLL,
 } from "../../src/shared/preview";
-
-const userData = process.env.OMP_PREVIEW_E2E_USERDATA;
-if (!userData) throw new Error("OMP_PREVIEW_E2E_USERDATA is required");
-mkdirSync(userData, { recursive: true });
-app.setPath("userData", userData);
-// The page under test is on 127.0.0.1; nothing here touches the user's screen.
-app.dock?.hide();
 
 /**
  * What the test page posts about the events it saw. Each post is its own request and they may arrive out of order:
@@ -126,13 +112,41 @@ interface Reply {
 	e?: { message: string };
 }
 
-/** CPU seconds spent so far by every Electron process (browser, GPU, renderers, utilities). */
-function cpuSeconds(): number {
-	return app.getAppMetrics().reduce((sum, metric) => sum + (metric.cpu.cumulativeCPUUsage ?? 0), 0);
+/** CPU seconds spent so far by the shell and its helper processes (best effort: `ps` where there is one, else 0). */
+function cpuSeconds(root: number): number {
+	if (process.platform === "win32") return 0;
+	try {
+		const rows = execFileSync("ps", ["-axo", "pid=,ppid=,cputime="], { encoding: "utf8" })
+			.split("\n")
+			.map(line => line.trim().split(/\s+/));
+		const family = new Set([root]);
+		for (let grew = true; grew; ) {
+			grew = false;
+			for (const [pid, ppid] of rows) {
+				if (family.has(Number(ppid)) && !family.has(Number(pid))) {
+					family.add(Number(pid));
+					grew = true;
+				}
+			}
+		}
+		let total = 0;
+		for (const [pid, , time] of rows) {
+			if (!family.has(Number(pid)) || !time) continue;
+			const [clock, days] = time.split("-").toReversed();
+			const parts = (clock ?? "0").split(":").map(Number);
+			total += parts.reduce((sum, part) => sum * 60 + part, 0) + Number(days ?? 0) * 86_400;
+		}
+		return total;
+	} catch {
+		return 0;
+	}
 }
 
 async function main() {
-	await app.whenReady();
+	const executable = testShellExecutable();
+	if (!executable) throw new Error("no shell is built here (bun run build:shell)");
+	const shell = await startTestShell(executable);
+	const shellPid = shell.process.pid ?? 0;
 	const listening = Promise.withResolvers<void>();
 	server.listen(0, "127.0.0.1", () => listening.resolve());
 	await listening.promise;
@@ -141,20 +155,11 @@ async function main() {
 	const origin = `http://127.0.0.1:${port}`;
 
 	const ipc = new IpcRegistry({ handle: () => {}, on: () => {} });
-	const visuals = {
-		parse: parseVisualUrl,
-		view: () => null,
-		url: () => null,
-		serve: async () => new Response("", { status: 404 }),
-		list: async () => [],
-		forTab: () => [],
-		addToTab: async () => false,
-	} as unknown as VisualStore;
-	registerPreviewHost(ipc, () => false, visuals, {
-		isRemote: () => false,
-		hostScale: () => screen.getPrimaryDisplay().scaleFactor,
-		preloadPath: () => writeDialogPreload(userData as string),
-	});
+	registerPreview(
+		ipc,
+		{ tabTarget: () => null, tunnel: () => null, judgeAssist: () => false, activeTab: () => null },
+		shellModule<PreviewSpec>("preview", () => shell.client),
+	);
 
 	const device: WebDevice = {
 		deviceId: "phone-1",
@@ -255,7 +260,6 @@ async function main() {
 		...size,
 		rect: first.frame.rect,
 		tab: first.frame.tab === lastState()?.activeTab,
-		hostScale: screen.getPrimaryDisplay().scaleFactor,
 	};
 
 	// 2. A tap on the button is a trusted click with user activation.
@@ -328,7 +332,7 @@ async function main() {
 		seq = drained.frame.seq;
 	}
 	const idleMeasureStart = Date.now();
-	const idleCpuMeasureStart = cpuSeconds();
+	const idleCpuMeasureStart = cpuSeconds(shellPid);
 	while (Date.now() - idleMeasureStart < 3000) {
 		const idle = await poll(seq, 1000);
 		if (idle.frame) {
@@ -341,7 +345,7 @@ async function main() {
 		seconds: (Date.now() - idleMeasureStart) / 1000,
 		frames: idleFrames,
 		bytes: idleBytes,
-		cpuCorePercent: ((cpuSeconds() - idleCpuMeasureStart) / ((Date.now() - idleMeasureStart) / 1000)) * 100,
+		cpuCorePercent: ((cpuSeconds(shellPid) - idleCpuMeasureStart) / ((Date.now() - idleMeasureStart) / 1000)) * 100,
 	};
 
 	// 7. A busy page (every pixel changing each frame), acknowledged at once: at most 12 frames a second.
@@ -349,7 +353,7 @@ async function main() {
 	const drain = await poll(null, 3000);
 	if (drain.frame) seq = drain.frame.seq;
 	const seconds = 6;
-	const cpuStart = cpuSeconds();
+	const cpuStart = cpuSeconds(shellPid);
 	const started = Date.now();
 	let frames = 0;
 	let bytes = 0;
@@ -377,7 +381,7 @@ async function main() {
 		maxFramesInAnySecond: Math.max(...perSecond),
 		bytesPerFrame: Math.round(bytes / Math.max(1, frames)),
 		kbitPerSecond: Math.round((bytes * 8) / elapsed / 1000),
-		cpuCorePercent: ((cpuSeconds() - cpuStart) / elapsed) * 100,
+		cpuCorePercent: ((cpuSeconds(shellPid) - cpuStart) / elapsed) * 100,
 		sizes: [...sizes],
 	};
 
@@ -444,10 +448,11 @@ async function main() {
 	await command({ action: "dispose" });
 	console.log(`RESULT ${JSON.stringify(result)}`);
 	server.close();
-	app.exit(0);
+	await shell.close();
+	process.exit(0);
 }
 
 main().catch(error => {
 	console.log(`FAILED ${error instanceof Error ? error.stack : String(error)}`);
-	app.exit(1);
+	process.exit(1);
 });

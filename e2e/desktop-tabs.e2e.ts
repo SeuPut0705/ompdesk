@@ -167,10 +167,15 @@ for (const [language, theme] of variants(RUNS)) {
 				opened.push(url);
 			};
 		});
+		// The blockers are the shell's (`boot.awakeStart`): ask it through the shim's connection, which Electron's
+		// typings do not know.
 		const awake = () =>
-			app.evaluate(({ powerSaveBlocker }) =>
-				Array.from({ length: 64 }, (_, id) => powerSaveBlocker.isStarted(id)).some(Boolean),
-			);
+			app.evaluate(async electron => {
+				const { shellHost } = electron as unknown as {
+					shellHost: { call<T>(method: string, params: unknown): Promise<T> };
+				};
+				return (await shellHost.call<{ held: boolean }>("boot.awakeState", {})).held;
+			});
 
 		const settings = await openGeneralSettings(page);
 		const sound = settings.locator("#setting-gui-notificationSound");
@@ -258,7 +263,12 @@ for (const [language, theme] of variants(RUNS)) {
 		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
 		await expect.poll(windowState).toMatchObject({ count: 1, id: before.id, destroyed: false, visible: false });
 		expect((await tabs(page)).find(item => item.tabId === tab)?.status).toBe("running");
-		await app.evaluate(({ app: electronApp }) => electronApp.emit("activate"));
+		// A Dock click: the shell's (chrome module), pressed through its test request.
+		await app.evaluate(electron =>
+			(
+				electron as unknown as { shellHost: { call(method: string, params: unknown): Promise<unknown> } }
+			).shellHost.call("chrome.activate", {}),
+		);
 		await expect.poll(windowState).toMatchObject({ count: 1, id: before.id, destroyed: false, visible: true });
 		expect((await tabs(page)).find(item => item.tabId === tab)?.status).toBe("running");
 		await fixtureCommand(page, tab, "fixture:finish:markdown");

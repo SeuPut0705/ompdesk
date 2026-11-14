@@ -8,7 +8,7 @@
  */
 import { codedError } from "../../shared/ipc-error-codes";
 import { core } from "../core/process";
-import { relayExtensionUrl } from "../preview/agent-relay";
+import { relayExtensionUrl } from "../shell-host/modules/preview";
 import type { PreviewRelayEvent } from "./app-protocol";
 
 /** What the core says of an open socket: a frame the relay sent, or the socket's end. */

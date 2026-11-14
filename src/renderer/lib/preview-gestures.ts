@@ -1,6 +1,6 @@
 /**
  * A finger on the streamed preview frame, read as what the page on the host computer should receive
- * (shared/preview.ts `PreviewStreamInput`; the host turns each into mouse, wheel or zoom events, main/web/preview-input.ts).
+ * (shared/preview.ts `PreviewStreamInput`; the host turns each into mouse, wheel or zoom events, the shell's preview module).
  * The page is on another machine, so there is no touch to forward: a gesture is recognised here and sent as the
  * pointer action it means.
  *

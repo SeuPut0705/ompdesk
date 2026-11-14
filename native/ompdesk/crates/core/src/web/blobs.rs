@@ -1,7 +1,7 @@
 //! `/blob/<token>`: what a page fetches instead of receiving it in a WebSocket frame (a file the viewer shows, a
 //! recording a player streams, a download; unit 8b, was `src/main/web/blobs.ts`). Each token is random, belongs to
 //! one device (its cookie must match) and dies after 30 minutes without a request. The three sources: a file on disk,
-//! bytes main already holds, or a stream only main can open (`MediaStreams`, an `omp-media://` address). Answers
+//! bytes main already holds, or a stream only the shell can open (an `omp-media://` address). Answers
 //! honour `Range`. A blob is never rendered as a page: HTML, SVG and scripts are served as attachments, everything
 //! carries `nosniff` and a sandboxing CSP.
 //!
@@ -223,7 +223,7 @@ pub struct MediaAnswer {
     pub body: mpsc::Receiver<Bytes>,
 }
 
-/// Opens the media stream behind a blob (the `MediaStreams.handle` of main).
+/// Opens the media stream behind a blob (main's `mediaResponse` over the shell's `boot.mediaHead`/`mediaRead`).
 pub trait MediaOpener: Send + Sync {
     /// `None` when the stream cannot be opened (the page is told 404).
     fn open<'a>(
@@ -1074,13 +1074,17 @@ pub fn register(registry: &mut Registry) {
     registry.add("web.blobs.serve", |call| Box::pin(serve(call)));
 }
 
+pub fn mint_token() -> Result<String, Fault> {
+    use base64::Engine as _;
+    let mut bytes = [0; 24];
+    crate::sys::random(&mut bytes).map_err(|error| Fault::new("random", error.to_string()))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
 /// A token minted the way main does (24 random bytes, base64url).
 #[cfg(test)]
 fn mint() -> String {
-    use base64::Engine as _;
-    let mut bytes = [0; 24];
-    crate::sys::random(&mut bytes).unwrap();
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    mint_token().unwrap()
 }
 
 #[cfg(test)]

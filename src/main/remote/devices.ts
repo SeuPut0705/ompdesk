@@ -49,7 +49,7 @@ import {
 	type SidebarProjectsState,
 } from "../../shared/sidebar-projects";
 import type { ModelWaitTracker } from "../model-wait-count";
-import type { RelaySocket } from "../preview/relay-socket";
+import type { RelaySocket } from "../shell-host/modules/preview";
 import type { ResumeMarker } from "../turn-resume";
 import type { WebBlocks } from "../web/blocks-store";
 import {
@@ -160,7 +160,7 @@ export interface RemoteDevicesDeps {
 	signInRelay?: { failure: (device: string) => { title: string; message: string }; port?: number };
 	/** An approved quit leaves interrupted work to continue: host tabs are left running, not closed (`keepOnHost`). */
 	keepHostTabsOnQuit?: () => boolean;
-	/** Electron `powerSaveBlocker` held while devices use this computer. */
+	/** Keep-awake's blocker (the shell's `boot.awakeStart`) held while devices use this computer. */
 	powerSaveBlocker: KeepAwakeBlocker;
 	tailnet: TailnetAccess;
 	/** Tailscale logins allowed to use this computer: Mobile web's list (one list for both). */

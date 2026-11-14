@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, recordsOfType } from "./harness";
+import { exitApp, launchApp, readClipboardText, recordsOfType } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
@@ -95,18 +95,25 @@ test("stock session identity, cycling in both directions, and /copy stay usable"
 	const modal = page.getByRole("dialog");
 	await expect(modal.getByRole("button", { name: "Fixture copy target", exact: true })).toBeVisible();
 	await modal.getByRole("button", { name: "Copy", exact: true }).click();
-	await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("Fixture copy target");
+	await expect.poll(() => readClipboardText(app)).toBe("Fixture copy target");
 	await expect(modal).toHaveCount(0);
 	expect(await recordsOfType(record, "composer.copy_targets")).toHaveLength(1);
 });
 
 test("Check for Updates… from the app menu reports in the sidebar without opening Settings", async () => {
-	await app.evaluate(({ Menu }) => {
-		const item = Menu.getApplicationMenu()
-			?.items.flatMap(top => top.submenu?.items ?? [])
-			.find(entry => entry.label === "Check for Updates…");
+	// The menu is the shell's (chrome module): its probe lists the items and presses one, as a click would.
+	await app.evaluate(async electron => {
+		interface Item {
+			id: string;
+			label: string;
+			submenu?: Item[];
+		}
+		const host = (electron as unknown as { shellHost: { call(method: string, params: unknown): Promise<unknown> } })
+			.shellHost;
+		const { items } = (await host.call("chrome.menuProbe", { menu: "application" })) as { items: Item[] };
+		const item = items.flatMap(top => top.submenu ?? []).find(entry => entry.label === "Check for Updates…");
 		if (!item) throw new Error("Check for Updates… is missing from the app menu");
-		item.click();
+		await host.call("chrome.menuProbe", { menu: "application", click: item.id });
 	});
 	const card = page.locator("[data-sidebar-update]");
 	await expect(card).toBeVisible();

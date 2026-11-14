@@ -28,7 +28,13 @@ let container: TestElement;
 let root: Root;
 
 async function mountRow(status: UpdateStatus, info: Partial<UpdateAuthInfo>): Promise<void> {
-	const authInfo = { source: null, hasStoredToken: false, canStore: true, ...info } as UpdateAuthInfo;
+	const authInfo = {
+		source: null,
+		hasStoredToken: false,
+		canStore: true,
+		droppedReason: null,
+		...info,
+	} as UpdateAuthInfo;
 	Reflect.set(window, "omp", { updater: { authInfo: vi.fn(async () => authInfo) } });
 	useUpdaterStore.setState({ status });
 	container = document.createElement("div") as unknown as TestElement;
@@ -75,5 +81,14 @@ describe("UpdateAuthRow", () => {
 		await mountRow({ state: "not-available" } as UpdateStatus, { hasStoredToken: true, source: "stored" });
 		expect(tokenRow()).not.toBeNull();
 		expect(container.textContent).toContain("Remove saved token");
+	});
+
+	it("shows the row with why a stored token was removed, even with no token left and the repo public", async () => {
+		await mountRow({ state: "not-available" } as UpdateStatus, { droppedReason: "keychain-would-ask" });
+		expect(tokenRow()).not.toBeNull();
+		expect(container.querySelector("[data-updates-auth-dropped]")?.textContent).toContain(
+			"macOS would ask for your login password",
+		);
+		expect(container.textContent).not.toContain("Remove saved token");
 	});
 });

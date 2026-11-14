@@ -1,27 +1,29 @@
 //! Autopilot (was `src/main/autopilot*.ts`; docs/rust-remaining-units.md §2.4, units 9m and 9n): the run state machine
 //! that drives a stock Goal, its steps and timers, the ship queue, the post-cycle git audit and the land check.
 //!
-//! - `coordinator`, `start`, `cycle`: the `Autopilot` class's logic. Main's `Autopilot` (`src/main/autopilot.ts`) is its
-//!   typed client and keeps what a synchronous caller reads (`isStopping`, `runRootOf`, `holdsLimitWait`, the status
-//!   overlay): a mirror written only from this side's `mirror` and `childRun` tells.
+//! - `Service` admits the authenticated native owner and routes actual sidecar events, approval cards and shutdown to
+//!   the existing `coordinator`, `start`, `cycle` state machine. Synchronous reads use that state directly.
 //! - `ship`, `audit`, `land_check` (9n): what main did to git on the run's behalf.
 //! - `branches`: the start's branch rules and reads. `steps`: the run's bounded pipeline.
+//! - `approval`, `release`, `effects`: native application rules. Approval text is checked by the existing guard in
+//!   the real tab's stock bridge; the native host never accepts root, role or release scope from page arguments.
 //!
-//! What it reaches in main goes through one `Port` (`crate::ports`): the omp of a tab (stock commands and the bridge),
-//! the pool's facts, the windows (`dispatch`, `spawnTab`), notices, text, and the few rules that stay TypeScript because
-//! the page, the bridge or the turn-resume code share them (the log's Markdown, the quota wait, the release
-//! procedure; the approval cards' answers are main's too: the approver keeps the bridge's ban rule). The wire is `autopilot.open {port, seq, state, config}` and then, naming the port: the events `frame`, `status`,
-//! `ready`, `released`, `activity`, `aborted`, `resumeSettled` (applied in the order they came, as main
-//! sent them), and the calls `command`, `resumeGoal`, `beforeFirstPrompt`, `idle`. The stateless requests the parity suites
-//! of `audit`, `ship`, `land_check` and `branches` drive are `autopilot.snapshot`, `autopilot.audit`,
-//! `autopilot.branchEntries`, `autopilot.branchInfo`, `autopilot.landCheck` and `autopilot.ship.*`.
+//! `Host` is the typed native dependency boundary for the actual pool, machine/setup runtime, notices and text.
+//! Release detection, quota resets and PR log text run here; approval policy runs in the actual tab's stock bridge.
+//! Base constructs the native dependency graph and resolves caller authority. The old `Port` entry is retained only
+//! for the existing process-parity/legacy caller until Base removes Node; its presence is not native artifact proof.
 
+pub mod approval;
 pub mod audit;
 pub mod branches;
 mod coordinator;
 mod cycle;
+pub mod effects;
+pub mod host;
 pub mod land_check;
+pub mod release;
 mod run;
+mod service;
 pub mod ship;
 mod start;
 pub mod steps;
@@ -33,11 +35,13 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use crate::git::run::Git;
-use crate::ports::Port;
-use crate::run::Runner;
 use crate::server::{Fault, Registry};
 
+pub use crate::run::Runner;
 pub use coordinator::register as register_coordinator;
+pub use coordinator::{Contracts, Facts, SidecarFacts, Source};
+pub use host::{Host, Relaunch};
+pub use service::{Config, Service};
 
 /// The durations the core's clock runs: the real ones by default, shortened by the parity suites (the core's clock cannot
 /// be moved, so a short one is waited out).
@@ -88,8 +92,8 @@ impl Default for Tuning {
 }
 
 /// A git as main runs it now (`gitRunner`: the binary, the login shell's PATH, the environment), outside any request.
-pub(crate) async fn git_from(port: &Port<()>) -> Result<Git, Fault> {
-    let runner: Runner = port.ask("gitRunner", &()).await.map_err(Fault::from)?;
+pub(crate) async fn git_from(port: &host::Backend) -> Result<Git, Fault> {
+    let runner = port.git_runner().await?;
     // The scope of the step it is made in: a stopped step ends the gits it ran (`steps::step_scope`).
     Ok(Git::new(runner, steps::step_scope()))
 }
@@ -105,5 +109,5 @@ pub fn register(registry: &mut Registry) {
     wire::register(registry);
 }
 
-/// Shared handle on a port to main.
-pub(crate) type MainPort = Arc<Port<()>>;
+/// Shared typed host backend; the legacy wire is used only by the old process entry and parity suites.
+pub(crate) type MainPort = Arc<host::Backend>;

@@ -3,7 +3,7 @@
  * the user picks elements or drags a region, writes a comment per numbered pin,
  * tweaks the page's CSS variables, and sends it all to the composer as one
  * message (region screenshots as images). Picking and pins run in main's
- * isolated page world (main/preview/page-scripts.ts); the page itself never
+ * isolated page world (the shell's preview module); the page itself never
  * sees them.
  */
 import {

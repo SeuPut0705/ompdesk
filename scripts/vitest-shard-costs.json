@@ -125,7 +125,6 @@
 		"src/main/log-watcher.test.ts": 2.6,
 		"src/main/autopilot-ship-merge.test.ts": 2.6,
 		"src/main/local/git/scm-history.test.ts": 2.5,
-		"src/main/preview/host.test.ts": 2.5,
 		"src/main/web/server.test.ts": 2.4,
 		"src/main/stats-host-stock.test.ts": 2.4,
 		"src/main/routines/git.test.ts": 2.4,
@@ -227,7 +226,6 @@
 		"src/main/web/server.test.ts": 3.2,
 		"scripts/lint-fix-tests.test.mjs": 3,
 		"src/main/local/autopilot.test.ts": 2.8,
-		"src/main/preview/host.test.ts": 2.6,
 		"src/main/schedules.test.ts": 2.5,
 		"src/main/web/file-edit-reports.test.ts": 2.2,
 		"src/main/stock-helper-extensions.test.ts": 2.1

@@ -1,0 +1,9 @@
+{
+  "checker": {"kind":"tlc","config":"MC.cfg"},
+  "mutations": [
+    {"name":"remove-final-launch-fence","why":"Invalidation while runtime resolution yields must prevent the actual effect.","search":"IF FenceLaunch /\\ reservedAt # generation","replace":"IF FALSE","breaks":"NoStaleStart"},
+    {"name":"duplicate-start","why":"One run identity must not commit twice on repeated acknowledgement.","search":"/\\ ~DedupStart","replace":"/\\ TRUE","breaks":"AtMostOnce"},
+    {"name":"lose-refund","why":"Invalidated pre-launch work cannot consume a model request.","search":"IF RefundAbort THEN \"refunded\" ELSE quota","replace":"quota","breaks":"RefundUnstarted","all":true},
+    {"name":"accept-retired-source","why":"Same-key restart is a new instance; the previous one cannot publish.","search":"~FenceSource /\\ readAt # sourceGeneration","replace":"readAt # sourceGeneration","breaks":"NoStalePublish"}
+  ]
+}

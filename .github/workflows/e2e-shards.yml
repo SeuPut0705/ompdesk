@@ -61,6 +61,8 @@ jobs:
         with:
           bun-version: 1.4.4
       - uses: ./.github/actions/install
+      # The CEF shell and the pinned Node, which every e2e launches (the shell action: a cached build).
+      - uses: ./.github/actions/shell
       # The runner is ephemeral: real-core and deep-audit run the real omp.
       - name: Install omp
         run: |

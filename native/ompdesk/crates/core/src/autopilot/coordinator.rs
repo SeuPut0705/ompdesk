@@ -1,10 +1,11 @@
-//! The coordinator: a run's tabs, the wire that main's `Autopilot` client speaks, and the plumbing every step uses to reach
-//! main (the omp of a tab, the pool, notices, text). The steps themselves are in `start.rs` and `cycle.rs`.
+//! The existing coordinator and its native host effects. `Service` admits native callers; the legacy wire remains a
+//! process-parity entry. The run's state transitions are in `start.rs` and `cycle.rs`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
+use ompdesk_app_contract::Owner;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -40,6 +41,7 @@ pub struct Contracts {
 #[serde(rename_all = "camelCase")]
 pub struct Bridge {
     pub arm: String,
+    pub approval: String,
     pub status: String,
     pub configure: String,
     pub note: String,
@@ -118,6 +120,9 @@ pub enum Msg {
     Idle {
         reply: oneshot::Sender<Value>,
     },
+    Close {
+        reply: oneshot::Sender<Value>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -133,6 +138,9 @@ pub struct CommandParams {
     /// another process's (on Windows a tick apart).
     #[serde(default)]
     pub now: Option<i64>,
+    /// Created by native admission only. Page/legacy JSON cannot construct a caller.
+    #[serde(skip)]
+    pub native_owner: Option<Owner>,
 }
 
 /// The tab a command came from (`sidecar.device`, `sidecar.cwd`).
@@ -210,24 +218,13 @@ fn open(call: Call) -> Answer {
         Ok(port) => port,
         Err(fault) => return failed(fault),
     };
-    let (inbox, queue) = mpsc::unbounded_channel();
-    let coordinator = Arc::new(Coordinator {
-        port: port.clone(),
-        tuning: params.tuning,
-        contracts: params.contracts,
-        probe_override: params.probe_override,
-        runs: Mutex::default(),
-        child_runs: Mutex::default(),
-        start_waits: Mutex::default(),
-        release_cache: Mutex::default(),
-        awaiting_resume: Mutex::default(),
-        resumed_on_launch: Mutex::default(),
-        continued_on_ready: Mutex::default(),
-        background: watch::channel(0).0,
-        inbox,
-    });
+    let coordinator = Coordinator::new(
+        Arc::new(super::host::Backend::Wire(port.clone())),
+        params.contracts,
+        params.tuning,
+        params.probe_override,
+    );
     locked(&INSTANCES).insert(params.port, coordinator.clone());
-    tokio::spawn(actor(coordinator, queue));
     let id = params.port;
     tokio::spawn(async move {
         port.until_closed().await;
@@ -239,7 +236,16 @@ fn open(call: Call) -> Answer {
 /// Applies main's events in the order they came: what each does before its first await happens here, in that order.
 async fn actor(coordinator: Arc<Coordinator>, mut queue: mpsc::UnboundedReceiver<Msg>) {
     while let Some(message) = queue.recv().await {
-        coordinator.apply(message);
+        if let Some(reply) = coordinator.apply(message) {
+            // Release first to end start waits, timers and active step scopes. In-flight admission may still be returning
+            // from the pool; after it settles, release any run it registered during that first quiescence.
+            coordinator.release_all();
+            coordinator.idle().await;
+            coordinator.release_all();
+            coordinator.idle().await;
+            let _ = reply.send(json!({"ok":true}));
+            break;
+        }
     }
 }
 
@@ -432,7 +438,42 @@ fn failure_value(error: &Oops) -> Value {
 }
 
 impl Coordinator {
-    pub fn apply(self: &Arc<Self>, message: Msg) {
+    pub fn new(
+        port: MainPort,
+        contracts: Contracts,
+        tuning: Tuning,
+        probe_override: bool,
+    ) -> Arc<Self> {
+        let (inbox, queue) = mpsc::unbounded_channel();
+        let coordinator = Arc::new(Self {
+            port,
+            tuning,
+            contracts,
+            probe_override,
+            runs: Mutex::default(),
+            child_runs: Mutex::default(),
+            start_waits: Mutex::default(),
+            release_cache: Mutex::default(),
+            awaiting_resume: Mutex::default(),
+            resumed_on_launch: Mutex::default(),
+            continued_on_ready: Mutex::default(),
+            background: watch::channel(0).0,
+            inbox,
+        });
+        tokio::spawn(actor(coordinator.clone(), queue));
+        coordinator
+    }
+
+    fn release_all(self: &Arc<Self>) {
+        let mut tabs: HashSet<String> = locked(&self.runs).keys().cloned().collect();
+        tabs.extend(locked(&self.start_waits).keys().cloned());
+        tabs.extend(locked(&self.child_runs).keys().cloned());
+        for tab in tabs {
+            self.tab_released(&tab);
+        }
+    }
+
+    pub fn apply(self: &Arc<Self>, message: Msg) -> Option<oneshot::Sender<Value>> {
         match message {
             Msg::Frame { tab, frame } => self.frame(&tab, &frame),
             Msg::Status { tab, status } => self.status_seen(&tab, &status),
@@ -456,7 +497,7 @@ impl Coordinator {
             Msg::ResumeSettled { tab, outcome } => self.resume_settled(&tab, &outcome),
             Msg::Command { params, reply } => {
                 let this = self.clone();
-                tokio::spawn(async move {
+                self.track(async move {
                     let answer = match this.command(&params).await {
                         Ok(value) => value,
                         Err(error) => failure_value(&error),
@@ -466,7 +507,7 @@ impl Coordinator {
             }
             Msg::ResumeGoal { tab, reply } => {
                 let this = self.clone();
-                tokio::spawn(async move {
+                self.track(async move {
                     let answer = match this.resume_goal(&tab).await {
                         Ok(()) => json!({"ok": true}),
                         Err(error) => failure_value(&error),
@@ -476,7 +517,7 @@ impl Coordinator {
             }
             Msg::BeforeFirstPrompt { child, reply } => {
                 let this = self.clone();
-                tokio::spawn(async move {
+                self.track(async move {
                     let answer = match this.before_first_prompt(&child).await {
                         Ok(()) => json!({"ok": true}),
                         Err(error) => failure_value(&error),
@@ -491,7 +532,12 @@ impl Coordinator {
                     let _ = reply.send(json!({"ok": true}));
                 });
             }
+            Msg::Close { reply } => {
+                self.port.begin_close();
+                return Some(reply);
+            }
         }
+        None
     }
 
     /// Resolves when every queued cycle-end/stop task and every background step of every run has finished (tests, quit).
@@ -528,7 +574,7 @@ impl Coordinator {
     // ---- plumbing ---------------------------------------------------------------------------------------------
 
     pub fn log(&self, message: &str) {
-        self.port.tell("log", &json!({"message": message}));
+        self.port.log(message);
     }
 
     pub fn now(&self) -> i64 {
@@ -542,17 +588,14 @@ impl Coordinator {
     /// The text main shows for `key` in this computer's language.
     pub async fn text(&self, key: &str, params: Value) -> String {
         self.port
-            .ask::<String, _>("text", &json!({"key": key, "params": params}))
+            .text(key, params)
             .await
             .unwrap_or_else(|_| key.to_owned())
     }
 
     /// A stock command to the tab's omp: its response, whatever it says (a failed command is `success: false`).
     pub async fn stock_response(&self, tab: &str, command: Value) -> R<Value> {
-        Ok(self
-            .port
-            .ask::<Value, _>("stock", &json!({"tab": tab, "command": command}))
-            .await?)
+        Ok(self.port.stock(tab, command).await?)
     }
 
     /// A stock command that must succeed: its data.
@@ -575,11 +618,7 @@ impl Coordinator {
         params: Value,
         timeout_ms: Option<u64>,
     ) -> R<Value> {
-        let mut args = json!({"tab": tab, "method": method, "params": params});
-        if let Some(ms) = timeout_ms {
-            args["timeoutMs"] = json!(ms);
-        }
-        let response: Value = self.port.ask("bridge", &args).await?;
+        let response = self.port.bridge(tab, method, params, timeout_ms).await?;
         if !flag(&response, "success") {
             return Err(Oops::from(
                 text(&response, "error").map_or_else(|| format!("{method} failed"), str::to_owned),
@@ -589,19 +628,11 @@ impl Coordinator {
     }
 
     pub async fn facts(&self, tab: &str) -> Option<Facts> {
-        self.port
-            .ask::<Option<Facts>, _>("facts", &json!({"tab": tab}))
-            .await
-            .ok()
-            .flatten()
+        self.port.facts(tab).await.ok().flatten()
     }
 
     pub async fn sidecar(&self, tab: &str) -> Option<SidecarFacts> {
-        self.port
-            .ask::<Option<SidecarFacts>, _>("sidecar", &json!({"tab": tab}))
-            .await
-            .ok()
-            .flatten()
+        self.port.sidecar(tab).await.ok().flatten()
     }
 
     pub fn runs_get(&self, tab: &str) -> Option<Arc<Run>> {
@@ -616,13 +647,14 @@ impl Coordinator {
 
     /// Main's mirror of the run changed: the tell reaches main before anything this step asks of the bridge next.
     pub fn touch(&self, run: &Run) {
-        self.port.tell("mirror", &run.mirror());
+        self.port.mirror(run.mirror());
     }
 
     pub fn touch_child(&self, tab: &str, run: Option<&ChildRun>) {
-        let value = run.map(|child| json!({"parentTab": child.parent, "root": child.root}));
-        self.port
-            .tell("childRun", &json!({"tab": tab, "run": value}));
+        self.port.child_run(
+            tab,
+            run.map(|child| (child.parent.clone(), child.root.clone())),
+        );
     }
 
     /// A note the next `begin` hands the agent (what only main saw: a failed push, a failed release run).
@@ -820,12 +852,7 @@ impl Coordinator {
         let value = match cached {
             Some((_, value)) => value,
             None => {
-                let value = self
-                    .port
-                    .ask::<Option<Value>, _>("releaseProcedure", &json!({"root": root}))
-                    .await
-                    .ok()
-                    .flatten();
+                let value = self.port.release_procedure(root).await.ok().flatten();
                 locked(&self.release_cache).insert(root.to_owned(), (now, value.clone()));
                 value
             }
@@ -940,34 +967,20 @@ impl Hooks for RunHooks {
                     .unwrap_or_else(|| json!([]));
                 (state.branch.clone(), cycles)
             };
-            #[derive(Deserialize)]
-            struct Text {
-                title: String,
-                body: String,
-            }
-            let text: Text = co
-                .port
-                .ask("prText", &json!({"branch": branch, "cycles": cycles}))
+            co.port
+                .pr_text(branch, cycles)
                 .await
-                .map_err(|error| error.message)?;
-            Ok((text.title, text.body))
+                .map_err(|error| error.message)
         })
     }
 
     fn pr_create(&self, cwd: String, input: PrInput) -> Fut<Result<(String, i64), String>> {
         let co = self.co.clone();
         Box::pin(async move {
-            #[derive(Deserialize)]
-            struct Created {
-                url: String,
-                number: i64,
-            }
-            let created: Created = co
-                .port
-                .ask("prCreate", &json!({"cwd": cwd, "input": input}))
+            co.port
+                .pr_create(cwd, input)
                 .await
-                .map_err(|error| error.message)?;
-            Ok((created.url, created.number))
+                .map_err(|error| error.message)
         })
     }
 }

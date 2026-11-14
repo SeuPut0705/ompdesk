@@ -46,6 +46,8 @@ async function seedProject(project: string): Promise<void> {
 
 const dir = process.env.OMP_GUI_PARITY;
 const BLOCKED_USAGE = process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "blocked";
+/** The language of both apps, unless the blocked-usage case needs the Korean sheet. */
+const language = process.env.OMP_GUI_PARITY_LANGUAGE === "ko" ? "ko" : "en";
 
 const VIEWS = ["local", "remote", "phone"] as const;
 type View = (typeof VIEWS)[number];
@@ -56,7 +58,7 @@ const DESKTOP: Look = {
 	dpr: 1,
 	orientation: "landscape",
 	theme: BLOCKED_USAGE ? "dark" : "light",
-	lang: BLOCKED_USAGE ? "ko" : "en",
+	lang: BLOCKED_USAGE ? "ko" : language,
 	device: "electron",
 };
 const PHONE: Look = {
@@ -167,7 +169,7 @@ if (dir) {
 				// The usage row under a reply (`reply-usage`): on here, on the paired computer and through to the phone.
 				prefs: { displayPreferences: { showTokenUsage: true }, ...(BLOCKED_USAGE ? { sidebarWidth: 227 } : {}) },
 				// Only the host's omp starts under the hold: its slow-start bound is short, so the banner shows within seconds.
-				env: { OMP_GUI_START_SLOW_MS: "1500" },
+				env: { OMP_GUI_START_SLOW_MS: "1500", OMP_GUI_TEST_KEYCHAIN_WOULD_ASK: "1" },
 			});
 			await seedProject(hostProfile.project);
 			const clientProfile = await makeRemoteProfile(parent, "client", {
@@ -175,7 +177,14 @@ if (dir) {
 				theme: DESKTOP.theme,
 				port: hostProfile.port,
 				prefs: { displayPreferences: { showTokenUsage: true }, ...(BLOCKED_USAGE ? { sidebarWidth: 227 } : {}) },
+				env: { OMP_GUI_TEST_KEYCHAIN_WOULD_ASK: "1" },
 			});
+			// `settings-updates-token-dropped`: a token the keychain would not release was removed at an earlier launch, and
+			// the marker it left is what Settings › Updates shows (src/main/update-auth.ts).
+			if (surfaces.some(surface => surface.id === "settings-updates-token-dropped")) {
+				for (const profile of [hostProfile, clientProfile])
+					await fs.writeFile(path.join(profile.desktop, "update-token.dropped"), "keychain-would-ask");
+			}
 			host = await launchRemote(hostProfile);
 			client = await launchRemote(clientProfile);
 			const b = host.page;

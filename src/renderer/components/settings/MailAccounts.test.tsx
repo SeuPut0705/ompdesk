@@ -37,6 +37,7 @@ const WORK: MailAccount = {
 	mailbox: "INBOX",
 	address: "owner@example.com",
 	hasPassword: true,
+	needsReentry: false,
 };
 const PERSONAL: MailAccount = {
 	id: "a2",
@@ -47,6 +48,7 @@ const PERSONAL: MailAccount = {
 	mailbox: "Bots",
 	address: "me",
 	hasPassword: true,
+	needsReentry: false,
 };
 
 let state: MailAccountsState = { accounts: [WORK, PERSONAL] };
@@ -61,6 +63,7 @@ const command = vi.fn(async (request: Exclude<MailAccountsRequest, { action: "te
 			id: request.id ?? "new",
 			address: request.draft.username,
 			hasPassword: Boolean(request.draft.password) || state.accounts.some(item => item.id === request.id),
+			needsReentry: false,
 		};
 		state = { accounts: [...state.accounts.filter(item => item.id !== saved.id), saved] };
 	}

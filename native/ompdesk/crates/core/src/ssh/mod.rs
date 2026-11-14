@@ -22,6 +22,7 @@
 mod askpass;
 mod live;
 mod rules;
+pub(crate) use rules::js_to_number;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;

@@ -1,0 +1,138 @@
+# OMPdesk's shell: a CEF window host that Node's main process drives (PROTOCOL.md). A workspace root of its own,
+# excluded from `native/ompdesk`'s: the core workspace, `bun run build:native`, `cargo test --workspace` and every
+# vitest run must never need the CEF archive or a C++ toolchain. `bun run build:shell` builds this one.
+[workspace]
+resolver = "3"
+
+[package]
+name = "ompdesk-shell"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+publish = false
+
+# The pure parts (framing, ranges, paths, safeStorage, Local Storage) are the library, so `cargo test` runs them in a
+# test executable that never imports libcef.dll; the binary links CEF and has no tests of its own.
+[lib]
+name = "shell_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ompdesk-shell"
+path = "src/main.rs"
+test = false
+
+# The macOS bundle's CFBundleExecutable (`Contents/MacOS/OMPdesk`): no CEF, only std and what the library needs. It execs
+# `ompdesk-shell` and watches the first start of a freshly installed version (launcher.rs). Windows builds a stub.
+[[bin]]
+name = "ompdesk-launcher"
+path = "src/launcher_main.rs"
+test = false
+
+[build-dependencies]
+# Windows: the embedded manifest (supportedOS + PerMonitorV2 + long paths; without it CEF's GPU process crash-loops) and the icon.
+embed-resource = "3"
+
+[dependencies]
+# Default features off: `sandbox` would link CEF's sandbox library (the shell runs with no_sandbox, as Electron's
+# sandbox was off for the main window's helpers) and `resources` is for bundling tools we do not use.
+cef = { version = "=156.4.0", default-features = false, features = ["build-util"] }
+ompdesk-app-contract = { path = "../app-contract" }
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: a number is read as its digits say, as the core's wire does (crates/core).
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+base64 = "0.22"
+# Electron's safeStorage key on Windows (OSCrypt v10 = AES-256-GCM).
+aes-gcm = "0.10"
+# Chromium's Local Storage is a LevelDB with snappy blocks (migrate/local_storage.rs).
+rusty-leveldb = "3"
+# The IPC token, the Windows safeStorage key a clean profile gets.
+getrandom = "0.3"
+# macOS safeStorage key derivation and the cipher tests (every OS runs them: the vectors are the contract with Electron).
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+sha1 = "0.10"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+tray-icon = "0.21"
+# The Preview's stream frames: the latest painted frame of an offscreen page as JPEG or PNG.
+jpeg-encoder = "0.6"
+png = "0.17"
+# chrome deep links: `omp://new`, `omp://session/<id>` read as the URL standard reads them (what `new URL` did).
+# The Preview's address rules (preview_core::urls): the WHATWG parser the TypeScript's `new URL` was.
+url = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+	"Win32_Foundation",
+	"Win32_System_ApplicationInstallationAndServicing",
+	"Win32_Globalization",
+	"Win32_NetworkManagement_IpHelper",
+	"Win32_NetworkManagement_Ndis",
+	"Win32_Networking_WinHttp",
+	"Win32_Networking_WinSock",
+	"Win32_System_SystemInformation",
+	"Win32_Graphics_Dwm",
+	"Win32_Graphics_Gdi",
+	"Win32_Security",
+	"Win32_Security_Cryptography",
+	"Win32_Storage_FileSystem",
+	"Win32_System_Com",
+	"Win32_System_DataExchange",
+	"Win32_System_Diagnostics_Debug",
+	"Win32_System_Diagnostics_ToolHelp",
+	"Win32_System_IO",
+	"Win32_System_LibraryLoader",
+	"Win32_System_Memory",
+	"Win32_System_Ole",
+	"Win32_System_Pipes",
+	"Win32_System_Power",
+	"Win32_System_RemoteDesktop",
+	"Win32_System_Registry",
+	"Win32_System_Threading",
+	"Win32_UI_Accessibility",
+	"Win32_UI_Controls",
+	"Win32_UI_HiDpi",
+	"Win32_UI_Input_KeyboardAndMouse",
+	"Win32_UI_Shell",
+	"Win32_UI_Shell_Common",
+	"Win32_UI_WindowsAndMessaging",
+] }
+
+# COM item dialogs, IFileOperation and the WinRT toast API (windows-sys has no COM or WinRT wrappers).
+windows = { version = "0.62", features = [
+	"Data_Xml_Dom",
+	"Foundation",
+	"UI_Notifications",
+	"Win32_Foundation",
+	"Win32_System_Com",
+	"Win32_UI_Shell",
+	"Win32_UI_Shell_Common",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSEvent", "NSResponder", "NSUserInterfaceValidation", "NSView", "NSWindow"] }
+objc2-foundation = "0.3.2"
+# Notification-centre observers are Objective-C blocks (sys_mac/desk.rs).
+block2 = "0.6"
+security-framework = "3"
+# `access(2)` for the updater's "may this bundle be replaced" check (already linked through getrandom).
+libc = "0.2"
+
+# Same lints as the core workspace. `unsafe_code` is denied crate-wide; the modules that cross into the OS or into
+# CEF's raw-pointer API (`sys/`, the CEF handlers whose signatures carry `*mut u8`) allow it by name, each use with a
+# `// SAFETY:` line.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+# Same release profile as the core workspace. CEF needs no change: its code is in libcef.dll, not in this binary.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+opt-level = "s"

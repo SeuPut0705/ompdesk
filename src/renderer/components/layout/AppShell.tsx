@@ -36,6 +36,7 @@ import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
 // The session list's look stays on the first screen, where the list's own chunk (sidebar-chunk.ts) is not: 7.6 KB,
 // one request less for a page that waits for the list, and the stylesheet keeps its place in the cascade.
 import "../../styles/sidebar.css";
+import { MailReentryNotice } from "./MailReentryNotice";
 import { MissingFolderSheetHost } from "./MissingFolderSheetHost";
 import { SplitWorkspace } from "./SplitWorkspace";
 import { loadSidebar, useSidebar } from "./sidebar-chunk";
@@ -414,6 +415,7 @@ export function AppShell() {
 					<TitleBar />
 					<TabHousekeeping />
 					<UpdateBanner />
+					<MailReentryNotice />
 					<WhatsNewCard />
 					<SplitWorkspace />
 				</div>

@@ -1,8 +1,9 @@
 /**
- * Mac bundle config contract. Every mac variant ships its own electron-builder
- * file, so a key the built Info.plist depends on can exist in one and be missing
- * in another — which is how `omp://` deep links came to be dead code in every
- * installed build.
+ * Packaging contract of the CEF shell (native-rust › S). Windows is electron-builder's NSIS one-click installer over a
+ * custom `electronDist` (electron-builder.win.yml); macOS is `scripts/package-mac.ts`, which assembles OMPdesk.app
+ * itself and uses electron-builder (electron-builder.yml) for the DMG only. Both end in `scripts/after-pack.cjs`.
+ * A key the finished bundle depends on can exist in one place and be missing in another — which is how `omp://` deep
+ * links came to be dead code in every installed build.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -10,24 +11,43 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib/out/util/plist";
+import { UUID } from "builder-util-runtime";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { REA_HUB_ENTRY } from "../../resources/gui-bridge/mcp-hub-contracts";
 import { AGENT_DESKTOP_SERVER } from "../../resources/gui-bridge/modes/computer-use-contracts";
+import { assembleBundle, RESOURCE_COPIES } from "../../scripts/package-mac";
 import { REA_VERSION } from "../shared/builtin-mcp";
-import { UPDATE_ASSETS } from "./update-release";
+
+/** The release assets the updater fetches, read from the shell's updater (`updater_core/release.rs` `Platform::asset`). */
+const UPDATE_ASSETS = (() => {
+	const source = fs.readFileSync(
+		path.join(__dirname, "../../native/ompdesk/crates/shell/src/updater_core/release.rs"),
+		"utf8",
+	);
+	const asset = (variant: string): string => {
+		const found = new RegExp(`fn asset\\(self\\)[\\s\\S]*?Platform::${variant} => "([^"]+)"`).exec(source)?.[1];
+		if (!found) throw new Error(`release.rs names no ${variant} asset`);
+		return found;
+	};
+	return { mac: asset("Mac"), windows: asset("Windows") };
+})();
 
 interface BuilderConfig {
 	appId?: string;
 	productName?: string;
 	afterPack?: string;
-	asarUnpack?: string[];
+	asar?: boolean;
+	npmRebuild?: boolean;
+	electronDist?: string;
+	afterExtract?: string;
+	electronBranding?: unknown;
 	electronLanguages?: string[];
 	extraResources?: { from: string; to: string }[];
 	protocols?: { name: string; schemes?: string[] }[];
 	mac?: {
 		artifactName?: string;
-		extendInfo?: Record<string, unknown>;
+		identity?: string | null;
 		target?: { target?: string; arch?: string[] }[];
 	};
 	dmg?: { artifactName?: string; icon?: string; background?: string };
@@ -49,13 +69,10 @@ type AfterPackHook = (context: {
 	packager: { appInfo: { productFilename: string } };
 }) => Promise<void>;
 
-/** The directories a packaged app keeps Electron's locale files in, under `appOutDir`. */
+/** The directories a packaged app keeps CEF's locale files in, under `appOutDir`. */
 const LOCALE_DIRS: Record<string, { dirs: string[]; ext: string }> = {
 	darwin: {
-		dirs: [
-			"OMPdesk.app/Contents/Resources",
-			"OMPdesk.app/Contents/Frameworks/Electron Framework.framework/Resources",
-		],
+		dirs: ["OMPdesk.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources"],
 		ext: ".lproj",
 	},
 	win32: { dirs: ["locales"], ext: ".pak" },
@@ -72,13 +89,20 @@ async function fakeLocales(appOutDir: string, platform: string, names: string[])
 }
 
 const AI_MEMORY_SOURCE_FILE = path.join(PACKAGE_ROOT, "native/memory/ompdesk.json");
-const AI_MEMORY_PLATFORMS: Record<string, { key: string; binary: string; builderConfig: string }> = {
-	darwin: { key: "darwin-arm64", binary: "ai-memory", builderConfig: "electron-builder.yml" },
-	win32: { key: "win32-x64", binary: "ai-memory.exe", builderConfig: "electron-builder.win.yml" },
+const AI_MEMORY_PLATFORMS: Record<string, { key: string; binary: string }> = {
+	darwin: { key: "darwin-arm64", binary: "ai-memory" },
+	win32: { key: "win32-x64", binary: "ai-memory.exe" },
 };
 /** A tiny stand-in for the 40 MB built binary; `fakeAiMemory` writes it with the build record `bun run build:memory` makes. */
 const FAKE_AI_MEMORY = Buffer.from("#!/bin/sh\necho fake ai-memory\n");
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+
+/** What a platform's package copies into the app's resources: Windows' `extraResources`, macOS's `RESOURCE_COPIES`. */
+function packagedResources(platform: string): { from: string; to: string }[] {
+	if (platform === "darwin") return RESOURCE_COPIES.map(([from, to]) => ({ from, to }));
+	const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8")) as BuilderConfig;
+	return config.extraResources ?? [];
+}
 
 /** The packed app's `ai-memory-bin/<binary>` for `platform` under `appOutDir`. */
 async function fakeAiMemory(
@@ -176,12 +200,173 @@ async function fakeAgentDesktop(
 	return directory;
 }
 
-const PRIVACY_KEYS = [
-	"NSMicrophoneUsageDescription",
-	"NSCameraUsageDescription",
-	"NSBluetoothAlwaysUsageDescription",
-	"NSBluetoothPeripheralUsageDescription",
-];
+const AFTER_PACK = path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs");
+const NODE_PIN = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "scripts/node-runtime-pin.json"), "utf8")) as {
+	version: string;
+	targets: Record<string, { sha256: string; binary: string }>;
+};
+const NODE_KEYS: Record<string, string> = { darwin: "darwin-arm64", win32: "win32-x64" };
+const bundleInfo = require(path.join(PACKAGE_ROOT, "scripts/mac-bundle-info.cjs")) as {
+	FRAMEWORK: string;
+	frameworkRoot: (framework: string) => string;
+	HELPERS: { suffix: string; id: string }[];
+	HELPER_PREFIXES: string[];
+	helperName: (prefix: string, helper: { suffix: string; id: string }) => string;
+	PRIVACY: Record<string, string>;
+	appInfo: (version: string) => Record<string, unknown>;
+};
+const FAKE_SHELL = Buffer.from("#!/bin/sh\necho fake ompdesk-shell\n");
+/** The macOS bundle's `Contents/MacOS/OMPdesk`: the launcher that starts the shell beside it. */
+const FAKE_LAUNCHER = Buffer.from("#!/bin/sh\necho fake ompdesk-launcher\n");
+/** CEF's files as the Windows stage holds them (names from `bun run build:shell`); tiny stand-ins for 200 MB of them. */
+const WIN_CEF_FILES = ["libcef.dll", "chrome_elf.dll", "icudtl.dat", "resources.pak", "v8_context_snapshot.bin"];
+
+/** A packed app's root, `resources` and the shell's executable path for `platform` under `appOutDir`. */
+function packedPaths(appOutDir: string, platform: string) {
+	if (platform === "darwin") {
+		const contents = path.join(appOutDir, "OMPdesk.app", "Contents");
+		return {
+			contents,
+			resources: path.join(contents, "Resources"),
+			frameworks: path.join(contents, "Frameworks"),
+			executable: path.join(contents, "MacOS", "OMPdesk"),
+			record: path.join(contents, "Resources", "ompdesk-shell.build.json"),
+		};
+	}
+	return {
+		contents: appOutDir,
+		resources: path.join(appOutDir, "resources"),
+		frameworks: appOutDir,
+		executable: path.join(appOutDir, "OMPdesk.exe"),
+		record: path.join(appOutDir, "ompdesk-shell.build.json"),
+	};
+}
+
+/**
+ * The shell as `bun run build:shell` stages it and a pack lays it out: the executable (under the product's name),
+ * CEF's files and a build record listing each file's SHA-256; on macOS also the five helper apps. `record` overrides
+ * the record's fields, `files` adds a file the record does not list.
+ */
+async function fakeShell(
+	appOutDir: string,
+	platform: string,
+	options: { record?: Record<string, unknown>; mode?: number } = {},
+): Promise<ReturnType<typeof packedPaths>> {
+	const where = packedPaths(appOutDir, platform);
+	const mode = options.mode ?? 0o755;
+	const binary = platform === "darwin" ? "ompdesk-shell" : "ompdesk-shell.exe";
+	const files: Record<string, string> = { [binary]: sha256(FAKE_SHELL) };
+	const write = async (file: string, bytes: Uint8Array, fileMode = 0o644) => {
+		await fs.promises.mkdir(path.dirname(file), { recursive: true });
+		await fs.promises.writeFile(file, bytes, { mode: fileMode });
+		await fs.promises.chmod(file, fileMode);
+	};
+	if (platform === "darwin") {
+		files["ompdesk-launcher"] = sha256(FAKE_LAUNCHER);
+		await write(where.executable, FAKE_LAUNCHER, mode);
+		await write(path.join(path.dirname(where.executable), "ompdesk-shell"), FAKE_SHELL, mode);
+	} else await write(where.executable, FAKE_SHELL, mode);
+	const cef =
+		platform === "darwin"
+			? [
+					`${bundleInfo.FRAMEWORK}/Versions/A/Chromium Embedded Framework`,
+					`${bundleInfo.FRAMEWORK}/Versions/A/Libraries/libEGL.dylib`,
+				]
+			: WIN_CEF_FILES;
+	for (const name of cef) {
+		const bytes = Buffer.from(`cef ${name}`);
+		files[name] = sha256(bytes);
+		await write(path.join(where.frameworks, name), bytes);
+	}
+	if (platform === "darwin") {
+		for (const prefix of bundleInfo.HELPER_PREFIXES) {
+			for (const helper of bundleInfo.HELPERS) {
+				const name = bundleInfo.helperName(prefix, helper);
+				await write(path.join(where.frameworks, `${name}.app`, "Contents", "MacOS", name), FAKE_SHELL, mode);
+			}
+		}
+	}
+	await fs.promises.mkdir(path.dirname(where.record), { recursive: true });
+	await fs.promises.writeFile(
+		where.record,
+		JSON.stringify({
+			version: "0.1.0",
+			platform,
+			arch: platform === "darwin" ? "arm64" : "x64",
+			binary,
+			...(platform === "darwin" ? { launcher: "ompdesk-launcher" } : {}),
+			files,
+			cef: { version: "156.0.26", archiveSha256: "a".repeat(64) },
+			...options.record,
+		}),
+	);
+	return where;
+}
+
+/**
+ * The pinned Node as `bun run build:node` stages it, in the packed app's `resources/node`: the record names the pin
+ * and the bytes; `record` overrides its fields.
+ */
+async function fakeNode(
+	appOutDir: string,
+	platform: string,
+	options: { record?: Record<string, unknown>; bytes?: Uint8Array; mode?: number } = {},
+): Promise<string> {
+	const key = NODE_KEYS[platform] ?? "";
+	const target = NODE_PIN.targets[key] ?? { sha256: "", binary: "" };
+	const directory = path.join(packedPaths(appOutDir, platform).resources, "node");
+	await fs.promises.rm(directory, { recursive: true, force: true });
+	await fs.promises.mkdir(directory, { recursive: true });
+	const bytes = Buffer.from(`#!/bin/sh\necho v${NODE_PIN.version}\n`);
+	const file = path.join(directory, target.binary);
+	await fs.promises.writeFile(file, options.bytes ?? bytes, { mode: options.mode ?? 0o755 });
+	await fs.promises.chmod(file, options.mode ?? 0o755);
+	await fs.promises.writeFile(path.join(directory, "LICENSE"), "MIT");
+	await fs.promises.writeFile(
+		path.join(directory, "node.build.json"),
+		JSON.stringify({
+			version: NODE_PIN.version,
+			target: key,
+			archiveSha256: target.sha256,
+			binary: target.binary,
+			binarySha256: sha256(bytes),
+			...options.record,
+		}),
+	);
+	return file;
+}
+
+/** The app folder, the licences and (macOS) the Info.plist a pack leaves; `without` leaves one file out. */
+async function fakeAppFiles(appOutDir: string, platform: string, without?: string): Promise<void> {
+	const where = packedPaths(appOutDir, platform);
+	const files = [
+		"app/package.json",
+		"app/out/main/index.js",
+		"app/out/preload/shell.js",
+		"app/out/renderer/index.html",
+		"LICENSES.chromium.html",
+		"LICENSE.cef.txt",
+		"LICENSE",
+		"NOTICE",
+		"THIRD_PARTY_NOTICES.txt",
+	];
+	for (const name of files) {
+		if (name === without) continue;
+		await fs.promises.mkdir(path.dirname(path.join(where.resources, name)), { recursive: true });
+		await fs.promises.writeFile(path.join(where.resources, name), name);
+	}
+	if (platform === "darwin") {
+		await savePlistFile(path.join(where.contents, "Info.plist"), bundleInfo.appInfo("9.9.9") as PlistObject);
+	}
+}
+
+/** Everything of a pack but the ai-memory binary, agent-desktop and the native binaries, which each test fakes itself. */
+async function fakeShellPack(appOutDir: string, platform: string): Promise<void> {
+	await fakeLocales(appOutDir, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+	await fakeShell(appOutDir, platform);
+	await fakeNode(appOutDir, platform);
+	await fakeAppFiles(appOutDir, platform);
+}
 
 function macConfigs(): { file: string; config: BuilderConfig }[] {
 	return fs
@@ -216,38 +401,31 @@ describe("mac bundle configs", () => {
 		expect(main?.mac?.target).toEqual([{ target: "dmg", arch: ["arm64"] }]);
 	});
 
-	it("ships the built renderer outside the asar, where the core process reads the page it serves", () => {
-		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
-			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			expect(config.asarUnpack, file).toEqual(["out/renderer/**"]);
+	it("ships the gui-bridge extension as a plain folder beside the app on both platforms", () => {
+		for (const platform of ["darwin", "win32"]) {
+			expect(packagedResources(platform), platform).toContainEqual({
+				from: "resources/gui-bridge",
+				to: "gui-bridge",
+			});
 		}
-	});
-
-	it("ships the gui-bridge extension outside the asar", () => {
-		const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
-		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
 	});
 
 	it("wears the generated mark on the DMG, the installer and the Windows icon file", () => {
 		const main = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
 		expect(main.dmg).toMatchObject({ icon: "icon.icns", background: "resources/dmg-background.tiff" });
-		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
-			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			expect(config.extraResources, file).toContainEqual({
+		for (const platform of ["darwin", "win32"]) {
+			expect(packagedResources(platform), platform).toContainEqual({
 				from: "resources/brand/app-icon.png",
 				to: "app-icon.png",
 			});
-			expect(config.nsis, file).toMatchObject({
-				installerIcon: "resources/icon.ico",
-				uninstallerIcon: "resources/icon.ico",
-			});
 		}
+		const win = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8")) as BuilderConfig;
+		expect(win.nsis).toMatchObject({ installerIcon: "resources/icon.ico", uninstallerIcon: "resources/icon.ico" });
 	});
 
 	it("ships the built-in REA declaration and the MCP hub that serves it outside the asar on both platforms", () => {
-		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
-			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			expect(config.extraResources, file).toContainEqual({ from: "resources/omp-builtin", to: "omp-builtin" });
+		for (const file of ["darwin", "win32"]) {
+			expect(packagedResources(file), file).toContainEqual({ from: "resources/omp-builtin", to: "omp-builtin" });
 			for (const name of ["mcp-hub.ts", "mcp-hub-rea.ts", "mcp-hub-memory.ts", "mcp-hub-contracts.ts"]) {
 				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/gui-bridge", name)), `${file} omits ${name}`).toBe(
 					true,
@@ -362,9 +540,8 @@ describe("mac bundle configs", () => {
 	});
 
 	it("ships the license texts of vendored code on both platforms", () => {
-		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
-			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			expect(config.extraResources, file).toContainEqual({ from: "LICENSES", to: "LICENSES" });
+		for (const platform of ["darwin", "win32"]) {
+			expect(packagedResources(platform), platform).toContainEqual({ from: "LICENSES", to: "LICENSES" });
 		}
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/Apache-2.0.txt"))).toBe(true);
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/MIT-lobe-icons.txt"))).toBe(true);
@@ -372,21 +549,28 @@ describe("mac bundle configs", () => {
 	});
 
 	it("ships OMPdesk's Apache-2.0 LICENSE, its NOTICE and the generated third-party notices on both platforms", () => {
-		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
-			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+		for (const platform of ["darwin", "win32"]) {
+			const resources = packagedResources(platform);
 			for (const name of ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]) {
-				expect(config.extraResources, file).toContainEqual({ from: name, to: name });
-				expect(fs.existsSync(path.join(PACKAGE_ROOT, name)), `${file}: ${name} is missing`).toBe(true);
+				expect(resources, platform).toContainEqual({ from: name, to: name });
+				expect(fs.existsSync(path.join(PACKAGE_ROOT, name)), `${platform}: ${name} is missing`).toBe(true);
 			}
-			// electron-builder leaves Chromium's notices out of a macOS bundle; Electron's MIT text and
-			// Chromium's third-party licenses must travel with the app.
-			expect(config.extraResources, file).toContainEqual({
-				from: "node_modules/electron/dist/LICENSES.chromium.html",
+			// Chromium's third-party licences (CEF's CREDITS.html) and CEF's own travel with the app, taken out of the
+			// CEF archive by `bun run stage:cef-licenses`; Node's LICENSE ships inside `node/`.
+			const key = platform === "darwin" ? "darwin-arm64" : "win32-x64";
+			expect(resources, platform).toContainEqual({
+				from: `resources/shell-licenses/${key}/LICENSES.chromium.html`,
 				to: "LICENSES.chromium.html",
 			});
-			// No installer license page: the license ships as a file, not a click-through.
-			expect(config.nsis, file).not.toHaveProperty("license");
+			expect(resources, platform).toContainEqual({
+				from: `resources/shell-licenses/${key}/LICENSE.cef.txt`,
+				to: "LICENSE.cef.txt",
+			});
+			expect(resources, platform).toContainEqual({ from: `resources/node/${key}`, to: "node" });
 		}
+		// No installer license page: the license ships as a file, not a click-through.
+		const win = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8")) as BuilderConfig;
+		expect(win.nsis).not.toHaveProperty("license");
 		const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")) as {
 			license?: string;
 		};
@@ -400,21 +584,23 @@ describe("mac bundle configs", () => {
 		expect(notice).toMatch(/^OMPdesk\nCopyright 2026 SeuPut\n/);
 		expect(notice).toContain("THIRD_PARTY_NOTICES.txt");
 		const notices = fs.readFileSync(path.join(PACKAGE_ROOT, "THIRD_PARTY_NOTICES.txt"), "utf8");
-		expect(notices).toContain("electron ");
+		// What the shell ships: CEF and Chromium (their notices are LICENSES.chromium.html beside the app), Node, and the
+		// shell's own Rust crates. Electron is not shipped.
+		expect(notices).toContain("Chromium Embedded Framework");
 		expect(notices).toContain("LICENSES.chromium.html");
+		expect(notices).toContain("Node.js");
+		expect(notices).toContain("OMPdesk's CEF shell");
 		// The vendored code is credited here, not in NOTICE.
 		expect(notices).toContain("Mixdog (https://github.com/tribgames/mixdog)");
 		expect(notices).toContain("LICENSES/Apache-2.0.txt");
 		expect(notices).toContain("@lobehub/icons");
 		expect(notices).toContain("LICENSES/MIT-lobe-icons.txt");
 		expect(notices).toContain("reverse-engineer-anything skill from REA");
-		expect(fs.existsSync(path.join(PACKAGE_ROOT, "node_modules/electron/dist/LICENSES.chromium.html"))).toBe(true);
 	});
 
 	it("ships the shared auto-mode contract inside the bridge on macOS and Windows", () => {
-		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
-			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			const bridge = config.extraResources?.find(resource => resource.to === "gui-bridge");
+		for (const file of ["darwin", "win32"]) {
+			const bridge = packagedResources(file).find(resource => resource.to === "gui-bridge");
 			expect(bridge?.from, file).toBe("resources/gui-bridge");
 			const source = path.join(PACKAGE_ROOT, bridge?.from ?? "", "modes/auto-mode-contracts.ts");
 			expect(fs.existsSync(source), `${file} omits modes/auto-mode-contracts.ts`).toBe(true);
@@ -424,92 +610,103 @@ describe("mac bundle configs", () => {
 		}
 	});
 
-	it("registers the omp:// scheme that src/main/deep-link.ts handles", () => {
+	it("registers the omp:// scheme that the shell's chrome deep-link area handles, in the NSIS registry entry and the bundle's Info.plist", () => {
 		for (const { file, config } of configs) {
-			const schemes = (config.protocols ?? []).flatMap(protocol => protocol.schemes ?? []);
-			expect(schemes, `${file} ships no URL scheme`).toContain("omp");
+			expect(config.mac, `${file} is a mac config`).toBeDefined();
 		}
+		const win = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8")) as BuilderConfig;
+		expect(win.protocols?.flatMap(protocol => protocol.schemes ?? [])).toContain("omp");
+		const urlTypes = bundleInfo.appInfo("1.0.0").CFBundleURLTypes as { CFBundleURLSchemes: string[] }[];
+		expect(urlTypes.flatMap(type => type.CFBundleURLSchemes)).toContain("omp");
 	});
 
-	it("names the app in every privacy prompt the bundle can trigger", () => {
-		for (const { file, config } of configs) {
-			const info = config.mac?.extendInfo ?? {};
-			for (const key of PRIVACY_KEYS) {
-				const value = info[key];
-				// Electron's own default reads "This app needs access to the camera":
-				// a prompt that names no product and claims a capability OMPdesk never uses.
-				const namesApp = typeof value === "string" && /\bOMPdesk\b/.test(value);
-				expect(namesApp, `${file} → ${key}`).toBe(true);
-			}
-		}
-	});
-
-	it("ships an explicit transport policy that leaves ATS on and excepts loopback", () => {
-		for (const { file, config } of configs) {
-			const info = config.mac?.extendInfo ?? {};
-			// A stray NSAllowsArbitraryLoads in any variant turns TLS enforcement
-			// off app-wide; the stats server is the only cleartext origin, and it is
-			// local. Pin both halves instead of trusting the default.
-			expect(info.NSAppTransportSecurity, `${file} declares no transport policy`).toMatchObject({
-				NSAllowsArbitraryLoads: false,
-				NSAllowsLocalNetworking: true,
-			});
-		}
-	});
-
-	it("restores ATS in the completed bundle after electron-builder enables arbitrary loads", async () => {
-		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-bundle-policy-"));
-		const plistPath = path.join(directory, "OMPdesk.app", "Contents", "Info.plist");
-		const loopback = { NSExceptionAllowsInsecureHTTPLoads: true };
-		const original: PlistObject = {
-			CFBundleIdentifier: "com.seuput.ompdesk",
-			CFBundleURLTypes: [{ CFBundleURLSchemes: ["omp"] }],
-			NSAppTransportSecurity: {
-				NSAllowsArbitraryLoads: true,
-				NSAllowsLocalNetworking: true,
-				NSExceptionDomains: { localhost: loopback, "127.0.0.1": loopback },
-			},
-		};
+	it("reads CEF's macOS framework flat, as its own distribution lays it out, and a versioned one too", async () => {
+		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-framework-"));
 		try {
-			await fs.promises.mkdir(path.dirname(plistPath), { recursive: true });
-			await fakeLocales(directory, "darwin", ["en", "ko"]);
-			await fakeAiMemory(directory, "darwin");
-			await fakeAgentDesktop(directory, "darwin");
-			await fakeNative(directory, "darwin");
-			for (const { file, config } of configs) {
-				await savePlistFile(plistPath, original);
-				const hookPath = config.afterPack;
-				expect(hookPath, `${file} declares no afterPack policy hook`).toBe("scripts/after-pack.cjs");
-				if (!hookPath) continue;
-				const afterPack = require(path.resolve(PACKAGE_ROOT, hookPath)).afterPack as AfterPackHook;
-				await afterPack({
-					electronPlatformName: "darwin",
-					appOutDir: directory,
-					packager: { appInfo: { productFilename: config.productName ?? "" } },
-				});
-				expect(await parsePlistFile(plistPath), `${file} leaves arbitrary loads enabled in the bundle`).toEqual({
-					...original,
-					NSAppTransportSecurity: {
-						NSAllowsArbitraryLoads: false,
-						NSAllowsLocalNetworking: true,
-						NSExceptionDomains: { localhost: loopback, "127.0.0.1": loopback },
-					},
-				});
-			}
+			const flat = path.join(directory, "flat.framework");
+			const versioned = path.join(directory, "versioned.framework");
+			await fs.promises.mkdir(path.join(flat, "Resources"), { recursive: true });
+			await fs.promises.mkdir(path.join(versioned, "Versions", "A", "Resources"), { recursive: true });
+			expect(bundleInfo.frameworkRoot(flat)).toBe(flat);
+			expect(bundleInfo.frameworkRoot(versioned)).toBe(path.join(versioned, "Versions", "A"));
 		} finally {
 			await fs.promises.rm(directory, { recursive: true, force: true });
 		}
 	});
 
-	it("keeps only Electron's en-US and ko locales on both platforms, and the package fails otherwise", async () => {
-		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
-			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			// electron-builder keeps a file whose name equals a listed language or prefixes it: `en` alone matches
-			// no `en-US.pak` and deleted all of them once (issue #12, a blank window on Windows).
-			expect(config.electronLanguages, file).toEqual(["en-US", "ko"]);
-			expect(config.afterPack, file).toBe("scripts/after-pack.cjs");
+	it("names the app in every privacy prompt the bundle can trigger", () => {
+		const info = bundleInfo.appInfo("1.0.0");
+		for (const key of Object.keys(bundleInfo.PRIVACY)) {
+			const value = info[key];
+			// Chromium's own default reads "This app needs access to the camera":
+			// a prompt that names no product and claims a capability OMPdesk never uses.
+			expect(typeof value === "string" && /\bOMPdesk\b/.test(value), key).toBe(true);
 		}
-		const afterPack = require(path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs")).afterPack as AfterPackHook;
+		expect(Object.keys(bundleInfo.PRIVACY).sort()).toEqual([
+			"NSBluetoothAlwaysUsageDescription",
+			"NSBluetoothPeripheralUsageDescription",
+			"NSCameraUsageDescription",
+			"NSMicrophoneUsageDescription",
+		]);
+	});
+
+	it("ships an explicit transport policy that leaves ATS on and excepts loopback", () => {
+		// A stray NSAllowsArbitraryLoads turns TLS enforcement off app-wide; the stats server is the only cleartext
+		// origin, and it is local. Pin both halves instead of trusting the default.
+		expect(bundleInfo.appInfo("1.0.0").NSAppTransportSecurity).toEqual({
+			NSAllowsArbitraryLoads: false,
+			NSAllowsLocalNetworking: true,
+		});
+	});
+
+	it("fails a macOS bundle whose Info.plist drops the identity or the policy the app depends on", async () => {
+		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-bundle-policy-"));
+		const afterPack = require(AFTER_PACK).afterPack as AfterPackHook;
+		const plistPath = path.join(directory, "OMPdesk.app", "Contents", "Info.plist");
+		const run = () =>
+			afterPack({
+				electronPlatformName: "darwin",
+				appOutDir: directory,
+				packager: { appInfo: { productFilename: "OMPdesk" } },
+			});
+		const info = bundleInfo.appInfo("9.9.9") as PlistObject;
+		try {
+			await fakeShellPack(directory, "darwin");
+			await fakeAiMemory(directory, "darwin");
+			await fakeAgentDesktop(directory, "darwin");
+			await fakeNative(directory, "darwin");
+			await expect(run()).resolves.toBeUndefined();
+			const broken: [string, PlistObject, RegExp][] = [
+				["another bundle id", { ...info, CFBundleIdentifier: "com.example.other" }, /not com\.seuput\.ompdesk/],
+				["no omp scheme", { ...info, CFBundleURLTypes: [] }, /no omp:\/\/ scheme/],
+				[
+					"arbitrary loads",
+					{ ...info, NSAppTransportSecurity: { NSAllowsArbitraryLoads: true, NSAllowsLocalNetworking: true } },
+					/no explicit transport policy/,
+				],
+				[
+					"an anonymous prompt",
+					{ ...info, NSCameraUsageDescription: "This app needs access to the camera" },
+					/does not name OMPdesk/,
+				],
+			];
+			for (const [name, plist, message] of broken) {
+				await savePlistFile(plistPath, plist);
+				await expect(run(), name).rejects.toThrow(message);
+			}
+			expect(await parsePlistFile(plistPath)).not.toEqual(info);
+		} finally {
+			await fs.promises.rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps only CEF's en-US and ko locales on both platforms, and the package fails otherwise", async () => {
+		const win = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8")) as BuilderConfig;
+		// electron-builder keeps a file whose name equals a listed language or prefixes it: `en` alone matches
+		// no `en-US.pak` and deleted all of them once (issue #12, a blank window on Windows).
+		expect(win.electronLanguages).toEqual(["en-US", "ko"]);
+		expect(win.afterPack).toBe("scripts/after-pack.cjs");
+		const afterPack = require(AFTER_PACK).afterPack as AfterPackHook;
 		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-locales-"));
 		const run = (platform: string) =>
 			afterPack({
@@ -518,14 +715,14 @@ describe("mac bundle configs", () => {
 				packager: { appInfo: { productFilename: "OMPdesk" } },
 			});
 		try {
-			await fakeLocales(directory, "win32", ["en-US", "ko"]);
-			await fakeAiMemory(directory, "win32");
-			await fakeAiMemory(directory, "darwin");
-			await fakeAgentDesktop(directory, "win32");
-			await fakeAgentDesktop(directory, "darwin");
-			await fakeNative(directory, "win32");
-			await fakeNative(directory, "darwin");
+			for (const platform of ["win32", "darwin"]) {
+				await fakeShellPack(directory, platform);
+				await fakeAiMemory(directory, platform);
+				await fakeAgentDesktop(directory, platform);
+				await fakeNative(directory, platform);
+			}
 			await expect(run("win32")).resolves.toBeUndefined();
+			await expect(run("darwin")).resolves.toBeUndefined();
 			for (const names of [["ko"], [], ["de", "en-US", "ko"]]) {
 				await fakeLocales(directory, "win32", names);
 				await expect(run("win32"), names.join(",")).rejects.toThrow(/expected exactly en-US\.pak, ko\.pak/);
@@ -537,16 +734,294 @@ describe("mac bundle configs", () => {
 		}
 	});
 
+	describe("the shell, Node and the app folder", () => {
+		const afterPack = require(AFTER_PACK).afterPack as AfterPackHook;
+
+		it("fails the package unless CEF and the shell are the bytes the shell build's record names", async () => {
+			for (const platform of ["darwin", "win32"]) {
+				const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-shell-pack-"));
+				const run = () =>
+					afterPack({
+						electronPlatformName: platform,
+						appOutDir: directory,
+						packager: { appInfo: { productFilename: "OMPdesk" } },
+					});
+				try {
+					await fakeShellPack(directory, platform);
+					await fakeAiMemory(directory, platform);
+					await fakeAgentDesktop(directory, platform);
+					await fakeNative(directory, platform);
+					await expect(run(), `${platform} as staged`).resolves.toBeUndefined();
+					const where = packedPaths(directory, platform);
+					const cefFile = path.join(
+						where.frameworks,
+						platform === "darwin" ? `${bundleInfo.FRAMEWORK}/Versions/A/Libraries/libEGL.dylib` : "libcef.dll",
+					);
+					await fs.promises.writeFile(cefFile, "other bytes");
+					await expect(run(), `${platform} with another CEF file`).rejects.toThrow(
+						/hashes to [0-9a-f]{64}; its build record expects/,
+					);
+					await fakeShell(directory, platform);
+					await fs.promises.rm(cefFile);
+					await expect(run(), `${platform} without a CEF file`).rejects.toThrow(
+						/is missing; run `bun run build:shell`/,
+					);
+					await fakeShell(directory, platform);
+					await fs.promises.rm(where.record);
+					await expect(run(), `${platform} without the record`).rejects.toThrow(
+						/ompdesk-shell\.build\.json is missing/,
+					);
+					await fakeShell(directory, platform, { record: { cef: { version: "x" } } });
+					await expect(run(), `${platform}, a record without the CEF archive hash`).rejects.toThrow(
+						/names no CEF version/,
+					);
+					await fakeShell(directory, platform, {
+						record: { platform: platform === "darwin" ? "win32" : "darwin" },
+					});
+					await expect(run(), `${platform}, another platform's record`).rejects.toThrow(/describes/);
+					if (platform === "darwin" && process.platform !== "win32") {
+						await fakeShell(directory, platform, { mode: 0o644 });
+						await expect(run(), "darwin, not executable").rejects.toThrow(/is not executable/);
+					}
+					await fakeShell(directory, platform);
+					await expect(run(), `${platform} restored`).resolves.toBeUndefined();
+				} finally {
+					await fs.promises.rm(directory, { recursive: true, force: true });
+				}
+			}
+		}, 60_000);
+
+		it("needs every helper app of the macOS bundle to be a copy of the shell executable", async () => {
+			const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-helpers-pack-"));
+			const run = () =>
+				afterPack({
+					electronPlatformName: "darwin",
+					appOutDir: directory,
+					packager: { appInfo: { productFilename: "OMPdesk" } },
+				});
+			try {
+				await fakeShellPack(directory, "darwin");
+				await fakeAiMemory(directory, "darwin");
+				await fakeAgentDesktop(directory, "darwin");
+				await fakeNative(directory, "darwin");
+				const gpu = path.join(
+					directory,
+					"OMPdesk.app/Contents/Frameworks/OMPdesk Helper (GPU).app/Contents/MacOS/OMPdesk Helper (GPU)",
+				);
+				await fs.promises.writeFile(gpu, "another program");
+				await expect(run()).rejects.toThrow(/is not a copy of the shell executable/);
+				await fs.promises.rm(gpu);
+				await expect(run()).rejects.toThrow(/CEF starts its helper.GPU process from that name|is missing/);
+			} finally {
+				await fs.promises.rm(directory, { recursive: true, force: true });
+			}
+		}, 60_000);
+
+		it("fails the package without the pinned Node, with another version or with other bytes than its record", async () => {
+			for (const platform of ["darwin", "win32"]) {
+				const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-node-pack-"));
+				const run = () =>
+					afterPack({
+						electronPlatformName: platform,
+						appOutDir: directory,
+						packager: { appInfo: { productFilename: "OMPdesk" } },
+					});
+				try {
+					await fakeShellPack(directory, platform);
+					await fakeAiMemory(directory, platform);
+					await fakeAgentDesktop(directory, platform);
+					await fakeNative(directory, platform);
+					const nodeDir = path.join(packedPaths(directory, platform).resources, "node");
+					await fs.promises.rm(nodeDir, { recursive: true });
+					await expect(run(), `${platform} without it`).rejects.toThrow(
+						/no Node build record or LICENSE; run `bun run build:node`/,
+					);
+					await fakeNode(directory, platform, { record: { version: "0.0.1" } });
+					await expect(run(), `${platform}, another version`).rejects.toThrow(/not the pinned/);
+					await fakeNode(directory, platform, { record: { archiveSha256: "b".repeat(64) } });
+					await expect(run(), `${platform}, another archive`).rejects.toThrow(/not the pinned/);
+					const file = await fakeNode(directory, platform);
+					await fs.promises.writeFile(file, "other bytes");
+					await expect(run(), `${platform}, other bytes`).rejects.toThrow(/hashes to [0-9a-f]{64}/);
+					if (platform === "darwin" && process.platform !== "win32") {
+						await fakeNode(directory, platform, { mode: 0o644 });
+						await expect(run(), "darwin, not executable").rejects.toThrow(/is not executable/);
+					}
+					await fakeNode(directory, platform);
+					await expect(run(), `${platform} with the pinned Node`).resolves.toBeUndefined();
+				} finally {
+					await fs.promises.rm(directory, { recursive: true, force: true });
+				}
+			}
+		}, 60_000);
+
+		it("fails the package unless the app is a plain folder holding the main, the page's preload and the renderer, with the notices beside it", async () => {
+			for (const platform of ["darwin", "win32"]) {
+				const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-app-pack-"));
+				const run = () =>
+					afterPack({
+						electronPlatformName: platform,
+						appOutDir: directory,
+						packager: { appInfo: { productFilename: "OMPdesk" } },
+					});
+				try {
+					await fakeAiMemory(directory, platform);
+					await fakeAgentDesktop(directory, platform);
+					await fakeNative(directory, platform);
+					for (const name of [
+						"app/package.json",
+						"app/out/main/index.js",
+						"app/out/preload/shell.js",
+						"app/out/renderer/index.html",
+					]) {
+						await fakeShellPack(directory, platform);
+						await fs.promises.rm(path.join(packedPaths(directory, platform).resources, name));
+						await expect(run(), `${platform} without ${name}`).rejects.toThrow(
+							/the shell starts the main from a plain/,
+						);
+					}
+					for (const name of ["LICENSES.chromium.html", "LICENSE.cef.txt", "THIRD_PARTY_NOTICES.txt"]) {
+						await fakeShellPack(directory, platform);
+						await fs.promises.rm(path.join(packedPaths(directory, platform).resources, name));
+						await expect(run(), `${platform} without ${name}`).rejects.toThrow(
+							/run `bun run stage:cef-licenses`/,
+						);
+					}
+					await fakeShellPack(directory, platform);
+					await fs.promises.writeFile(path.join(packedPaths(directory, platform).resources, "app.asar"), "");
+					await expect(run(), `${platform} with an asar`).rejects.toThrow(/does not read asar archives/);
+				} finally {
+					await fs.promises.rm(directory, { recursive: true, force: true });
+				}
+			}
+		}, 60_000);
+	});
+
+	describe("the macOS bundle script", () => {
+		it("assembles OMPdesk.app from the staged inputs, with the helpers CEF names, and the packaging check accepts it", async () => {
+			const repo = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-mac-assemble-"));
+			const out = path.join(repo, "dist", "mac-arm64");
+			try {
+				const put = async (name: string, bytes: Uint8Array | string = name) => {
+					await fs.promises.mkdir(path.dirname(path.join(repo, name)), { recursive: true });
+					await fs.promises.writeFile(path.join(repo, name), bytes);
+				};
+				await put(
+					"package.json",
+					JSON.stringify({ name: "ompdesk", version: "9.9.9", main: "./out/main/index.js" }),
+				);
+				await put("out/main/index.js");
+				await put("out/preload/shell.js");
+				await put("out/renderer/index.html");
+				await put("out/.build-stamp.json");
+				await put("out/.used");
+				const staged = "resources/ompdesk-shell/darwin-arm64";
+				const files: Record<string, string> = {
+					"ompdesk-shell": sha256(FAKE_SHELL),
+					"ompdesk-launcher": sha256(FAKE_LAUNCHER),
+				};
+				await put(`${staged}/ompdesk-shell`, FAKE_SHELL);
+				await put(`${staged}/ompdesk-launcher`, FAKE_LAUNCHER);
+				for (const name of [
+					`${bundleInfo.FRAMEWORK}/Versions/A/Chromium Embedded Framework`,
+					`${bundleInfo.FRAMEWORK}/Versions/A/Resources/en.lproj/locale.pak`,
+					`${bundleInfo.FRAMEWORK}/Versions/A/Resources/ko.lproj/locale.pak`,
+				]) {
+					await put(`${staged}/${name}`, name);
+					files[name] = sha256(Buffer.from(name));
+				}
+				await put(
+					`${staged}/ompdesk-shell.build.json`,
+					JSON.stringify({
+						version: "0.1.0",
+						platform: "darwin",
+						arch: "arm64",
+						binary: "ompdesk-shell",
+						launcher: "ompdesk-launcher",
+						files,
+						cef: { version: "156.0.26", archiveSha256: "a".repeat(64) },
+					}),
+				);
+				for (const [from] of RESOURCE_COPIES) {
+					if (!fs.existsSync(path.join(repo, from)))
+						await put(
+							from === "resources/gui-bridge" ||
+								from.includes("-bin/") ||
+								from.endsWith("darwin-arm64") ||
+								from === "LICENSES" ||
+								from === "resources/omp-builtin"
+								? `${from}/marker`
+								: from,
+						);
+				}
+				const app = assembleBundle(repo, out);
+				const resources = path.join(app, "Contents", "Resources");
+				// The launcher is the app's executable; the shell sits beside it (and in each helper app).
+				expect(fs.readFileSync(path.join(app, "Contents", "MacOS", "OMPdesk"))).toEqual(FAKE_LAUNCHER);
+				expect(fs.readFileSync(path.join(app, "Contents", "MacOS", "ompdesk-shell"))).toEqual(FAKE_SHELL);
+				expect(fs.existsSync(path.join(resources, "app", "out", ".build-stamp.json"))).toBe(false);
+				expect(fs.existsSync(path.join(resources, "app", "out", ".used"))).toBe(false);
+				expect(fs.existsSync(path.join(resources, "app", "out", "preload", "shell.js"))).toBe(true);
+				const info = await parsePlistFile(path.join(app, "Contents", "Info.plist"));
+				expect(info).toMatchObject({
+					CFBundleIdentifier: "com.seuput.ompdesk",
+					CFBundleExecutable: "OMPdesk",
+					CFBundleShortVersionString: "9.9.9",
+				});
+				// Both helper sets: CEF names its helpers after the shell (the process) or the launcher (the bundle).
+				expect(bundleInfo.HELPER_PREFIXES).toEqual(["OMPdesk", "ompdesk-shell"]);
+				for (const prefix of bundleInfo.HELPER_PREFIXES) {
+					for (const helper of bundleInfo.HELPERS) {
+						const name = bundleInfo.helperName(prefix, helper);
+						const helperPlist = await parsePlistFile(
+							path.join(app, "Contents", "Frameworks", `${name}.app`, "Contents", "Info.plist"),
+						);
+						expect(helperPlist).toMatchObject({
+							CFBundleExecutable: name,
+							CFBundleIdentifier: `com.seuput.ompdesk.${prefix === "OMPdesk" ? "" : "shell."}${helper.id}`,
+							LSUIElement: true,
+						});
+					}
+				}
+				// The pack's own check passes on what the script assembled, once the binaries it does not stage are faked.
+				await fakeAiMemory(out, "darwin");
+				await fakeAgentDesktop(out, "darwin");
+				await fakeNative(out, "darwin");
+				await fakeNode(out, "darwin");
+				await fs.promises.rm(path.join(resources, "node"), { recursive: true });
+				await fakeNode(out, "darwin");
+				await expect(
+					(require(AFTER_PACK).afterPack as AfterPackHook)({
+						electronPlatformName: "darwin",
+						appOutDir: out,
+						packager: { appInfo: { productFilename: "OMPdesk" } },
+					}),
+				).resolves.toBeUndefined();
+			} finally {
+				await fs.promises.rm(repo, { recursive: true, force: true });
+			}
+		});
+
+		it("signs with OMPdesk's pinned certificate and refuses to sign ad hoc when a release requires it", () => {
+			const script = fs.readFileSync(path.join(PACKAGE_ROOT, "scripts/package-mac.ts"), "utf8");
+			expect(script).toContain("withSigningIdentity");
+			expect(script).toContain("resources/entitlements.mac.plist".replace("resources/", ""));
+			const signer = fs.readFileSync(path.join(PACKAGE_ROOT, "scripts/mac-sign.cjs"), "utf8");
+			expect(signer).toContain("OMPDESK_MAC_SIGNING_REQUIRED");
+			const pin = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "scripts/mac-signing.json"), "utf8")) as {
+				certificateSha1: string;
+			};
+			expect(pin.certificateSha1).toMatch(/^[0-9a-f]{40}$/);
+		});
+	});
+
 	describe("ai-memory binary", () => {
 		it("ships each platform's own binary directory as extraResources and nothing of the other", () => {
-			for (const [platform, { key, builderConfig }] of Object.entries(AI_MEMORY_PLATFORMS)) {
-				const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, builderConfig), "utf8")) as BuilderConfig;
-				const entries = (config.extraResources ?? []).filter(resource =>
+			for (const [platform, { key }] of Object.entries(AI_MEMORY_PLATFORMS)) {
+				const entries = packagedResources(platform).filter(resource =>
 					resource.from.startsWith("resources/ai-memory-bin"),
 				);
-				expect(entries, `${platform}: ${builderConfig}`).toEqual([
-					{ from: `resources/ai-memory-bin/${key}`, to: "ai-memory-bin" },
-				]);
+				expect(entries, platform).toEqual([{ from: `resources/ai-memory-bin/${key}`, to: "ai-memory-bin" }]);
 			}
 		});
 
@@ -575,14 +1050,9 @@ describe("mac bundle configs", () => {
 						packager: { appInfo: { productFilename: "OMPdesk" } },
 					});
 				try {
-					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+					await fakeShellPack(directory, platform);
 					await fakeAgentDesktop(directory, platform);
 					await fakeNative(directory, platform);
-					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
-					await fs.promises.writeFile(
-						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
-						'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>',
-					);
 					await expect(run(), `${platform} without the binary`).rejects.toThrow(
 						/ai-memory-bin.*or its build record is missing; run `bun run build:memory`/,
 					);
@@ -606,14 +1076,11 @@ describe("mac bundle configs", () => {
 
 	describe("native binaries", () => {
 		it("ships each platform's own ompdesk-bin directory as extraResources and keeps the binaries untracked", () => {
-			for (const [platform, { key, builderConfig }] of Object.entries(AI_MEMORY_PLATFORMS)) {
-				const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, builderConfig), "utf8")) as BuilderConfig;
-				const entries = (config.extraResources ?? []).filter(resource =>
+			for (const [platform, { key }] of Object.entries(AI_MEMORY_PLATFORMS)) {
+				const entries = packagedResources(platform).filter(resource =>
 					resource.from.startsWith("resources/ompdesk-bin"),
 				);
-				expect(entries, `${platform}: ${builderConfig}`).toEqual([
-					{ from: `resources/ompdesk-bin/${key}`, to: "ompdesk-bin" },
-				]);
+				expect(entries, platform).toEqual([{ from: `resources/ompdesk-bin/${key}`, to: "ompdesk-bin" }]);
 			}
 			const ignored = fs.readFileSync(path.join(PACKAGE_ROOT, ".gitignore"), "utf8").split("\n");
 			expect(ignored).toContain("resources/ompdesk-bin/");
@@ -635,14 +1102,9 @@ describe("mac bundle configs", () => {
 						: path.join(directory, "resources", "ompdesk-bin");
 				const cli = path.join(folder, platform === "darwin" ? "ompdesk" : "ompdesk.exe");
 				try {
-					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+					await fakeShellPack(directory, platform);
 					await fakeAiMemory(directory, platform);
 					await fakeAgentDesktop(directory, platform);
-					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
-					await fs.promises.writeFile(
-						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
-						'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>',
-					);
 					await expect(run(), `${platform} without the folder`).rejects.toThrow(
 						/ompdesk-bin has no build record; run `bun run build:native`/,
 					);
@@ -671,12 +1133,11 @@ describe("mac bundle configs", () => {
 
 	describe("agent-desktop", () => {
 		it("ships each platform's pinned agent-desktop as extraResources, kept out of git, with upstream's license", () => {
-			for (const [platform, { builderConfig }] of Object.entries(AI_MEMORY_PLATFORMS)) {
-				const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, builderConfig), "utf8")) as BuilderConfig;
-				const entries = (config.extraResources ?? []).filter(resource =>
+			for (const platform of Object.keys(AI_MEMORY_PLATFORMS)) {
+				const entries = packagedResources(platform).filter(resource =>
 					resource.from.startsWith("resources/agent-desktop-bin"),
 				);
-				expect(entries, `${platform}: ${builderConfig}`).toEqual([
+				expect(entries, platform).toEqual([
 					{ from: `resources/agent-desktop-bin/${AGENT_DESKTOP_KEYS[platform]}`, to: "agent-desktop-bin" },
 				]);
 			}
@@ -698,14 +1159,9 @@ describe("mac bundle configs", () => {
 						packager: { appInfo: { productFilename: "OMPdesk" } },
 					});
 				try {
-					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+					await fakeShellPack(directory, platform);
 					await fakeAiMemory(directory, platform);
 					await fakeNative(directory, platform);
-					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
-					await fs.promises.writeFile(
-						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
-						'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>',
-					);
 					await expect(run(), `${platform} without it`).rejects.toThrow(
 						/no agent-desktop build record or LICENSE; run `bun run build:agent-desktop`/,
 					);
@@ -818,6 +1274,52 @@ describe("Windows package config", () => {
 		expect(config.win?.target).toEqual([{ target: "nsis", arch: ["x64"] }]);
 	});
 
+	it("packs the CEF shell as a custom electronDist: its exe becomes OMPdesk.exe, the app is a plain folder under resources/, nothing is rebuilt", () => {
+		const config = parse(
+			fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8"),
+		) as BuilderConfig;
+		// The folder `bun run build:shell` stages; `afterExtract` names its exe `electron.exe` and electron-builder
+		// renames that to <productName>.exe. A projectName other than "electron" (`electronBranding`) makes
+		// electron-builder lay the app out beside the exe instead of under resources/ (isElectronBased).
+		expect(config.electronDist).toBe("resources/ompdesk-shell/win32-x64");
+		expect(config.afterExtract).toBe("scripts/after-pack.cjs");
+		expect(config.electronBranding).toBeUndefined();
+		// The shell starts <resources>/node/node.exe on <resources>/app/out/main/index.js: no archive to read.
+		expect(config.asar).toBe(false);
+		// Build bookkeeping out/ carries (the reuse stamp, the snapshot heartbeat) is not packed.
+		expect((config as { files?: string[] }).files).toEqual(
+			expect.arrayContaining(["!out/.build-stamp.json", "!out/.used"]),
+		);
+		expect(config.npmRebuild).toBe(false);
+		expect(config.extraResources).toContainEqual({ from: "resources/node/win32-x64", to: "node" });
+		expect(fs.readFileSync(path.join(PACKAGE_ROOT, ".gitignore"), "utf8").split("\n")).toEqual(
+			expect.arrayContaining(["resources/node/", "resources/ompdesk-shell/", "resources/shell-licenses/"]),
+		);
+		const pin = JSON.parse(
+			fs.readFileSync(path.join(PACKAGE_ROOT, "native/ompdesk/crates/shell/cef-pin.json"), "utf8"),
+		) as {
+			cefVersion: string;
+		};
+		expect(String((config as { electronVersion?: unknown }).electronVersion)).toBe(pin.cefVersion);
+	});
+
+	it("keeps the identity v0.127.0's NSIS update installs over: the same app id, no custom uninstall GUID, no per-machine install", () => {
+		const config = parse(
+			fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8"),
+		) as BuilderConfig;
+		// electron-builder derives the uninstall key from the appId (UUID v5): com.seuput.ompdesk →
+		// e6f1f351-4346-5a64-a104-9a02672ef1bc, the entry and InstallLocation the Electron app wrote. A `guid` (only the
+		// dry run's `scripts/shell-move` passes one, on the command line) would make a second install.
+		expect(config.appId).toBe("com.seuput.ompdesk");
+		expect(config.nsis).not.toHaveProperty("guid");
+		expect(config.nsis).not.toHaveProperty("perMachine", true);
+		// The derivation NsisTarget uses (its namespace is a constant of app-builder-lib); the GUID is what the released
+		// app's uninstall entry and `HKCU\\Software\\<guid>` InstallLocation are named.
+		expect(UUID.v5(config.appId ?? "", UUID.parse("50e065bc-3134-11e6-9bab-38c9862bdaf3"))).toBe(
+			"e6f1f351-4346-5a64-a104-9a02672ef1bc",
+		);
+	});
+
 	it("installs per user in one click: no page, no question, no UAC, a progress bar, then OMPdesk starts", () => {
 		const config = parse(
 			fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8"),
@@ -854,7 +1356,8 @@ describe("Windows package config", () => {
 		];
 		for (const line of lines) expect(init).toContain(line);
 		// Asked first only when someone is watching; a copy that is still registered stops the install.
-		expect(init).toMatch(/\$\{IfNot\} \$\{Silent\}\n\s+MessageBox MB_OKCANCEL/);
+		// (never to an update: the updater starts the setup without /S, and a dialog there is a failed move.)
+		expect(init).toMatch(/\$\{IfNot\} \$\{Silent\}\n\s+\$\{AndIfNot\} \$\{isUpdated\}\n\s+MessageBox MB_OKCANCEL/);
 		expect(init).toMatch(/SetErrorLevel 2\n\s+Quit/);
 		expect(script).not.toMatch(/customInstallMode|RequestExecutionLevel admin/);
 	});
@@ -975,7 +1478,9 @@ describe("workflows", () => {
 		};
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("batch");
 		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("mac");
-		expect(ci.jobs["win-platform"]?.if).toContain("inputs.batch");
+		for (const job of ["win-platform", "shell-parity"]) {
+			expect(ci.jobs[job]?.if, job).toContain("inputs.batch");
+		}
 		// mac-smoke, mac-native, memory and `native` on macOS are one unit (mac-checks.yml): a push to main starts it, a
 		// dispatch only with mac (and the queue gate's admission, see ci-queue.test.ts).
 		expect(ci.jobs.mac?.uses).toBe("./.github/workflows/mac-checks.yml");

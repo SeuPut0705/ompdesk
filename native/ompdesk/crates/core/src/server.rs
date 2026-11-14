@@ -19,6 +19,12 @@ use tokio::task::JoinSet;
 
 use crate::wire::{self, Frame, Incoming};
 
+mod native_calls;
+#[cfg(test)]
+mod native_calls_tests;
+
+use native_calls::Pending;
+
 /// The wire's version, announced in `ready`.
 pub const PROTOCOL: u32 = 1;
 
@@ -52,10 +58,24 @@ pub struct Scope {
     _alive: mpsc::Sender<()>,
 }
 
+/// A cancellation signal without a hold on the request's supervised effects.
+#[derive(Clone)]
+pub struct Cancellation(Arc<watch::Sender<bool>>);
+
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.send_replace(true);
+    }
+}
+
 impl Scope {
     /// Whether the request was cancelled.
     pub fn cancelled(&self) -> bool {
         *self.cancel.borrow()
+    }
+
+    pub fn cancellation(&self) -> Cancellation {
+        Cancellation(Arc::clone(&self.cancel))
     }
 
     /// Resolves once the request is cancelled (at once when it already was).
@@ -109,6 +129,7 @@ impl Gone {
 #[derive(Clone)]
 pub struct Events {
     frames: mpsc::WeakUnboundedSender<Frame>,
+    pending: Arc<Pending>,
 }
 
 impl Events {
@@ -136,6 +157,7 @@ impl Events {
         (
             Events {
                 frames: frames.downgrade(),
+                pending: Arc::default(),
             },
             frames,
             receiver,
@@ -157,6 +179,7 @@ impl Events {
 pub(crate) fn test_events(frames: &mpsc::UnboundedSender<Frame>) -> Events {
     Events {
         frames: frames.downgrade(),
+        pending: Arc::default(),
     }
 }
 
@@ -305,27 +328,38 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let registry = Arc::new(registry);
-    let (frames, writer) = wire::spawn_writer(output);
+    let (frames, mut writer) = wire::spawn_writer(output);
+    let events = Events {
+        frames: frames.downgrade(),
+        pending: Arc::default(),
+    };
     let ready = Ready {
         version: env!("CARGO_PKG_VERSION"),
         protocol: PROTOCOL,
     };
     let _ = frames.send(Frame::event("ready", &ready));
     // Where `store.saveFailed` and `store.saved` go: a store whose disk is full tells main on this connection.
-    crate::disk::saves::attach(Events {
-        frames: frames.downgrade(),
-    });
+    crate::disk::saves::attach(events.clone());
     let mut reader = BufReader::new(input);
     let mut line = Vec::new();
     let mut tasks = JoinSet::new();
     let requests: InFlight = Arc::default();
+    let mut writer_result = None;
     let read_result = loop {
-        match wire::read_request(&mut reader, &mut line).await {
+        let incoming = tokio::select! {
+            incoming = wire::read_request(&mut reader, &mut line) => incoming,
+            result = &mut writer => {
+                writer_result = Some(result.map_err(io::Error::other).and_then(|result| result));
+                break Ok(());
+            }
+        };
+        match incoming {
             Ok(None) => break Ok(()),
             Err(error) => break Err(error),
             Ok(Some(Incoming::Skipped(reason))) => {
                 eprintln!("ompdesk-core: skipped a frame: {reason}")
             }
+            Ok(Some(Incoming::Reply(reply))) => events.pending.deliver(reply),
             // A request that already answered (or never came) has nothing to stop.
             Ok(Some(Incoming::Cancel(id))) => {
                 if let Some(cancel) = in_flight(&requests).get(&id) {
@@ -336,9 +370,7 @@ where
                 Some(handler) => handler(PushCall {
                     params: push.params,
                     bin: push.bin,
-                    events: Events {
-                        frames: frames.downgrade(),
-                    },
+                    events: events.clone(),
                 }),
                 None => eprintln!("ompdesk-core: skipped an unknown push {:?}", push.method),
             },
@@ -348,9 +380,7 @@ where
                 // Registered before the next frame is read, so a cancel that follows always finds it.
                 let cancel = Arc::new(watch::channel(false).0);
                 in_flight(&requests).insert(request.id, Arc::clone(&cancel));
-                let events = Events {
-                    frames: frames.downgrade(),
-                };
+                let events = events.clone();
                 let id = request.id;
                 // The handler is called here, before the next line is read: what it does before its first await
                 // (an `ipc.call` taking its place in its caller's lane) happens in the order the lines came.
@@ -367,11 +397,10 @@ where
         }
         while tasks.try_join_next().is_some() {}
     };
+    events.pending.close();
     // Listeners outlive their starting request, but not the input. Check again as each in-flight request ends,
     // including one that was still binding a listener when EOF arrived.
-    let ending = Events {
-        frames: frames.downgrade(),
-    };
+    let ending = events;
     crate::control::close_all(&ending).await;
     crate::ssh::close_all(&ending);
     crate::schedules::close_all(&ending);
@@ -390,7 +419,10 @@ where
     }
     crate::web::store::flush_all().await;
     drop(frames);
-    let written = writer.await.map_err(io::Error::other)?;
+    let written = match writer_result {
+        Some(result) => result,
+        None => writer.await.map_err(io::Error::other)?,
+    };
     read_result.and(written)
 }
 

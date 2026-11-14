@@ -11,7 +11,7 @@
 //! `{index, names}` with the settled entries relative to the root, `names: null` when anything may have changed.
 
 mod rules;
-mod source;
+pub(crate) mod source;
 mod watch;
 
 use std::collections::HashMap;
@@ -23,7 +23,9 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 
 use crate::server::{Call, Fault, Registry, Reply};
-use watch::{Report, Watch};
+pub(crate) use watch::Report as NativeReport;
+use watch::Report;
+use watch::Watch;
 
 /// How much of a session file is read for its header.
 const HEAD_BYTES: u64 = 4096;
@@ -41,17 +43,52 @@ struct Legacy {
 type LegacyFlags = Arc<Mutex<HashMap<String, Legacy>>>;
 
 #[derive(Default)]
-struct Index {
+pub(crate) struct NativeIndex {
     legacy: LegacyFlags,
     watch: Option<Watch>,
 }
 
-static INDEXES: LazyLock<Mutex<HashMap<String, Index>>> = LazyLock::new(Default::default);
+static INDEXES: LazyLock<Mutex<HashMap<String, NativeIndex>>> = LazyLock::new(Default::default);
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+impl NativeIndex {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn watch(
+        &mut self,
+        root: PathBuf,
+        report: impl Fn(NativeReport) + Send + Sync + 'static,
+    ) {
+        let flags = Arc::clone(&self.legacy);
+        let folder = root.clone();
+        self.watch = Some(watch::spawn(root, move |event| {
+            if let Report::Changed(settled) = &event {
+                let mut flags = locked(&flags);
+                for entry in settled.iter().filter(|entry| entry.gone) {
+                    flags.remove(folder.join(&entry.name).to_string_lossy().as_ref());
+                }
+            }
+            report(event);
+        }));
+    }
+
+    pub(crate) fn listed(&self, rows: &[(String, String)]) -> Vec<(usize, bool)> {
+        listed_rows(&self.legacy, rows.len(), |at| (&rows[at].0, &rows[at].1))
+            .into_iter()
+            .map(|row| (row.row, row.chat))
+            .collect()
+    }
+
+    pub(crate) fn kind(path: &str) -> Option<bool> {
+        legacy_chat(path)
+    }
 }
 
 pub fn register(registry: &mut Registry) {
@@ -106,12 +143,10 @@ fn watch(call: &Call) -> Result<Reply, Fault> {
     let params: WatchParams = call.params()?;
     let mut indexes = locked(&INDEXES);
     let index = indexes.entry(params.index.clone()).or_default();
-    let legacy = Arc::clone(&index.legacy);
     let events = call.events.clone();
     let root = PathBuf::from(&params.root);
     let name = params.index;
-    let folder = root.clone();
-    index.watch = Some(watch::spawn(root, move |report| match report {
+    index.watch(root, move |report| match report {
         Report::Watching { missed } => events.send(
             "sessions.watching",
             &Watching {
@@ -136,13 +171,6 @@ fn watch(call: &Call) -> Result<Reply, Fault> {
             },
         ),
         Report::Changed(settled) => {
-            // A file that went takes its flag with it: another session may be written at that path.
-            let gone = settled.iter().filter(|entry| entry.gone);
-            let mut flags = locked(&legacy);
-            for entry in gone {
-                flags.remove(folder.join(&entry.name).to_string_lossy().as_ref());
-            }
-            drop(flags);
             let names = settled.into_iter().map(|entry| entry.name).collect();
             events.send(
                 "sessions.changed",
@@ -152,7 +180,7 @@ fn watch(call: &Call) -> Result<Reply, Fault> {
                 },
             );
         }
-    }));
+    });
     Reply::json(&Done {})
 }
 
@@ -198,15 +226,26 @@ struct Listed {
 /// time this session is listed at that path.
 fn listed(params: ListedParams) -> Result<Reply, Fault> {
     let flags = Arc::clone(&locked(&INDEXES).entry(params.index).or_default().legacy);
-    let kept = rules::first_of_each_id(params.rows.iter().map(|row| row.id.as_str()));
+    let listed = listed_rows(&flags, params.rows.len(), |at| {
+        (&params.rows[at].path, &params.rows[at].id)
+    });
+    Reply::json(&Listed { listed })
+}
+
+fn listed_rows<'a>(
+    flags: &LegacyFlags,
+    length: usize,
+    row_at: impl Fn(usize) -> (&'a str, &'a str),
+) -> Vec<ListedRow> {
+    let kept = rules::first_of_each_id((0..length).map(|at| row_at(at).1));
     let mut listed: Vec<ListedRow> = Vec::with_capacity(kept.len());
     let mut unread = Vec::new();
     {
-        let known = locked(&flags);
+        let known = locked(flags);
         for row in kept {
-            let entry = &params.rows[row];
-            let chat = match known.get(&entry.path) {
-                Some(legacy) if legacy.id == entry.id => legacy.chat,
+            let (path, id) = row_at(row);
+            let chat = match known.get(path) {
+                Some(legacy) if legacy.id == id => legacy.chat,
                 _ => {
                     unread.push(listed.len());
                     false
@@ -216,28 +255,25 @@ fn listed(params: ListedParams) -> Result<Reply, Fault> {
         }
     }
     let read: Vec<Option<bool>> = {
-        let paths: Vec<&str> = unread
-            .iter()
-            .map(|at| params.rows[listed[*at].row].path.as_str())
-            .collect();
+        let paths: Vec<&str> = unread.iter().map(|at| row_at(listed[*at].row).0).collect();
         read_flags(&paths)
     };
-    let mut known = locked(&flags);
+    let mut known = locked(flags);
     for (at, chat) in unread.into_iter().zip(read) {
         // No header read (unreadable, or not written yet): asked again next time.
         let Some(chat) = chat else { continue };
-        let entry = &params.rows[listed[at].row];
+        let (path, id) = row_at(listed[at].row);
         known.insert(
-            entry.path.clone(),
+            path.to_owned(),
             Legacy {
-                id: entry.id.clone(),
+                id: id.to_owned(),
                 chat,
             },
         );
         listed[at].chat = chat;
     }
     drop(known);
-    Reply::json(&Listed { listed })
+    listed
 }
 
 /// Each file's legacy chat flag, in order; a first list of many sessions reads them on a few threads.

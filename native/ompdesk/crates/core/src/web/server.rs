@@ -905,17 +905,21 @@ impl Edge {
             }
         }
         self.inner.pair_guard.succeed(&address);
-        let (device, cookie) = deps.devices.create(
-            NewDevice {
-                name: device_name,
-                user_agent,
-                tailscale_login: Some(login.to_owned()),
-                node_id,
-                public_key,
-                grants,
-            },
-            self.now(),
-        );
+        let (device, cookie) = deps
+            .devices
+            .create_checked(
+                NewDevice {
+                    name: device_name,
+                    user_agent,
+                    tailscale_login: Some(login.to_owned()),
+                    node_id,
+                    public_key,
+                    grants,
+                },
+                self.now(),
+                &*deps.blocks,
+            )
+            .ok_or_else(|| fail(403, "blocked"))?;
         if !asked {
             deps.desktop.device_connected(&device);
         }

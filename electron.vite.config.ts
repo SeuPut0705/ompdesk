@@ -6,13 +6,38 @@ import { precompressPlugin } from "./scripts/precompress-plugin";
 import { pwaPlugin } from "./scripts/pwa-plugin";
 
 /**
+ * Main runs under Node, as a child of the Rust shell (docs: native-rust › Ledger › S): the `electron` it imports, and
+ * the one electron-store `require`, is `src/main/shell-host/electron`, which speaks the host
+ * protocol to the shell. It is bundled like any other module, so there is no `electron` left to resolve at runtime.
+ */
+const ELECTRON_SHIM = resolve(__dirname, "src/main/shell-host/electron/index.ts");
+
+/**
+ * electron-vite's main and preload presets list `electron` (and `electron/*`) as external; this drops them again so
+ * the alias to the shim wins (Rollup asks `external` before any resolver runs).
+ */
+function bundleElectronShim(): Plugin {
+	const isElectron = (entry: unknown): boolean =>
+		entry === "electron" || (entry instanceof RegExp && entry.source.startsWith("^electron"));
+	return {
+		name: "ompdesk:bundle-electron-shim",
+		enforce: "post",
+		config(config) {
+			const external = config.build?.rollupOptions?.external;
+			if (!Array.isArray(external) || !config.build?.rollupOptions) return;
+			config.build.rollupOptions.external = external.filter(entry => !isElectron(entry));
+		},
+	};
+}
+
+/**
  * Main-process packages bundled into out/main/index.js so packaged apps need no node_modules.
  * Anything the main entry imports that is NOT listed here stays a bare `import` in the
- * bundle, and the installed app only resolves it if electron-builder happened to collect
- * that package — in this nested checkout bun hoists most deps to the monorepo root, so the
+ * bundle, and the installed app only resolves it if the packaged app happened to carry
+ * that package — in this nested checkout bun hoists most deps to the monorepo root, so a
  * traversal misses them and the app dies at launch with ERR_MODULE_NOT_FOUND.
  */
-const MAIN_BUNDLED_DEPS = ["electron-store", "electron-updater", "jszip", "ws", "yaml", "zod"];
+const MAIN_BUNDLED_DEPS = ["electron-store", "jszip", "ws", "yaml", "zod"];
 
 /**
  * Optional native addons of bundled packages, switched off at build time. Vite resolves an optional peer
@@ -283,29 +308,26 @@ export default defineConfig({
 	main: {
 		esbuild: KEEP_NAMES,
 		define: MAIN_DEFINES,
-		plugins: [externalizeDepsPlugin({ exclude: MAIN_BUNDLED_DEPS })],
+		resolve: { alias: { electron: ELECTRON_SHIM } },
+		plugins: [externalizeDepsPlugin({ exclude: MAIN_BUNDLED_DEPS }), bundleElectronShim()],
 		build: {
 			minify: "esbuild",
 			rollupOptions: {
-				// hang-watchdog-worker is the main-thread hang watchdog's worker thread (src/main/hang-watchdog.ts).
-				input: {
-					index: resolve(__dirname, "src/main/index.ts"),
-					"hang-watchdog-worker": resolve(__dirname, "src/main/hang-watchdog-worker.ts"),
-				},
-				// original-fs: Electron's asar-unaware fs (updater.ts); a runtime builtin, never a package.
-				external: ["electron", "original-fs"],
+				input: { index: resolve(__dirname, "src/main/index.ts") },
 			},
 		},
 	},
+	// `window.omp` for the shell's pages: one classic script the shell injects before any page script
+	// (src/preload/shell.ts), named `shell.js`. electron-vite accepts only `cjs` and `es` for a preload; a `cjs`
+	// bundle with no imports and no exports is a plain script, and the banner and footer make it an IIFE so its
+	// top-level names never join the page's global scope (scripts/check-main-bundle.ts checks all of it).
 	preload: {
 		esbuild: KEEP_NAMES,
-		plugins: [externalizeDepsPlugin()],
 		build: {
 			minify: "esbuild",
 			rollupOptions: {
-				input: { index: resolve(__dirname, "src/preload/index.ts") },
-				external: ["electron"],
-				output: { format: "cjs" },
+				input: { shell: resolve(__dirname, "src/preload/shell.ts") },
+				output: { format: "cjs", entryFileNames: "[name].js", banner: "(() => {", footer: "})();" },
 			},
 		},
 	},

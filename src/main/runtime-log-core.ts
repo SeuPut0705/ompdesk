@@ -46,6 +46,7 @@ const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
 	"user-data-migration": true,
 	setup: true,
 	"keep-awake": true,
+	"shell-boot": true,
 	remote: true,
 	"memory-sync": true,
 	"settle-watch": true,

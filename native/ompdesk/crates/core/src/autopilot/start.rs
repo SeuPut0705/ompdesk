@@ -246,11 +246,8 @@ impl Coordinator {
                     .await?;
             }
             "abort" => {
-                self.port.tell("noteStopped", &json!({"tab": tab}));
-                self.port.tell(
-                    "turnStop",
-                    &json!({"command": "abort", "tab": tab, "by": "autopilot", "surface": "stop-now"}),
-                );
+                self.port.note_stopped(tab);
+                self.port.turn_stop(tab, "stop-now", None);
                 let _ = self.stock(tab, json!({"type": "abort"})).await;
                 self.aborted(tab).await;
             }
@@ -447,12 +444,11 @@ impl Coordinator {
     async fn ready(&self, tab: &str) -> R<()> {
         let (end, ended) = oneshot::channel::<String>();
         locked(&self.start_waits).insert(tab.to_owned(), end);
-        let request = json!({"tab": tab});
-        let asked = self.port.ask::<Value, _>("ready", &request);
+        let asked = self.port.ready(tab);
         let outcome = tokio::select! {
             result = asked => result.map(|_| ()).map_err(Oops::from),
             message = ended => {
-                self.port.tell("readyCancel", &json!({"tab": tab}));
+                self.port.ready_cancel(tab);
                 Err(Oops::from(message.unwrap_or_else(|_| "The Autopilot tab is gone.".to_owned())))
             }
         };
@@ -597,11 +593,14 @@ impl Coordinator {
         if let Some(source) = branch_source {
             create["branch"] = source;
         }
-        let created: Value = self
+        let created = self
             .port
-            .ask(
-                "dispatch",
-                &json!({"call": params.call, "tab": tab, "command": create, "timeoutMs": WORKTREE_MS}),
+            .dispatch(
+                params.call,
+                params.native_owner.as_ref(),
+                tab,
+                create,
+                WORKTREE_MS,
             )
             .await?;
         if !flag(&created, "success") {
@@ -659,19 +658,14 @@ impl Coordinator {
             checkout_branch.clone()
         };
         let run_id = branches::run_id_for(&made_branch, date);
-        let spawned: Value = self
-            .port
-            .ask(
-                "spawnTab",
-                &json!({
-                    "call": params.call,
-                    "payload": {
-                        "cwd": made_path,
-                        "worktree": {"name": run_id, "branch": made_branch, "baseCwd": made_base, "path": made_path},
-                    },
-                }),
-            )
-            .await?;
+        let spawned = self.port.spawn_tab(
+            params.call,
+            params.native_owner.as_ref(),
+            json!({
+                "cwd": made_path,
+                "worktree": {"name": run_id, "branch": made_branch, "baseCwd": made_base, "path": made_path},
+            }),
+        ).await?;
         let Some(new_tab) = text(&spawned, "tabId").map(str::to_owned) else {
             return Err(oops(
                 "autopilot_failed",
@@ -717,8 +711,7 @@ impl Coordinator {
                 .bridge(&new_tab, &self.contracts.bridge.disarm, json!({}), None)
                 .await;
             locked(&self.runs).remove(&new_tab);
-            self.port
-                .tell("mirror", &json!({"tab": new_tab, "gone": true}));
+            self.port.mirror(json!({"tab": new_tab, "gone": true}));
             return Err(error);
         }
         let status = self.fetch_status(&run).await?;

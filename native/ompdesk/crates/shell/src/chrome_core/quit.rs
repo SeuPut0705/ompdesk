@@ -1,0 +1,862 @@
+//! The quit's rules (was `src/main/app-quit.ts`, `quit-watchdog.ts` and the rules of `quit-guard.ts`): when a quit asks
+//! first, what the two confirmations say, what a Dock click does, and the exit watchdog's countdown. Close-to-tray and
+//! the last window's close are the window area's (`chrome_core::window`). No CEF and no clock in here.
+
+use serde_json::{Value, json};
+
+/// The "sessions are still working" counts, derived from the core's `pool.tabInventory`.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub struct QuitRisk {
+    pub working_tabs: u64,
+    pub total_tabs: u64,
+    /// Windows holding at least one working tab: the dialog names the count.
+    pub working_windows: u64,
+}
+
+/// The core's tab inventory and Settings › General › Continue interrupted work.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct QuitFacts {
+    pub risk: QuitRisk,
+    pub resumes: bool,
+}
+
+impl QuitRisk {
+    /// `pool.tabInventory` is authoritative. A malformed inventory refuses the quit rather than reading as idle.
+    pub fn from_inventory(value: &Value) -> Option<Self> {
+        let tabs = value.as_array()?;
+        let mut windows = std::collections::BTreeSet::new();
+        let mut working_tabs = 0;
+        for tab in tabs {
+            let window = tab.get("windowId")?.as_u64()?;
+            let in_flight = tab.get("inFlight")?.as_bool()?;
+            if in_flight {
+                working_tabs += 1;
+                windows.insert(window);
+            }
+        }
+        Some(Self {
+            working_tabs,
+            total_tabs: tabs.len() as u64,
+            working_windows: windows.len() as u64,
+        })
+    }
+}
+
+/// Idle tabs die quietly. Live agent runs ask first only when quitting stops them: with Continue interrupted work on,
+/// a quit, an update restart or a crash leaves their markers and the next launch continues them.
+pub fn quit_needs_confirmation(risk: &QuitRisk, resumes: bool) -> bool {
+    risk.working_tabs > 0 && !resumes
+}
+
+/// What a user-initiated update restart asks first.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum UpdateConfirmation {
+    RunningWork,
+    BackgroundWork,
+}
+
+/// Setting off: the quit confirm for running turns. Setting on: running turns continue after the relaunch and ask
+/// nothing, but background subagents and jobs start over, so a restart over them is named first. `has_background_work`
+/// is Node's `hasBackgroundWork` (read only when `resumes` is on: `needs_background_work`).
+pub fn update_restart_confirmation(
+    risk: &QuitRisk,
+    resumes: bool,
+    has_background_work: bool,
+) -> Option<UpdateConfirmation> {
+    if !resumes {
+        return quit_needs_confirmation(risk, resumes).then_some(UpdateConfirmation::RunningWork);
+    }
+    has_background_work.then_some(UpdateConfirmation::BackgroundWork)
+}
+
+/// Whether the update restart's confirmation reads the background work at all.
+pub fn needs_background_work(resumes: bool) -> bool {
+    resumes
+}
+
+/// The localized confirmation subject, derived here from raw background-work counts and labels.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BackgroundWork {
+    pub has: bool,
+    pub sentence: String,
+}
+
+impl BackgroundWork {
+    /// `chrome.backgroundWork` returns the native work probe's raw summary, not a Node-localized sentence.
+    pub fn from_summary(value: &Value, say: Say) -> Option<Self> {
+        let subagents = value.get("subagents")?.as_u64()?;
+        let jobs = value.get("jobs")?.as_u64()?;
+        let unknown = value.get("unknown").map_or(Some(0), Value::as_u64)?;
+        let mut remaining_names = 3;
+        let subagents_text = named_work(
+            subagents,
+            value.get("subagentLabels")?.as_array()?,
+            &mut remaining_names,
+            "updates.restartWork.subagents",
+            say,
+        )?;
+        let jobs_text = named_work(
+            jobs,
+            value.get("jobLabels")?.as_array()?,
+            &mut remaining_names,
+            "updates.restartWork.jobs",
+            say,
+        )?;
+        let unknown_text = if unknown == 0 {
+            String::new()
+        } else {
+            say(
+                "updates.restartWork.unknown",
+                &[("count", &unknown.to_string())],
+            )
+        };
+        let sentence = [subagents_text, jobs_text, unknown_text]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(&say("updates.restartWork.and", &[]));
+        Some(Self {
+            has: subagents > 0 || jobs > 0 || unknown > 0,
+            sentence,
+        })
+    }
+}
+
+fn js_space(c: char) -> bool {
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
+}
+
+fn short_label(label: &str) -> String {
+    let mut text = String::with_capacity(label.len().min(160));
+    for part in label.split(js_space).filter(|part| !part.is_empty()) {
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(part);
+    }
+    if text.encode_utf16().count() <= 40 {
+        return text;
+    }
+    // The old String.slice(0, 39) counted UTF-16 units. An isolated half is replaced at the native UTF-8 boundary.
+    let mut units = [0; 39];
+    for (target, unit) in units.iter_mut().zip(text.encode_utf16()) {
+        *target = unit;
+    }
+    let mut shortened = String::from_utf16_lossy(&units);
+    shortened.push('…');
+    shortened
+}
+
+fn named_work(
+    count: u64,
+    labels: &[Value],
+    remaining: &mut usize,
+    key: &str,
+    say: Say,
+) -> Option<String> {
+    let mut names = Vec::new();
+    let mut more = false;
+    for label in labels {
+        let label = label.as_str()?;
+        if label.trim_matches(js_space).is_empty() {
+            continue;
+        }
+        if *remaining == 0 {
+            more = true;
+        } else {
+            names.push(short_label(label));
+            *remaining -= 1;
+        }
+    }
+    if count == 0 {
+        return Some(String::new());
+    }
+    let mut text = say(key, &[("count", &count.to_string())]);
+    if !names.is_empty() {
+        text.push_str(" (");
+        text.push_str(&names.join(", "));
+        if more {
+            text.push_str(", …");
+        }
+        text.push(')');
+    }
+    Some(text)
+}
+
+/// The text of a label key with its `{name}` placeholders filled (`shell_core::labels::label`).
+pub type Say<'a> = &'a dyn Fn(&str, &[(&str, &str)]) -> String;
+
+/// A native warning box, as `dialog.messageBox`'s `options` (the first button confirms; the second is the default and
+/// the way out).
+fn warning(
+    say: Say,
+    buttons: [&str; 2],
+    title: &str,
+    body: &str,
+    params: &[(&str, &str)],
+) -> Value {
+    json!({
+        "type": "warning",
+        "buttons": [say(buttons[0], &[]), say(buttons[1], &[])],
+        "defaultId": 1,
+        "cancelId": 1,
+        "message": say(title, &[]),
+        "detail": say(body, params),
+    })
+}
+
+/// The quit confirmation.
+pub fn quit_options(risk: &QuitRisk, say: Say) -> Value {
+    warning(
+        say,
+        ["quit.quitAnyway", "quit.keepWorking"],
+        "quit.workingTitle",
+        "quit.workingBody",
+        &[
+            ("working", &risk.working_tabs.to_string()),
+            ("total", &risk.total_tabs.to_string()),
+            ("windows", &risk.working_windows.to_string()),
+        ],
+    )
+}
+
+/// The update restart's background-work confirmation, naming `sentence`.
+pub fn background_work_options(sentence: &str, say: Say) -> Value {
+    warning(
+        say,
+        ["updates.restartWork.restart", "updates.restartWork.cancel"],
+        "updates.restartWork.title",
+        "updates.restartWork.body",
+        &[("work", sentence)],
+    )
+}
+
+/// What a confirmation does next.
+#[derive(Debug, PartialEq, Clone)]
+pub enum Confirmation {
+    Proceed,
+    /// What would stop is unknown (Node could not say): no quit and no restart, as the TypeScript's own failure was
+    /// one (`confirmUpdateRestart` threw when the work could not be read; the inventory never failed).
+    Refuse,
+    /// Ask with these `dialog.messageBox` options: the first button proceeds.
+    Ask(Value),
+}
+
+/// `confirmQuit`; `facts` None when the core inventory or the resume setting failed or answered something else.
+pub fn confirm_quit(facts: Option<&QuitFacts>, say: Say) -> Confirmation {
+    let Some(facts) = facts else {
+        return Confirmation::Refuse;
+    };
+    if quit_needs_confirmation(&facts.risk, facts.resumes) {
+        Confirmation::Ask(quit_options(&facts.risk, say))
+    } else {
+        Confirmation::Proceed
+    }
+}
+
+/// `confirmUpdateRestart`; `facts` None when the inventory or setting failed; `work` is the background summary,
+/// asked only when `needs_background_work` (None there: it failed or answered something else).
+pub fn confirm_update_restart(
+    facts: Option<&QuitFacts>,
+    work: Option<&BackgroundWork>,
+    say: Say,
+) -> Confirmation {
+    let Some(facts) = facts else {
+        return Confirmation::Refuse;
+    };
+    if needs_background_work(facts.resumes) && work.is_none() {
+        return Confirmation::Refuse;
+    }
+    let has = work.is_some_and(|work| work.has);
+    match update_restart_confirmation(&facts.risk, facts.resumes, has) {
+        None => Confirmation::Proceed,
+        Some(UpdateConfirmation::RunningWork) => Confirmation::Ask(quit_options(&facts.risk, say)),
+        Some(UpdateConfirmation::BackgroundWork) => {
+            let sentence = work.map(|work| work.sentence.as_str()).unwrap_or_default();
+            Confirmation::Ask(background_work_options(sentence, say))
+        }
+    }
+}
+
+/// What a Dock click (macOS `activate`) does.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ActivateAction {
+    Spawn,
+    Show,
+    Ignore,
+}
+
+/// A Dock click opens a window when none is left and brings a hidden one back. Once a quit is approved it does
+/// neither: the services are torn down (or going down), and a window restored on them cannot open a paired host's tab.
+pub fn activate_action(
+    quit_approved: bool,
+    window_count: usize,
+    any_visible: bool,
+) -> ActivateAction {
+    if quit_approved {
+        ActivateAction::Ignore
+    } else if window_count == 0 {
+        ActivateAction::Spawn
+    } else if any_visible {
+        ActivateAction::Ignore
+    } else {
+        ActivateAction::Show
+    }
+}
+
+/// Long enough for a healthy teardown (sidecars get their SIGTERM grace), short enough that an update is not stranded.
+pub const QUIT_EXIT_TIMEOUT_MS: u64 = 30_000;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Reason {
+    Quit,
+    Update,
+}
+
+impl Reason {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "quit" => Some(Self::Quit),
+            "update" => Some(Self::Update),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Quit => "quit",
+            Self::Update => "update",
+        }
+    }
+}
+
+/// The native quit's next effect. The runtime executes it outside the coordinator lock.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ShutdownAction {
+    None,
+    Finalize(u64),
+    Commit { generation: u64, reason: Reason },
+    Exit,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+enum ShutdownPhase {
+    #[default]
+    Running,
+    Finalizing(u64),
+    Settling(u64),
+    Exited,
+}
+
+/// The ordering formerly kept in `chrome-quit.ts`'s before-quit/will-quit listeners. A generation belongs to one
+/// outstanding callback, so an update can supersede a slow normal finalizer without running teardown twice.
+#[derive(Debug, Default, Clone)]
+pub struct Shutdown {
+    phase: ShutdownPhase,
+    next: u64,
+}
+
+impl Shutdown {
+    pub const fn new() -> Self {
+        Self {
+            phase: ShutdownPhase::Running,
+            next: 0,
+        }
+    }
+
+    /// Approval already happened. An update skips the worktree finalizer while windows and saved tabs still exist.
+    pub fn begin(&mut self, reason: Reason) -> ShutdownAction {
+        match (self.phase, reason) {
+            (ShutdownPhase::Running, Reason::Quit) => {
+                self.next += 1;
+                self.phase = ShutdownPhase::Finalizing(self.next);
+                ShutdownAction::Finalize(self.next)
+            }
+            (ShutdownPhase::Running | ShutdownPhase::Finalizing(_), Reason::Update) => {
+                self.next += 1;
+                self.phase = ShutdownPhase::Settling(self.next);
+                ShutdownAction::Commit {
+                    generation: self.next,
+                    reason,
+                }
+            }
+            _ => ShutdownAction::None,
+        }
+    }
+
+    /// A failed finalizer still finishes that phase, as the old promise's `finally` did.
+    pub fn finalized(&mut self, generation: u64) -> ShutdownAction {
+        if matches!(self.phase, ShutdownPhase::Finalizing(active) if active == generation) {
+            self.phase = ShutdownPhase::Settling(generation);
+            ShutdownAction::Commit {
+                generation,
+                reason: Reason::Quit,
+            }
+        } else {
+            ShutdownAction::None
+        }
+    }
+
+    /// All omp exits and the schedules' save settled, successfully or not. A repeated or superseded answer does nothing.
+    pub fn settled(&mut self, generation: u64) -> ShutdownAction {
+        if matches!(self.phase, ShutdownPhase::Settling(active) if active == generation) {
+            self.phase = ShutdownPhase::Exited;
+            ShutdownAction::Exit
+        } else {
+            ShutdownAction::None
+        }
+    }
+}
+
+/// The force-exit countdown behind a committed quit or update install. The caller owns the clock: `arm` says when a
+/// timer must call `expire`, and a timer that was disarmed meanwhile finds nothing to do.
+#[derive(Debug, Default)]
+pub struct Watchdog {
+    armed: Option<(u64, Reason)>,
+    next: u64,
+}
+
+impl Watchdog {
+    pub const fn new() -> Self {
+        Self {
+            armed: None,
+            next: 0,
+        }
+    }
+
+    pub fn is_armed(&self) -> bool {
+        self.armed.is_some()
+    }
+
+    /// Starts the countdown: the generation its timer must hand to `expire`. A second call keeps the first countdown,
+    /// so repeated `before-quit` events never extend it.
+    pub fn arm(&mut self, reason: Reason) -> Option<u64> {
+        if self.armed.is_some() {
+            return None;
+        }
+        self.next += 1;
+        self.armed = Some((self.next, reason));
+        Some(self.next)
+    }
+
+    /// The quit was cancelled (an install that failed before the app closed keeps the session running). With `reason`,
+    /// only a countdown armed for that reason stops.
+    pub fn disarm(&mut self, reason: Option<Reason>) {
+        if let Some((_, armed_for)) = self.armed
+            && reason.is_none_or(|reason| reason == armed_for)
+        {
+            self.armed = None;
+        }
+    }
+
+    /// A timer's deadline came: the reason when its countdown is still the armed one (then it is spent).
+    pub fn expire(&mut self, generation: u64) -> Option<Reason> {
+        match self.armed {
+            Some((armed, reason)) if armed == generation => {
+                self.armed = None;
+                Some(reason)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The runtime-log line a fired watchdog writes (`QuitWatchdogReport`).
+pub fn watchdog_report(reason: Reason, timeout_ms: u64) -> Value {
+    json!({
+        "source": "background-task",
+        "message": format!(
+            "Shutdown did not finish within {timeout_ms}ms of committing the {}; forcing exit",
+            reason.as_str()
+        ),
+        "details": { "watchdog": "quit", "reason": reason.as_str(), "timeoutMs": timeout_ms },
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chrome_core::captured::{of, steps};
+    use crate::labels::fill;
+
+    #[test]
+    fn native_quit_finalizes_then_commits_then_waits_for_stops_once() {
+        let mut shutdown = Shutdown::new();
+        assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::Finalize(1));
+        assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::None);
+        assert_eq!(shutdown.settled(1), ShutdownAction::None);
+        assert_eq!(
+            shutdown.finalized(1),
+            ShutdownAction::Commit {
+                generation: 1,
+                reason: Reason::Quit
+            }
+        );
+        assert_eq!(shutdown.finalized(1), ShutdownAction::None);
+        assert_eq!(shutdown.begin(Reason::Update), ShutdownAction::None);
+        assert_eq!(shutdown.settled(1), ShutdownAction::Exit);
+        assert_eq!(shutdown.settled(1), ShutdownAction::None);
+        assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::None);
+    }
+
+    #[test]
+    fn native_update_skips_and_supersedes_the_normal_finalizer() {
+        for started_normal in [false, true] {
+            let mut shutdown = Shutdown::new();
+            if started_normal {
+                assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::Finalize(1));
+            }
+            let generation = if started_normal { 2 } else { 1 };
+            assert_eq!(
+                shutdown.begin(Reason::Update),
+                ShutdownAction::Commit {
+                    generation,
+                    reason: Reason::Update
+                }
+            );
+            assert_eq!(shutdown.finalized(1), ShutdownAction::None);
+            if started_normal {
+                assert_eq!(shutdown.settled(1), ShutdownAction::None);
+            }
+            assert_eq!(shutdown.settled(generation), ShutdownAction::Exit);
+        }
+    }
+
+    #[test]
+    fn native_shutdown_event_orders_never_commit_or_exit_twice() {
+        fn visit(state: Shutdown, commits: usize, exits: usize, depth: usize) {
+            if depth == 0 {
+                return;
+            }
+            for event in 0..8 {
+                let mut next = state.clone();
+                let action = match event {
+                    0 => next.begin(Reason::Quit),
+                    1 => next.begin(Reason::Update),
+                    2..=4 => next.finalized(event - 1),
+                    _ => next.settled(event - 4),
+                };
+                let commits =
+                    commits + usize::from(matches!(action, ShutdownAction::Commit { .. }));
+                let exits = exits + usize::from(action == ShutdownAction::Exit);
+                assert!(commits <= 1 && exits <= 1 && exits <= commits);
+                visit(next, commits, exits, depth - 1);
+            }
+        }
+        visit(Shutdown::new(), 0, 0, 5);
+    }
+
+    #[test]
+    fn aggregates_the_core_inventory_as_assess_quit_risk_did() {
+        let captured: Value =
+            serde_json::from_str(include_str!("captured/quit-work.json")).unwrap();
+        for case in captured["inventories"].as_array().unwrap() {
+            assert_eq!(
+                QuitRisk::from_inventory(&case["input"]),
+                Some(risk(&case["output"]))
+            );
+        }
+        for invalid in [
+            Value::Null,
+            json!({}),
+            json!([{}]),
+            json!([{"windowId":1,"inFlight":"yes"}]),
+        ] {
+            assert_eq!(QuitRisk::from_inventory(&invalid), None);
+        }
+    }
+
+    #[test]
+    fn names_background_work_as_the_typescript_did_in_both_languages() {
+        let captured: Value =
+            serde_json::from_str(include_str!("captured/quit-work.json")).unwrap();
+        for case in captured["summaries"].as_array().unwrap() {
+            let say = |key: &str, params: &[(&str, &str)]| {
+                fill(case["labels"][key].as_str().unwrap(), params)
+            };
+            let work = BackgroundWork::from_summary(&case["input"], &say).unwrap();
+            assert_eq!(
+                json!({"has": work.has, "sentence": work.sentence}),
+                case["output"]
+            );
+        }
+        let say = |_: &str, _: &[(&str, &str)]| String::new();
+        for invalid in [
+            Value::Null,
+            json!({"has": false, "sentence": ""}),
+            json!({"subagents": -1, "jobs": 0, "subagentLabels": [], "jobLabels": []}),
+            json!({"subagents": 1, "jobs": 0, "subagentLabels": [null], "jobLabels": []}),
+        ] {
+            assert_eq!(BackgroundWork::from_summary(&invalid, &say), None);
+        }
+    }
+
+    fn risk(value: &Value) -> QuitRisk {
+        QuitRisk {
+            working_tabs: value["workingTabs"].as_u64().unwrap(),
+            total_tabs: value["totalTabs"].as_u64().unwrap(),
+            working_windows: value["workingWindows"].as_u64().unwrap(),
+        }
+    }
+
+    fn working(count: u64) -> QuitRisk {
+        QuitRisk {
+            working_tabs: count,
+            total_tabs: count + 1,
+            working_windows: count.min(1),
+        }
+    }
+
+    // The cases of `quit-guard.test.ts` that are rules of the shell now.
+    #[test]
+    fn asks_only_while_work_is_in_flight_and_quitting_would_stop_it() {
+        assert!(!quit_needs_confirmation(&QuitRisk::default(), false));
+        assert!(!quit_needs_confirmation(&working(0), false));
+        assert!(quit_needs_confirmation(&working(1), false));
+        assert!(!quit_needs_confirmation(&working(1), true));
+        assert!(!quit_needs_confirmation(&QuitRisk::default(), true));
+    }
+
+    #[test]
+    fn an_update_restart_with_continue_on_asks_only_for_background_work() {
+        assert_eq!(update_restart_confirmation(&working(1), true, false), None);
+        assert_eq!(
+            update_restart_confirmation(&QuitRisk::default(), true, false),
+            None
+        );
+        assert_eq!(
+            update_restart_confirmation(&working(1), true, true),
+            Some(UpdateConfirmation::BackgroundWork)
+        );
+    }
+
+    #[test]
+    fn an_update_restart_with_it_off_keeps_the_quit_confirm() {
+        assert_eq!(
+            update_restart_confirmation(&working(1), false, true),
+            Some(UpdateConfirmation::RunningWork)
+        );
+        assert_eq!(
+            update_restart_confirmation(&working(1), false, false),
+            Some(UpdateConfirmation::RunningWork)
+        );
+        assert_eq!(
+            update_restart_confirmation(&QuitRisk::default(), false, false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_dock_click_never_rebuilds_a_window_once_a_quit_is_approved() {
+        assert_eq!(activate_action(false, 0, false), ActivateAction::Spawn);
+        assert_eq!(activate_action(false, 2, false), ActivateAction::Show);
+        assert_eq!(activate_action(false, 2, true), ActivateAction::Ignore);
+        assert_eq!(activate_action(true, 0, false), ActivateAction::Ignore);
+        assert_eq!(activate_action(true, 2, false), ActivateAction::Ignore);
+    }
+
+    #[test]
+    fn replays_the_captured_rules() {
+        for step in of("quit", "src/main/quit-guard.ts#quitNeedsConfirmation") {
+            let got = quit_needs_confirmation(
+                &risk(&step.input["risk"]),
+                step.input["resumes"].as_bool().unwrap(),
+            );
+            assert_eq!(json!(got), step.output, "{:?}", step.input);
+        }
+        for step in of("quit", "src/main/quit-guard.ts#updateRestartConfirmation") {
+            let got = update_restart_confirmation(
+                &risk(&step.input["risk"]),
+                step.input["resumes"].as_bool().unwrap(),
+                step.input["has"].as_bool().unwrap(),
+            )
+            .map(|c| match c {
+                UpdateConfirmation::RunningWork => "running work",
+                UpdateConfirmation::BackgroundWork => "background work",
+            });
+            assert_eq!(json!(got), step.output, "{:?}", step.input);
+        }
+        for step in of("quit", "src/main/quit-guard.ts#activateAction") {
+            let got = activate_action(
+                step.input["quitApproved"].as_bool().unwrap(),
+                step.input["windowCount"].as_u64().unwrap() as usize,
+                step.input["anyVisible"].as_bool().unwrap(),
+            );
+            let want = match step.output.as_str().unwrap() {
+                "spawn" => ActivateAction::Spawn,
+                "show" => ActivateAction::Show,
+                _ => ActivateAction::Ignore,
+            };
+            assert_eq!(got, want, "{:?}", step.input);
+        }
+    }
+
+    /// The label table of one language, from what the capture recorded of `MAIN_TEXT`.
+    fn table(language: &str) -> Value {
+        of("quit", "src/main/i18n-text.ts#MAIN_TEXT")[0].output[language].clone()
+    }
+
+    fn say_in(table: &Value) -> impl Fn(&str, &[(&str, &str)]) -> String + '_ {
+        move |key, params| fill(table[key].as_str().unwrap(), params)
+    }
+
+    fn facts(step: &crate::chrome_core::captured::Step) -> QuitFacts {
+        QuitFacts {
+            risk: risk(&step.input["risk"]),
+            resumes: step.input["resumes"].as_bool().unwrap(),
+        }
+    }
+
+    fn dialogs(plan: &Confirmation) -> Value {
+        match plan {
+            Confirmation::Proceed | Confirmation::Refuse => json!([]),
+            Confirmation::Ask(options) => json!([options]),
+        }
+    }
+
+    #[test]
+    fn replays_the_confirm_quit_dialogs() {
+        for step in of("quit", "src/main/app-quit.ts#confirmQuit") {
+            let table = table(step.input["language"].as_str().unwrap());
+            let plan = confirm_quit(Some(&facts(&step)), &say_in(&table));
+            assert_eq!(dialogs(&plan), step.output["dialogs"], "{:?}", step.input);
+            // The first button proceeds; a box that never opened proceeds by itself.
+            let result = match plan {
+                Confirmation::Proceed => true,
+                Confirmation::Refuse => false,
+                Confirmation::Ask(_) => step.input["response"].as_u64() == Some(0),
+            };
+            assert_eq!(json!(result), step.output["result"], "{:?}", step.input);
+        }
+    }
+
+    #[test]
+    fn replays_the_update_restart_dialogs() {
+        for step in of("quit", "src/main/app-quit.ts#confirmUpdateRestart") {
+            let table = table(step.input["language"].as_str().unwrap());
+            let facts = facts(&step);
+            let work = BackgroundWork {
+                has: step.input["has"].as_bool().unwrap(),
+                sentence: step.input["sentence"].as_str().unwrap().to_string(),
+            };
+            let reads = needs_background_work(facts.resumes);
+            let plan =
+                confirm_update_restart(Some(&facts), reads.then_some(&work), &say_in(&table));
+            assert_eq!(
+                json!(u64::from(reads)),
+                step.output["workRead"],
+                "{:?}",
+                step.input
+            );
+            assert_eq!(dialogs(&plan), step.output["dialogs"], "{:?}", step.input);
+            let result = match plan {
+                Confirmation::Proceed => true,
+                Confirmation::Refuse => false,
+                Confirmation::Ask(_) => step.input["response"].as_u64() == Some(0),
+            };
+            assert_eq!(json!(result), step.output["result"], "{:?}", step.input);
+        }
+    }
+
+    #[test]
+    fn replays_the_watchdog_sequences() {
+        for step in of("quit", "src/main/quit-watchdog.ts#QuitWatchdog") {
+            let timeout = step.input["timeoutMs"].as_u64().unwrap();
+            let mut dog = Watchdog::new();
+            let mut now = 0u64;
+            // The timers a real run would have: (deadline, generation).
+            let mut timers: Vec<(u64, u64)> = Vec::new();
+            let mut exits = 0;
+            let ops = step.input["ops"].as_array().unwrap();
+            let outputs = step.output.as_array().unwrap();
+            for (op, want) in ops.iter().zip(outputs) {
+                let mut logs: Vec<Value> = Vec::new();
+                match op["op"].as_str().unwrap() {
+                    "arm" => {
+                        let reason = Reason::parse(op["reason"].as_str().unwrap()).unwrap();
+                        if let Some(generation) = dog.arm(reason) {
+                            timers.push((now + timeout, generation));
+                        }
+                    }
+                    "disarm" => dog.disarm(op["reason"].as_str().and_then(Reason::parse)),
+                    _ => {
+                        now += op["ms"].as_u64().unwrap();
+                        for (_, generation) in timers
+                            .iter()
+                            .filter(|(at, _)| *at <= now)
+                            .copied()
+                            .collect::<Vec<_>>()
+                        {
+                            if let Some(reason) = dog.expire(generation) {
+                                logs.push(watchdog_report(reason, timeout));
+                                exits += 1;
+                            }
+                        }
+                        timers.retain(|(at, _)| *at > now);
+                    }
+                }
+                let got = json!({ "armed": dog.is_armed(), "logs": logs, "exits": exits });
+                assert_eq!(&got, want, "{} after {op}", step.input["name"]);
+            }
+        }
+    }
+
+    #[test]
+    fn every_captured_step_has_a_replay() {
+        let known = [
+            "src/main/quit-guard.ts#quitNeedsConfirmation",
+            "src/main/quit-guard.ts#updateRestartConfirmation",
+            "src/main/quit-guard.ts#activateAction",
+            "src/main/i18n-text.ts#MAIN_TEXT",
+            "src/main/app-quit.ts#confirmQuit",
+            "src/main/app-quit.ts#confirmUpdateRestart",
+            "src/main/quit-watchdog.ts#QuitWatchdog",
+        ];
+        for step in steps("quit") {
+            assert!(
+                known.contains(&step.function.as_str()),
+                "no replay for {}",
+                step.function
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_answer_never_approves_a_quit_or_a_restart() {
+        let say = |key: &str, _: &[(&str, &str)]| key.to_string();
+        let idle = QuitFacts {
+            risk: QuitRisk {
+                working_tabs: 0,
+                total_tabs: 1,
+                working_windows: 0,
+            },
+            resumes: true,
+        };
+        // The core inventory failed or was malformed.
+        assert_eq!(confirm_quit(None, &say), Confirmation::Refuse);
+        assert_eq!(
+            confirm_update_restart(None, None, &say),
+            Confirmation::Refuse
+        );
+        assert_eq!(QuitRisk::from_inventory(&json!({ "workingTabs": 1 })), None);
+        // Continue interrupted work on: the restart needs background work, which failed or was malformed.
+        assert_eq!(
+            confirm_update_restart(Some(&idle), None, &say),
+            Confirmation::Refuse
+        );
+        assert_eq!(
+            BackgroundWork::from_summary(&json!({ "has": true }), &say),
+            None
+        );
+        // Setting off: the work is never asked, and nothing running proceeds as before.
+        let off = QuitFacts {
+            resumes: false,
+            ..idle
+        };
+        assert_eq!(
+            confirm_update_restart(Some(&off), None, &say),
+            Confirmation::Proceed
+        );
+        assert_eq!(confirm_quit(Some(&idle), &say), Confirmation::Proceed);
+    }
+}

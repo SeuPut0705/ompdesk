@@ -529,3 +529,52 @@ fn nothing_of_the_journal_lands_after_its_close() {
         std::fs::remove_dir_all(&dir).unwrap_or_else(|error| panic!("round {round}: {error}"));
     }
 }
+
+#[test]
+fn pending_charge_never_starts_after_pause_edit_or_disable() {
+    for action in ["pause", "edit", "disable"] {
+        let mut engine = engine(std::sync::Arc::default());
+        engine.load(None, 0);
+        let draft = serde_json::json!({
+            "name": "Tidy", "prompt": "Tidy", "cwd": "/work",
+            "frequency": { "kind": "interval", "minutes": 60 },
+            "model": null, "autoApprove": false, "enabled": true,
+        });
+        let id = engine.create(&draft, Some("dev-a"), 0).unwrap();
+        engine.tick(3_600_000);
+        let ask = engine
+            .outs
+            .iter()
+            .find_map(|out| match out {
+                Out::Reserve { ask, .. } => Some(*ask),
+                _ => None,
+            })
+            .unwrap();
+        let request = match action {
+            "pause" => serde_json::json!({"action": "setPaused", "paused": true}),
+            "edit" => serde_json::json!({"action": "save", "id": id, "draft": {
+                "name": "Edited", "prompt": "New prompt", "cwd": "/work",
+                "frequency": {"kind": "interval", "minutes": 60},
+                "model": null, "autoApprove": false, "enabled": true
+            }}),
+            _ => serde_json::json!({"action": "setEnabled", "id": id, "enabled": false}),
+        };
+        engine.command(&request, None, 3_600_001).unwrap();
+        engine.outs.clear();
+        engine.reserved(ask, None, 3_600_002);
+        assert!(
+            !engine
+                .outs
+                .iter()
+                .any(|out| matches!(out, Out::Prepare { .. } | Out::Start { .. })),
+            "{action} still started a late reservation"
+        );
+        assert!(
+            engine
+                .outs
+                .iter()
+                .any(|out| matches!(out, Out::Refund { charge } if *charge == ask))
+        );
+        assert_eq!(engine.state()["runs"], serde_json::json!([]));
+    }
+}

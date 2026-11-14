@@ -265,6 +265,26 @@ pub fn end_children_with_this_process() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Gives a process with no console one that is never shown. Main starts the core detached on Windows (libuv's job
+/// object would otherwise kill it with main, and the omps with it, before they closed their sessions), and a detached
+/// process has no console: every console program it starts without `CREATE_NO_WINDOW` (a git) would then open a window
+/// of its own. A console made here takes the hidden state main started this process in, and the standard handles main
+/// passed stay as they are.
+#[cfg(windows)]
+pub fn ensure_console() {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetConsoleWindow() -> *mut std::ffi::c_void;
+        fn AllocConsole() -> i32;
+    }
+    // SAFETY: both calls take no arguments and only read or create this process's own console.
+    unsafe {
+        if GetConsoleWindow().is_null() {
+            AllocConsole();
+        }
+    }
+}
+
 /// Makes this process's own stdin, stdout and stderr (main's pipes) not inheritable, so a process that leaves the job
 /// (a browser `browsers.openExtensions` started) never holds them and main sees this process's pipes close when it
 /// ends. Safe for every other start: a child given `Stdio::inherit` gets a duplicate std makes inheritable for that
@@ -312,6 +332,12 @@ pub fn pipe_has_instance(name: &str) -> bool {
 
 #[cfg(windows)]
 pub use job::ProcessTree;
+
+#[cfg(windows)]
+#[path = "sys/restricted_spawn.rs"]
+mod restricted_spawn;
+#[cfg(windows)]
+pub(crate) use restricted_spawn::{RestrictedChild, spawn as spawn_restricted};
 
 /// Job objects: the one this process lives in, and one for each process whose whole tree is ended together.
 #[cfg(windows)]

@@ -1,9 +1,5 @@
-//! What the memory-prompt and the redactor know that the core does not copy: whether a prompt is an agent's, what a
-//! page title it makes is, and what a stored conversation's journal says (the first prompt, the final replies). The
-//! stock worker answers (`resources/gui-bridge/stock-helper/memory.ts`, which imports `memory-prompt.ts`), or, for a
-//! test that handed in its own, main.
-//!
-//! A caller batches: one request carries every prompt it wants facts of.
+//! Prompt classification is the shared Rust policy that also compiles into the extension's embedded WASM.
+//! Only stock's journal SDK read needs the existing Bun worker. A test may supply its own facts through `Main`.
 
 use std::time::Duration;
 
@@ -93,12 +89,27 @@ impl Facts {
 
     /// The facts of each item, in order.
     pub async fn prompts(&self, items: &[PromptItem]) -> Result<Vec<PromptFacts>, Fault> {
-        let params = json!({ "items": items });
         let answer = match self {
-            Facts::Stock { host, events } => {
-                request_in_process(events, host, "memory.promptFacts", &params, TIMEOUT).await?
+            Facts::Stock { .. } => {
+                return Ok(items
+                    .iter()
+                    .map(|item| {
+                        let facts = crate::aimemory::prompt_policy::facts(
+                            &item.text,
+                            item.session_name.as_deref(),
+                        );
+                        PromptFacts {
+                            agent: facts.agent,
+                            junk: facts.junk,
+                            title: facts.title.map(|text| text.into_string()),
+                            explicit: facts.explicit,
+                            body: facts.body.to_owned(),
+                            first_line: facts.first_line.map(|text| text.into_string()),
+                        }
+                    })
+                    .collect());
             }
-            Facts::Main(asker) => asker.ask("facts", params).await?,
+            Facts::Main(asker) => asker.ask("facts", json!({ "items": items })).await?,
         };
         let facts: Vec<PromptFacts> =
             serde_json::from_value(answer).map_err(|error| another_shape("promptFacts", &error))?;
@@ -144,9 +155,7 @@ mod tests {
     use super::*;
     use crate::server::{Call, Reply};
 
-    /// The worker the stock test starts: this test binary run on its one test below, which reads the worker's lines
-    /// from stdin and answers them the way `memory.ts` does (by whatever it can say of a prompt without the
-    /// memory-prompt: its text's first letter).
+    /// The existing SDK worker route is still needed for journals, never for OMPdesk's prompt policy.
     #[test]
     fn stand_in_worker() {
         use std::io::{BufRead, Write};
@@ -158,22 +167,6 @@ mod tests {
             let request: Value = serde_json::from_str(&line.unwrap()).unwrap();
             let id = request["id"].clone();
             let result = match request["method"].as_str().unwrap() {
-                "memory.promptFacts" => {
-                    let facts: Vec<Value> = request["params"]["items"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|item| {
-                            let text = item["text"].as_str().unwrap();
-                            json!({
-                                "agent": text.starts_with('<'), "junk": text.is_empty(),
-                                "title": item["sessionName"], "explicit": null,
-                                "body": text.trim(), "firstLine": text.lines().next(),
-                            })
-                        })
-                        .collect();
-                    json!(facts)
-                }
                 "memory.journal" => json!({
                     "firstPrompt": request["params"]["sessionPath"],
                     "turns": [{ "at": 1_700_000_000_123.0_f64, "body": "done" }],
@@ -307,7 +300,7 @@ mod tests {
     /// The stock worker route: the core asks main to start the worker (`stock.launch`), which answers with a
     /// worker this test binary plays, and the requests go to it as lines.
     #[tokio::test]
-    async fn the_stock_worker_answers_the_batch_and_the_journal() {
+    async fn native_policy_answers_prompts_and_the_stock_sdk_answers_journals() {
         let mut rig = rig().await;
         let exe = std::env::current_exe()
             .unwrap()
@@ -344,6 +337,11 @@ mod tests {
             run.response["result"], 3,
             "{} {:?} {:?}",
             run.response, run.events, run.replies
+        );
+        assert!(
+            run.events
+                .iter()
+                .all(|event| event["event"] != "stock.launch")
         );
         let run = rig
             .run_events(

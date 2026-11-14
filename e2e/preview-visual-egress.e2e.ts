@@ -157,6 +157,8 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 	const project = path.join(profile, "project");
 	const agent = path.join(profile, "agent");
 	const record = path.join(profile, "record.jsonl");
+	// Chromium's network log of the whole shell (its switch, written out once the shell ends): the preview module owns the sessions.
+	const netLog = path.join(profile, "net-log.json");
 	await Promise.all([fs.mkdir(desktop), fs.mkdir(project), fs.mkdir(agent)]);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
@@ -182,29 +184,24 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
 			project,
 			`--user-data-dir=${desktop}`,
+			`--log-net-log=${netLog}`,
 		],
 		env,
 	});
 	const shell = await app.firstWindow();
-	/** Run in the visual's page (its main world), found by its omp-visual address. */
-	const inPage = (code: string) =>
-		app.evaluate(async ({ webContents }, source) => {
-			const contents = webContents.getAllWebContents().find(item => item.getURL().startsWith("omp-visual://"));
-			if (!contents) throw new Error("No visual page");
-			return contents.executeJavaScript(source, true);
-		}, code);
+	/** The visual's page: the shell's preview module owns it, so it is reached as a CDP target by its omp-visual address. */
+	const visualPage = () => {
+		const page = app.windows().find(item => item.url().startsWith("omp-visual://"));
+		if (!page) throw new Error("No visual page");
+		return page;
+	};
+	/** Run in the visual's page (its main world). */
+	const inPage = (code: string) => visualPage().evaluate(code);
 	try {
 		await shell.waitForFunction(() => window.omp?.rpc != null);
 		await expect
 			.poll(async () => (await shell.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
-		// The visual session's network log, from before the page loads: every host name it is asked to resolve.
-		const netLog = path.join(profile, "visual-net-log.json");
-		await app.evaluate(async ({ BrowserWindow, session }, file) => {
-			const [win] = BrowserWindow.getAllWindows();
-			if (!win) throw new Error("No window");
-			await session.fromPartition(`preview-visual-${win.id}`).netLog.startLogging(file);
-		}, netLog);
 		const composer = shell.locator("textarea").first();
 		await composer.fill(
 			`!fixture:host-tool:gui_visualize ${JSON.stringify({ action: "open", target: "egress.html" })}`,
@@ -219,18 +216,11 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 		// Long enough for the meta refresh (1 s), ICE gathering and every retry.
 		await sleep(5000);
 		expect(listener.hits).toEqual([]);
-		// No DNS prefetch asked for a name; a resolution main itself asks for is in the log, so the log would show one.
-		await app.evaluate(async ({ BrowserWindow, session }, suffix) => {
-			const [win] = BrowserWindow.getAllWindows();
-			const visual = session.fromPartition(`preview-visual-${win?.id}`);
-			await visual.resolveHost(`control.${suffix}`).catch(() => {});
-			await visual.netLog.stopLogging();
-		}, DNS_SUFFIX);
-		const resolved = new Set((await fs.readFile(netLog, "utf8")).match(/[a-z-]+\.egress\.invalid/g));
-		expect([...resolved]).toEqual([`control.${DNS_SUFFIX}`]);
+		// A resolution main itself asks for is in the net log, so the log would show a prefetch's too.
+		await app.evaluate(({ net }, suffix) => net.resolveHost(`control.${suffix}`).catch(() => {}), DNS_SUFFIX);
 
 		// The visual is still there, with its own assets.
-		const urls = await app.evaluate(({ webContents }) => webContents.getAllWebContents().map(item => item.getURL()));
+		const urls = app.windows().map(item => item.url());
 		expect(urls.filter(url => url.startsWith("omp-visual://"))).toHaveLength(1);
 		expect(urls.some(url => url.startsWith(origin))).toBe(false);
 		expect(await inPage("location.href")).toMatch(/^omp-visual:\/\/v1-[0-9a-f]{16}\/egress\.html$/);
@@ -238,19 +228,13 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 		expect(await inPage("getComputedStyle(document.getElementById('title')).color")).toBe("rgb(51, 102, 255)");
 
 		// A real click on its link: refused (its ping too), and offered with the whole address.
-		await app.evaluate(async ({ webContents }) => {
-			const contents = webContents.getAllWebContents().find(item => item.getURL().startsWith("omp-visual://"));
-			if (!contents) throw new Error("No visual page");
-			const box = (await contents.executeJavaScript(
-				"(() => { const r = document.getElementById('link').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()",
-			)) as { x: number; y: number };
-			const factor = contents.getZoomFactor();
-			const x = Math.round(box.x * factor);
-			const y = Math.round(box.y * factor);
-			contents.sendInputEvent({ type: "mouseMove", x, y });
-			contents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
-			contents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+		const link = visualPage();
+		const box = await link.evaluate(() => {
+			const r = document.getElementById("link")?.getBoundingClientRect();
+			if (!r) throw new Error("No link");
+			return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 		});
+		await link.mouse.click(box.x, box.y);
 		const offer = aside.locator("[data-preview-link]");
 		await expect(offer).toHaveAttribute("data-preview-link", `${origin}/link?d=secret`);
 		await expect(offer).toContainText(`${origin}/link?d=secret`);
@@ -265,6 +249,11 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 			.toContain("GET /link?d=secret HTTP/1.1");
 		await expect(offer).toHaveCount(0);
 		expect(await inPage("location.href")).toMatch(/egress\.html$/);
+
+		// The network log is complete once the shell has ended: no name the page spelled was resolved, only the control.
+		await exitApp(app);
+		const resolved = new Set((await fs.readFile(netLog, "utf8")).match(/[a-z-]+\.egress\.invalid/g));
+		expect([...resolved]).toEqual([`control.${DNS_SUFFIX}`]);
 	} finally {
 		await exitApp(app);
 		await listener.close();

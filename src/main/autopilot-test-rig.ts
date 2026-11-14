@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
+import MAIN_TEXT from "../../native/ompdesk/crates/shell/src/boot_core/main-text.json";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	type AutopilotArmParams,
@@ -17,10 +18,10 @@ import {
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import { Autopilot, type AutopilotNotice, type AutopilotPool, type AutopilotTuning } from "./autopilot";
-import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
 import { createWorktree } from "./local/git/worktree";
 import { detectReleaseProcedure } from "./release-detect";
+import type { MainTextKey } from "./shell-host/modules/boot";
 import type { SidecarLike } from "./sidecar-types";
 import type { RelaunchContinuation } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";

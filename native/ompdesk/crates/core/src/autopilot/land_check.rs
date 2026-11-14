@@ -26,11 +26,13 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
+use super::host::Backend;
 use crate::fs::disk;
 use crate::fs::error::Codes;
 use crate::git::read::blocking;
 use crate::git::run::Git;
-use crate::ports::Port;
+use crate::machine::{CommandShell, ShellContext};
+
 use crate::run::Opts;
 use crate::server::{Fault, Scope};
 
@@ -302,28 +304,63 @@ impl Outcome {
 
 /// What main answers `prepareWorktree` with (`WorktreeSetupReport` is all this side reads).
 #[derive(Deserialize)]
-struct Prepared {
+pub struct Prepared {
     #[serde(default)]
-    setup: Option<Setup>,
+    pub setup: Option<Setup>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Setup {
-    ok: bool,
-    exit_code: Option<i32>,
-    timed_out: bool,
-    script: String,
-    output_tail: String,
+pub struct Setup {
+    pub ok: bool,
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+    pub script: String,
+    pub output_tail: String,
 }
 
 /// The shell and environment the check runs in, and the supervisor that holds it (`landShell`).
-#[derive(Clone, Deserialize)]
-struct Shell {
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Shell {
     env: BTreeMap<String, String>,
     file: String,
     args: Vec<String>,
     supervisor: String,
+}
+
+impl Shell {
+    /// Machine selects the executable and inherited/login environment; this boundary only applies its command syntax.
+    pub fn command(command: String, context: ShellContext) -> Result<Self, Fault> {
+        let ShellContext {
+            env,
+            shell,
+            supervisor,
+        } = context;
+        let path = |path: &std::path::Path| {
+            path.to_str().map(str::to_owned).ok_or_else(|| {
+                Fault::new(
+                    "invalid_path",
+                    "The land check executable path is not UTF-8",
+                )
+            })
+        };
+        let (file, args) = match shell {
+            CommandShell::Bash(file) => (
+                file,
+                vec!["-o".into(), "pipefail".into(), "-c".into(), command],
+            ),
+            CommandShell::WindowsCmd(file) => {
+                (file, vec!["/d".into(), "/s".into(), "/c".into(), command])
+            }
+            CommandShell::PosixSh(file) => (file, vec!["-c".into(), command]),
+        };
+        Ok(Self {
+            env,
+            file: path(&file)?,
+            args,
+            supervisor: path(&supervisor)?,
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -500,7 +537,7 @@ fn finish(output: &[u8], error: Option<&str>, code: Option<i32>, timed_out: bool
 /// The git calls and the hook around the run; `None` is a check that failed before it ran.
 async fn prepare(
     git: &Git,
-    port: &Port<()>,
+    port: &Backend,
     input: &Input,
     scratch: &Scratch,
 ) -> Result<Result<(String, String), Outcome>, Fault> {
@@ -523,13 +560,7 @@ async fn prepare(
     if added.code != 0 {
         return Ok(Err(Outcome::failed(tail_units(&added.stderr, OUTPUT_TAIL))));
     }
-    let prepared: Prepared = port
-        .ask(
-            "prepareWorktree",
-            &serde_json::json!({"primary": input.primary, "tree": tree}),
-        )
-        .await
-        .map_err(Fault::from)?;
+    let prepared = port.prepare_worktree(&input.primary, &tree).await?;
     if let Some(setup) = prepared.setup.filter(|setup| !setup.ok) {
         return Ok(Err(Outcome {
             ok: false,
@@ -560,7 +591,7 @@ async fn prepare(
 /// that could not run is a failed one with the reason in its tail.
 pub async fn check_candidate(
     git: &Git,
-    port: &Port<()>,
+    port: &Backend,
     input: &Input,
     stop_grace: Duration,
     scope: &Scope,
@@ -582,10 +613,7 @@ pub async fn check_candidate(
             Ok(prepared) => prepared,
             Err(failed) => return Ok::<Outcome, Fault>(failed),
         };
-        let shell: Shell = port
-            .ask("landShell", &serde_json::json!({"command": command}))
-            .await
-            .map_err(Fault::from)?;
+        let shell = port.land_shell(command).await?;
         let timeout = Duration::from_millis(input.timeout_ms.unwrap_or(LAND_CHECK_TIMEOUT_MS));
         Ok(run_command(
             &shell,
@@ -645,6 +673,89 @@ mod tests {
                 case["platform"].as_str().unwrap(),
             );
             assert_eq!(out, case["out"].as_str().unwrap(), "{case}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_native_shell_keeps_machine_exports_and_does_not_hide_a_failed_pipe() {
+        let shell = Shell::command(
+            "printf '%s' \"$AUTOPILOT_TEST_EXPORT\"; false | /usr/bin/true".into(),
+            ShellContext {
+                env: BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-login-shell".into())]),
+                shell: CommandShell::Bash("/bin/bash".into()),
+                supervisor: "/unused-supervisor".into(),
+            },
+        )
+        .unwrap();
+        let output = Command::new(&shell.file)
+            .args(&shell.args)
+            .env_clear()
+            .envs(&shell.env)
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(output.stdout, b"from-login-shell");
+        assert!(!output.status.success());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_posix_fallback_runs_without_bash_only_options() {
+        let shell = Shell::command(
+            "printf '%s' \"$AUTOPILOT_TEST_EXPORT\"; exit 7".into(),
+            ShellContext {
+                env: BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-posix-shell".into())]),
+                shell: CommandShell::PosixSh("/bin/sh".into()),
+                supervisor: "/unused-supervisor".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(shell.args[0], "-c");
+        assert_eq!(shell.args.len(), 2);
+        let output = Command::new(&shell.file)
+            .args(&shell.args)
+            .env_clear()
+            .envs(&shell.env)
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(
+            output.stdout,
+            b"from-posix-shell",
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.status.code(), Some(7));
+    }
+
+    #[test]
+    fn a_comspec_fallback_keeps_windows_command_arguments() {
+        let command = "echo %AUTOPILOT_TEST_EXPORT% & exit /b 7";
+        let shell = Shell::command(
+            command.into(),
+            ShellContext {
+                env: BTreeMap::from([("AUTOPILOT_TEST_EXPORT".into(), "from-comspec".into())]),
+                shell: CommandShell::WindowsCmd(r"C:\Windows\System32\cmd.exe".into()),
+                supervisor: "/unused-supervisor".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(shell.args, ["/d", "/s", "/c", command]);
+        assert_eq!(shell.file, r"C:\Windows\System32\cmd.exe");
+        #[cfg(windows)]
+        {
+            let output = std::process::Command::new(&shell.file)
+                .args(&shell.args)
+                .env_clear()
+                .envs(&shell.env)
+                .output()
+                .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout).trim(),
+                "from-comspec"
+            );
+            assert_eq!(output.status.code(), Some(7));
         }
     }
 

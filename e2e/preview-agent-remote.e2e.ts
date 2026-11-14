@@ -295,9 +295,7 @@ test("a paired device's own Preview page is driven by the agent of the host's ta
 		await expect(view.status).toHaveText("Agent fixture", { timeout: 30_000 });
 
 		const pageTitles = (instance: RemoteInstance) =>
-			instance.app.evaluate(({ webContents }) =>
-				webContents.getAllWebContents().map(contents => contents.getTitle()),
-			);
+			Promise.all(instance.app.windows().map(candidate => candidate.title().catch(() => "")));
 		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent, client, async driven => {
 			// The page that moved is the device's own native one; the host opened none.
 			expect(await pageTitles(client)).toContain("Second page");
@@ -336,7 +334,7 @@ test("a paired phone viewing a tab of a paired host is driven through the same t
 		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent, client, async () => {
 			// The page that moved is the computer's offscreen one for the phone; the host opened none.
 			expect(
-				await host.app.evaluate(({ webContents }) => webContents.getAllWebContents().map(c => c.getTitle())),
+				await Promise.all(host.app.windows().map(candidate => candidate.title().catch(() => ""))),
 			).not.toContain("Second page");
 		});
 	} finally {

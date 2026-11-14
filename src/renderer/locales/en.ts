@@ -1774,6 +1774,8 @@ export const en: Record<string, string> = {
 	"ipcError.stats_not_ready": "The stats server is still starting. Try again in a moment.",
 	"ipcError.stats_api_error": "The stats server couldn't answer this request.",
 	"ipcError.safe_storage_unavailable": "This system can't encrypt the token, so it can't be saved.",
+	"ipcError.keychain_would_ask":
+		"macOS would ask for your login password to open OMPdesk's keychain item, so no secret can be saved on this computer.",
 	"ipcError.invalid_content": "The agent definition isn't valid.",
 	"ipcError.invalid_scope": "Choose user or project as the location.",
 	"ipcError.not_editable": "An image-only queued message can't be edited or moved.",
@@ -5507,6 +5509,8 @@ export const en: Record<string, string> = {
 	"updates.auth.test": "Test access",
 	"updates.auth.clear": "Remove saved token",
 	"updates.auth.failed": "Couldn't change GitHub access",
+	"updates.auth.dropped.keychain-would-ask":
+		"The saved token was removed: macOS would ask for your login password to read it. GH_TOKEN, GITHUB_TOKEN and your gh login still work; a new token can't be saved on this computer.",
 	"updates.auth.cannotStore":
 		"This system can't encrypt secrets, so a token can't be saved here. Connect GitHub in Settings › General instead.",
 	"updates.host.name": "OMPdesk on the host computer",
@@ -5919,6 +5923,13 @@ export const en: Record<string, string> = {
 	"mail.loading": "Loading email accounts…",
 	"mail.loadFailed": "Couldn't load email accounts",
 	"mail.actionFailed": "Couldn't update the email accounts",
+	"mail.needsReentry": "Enter the password again: macOS would ask for your login password to read the saved one.",
+	"mail.reentry.one":
+		"The email account {names} needs its password again: macOS would ask for your login password to read it.",
+	"mail.reentry.many":
+		"The email accounts {names} need their passwords again: macOS would ask for your login password to read them.",
+	"mail.reentry.action": "Enter password",
+	"mail.reentry.dismiss": "Dismiss the email password notice",
 	"mail.test": "Test",
 	"mail.test.ok": "Mailbox opened: {count} messages",
 	"mail.test.okOne": "Mailbox opened: 1 message",

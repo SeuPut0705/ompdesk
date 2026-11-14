@@ -30,8 +30,11 @@ vi.mock("./sidecar", () => ({
 		}
 	},
 }));
-// i18n opens the Electron prefs store on import.
-vi.mock("./i18n", () => ({ ompFailureText: (reason: string) => reason }));
+// Main's text is the shell's (`boot.labels`); the reason itself stands in.
+vi.mock("./shell-host/modules/boot", () => ({
+	ompFailureText: (reason: string) => reason,
+	deviceLanguage: () => undefined,
+}));
 vi.mock("electron", () => ({ app: {} }));
 // The node/npx probe runs real processes (seconds on Windows); these tests count it instead.
 vi.mock("./builtin-mcp", () => ({

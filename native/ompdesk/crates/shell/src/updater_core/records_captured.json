@@ -1,0 +1,200 @@
+{
+  "pending": [
+    {
+      "raw": "{\"from\":\"1\",\"to\":\"2\",\"mode\":\"relaunch\",\"trigger\":\"auto\",\"at\":0,\"presence\":\"hidden\"}",
+      "result": {
+        "from": "1",
+        "to": "2",
+        "mode": "relaunch",
+        "trigger": "auto",
+        "at": 0,
+        "presence": "hidden"
+      }
+    },
+    {
+      "raw": "{\"from\":\"1\",\"to\":\"2\",\"mode\":\"nsis\",\"trigger\":\"quit\",\"at\":-1,\"presence\":\"bad\"}",
+      "result": {
+        "from": "1",
+        "to": "2",
+        "mode": "nsis",
+        "trigger": "quit",
+        "at": -1
+      }
+    },
+    {
+      "raw": "{\"from\":\"1\",\"to\":\"2\",\"mode\":\"other\",\"trigger\":\"auto\",\"at\":0}",
+      "result": null
+    },
+    {
+      "raw": "null",
+      "result": null
+    },
+    {
+      "raw": "bad",
+      "result": null
+    }
+  ],
+  "failures": [
+    {
+      "raw": "{\"version\":\"2\",\"at\":5,\"count\":2.9}",
+      "result": {
+        "version": "2",
+        "count": 2,
+        "at": 5
+      }
+    },
+    {
+      "raw": "{\"version\":\"2\",\"at\":5}",
+      "result": {
+        "version": "2",
+        "count": 1,
+        "at": 5
+      }
+    },
+    {
+      "raw": "{\"version\":\"2\"}",
+      "result": null
+    },
+    {
+      "raw": "bad",
+      "result": null
+    }
+  ],
+  "swaps": [
+    {
+      "raw": "swap t: /a -> /b\ninstalled\nstart failed; previous app restored\n",
+      "result": {
+        "at": "t",
+        "outcome": "start failed; previous app restored"
+      }
+    },
+    {
+      "raw": "swap t: /a -> /b\nnoise\n",
+      "result": {
+        "at": "t",
+        "outcome": "unknown"
+      }
+    },
+    {
+      "raw": "nothing",
+      "result": null
+    }
+  ],
+  "presence": [
+    {
+      "windows": [],
+      "result": null
+    },
+    {
+      "windows": [
+        {
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      ],
+      "result": "hidden"
+    },
+    {
+      "windows": [
+        {
+          "visible": true,
+          "minimized": true,
+          "focused": false
+        }
+      ],
+      "result": "minimized"
+    },
+    {
+      "windows": [
+        {
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      ],
+      "result": "behind"
+    },
+    {
+      "windows": [
+        {
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      ],
+      "result": null
+    }
+  ],
+  "relaunch": [
+    {
+      "now": -1,
+      "result": null
+    },
+    {
+      "now": 0,
+      "result": "hidden"
+    },
+    {
+      "now": 900000,
+      "result": "hidden"
+    },
+    {
+      "now": 900001,
+      "result": null
+    }
+  ],
+  "details": [
+    {
+      "current": "1",
+      "result": {
+        "event": "result",
+        "outcome": "rolled back",
+        "previous": "1",
+        "expected": "2",
+        "current": "1",
+        "mode": "relaunch",
+        "trigger": "auto",
+        "launchedAt": "1970-01-01T00:00:00.000Z",
+        "swapAt": "t",
+        "swapOutcome": "start failed; previous app restored"
+      }
+    },
+    {
+      "current": "2",
+      "result": {
+        "event": "result",
+        "outcome": "installed",
+        "previous": "1",
+        "expected": "2",
+        "current": "2",
+        "mode": "relaunch",
+        "trigger": "auto",
+        "launchedAt": "1970-01-01T00:00:00.000Z",
+        "swapAt": "t",
+        "swapOutcome": "start failed; previous app restored"
+      }
+    },
+    {
+      "current": "3",
+      "result": {
+        "event": "result",
+        "outcome": "changed",
+        "previous": "1",
+        "expected": "2",
+        "current": "3",
+        "mode": "relaunch",
+        "trigger": "auto",
+        "launchedAt": "1970-01-01T00:00:00.000Z",
+        "swapAt": "t",
+        "swapOutcome": "start failed; previous app restored"
+      }
+    }
+  ],
+  "failure": {
+    "version": "2",
+    "count": 1,
+    "at": 5
+  },
+  "mark": "{\"version\":\"2\",\"pid\":42,\"at\":5}"
+}

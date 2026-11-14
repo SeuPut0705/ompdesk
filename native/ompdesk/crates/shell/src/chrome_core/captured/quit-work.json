@@ -1,0 +1,465 @@
+{
+  "capturedFrom": "82e834753",
+  "outputEncoding": "UTF-8: isolated UTF-16 halves replaced as TextEncoder does",
+  "summaries": [
+    {
+      "language": "en",
+      "input": {
+        "subagents": 0,
+        "jobs": 0,
+        "subagentLabels": [],
+        "jobLabels": []
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": false,
+        "sentence": ""
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 1,
+        "jobs": 0,
+        "subagentLabels": [
+          "A"
+        ],
+        "jobLabels": []
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "1 subagent (A)"
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 2,
+        "jobs": 1,
+        "subagentLabels": [
+          "LayoutSplit",
+          "StreamFast"
+        ],
+        "jobLabels": [
+          "dev server"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "2 subagents (LayoutSplit, StreamFast) and 1 background job (dev server)"
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 4,
+        "jobs": 1,
+        "subagentLabels": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ],
+        "jobLabels": [
+          "job"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "4 subagents (A, B, C, …) and 1 background job"
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 0,
+        "jobs": 1,
+        "subagentLabels": [],
+        "jobLabels": [
+          ""
+        ],
+        "unknown": 1
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "1 background job and 1 session that did not answer"
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 2,
+        "jobs": 2,
+        "subagentLabels": [
+          "  ",
+          "A"
+        ],
+        "jobLabels": [
+          "﻿compile \nnow  ",
+          "keep"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "2 subagents (A) and 2 background jobs (compile now, keep)"
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 0,
+        "jobs": 1,
+        "subagentLabels": [],
+        "jobLabels": [
+          "npm run\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "1 background job (npm run xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…)"
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 1,
+        "jobs": 0,
+        "subagentLabels": [
+          "한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀"
+        ],
+        "jobLabels": []
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "1 subagent (한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 �…)"
+      }
+    },
+    {
+      "language": "en",
+      "input": {
+        "subagents": 1,
+        "jobs": 1,
+        "subagentLabels": [
+          "A"
+        ],
+        "jobLabels": [
+          "B"
+        ],
+        "unknown": 2
+      },
+      "labels": {
+        "updates.restartWork.subagents": "{count} subagent{plural}",
+        "updates.restartWork.jobs": "{count} background job{plural}",
+        "updates.restartWork.unknown": "{count} session{plural} that did not answer",
+        "updates.restartWork.and": " and "
+      },
+      "output": {
+        "has": true,
+        "sentence": "1 subagent (A) and 1 background job (B) and 2 sessions that did not answer"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 0,
+        "jobs": 0,
+        "subagentLabels": [],
+        "jobLabels": []
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": false,
+        "sentence": ""
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 1,
+        "jobs": 0,
+        "subagentLabels": [
+          "A"
+        ],
+        "jobLabels": []
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "서브에이전트 1개 (A)"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 2,
+        "jobs": 1,
+        "subagentLabels": [
+          "LayoutSplit",
+          "StreamFast"
+        ],
+        "jobLabels": [
+          "dev server"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "서브에이전트 2개 (LayoutSplit, StreamFast), 백그라운드 작업 1개 (dev server)"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 4,
+        "jobs": 1,
+        "subagentLabels": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ],
+        "jobLabels": [
+          "job"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "서브에이전트 4개 (A, B, C, …), 백그라운드 작업 1개"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 0,
+        "jobs": 1,
+        "subagentLabels": [],
+        "jobLabels": [
+          ""
+        ],
+        "unknown": 1
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "백그라운드 작업 1개, 응답하지 않은 세션 1개의 작업"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 2,
+        "jobs": 2,
+        "subagentLabels": [
+          "  ",
+          "A"
+        ],
+        "jobLabels": [
+          "﻿compile \nnow  ",
+          "keep"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "서브에이전트 2개 (A), 백그라운드 작업 2개 (compile now, keep)"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 0,
+        "jobs": 1,
+        "subagentLabels": [],
+        "jobLabels": [
+          "npm run\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "백그라운드 작업 1개 (npm run xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…)"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 1,
+        "jobs": 0,
+        "subagentLabels": [
+          "한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀"
+        ],
+        "jobLabels": []
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "서브에이전트 1개 (한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 �…)"
+      }
+    },
+    {
+      "language": "ko",
+      "input": {
+        "subagents": 1,
+        "jobs": 1,
+        "subagentLabels": [
+          "A"
+        ],
+        "jobLabels": [
+          "B"
+        ],
+        "unknown": 2
+      },
+      "labels": {
+        "updates.restartWork.subagents": "서브에이전트 {count}개",
+        "updates.restartWork.jobs": "백그라운드 작업 {count}개",
+        "updates.restartWork.unknown": "응답하지 않은 세션 {count}개의 작업",
+        "updates.restartWork.and": ", "
+      },
+      "output": {
+        "has": true,
+        "sentence": "서브에이전트 1개 (A), 백그라운드 작업 1개 (B), 응답하지 않은 세션 2개의 작업"
+      }
+    }
+  ],
+  "inventories": [
+    {
+      "input": [],
+      "output": {
+        "workingTabs": 0,
+        "totalTabs": 0,
+        "workingWindows": 0
+      }
+    },
+    {
+      "input": [
+        {
+          "windowId": 1,
+          "tabId": "a",
+          "inFlight": false
+        }
+      ],
+      "output": {
+        "workingTabs": 0,
+        "totalTabs": 1,
+        "workingWindows": 0
+      }
+    },
+    {
+      "input": [
+        {
+          "windowId": 1,
+          "tabId": "a",
+          "inFlight": true
+        },
+        {
+          "windowId": 1,
+          "tabId": "b",
+          "inFlight": true
+        },
+        {
+          "windowId": 2,
+          "tabId": "c",
+          "inFlight": false
+        },
+        {
+          "windowId": 3,
+          "tabId": "d",
+          "inFlight": true
+        }
+      ],
+      "output": {
+        "workingTabs": 3,
+        "totalTabs": 4,
+        "workingWindows": 2
+      }
+    }
+  ]
+}

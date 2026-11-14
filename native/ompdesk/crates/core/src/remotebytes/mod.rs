@@ -13,10 +13,13 @@
 //! `remotebytes.signInEnded`, `remotebytes.relay`.
 
 mod blobs;
+mod callback;
 mod folder;
+pub mod native;
 mod relay;
 mod signin;
 mod transcripts;
+pub(crate) use blobs::node_base64;
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};

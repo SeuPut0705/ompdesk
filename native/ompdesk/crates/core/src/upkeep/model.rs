@@ -17,6 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
 
 use super::asks::Asker;
+use crate::aimemory::application::{CaptureCommand, CaptureOutput, Host, RunCommand};
 use crate::fs::error::{Codes, NodeError, uv_code};
 use crate::fs::order::js_trim;
 use crate::json::whole_surrogates;
@@ -274,20 +275,18 @@ pub async fn run_smol(
     run_smol_within(launch, message, cwd, TIMEOUT).await
 }
 
-async fn run_smol_within(
-    launch: &OmpLaunch,
-    message: &Message,
-    cwd: &Path,
-    timeout: Duration,
-) -> Result<ModelResult, Fault> {
+async fn prepare_cwd(cwd: &Path) -> Result<(), Fault> {
     let folder = cwd.to_owned();
     tokio::task::spawn_blocking(move || std::fs::create_dir_all(folder))
         .await
         .map_err(|error| Fault::new("internal", error.to_string()))?
         .map_err(|error| {
             NodeError::new(&error, "mkdir", Some(&cwd.to_string_lossy())).fault(Codes::None)
-        })?;
-    let args = [
+        })
+}
+
+fn smol_args(message: &Message) -> Vec<String> {
+    [
         "-p",
         "--mode",
         "json",
@@ -305,8 +304,10 @@ async fn run_smol_within(
         &message.system,
     ]
     .map(str::to_owned)
-    .to_vec();
-    let ran = run_omp(launch, args, cwd, &message.user, timeout).await?;
+    .to_vec()
+}
+
+fn smol_result(ran: Ran) -> Result<ModelResult, Fault> {
     let result = parse_omp_json(&ran.stdout);
     match result {
         Some(result) if ran.code == 0 => Ok(result),
@@ -324,10 +325,67 @@ async fn run_smol_within(
     }
 }
 
+async fn run_smol_within(
+    launch: &OmpLaunch,
+    message: &Message,
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<ModelResult, Fault> {
+    prepare_cwd(cwd).await?;
+    let ran = run_omp(launch, smol_args(message), cwd, &message.user, timeout).await?;
+    smol_result(ran)
+}
+
+struct CaptureScope(crate::server::Scope);
+
+impl Drop for CaptureScope {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+async fn run_native(host: &dyn Host, message: &Message, cwd: &Path) -> Result<ModelResult, Fault> {
+    let launch = host
+        .omp_launch()
+        .await
+        .map_err(|failure| Fault::new("memory_omp", failure.message()))?;
+    prepare_cwd(cwd).await?;
+    let mut env = launch.env;
+    env.insert("OTEL_SDK_DISABLED".into(), "true".into());
+    let scope = CaptureScope(crate::server::Scope::detached());
+    let output: CaptureOutput = host
+        .capture(
+            CaptureCommand {
+                command: RunCommand {
+                    bin: launch.bin,
+                    args: smol_args(message),
+                    env,
+                    isolated: false,
+                    cwd: cwd.to_owned(),
+                },
+                input: message.user.as_bytes().to_vec(),
+                timeout: TIMEOUT,
+                max_bytes: OUTPUT_CAP,
+            },
+            scope.0.clone(),
+        )
+        .await?;
+    smol_result(Ran {
+        code: output.code,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
 /// Where the model call goes.
 pub enum Model {
     /// Ask main where omp is (`omp` `{}` → `{bin, env}`) and run it in `cwd`.
     Omp(Asker, PathBuf),
+    /// The native app's canonical Machine selector; no main-process ask or deserialized launch authority.
+    Native(
+        std::sync::Arc<dyn crate::aimemory::application::Host>,
+        PathBuf,
+    ),
     /// Ask main for the answer (`model` `{message}` → `ModelResult`): a test's fake model.
     Main(Asker),
 }
@@ -344,6 +402,7 @@ impl Model {
 
     pub async fn call(&self, message: &Message) -> Result<ModelResult, Fault> {
         match self {
+            Model::Native(host, cwd) => run_native(host.as_ref(), message, cwd).await,
             Model::Omp(asker, cwd) => {
                 let launch = asker.ask("omp", json!({})).await?;
                 let launch: OmpLaunch = serde_json::from_value(launch).map_err(|error| {
@@ -395,7 +454,200 @@ pub fn register(registry: &mut Registry) {
 mod tests {
     use super::super::asks::rig::{Rig, Said};
     use super::*;
+    use crate::aimemory::application::{Boxed, Environment, Failure, Host, RunCommand, RunOutput};
     use crate::fs::disk::make_temp_dir;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    struct NativeSelector {
+        launch: Mutex<OmpLaunch>,
+        refused: AtomicBool,
+        calls: AtomicUsize,
+        output: Mutex<Option<Result<CaptureOutput, Fault>>>,
+        captured: Mutex<Vec<CaptureCommand>>,
+        scope: Mutex<Option<crate::server::Scope>>,
+        started: tokio::sync::Notify,
+        blocked: AtomicBool,
+    }
+
+    impl NativeSelector {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                launch: Mutex::new(OmpLaunch {
+                    bin: "resolved-omp".into(),
+                    env: BTreeMap::from([("OTEL_SDK_DISABLED".into(), "false".into())]),
+                }),
+                refused: AtomicBool::new(false),
+                calls: AtomicUsize::new(0),
+                output: Mutex::new(None),
+                captured: Mutex::new(Vec::new()),
+                scope: Mutex::new(None),
+                started: tokio::sync::Notify::new(),
+                blocked: AtomicBool::new(false),
+            })
+        }
+    }
+
+    impl Host for NativeSelector {
+        fn agent_dir(&self) -> PathBuf {
+            unreachable!("model only selects omp")
+        }
+        fn terminal_pref(&self) -> Option<bool> {
+            unreachable!("model only selects omp")
+        }
+        fn persist_terminal(&self, _: bool) -> Result<(), Failure> {
+            unreachable!("model only selects omp")
+        }
+        fn before_start(&self) -> Boxed<'_, Result<(), Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn spawn_env(&self) -> Boxed<'_, Result<Environment, Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn bun_present(&self) -> Boxed<'_, Result<bool, Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn run(
+            &self,
+            _: RunCommand,
+            _: crate::server::Scope,
+        ) -> Boxed<'_, Result<RunOutput, Failure>> {
+            unreachable!("model only selects omp")
+        }
+        fn omp_launch(&self) -> Boxed<'_, Result<OmpLaunch, Failure>> {
+            Box::pin(async move {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                if self.refused.load(Ordering::SeqCst) {
+                    return Err(Failure::step("omp selection refused"));
+                }
+                Ok(self.launch.lock().unwrap().clone())
+            })
+        }
+        fn capture(
+            &self,
+            command: CaptureCommand,
+            scope: crate::server::Scope,
+        ) -> Boxed<'_, Result<CaptureOutput, Fault>> {
+            Box::pin(async move {
+                self.captured.lock().unwrap().push(command);
+                *self.scope.lock().unwrap() = Some(scope);
+                self.started.notify_one();
+                if self.blocked.load(Ordering::SeqCst) {
+                    std::future::pending::<()>().await;
+                }
+                self.output
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("capture response")
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_model_uses_supervised_capture_and_preserves_results_and_faults() {
+        let root = temp("native");
+        let host = NativeSelector::new();
+        let model = Model::Native(host.clone(), root.join("empty"));
+        let message = Message {
+            system: "system".into(),
+            user: "한글 digest\nsecond line".into(),
+        };
+        *host.output.lock().unwrap() = Some(Ok(CaptureOutput {
+            code: 0,
+            stdout: assistant("native reply").into_bytes(),
+            stderr: Vec::new(),
+        }));
+        assert_eq!(model.call(&message).await.unwrap().text, "native reply");
+        {
+            let captures = host.captured.lock().unwrap();
+            let capture = &captures[0];
+            assert_eq!(capture.command.bin, "resolved-omp");
+            assert_eq!(capture.command.cwd, root.join("empty"));
+            assert!(!capture.command.isolated);
+            assert_eq!(capture.command.env["OTEL_SDK_DISABLED"], "true");
+            assert_eq!(capture.input, message.user.as_bytes());
+            assert_eq!(capture.timeout, Duration::from_secs(180));
+            assert_eq!(capture.max_bytes, 64 * 1024 * 1024);
+            assert_eq!(
+                capture.command.args,
+                [
+                    "-p",
+                    "--mode",
+                    "json",
+                    "--no-tools",
+                    "--no-session",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-rules",
+                    "--no-title",
+                    "--model",
+                    "pi/smol",
+                    "--thinking",
+                    "off",
+                    "--system-prompt",
+                    "system",
+                ]
+            );
+        }
+        host.launch.lock().unwrap().bin = "updated-omp".into();
+        *host.output.lock().unwrap() = Some(Ok(CaptureOutput {
+            code: 3,
+            stdout: assistant("must not succeed").into_bytes(),
+            stderr: b"warning\nprovider refused\n".to_vec(),
+        }));
+        assert_eq!(
+            model.call(&message).await.unwrap_err().message,
+            "omp exited 3: provider refused"
+        );
+        assert_eq!(host.captured.lock().unwrap()[1].command.bin, "updated-omp");
+        *host.output.lock().unwrap() = Some(Err(Fault::new(
+            "omp_timeout",
+            "omp -p timed out after 180000ms",
+        )));
+        let timed_out = model.call(&message).await.unwrap_err();
+        assert_eq!(timed_out.code, "omp_timeout");
+        assert_eq!(timed_out.message, "omp -p timed out after 180000ms");
+        *host.output.lock().unwrap() = Some(Err(Fault::cancelled()));
+        assert_eq!(
+            model.call(&message).await.unwrap_err().code,
+            Fault::cancelled().code
+        );
+        host.refused.store(true, Ordering::SeqCst);
+        assert_eq!(
+            model.call(&message).await.unwrap_err().message,
+            "omp selection refused"
+        );
+        assert_eq!(host.calls.load(Ordering::SeqCst), 5);
+        assert_eq!(host.captured.lock().unwrap().len(), 4);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn dropping_a_native_model_cancels_the_supervised_capture_scope() {
+        let root = temp("native-cancel");
+        let host = NativeSelector::new();
+        host.blocked.store(true, Ordering::SeqCst);
+        let model = Model::Native(host.clone(), root.join("empty"));
+        let running = tokio::spawn(async move {
+            model
+                .call(&Message {
+                    system: "s".into(),
+                    user: "u".into(),
+                })
+                .await
+        });
+        host.started.notified().await;
+        let scope = host.scope.lock().unwrap().clone().unwrap();
+        assert!(!scope.cancelled());
+        running.abort();
+        assert!(running.await.unwrap_err().is_cancelled());
+        assert!(
+            scope.cancelled(),
+            "executor scope outlived the cancelled model"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     /// `distill-model.test.ts`'s two `parseOmpJson` cases and the rows captured from the TypeScript before it was
     /// deleted (the same cases, then edge rows: usage fields missing or of another type, numbers JavaScript reads

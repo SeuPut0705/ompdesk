@@ -15,6 +15,13 @@ fn opt(value: Option<String>) -> Value {
     value.map_or(Value::Null, Value::from)
 }
 
+pub(super) struct TabTarget {
+    pub tab: String,
+    pub device: Option<String>,
+    pub window: i64,
+    pub session_file: Option<String>,
+}
+
 impl Ctx {
     // ---- reads ------------------------------------------------------------------------------------------------
 
@@ -226,24 +233,34 @@ impl Ctx {
     }
 
     /// `tabTarget`: one tab of `win` (`tab`, or its active tab) with what a handler routes it by.
-    pub(super) fn tab_target(&self, win: i64, tab: Option<&str>) -> Value {
+    pub(super) fn selected_target(&self, win: i64, tab: Option<&str>) -> Option<TabTarget> {
         self.with(|pool| {
             let entry = match tab {
                 Some(tab) if !tab.is_empty() => pool.entry(tab),
                 _ => Ctx::entry_for_window(pool, win),
             };
-            let Some(entry) = entry.filter(|entry| entry.shown_in(win)) else {
-                return Value::Null;
-            };
-            let mut target = Map::new();
-            target.insert("tabId".into(), Value::from(entry.tab_id.clone()));
-            if let Some(device) = &entry.device {
-                target.insert("device".into(), Value::from(device.clone()));
-            }
-            target.insert("winId".into(), Value::from(entry.win_id));
-            target.insert("sessionFile".into(), opt(entry.session_file.clone()));
-            Value::Object(target)
+            let entry = entry.filter(|entry| entry.shown_in(win))?;
+            Some(TabTarget {
+                tab: entry.tab_id.clone(),
+                device: entry.device.clone(),
+                window: entry.win_id,
+                session_file: entry.session_file.clone(),
+            })
         })
+    }
+
+    pub(super) fn tab_target(&self, win: i64, tab: Option<&str>) -> Value {
+        let Some(selected) = self.selected_target(win, tab) else {
+            return Value::Null;
+        };
+        let mut target = Map::new();
+        target.insert("tabId".into(), Value::from(selected.tab));
+        if let Some(device) = selected.device {
+            target.insert("device".into(), Value::from(device));
+        }
+        target.insert("winId".into(), Value::from(selected.window));
+        target.insert("sessionFile".into(), opt(selected.session_file));
+        Value::Object(target)
     }
 
     pub(super) fn window_of_tab(&self, tab: &str) -> Value {

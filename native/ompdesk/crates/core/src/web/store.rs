@@ -239,7 +239,7 @@ impl FileDevices {
     /// One change: `op` under the lock, then what it left to do (queue the file, tell main), in that order, so that
     /// every observer sees the changes in the order they were made. A push of main (`seq`) is always answered with
     /// the list, even when it changed nothing, because the answer carries the `ack` main waits for.
-    fn apply<T>(&self, seq: Option<u64>, op: impl FnOnce(&mut Book) -> (T, Effect)) -> T {
+    pub fn apply<T>(&self, seq: Option<u64>, op: impl FnOnce(&mut Book) -> (T, Effect)) -> T {
         let mut state = locked(&self.state);
         let state = &mut *state;
         let (out, effect) = op(&mut state.book);
@@ -286,6 +286,10 @@ impl FileDevices {
     pub fn get(&self, device_id: &str) -> Option<Device> {
         locked(&self.state).book.get(device_id).cloned()
     }
+
+    pub fn list(&self) -> Vec<Device> {
+        locked(&self.state).book.devices().to_vec()
+    }
 }
 
 impl Devices for FileDevices {
@@ -295,6 +299,25 @@ impl Devices for FileDevices {
 
     fn create(&self, device: NewDevice, now: i64) -> (Device, String) {
         self.apply(None, |book| book.create(device, now))
+    }
+
+    fn create_checked(
+        &self,
+        device: NewDevice,
+        now: i64,
+        blocks: &dyn Blocks,
+    ) -> Option<(Device, String)> {
+        self.apply(None, |book| {
+            if blocks
+                .check(device.node_id.as_deref(), device.tailscale_login.as_deref())
+                .is_some()
+            {
+                (None, Effect::default())
+            } else {
+                let (created, effect) = book.create(device, now);
+                (Some(created), effect)
+            }
+        })
     }
 
     fn set_push(&self, device_id: &str, push: PushSettings) -> bool {
@@ -335,7 +358,7 @@ impl FileBlocks {
     }
 
     /// A push of main: `op`, then the file and the list, as `FileDevices::apply`.
-    fn apply<T>(&self, seq: u64, op: impl FnOnce(&mut BlockBook) -> (T, bool)) -> T {
+    pub fn apply<T>(&self, seq: u64, op: impl FnOnce(&mut BlockBook) -> (T, bool)) -> T {
         let mut state = locked(&self.state);
         let state = &mut *state;
         let (out, changed) = op(&mut state.book);
@@ -364,6 +387,10 @@ impl FileBlocks {
         }
     }
 
+    pub fn list(&self) -> Vec<Value> {
+        locked(&self.state).book.records()
+    }
+
     pub async fn flush(&self) -> Result<(), Fault> {
         let upto = locked(&self.state).lane.saved;
         self.writer.flush(upto).await
@@ -388,6 +415,10 @@ pub struct Stores {
 }
 
 impl Stores {
+    pub fn attach_events(&self, user_data: &str, events: &Events) {
+        self.hub.attach(user_data, events);
+    }
+
     /// Reads the two files. A missing or unreadable one is an empty list.
     fn load(dir: &Path) -> Stores {
         let hub = Arc::new(Hub::default());

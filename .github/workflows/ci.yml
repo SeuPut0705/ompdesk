@@ -272,6 +272,31 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  # The CEF shell's own Rust (native/ompdesk/crates/shell, a workspace of its own so the core's `native` job never
+  # needs CEF): fmt, clippy with warnings denied and `cargo test`, with CEF's archive and the shell workspace's cargo
+  # build cached (.github/actions/shell-check). Windows here on a push to main and a batch run; the macOS leg is in
+  # mac-checks.yml with the other macOS jobs.
+  shell:
+    name: shell (windows)
+    needs: gate
+    if: "!cancelled() && ((github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.batch))"
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-check
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # release.yml's `win` pre-flight half: the tests outside src/renderer on
   # Windows (paths, PATH lookup, cmd.exe shims, spawn, named pipes, file modes),
   # in three shards as release.yml's `win-platform`.
@@ -335,6 +360,41 @@ jobs:
       contents: read
       actions: read # the failure reports read this run's jobs
     uses: ./.github/workflows/mac-checks.yml
+
+  # Batch SX's parity suites (crates/shell/PROTOCOL.md §15.3): the vitest files of src/main/shell-host/modules run
+  # each moved subsystem's cases through its typed client against the real shell (test-shell.ts). Windows here, with
+  # batch; the macOS run is a step of mac-checks.yml's mac-smoke (the shell is staged there already). Elsewhere those
+  # files skip when no shell is built; here a missing shell fails them.
+  shell-parity:
+    name: shell-parity (windows)
+    needs: gate
+    if: "!cancelled() && ((github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.batch))"
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - name: Put bun's cache on the workspace volume
+        shell: bash
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/install
+      # The CEF shell and the pinned Node (the shell action: a cached build).
+      - uses: ./.github/actions/shell
+      - name: The parity suites against the shell
+        shell: bash
+        env:
+          OMPDESK_TEST_SHELL_REQUIRED: "1"
+        run: bunx vitest run --project node src/main/shell-host/modules
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # The manual full suite: the same sharded layout as release.yml's gate
   # (e2e-shards.yml). The shards need the app bundle, so it is built and
@@ -418,17 +478,22 @@ jobs:
       - uses: ./.github/actions/install
         with:
           builder: "true"
+      # The CEF shell, Node and CEF's licence files for the package (the shell action: a cached build, the pinned Node).
+      - uses: ./.github/actions/shell
+        with:
+          licenses: "true"
       - run: bun run build
       # The memory binary, built or restored from its cache and checked, as in release.yml's win job.
       - id: memory-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'native/ompdesk/crates/core/src/aimemory/prompt_policy.rs', 'native/ompdesk/crates/memory-policy/**', 'native/ompdesk/Cargo.lock', 'native/ompdesk/rust-toolchain.toml', 'scripts/build-memory*.ts', 'scripts/cargo.ts', 'resources/gui-bridge/memory-*.ts', 'resources/gui-bridge/redactor.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
+          targets: wasm32-unknown-unknown
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
@@ -511,17 +576,22 @@ jobs:
       - uses: ./.github/actions/install
         with:
           builder: "true"
+      # The CEF shell, Node and CEF's licence files for the package (the shell action: a cached build, the pinned Node).
+      - uses: ./.github/actions/shell
+        with:
+          licenses: "true"
       - run: bun run build
       # The memory binary, built or restored from its cache and checked, as in release.yml's win job.
       - id: memory-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'native/ompdesk/crates/core/src/aimemory/prompt_policy.rs', 'native/ompdesk/crates/memory-policy/**', 'native/ompdesk/Cargo.lock', 'native/ompdesk/rust-toolchain.toml', 'scripts/build-memory*.ts', 'scripts/cargo.ts', 'resources/gui-bridge/memory-*.ts', 'resources/gui-bridge/redactor.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
+          targets: wasm32-unknown-unknown
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:

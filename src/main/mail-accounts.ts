@@ -12,6 +12,8 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { connect as netConnect, type Socket } from "node:net";
 import { join } from "node:path";
 import { type TLSSocket, connect as tlsConnect } from "node:tls";
+import { codedError } from "../shared/ipc-error-codes";
+import { KEYCHAIN_WOULD_ASK } from "../shared/keychain";
 import {
 	MAIL_DEFAULT_MAILBOX,
 	MAIL_DEFAULT_PORT,
@@ -27,6 +29,11 @@ import { type ImapConnect, type MailboxRead, type MailCursor, readMailbox } from
 /** The OS keystore as the store uses it. */
 export interface SecretBox {
 	available(): boolean;
+	/**
+	 * `KEYCHAIN_WOULD_ASK` when the keystore refused to open without asking the person (it stays so for the run); null
+	 * otherwise. Asking settles the keystore, so the store asks only when it holds a stored password it has not read.
+	 */
+	blocked?(): string | null;
 	encrypt(text: string): Buffer;
 	decrypt(data: Buffer): string;
 }
@@ -37,11 +44,16 @@ export interface MailAccountsOptions {
 	box: SecretBox;
 	/** How a connection to an account's server is made (TLS in the app; the tests' fake server is plain TCP). */
 	connect?: (account: Pick<MailAccount, "host" | "port">) => ImapConnect;
+	/**
+	 * Whether a password saved this run is kept in memory (default). The parity sheet's launch turns it off so an
+	 * account it saves reads as one whose password was not opened yet (`OMP_GUI_TEST_KEYCHAIN_WOULD_ASK`, index.ts).
+	 */
+	rememberSaved?: boolean;
 	/** Told after every change (the window's list). */
 	onChange?: (state: MailAccountsState) => void;
 }
 
-type Stored = Omit<MailAccount, "hasPassword" | "address">;
+type Stored = Omit<MailAccount, "hasPassword" | "address" | "needsReentry">;
 
 const CONNECT_TIMEOUT_MS = 20_000;
 
@@ -81,6 +93,8 @@ export class MailAccounts {
 	#accounts: Stored[];
 	/** Passwords decrypted (or saved) this launch, by account id. */
 	readonly #passwords = new Map<string, string>();
+	/** `#blocked`'s answer once it was asked; undefined before. */
+	#blockedAnswer: boolean | undefined;
 
 	constructor(options: MailAccountsOptions) {
 		this.#options = options;
@@ -89,12 +103,35 @@ export class MailAccounts {
 
 	state(): MailAccountsState {
 		return {
-			accounts: this.#accounts.map(account => ({
-				...account,
-				address: account.username.includes("@") ? account.username : "",
-				hasPassword: this.#passwords.has(account.id) || this.#hasSecretFile(account.id),
-			})),
+			accounts: this.#accounts.map(account => {
+				const needsReentry = this.#needsReentry(account.id);
+				return {
+					...account,
+					address: account.username.includes("@") ? account.username : "",
+					hasPassword: !needsReentry && (this.#passwords.has(account.id) || this.#hasSecretFile(account.id)),
+					needsReentry,
+				};
+			}),
 		};
+	}
+
+	/**
+	 * Whether the keystore refused to open without asking (`SecretBox.blocked`), asked once and only when a password is
+	 * stored that this run has not read: an account without one, or already read, never touches the keystore.
+	 */
+	#blocked(): boolean {
+		if (this.#blockedAnswer === undefined) {
+			const pending = this.#accounts.some(
+				account => !this.#passwords.has(account.id) && this.#hasSecretFile(account.id),
+			);
+			if (!pending) return false;
+			this.#blockedAnswer = this.#options.box.blocked?.() === KEYCHAIN_WOULD_ASK;
+		}
+		return this.#blockedAnswer;
+	}
+
+	#needsReentry(id: string): boolean {
+		return !this.#passwords.has(id) && this.#hasSecretFile(id) && this.#blocked();
 	}
 
 	/** Saves a new account (no `id`) or an edit; an edit without a password keeps the stored one. */
@@ -118,7 +155,11 @@ export class MailAccounts {
 			throw new Error("Invalid mail account: label (another account has it)");
 		const accountId = existing?.id ?? randomUUID();
 		if (clean.password !== undefined) {
-			if (!this.#options.box.available()) throw new Error("This computer cannot store a password safely");
+			if (!this.#options.box.available()) {
+				if (this.#options.box.blocked?.() === KEYCHAIN_WOULD_ASK)
+					throw codedError("keychain_would_ask", "macOS would ask for the login password to open the keychain");
+				throw new Error("This computer cannot store a password safely");
+			}
 			writeFileAtomicSync(
 				this.#secretFile(accountId),
 				this.#options.box.encrypt(clean.password).toString("base64"),
@@ -127,7 +168,7 @@ export class MailAccounts {
 					dirMode: 0o700,
 				},
 			);
-			this.#passwords.set(accountId, clean.password);
+			if (this.#options.rememberSaved !== false) this.#passwords.set(accountId, clean.password);
 		}
 		const stored: Stored = {
 			id: accountId,
@@ -198,6 +239,10 @@ export class MailAccounts {
 		} catch {
 			throw new Error("no password is stored for this account (Settings › Schedules › Email accounts)");
 		}
+		if (this.#blocked())
+			throw new Error(
+				"its stored password cannot be read without macOS asking for your login password; enter it again in Settings › Schedules › Email accounts",
+			);
 		let password: string;
 		try {
 			password = this.#options.box.decrypt(data);

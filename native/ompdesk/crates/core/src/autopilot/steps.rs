@@ -120,12 +120,14 @@ pub struct Steps {
     jobs: mpsc::UnboundedSender<Job>,
     on_stall: Option<OnStall>,
     pending: Arc<watch::Sender<usize>>,
+    closed: watch::Sender<bool>,
 }
 
 impl Steps {
     /// A chain named `name` whose steps may each run `max` (a step's own bound replaces it).
     pub fn new(name: impl Into<String>, max: Duration, on_stall: Option<OnStall>) -> Steps {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
+        let closed = watch::channel(false).0;
         tokio::spawn(async move {
             while let Some(job) = queue.recv().await {
                 job.await;
@@ -137,6 +139,7 @@ impl Steps {
             jobs,
             on_stall,
             pending: Arc::new(watch::channel(0).0),
+            closed,
         }
     }
 
@@ -149,6 +152,11 @@ impl Steps {
     pub async fn idle(&self) {
         let mut pending = self.pending.subscribe();
         let _ = pending.wait_for(|count| *count == 0).await;
+    }
+
+    /// Permanently closes this run's chain. Current work is cancelled with its process scope; queued work never starts.
+    pub fn close(&self) {
+        self.closed.send_replace(true);
     }
 
     /// Runs `work` after every step queued before it ended. The bound counts from when the step starts, not from when it
@@ -165,13 +173,14 @@ impl Steps {
         let (chain, step) = (self.name.clone(), step.to_owned());
         let on_stall = self.on_stall.clone();
         let pending = self.pending.clone();
+        let mut closed = self.closed.subscribe();
         // A step started from inside another is cancelled with it.
         let parent = STEP.try_with(Clone::clone).ok();
         pending.send_modify(|count| *count += 1);
         let job: Job = Box::pin(async move {
             let mut reply = reply;
             // A step whose caller was stopped (its future dropped) before its turn never starts.
-            if reply.is_closed() {
+            if reply.is_closed() || *closed.borrow() {
                 pending.send_modify(|count| *count -= 1);
                 return;
             }
@@ -200,6 +209,12 @@ impl Steps {
                 () = reply.closed() => {
                     stop(scope, gone, link, &abort).await;
                     pending.send_modify(|count| *count -= 1);
+                    return;
+                }
+                () = async { let _ = closed.wait_for(|value| *value).await; } => {
+                    stop(scope, gone, link, &abort).await;
+                    pending.send_modify(|count| *count -= 1);
+                    let _ = reply.send(Ended::Failed("the chain is closed".into()));
                     return;
                 }
             };
