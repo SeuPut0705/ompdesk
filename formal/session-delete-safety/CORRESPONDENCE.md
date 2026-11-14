@@ -77,3 +77,22 @@ A projected mutation counterexample is not automatically an original-model mutat
 
 All original reachability and late-reply diagnostic scenarios remain unchanged. New sanity negatives establish only their named projection observations. They do not replace the removed late observers or silently broaden reconnect ordering, filesystem durability, stock storage behavior, exit confirmation, authorization receipts, liveness, or native SessionOps composition. The same original delete-spine history must underlie all projected traces; arbitrary independent histories are never combined.
 
+
+## Exact mutation pairing
+
+The original invalid seven-record JSON has SHA-256 `579f5c847f417459856eadcb63620f5f80fce53992e601e7db060cb67e2abd6c`. The corrected acceptance-only record set has SHA-256 `792fd3b016abfaaafeebcca70afecce4d0084fbd1a672a415e3f50cb6980a815`. Its contextual anchor changes only `ReadFinish` acceptance, not `freshAfterLate`; it is a different mutant definition. The projected sixteen-record set has SHA-256 `34f61fddf6244ef73f07696fa93f361fa5c0a34ec2bd67aa363f66c2069bc2a9`.
+
+| Corrected original mutation | Projected mutation | Same retained change |
+| --- | --- | --- |
+| `accept-pre-delete-read` | `accept-pre-delete-feed-generation` | Acknowledgement no longer increments the feed generation. |
+| `ignore-active-delete-at-publish` | `final-open-ignores-active-delete` | Final publication consults only the tombstone. |
+| `ignore-tombstone-at-publish` | `final-open-ignores-tombstone` | Final publication consults only the count. |
+| `one-delete-clears-all-counts` | `commit-clears-all-delete-counts` | Successful commit writes zero, not an individual decrement. |
+| `rebuild-accepts-obsolete-feed-read` | `accept-old-connection-and-generation` | Read acceptance becomes `TRUE`; the original observer is unchanged. |
+| `shared-read-skips-wanted-generation` | `skip-wanted-source-generation` | Answer no longer checks the wanted shared generation. |
+| `restore-ignores-tombstone` | `restore-keeps-tombstoned-row` | Restore writes `TRUE`, retaining its original guard. |
+
+For a fixed mode and the same constants, a reverse finite-prefix argument starts at original `Init` and executes each projected action with the same parameters. A projected stutter becomes an original stutter. Erased actors remain unscheduled; neither specification imposes fairness. Erased fields still evolve by the original successor expressions, including delete notification and acknowledgement updates. In list mode the original late observers are computed at each read transition. None affects a retained guard or successor, so this construction preserves the state relation. Each paired mutation changes the same retained expression; the other obligations remain unchanged. The frozen predicate equality then transfers a corresponding observed violation.
+
+This is a static, action-labelled reverse simulation argument, not an executed witness or mechanical proof. It does not combine unrelated histories across modes. Replacement still requires the exact configuration and an actual counterexample action/parameter sequence for each corrected mutant. All seven original obligations and the failed full run remain open.
+

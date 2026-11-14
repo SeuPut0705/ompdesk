@@ -37,8 +37,8 @@
     {
       "name": "rebuild-accepts-obsolete-feed-read",
       "why": "A rebuilt consumer accepts an old connection's pending read after deletion.",
-      "search": "readConn[s][r] = connection /\\ readGen[s][r] = generation[s]",
-      "replace": "TRUE",
+      "search": "readPc' = [readPc EXCEPT ![s][r] = \"done\"]\n    /\\ IF readConn[s][r] = connection /\\ readGen[s][r] = generation[s]",
+      "replace": "readPc' = [readPc EXCEPT ![s][r] = \"done\"]\n    /\\ IF TRUE",
       "breaks": "ReconnectReadAbsent",
       "isolate": true
     },

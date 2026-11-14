@@ -31,3 +31,15 @@ The model-only `OpenPublish` correction groups `badOpen' = (badOpen \/ condition
 7. Shared reads start only when the copy is stale. The model allows one independent stale event and two delete notifications. It tracks one shared underlying read and two bounded feed requests per scope. It assumes the relevant listed ID is the modeled path rather than another duplicate path.
 
 The atomicity rule is one source region between real awaits, a synchronous handler, or an external storage effect. The physical storage effect and its promise continuation are deliberately separate. The index notification and outer tombstone continuation are separate to avoid ruling out an intervening microtask, even where a concrete promise settles within the same event-loop turn. The final open check, sidecar construction, and tab-map insertion are deliberately merged because there is no await between them. `Reconnect` combines a link transition with a later feed teardown/rebuild and is a scenario abstraction, not one atomic production event.
+
+## Corrected mutation identity
+
+The original `rebuild-accepts-obsolete-feed-read` record at `66dd66a9b5c85ad7b7c9accf8ce48fce013519b3` has a search string that occurs in both the `ReadFinish` acceptance guard and the `freshAfterLate` observer. Without `all: true`, the mutation parser rejects that non-unique anchor. The original record and failed execution remain at their original provenance.
+
+The corrected record includes the preceding `readPc'` assignment and changes only the acceptance guard to `TRUE`. The observer expression, model, bounds, configurations, and five frozen predicates remain unchanged. This is an explicitly corrected mutant definition, not the same artifact as the invalid original. No TLC detection or replacement verdict follows from the isolated anchor check.
+
+Complete `mutations.json` byte hashes are SHA-256:
+
+- Original invalid record set: `579f5c847f417459856eadcb63620f5f80fce53992e601e7db060cb67e2abd6c`.
+- Corrected acceptance-only record set: `792fd3b016abfaaafeebcca70afecce4d0084fbd1a672a415e3f50cb6980a815`.
+
