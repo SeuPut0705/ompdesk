@@ -460,3 +460,40 @@ async fn requested_port_conflict_falls_back_and_bundled_config_reads_the_shipped
     assert_eq!(config.rea.args, ["-y", "rea-agents@123.4.5", "mcp"]);
     assert_eq!(config.rea.curated_tools, ["original"]);
 }
+
+#[tokio::test]
+async fn stream_end_waits_for_the_outstanding_post_body_to_be_consumed_or_cancelled() {
+    let fixture = Fixture::new();
+    let hub = McpHub::start(fixture.config()).await.unwrap();
+    let (_id, session) = hub.inner.open(None).unwrap();
+    let (tx, mut stream) = mpsc::unbounded_channel();
+    session.events.lock().unwrap().stream = Some((1, tx));
+    let mut post = rpc_response(
+        200,
+        json!({"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"REA child exited"}}),
+    );
+    post.body_mut()._reply = ReplyLease::acquire(&session);
+    let mut finish = std::pin::pin!(session.finish());
+    std::future::poll_fn(|cx| {
+        assert!(finish.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    assert!(matches!(
+        stream.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    let bytes = post
+        .body_mut()
+        .frame()
+        .await
+        .unwrap()
+        .unwrap()
+        .into_data()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("REA child exited"));
+    drop(post);
+    finish.await;
+    assert!(stream.recv().await.is_none());
+    hub.shutdown().await.unwrap();
+}
