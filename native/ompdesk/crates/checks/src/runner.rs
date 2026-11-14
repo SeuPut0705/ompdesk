@@ -696,6 +696,30 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn wrapper_arguments_never_add_test_reporters_to_plain_checks() {
+        let dir = std::env::temp_dir().join(format!("ompdesk-wrapper-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("package.json"),
+            r#"{"scripts":{"check:types":"bun scripts/build-lock.ts --kind vitest -- tsc --noEmit"}}"#,
+        )
+        .unwrap();
+        for command in [
+            "bun run check:types",
+            "bun scripts/build-lock.ts --kind vitest -- tsc --noEmit",
+            "node scripts/build-lock.js --kind jest -- tsc --noEmit",
+            "python check.py vitest",
+            "bun run unrelated vitest",
+        ] {
+            let command = argv(command);
+            let detected = detect(&command, &dir);
+            let rewritten = rewrite(&detected, &command, &reporters(), None);
+            assert_eq!(rewritten.argv, command);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     fn rec(
         runner: &str,
         project: &str,
