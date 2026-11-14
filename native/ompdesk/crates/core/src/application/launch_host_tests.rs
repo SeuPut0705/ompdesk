@@ -170,7 +170,7 @@ async fn a_still_owned_session_is_refused_after_the_same_fast_then_slow_wait_as_
     assert!(started.elapsed() >= Duration::from_secs(60));
     assert!(started.elapsed() <= Duration::from_secs(62));
     assert!(asked.windows(2).take(20).all(|pair| pair[1] - pair[0] == Duration::from_millis(250)));
-    assert_eq!(asked.last().unwrap() - asked[asked.len() - 2], Duration::from_secs(2));
+    assert_eq!(*asked.last().unwrap() - asked[asked.len() - 2], Duration::from_secs(2));
 }
 
 #[tokio::test(start_paused = true)]
