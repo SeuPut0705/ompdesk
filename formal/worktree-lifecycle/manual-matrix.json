@@ -1,0 +1,13 @@
+{
+  "runs": [
+    {"name":"manual-two-versions","config":"ManualMC.cfg","expect":"pass"},
+    {"name":"manual-three-versions","config":"ManualMC.cfg","constants":{"VersionCount":"3"},"expect":"pass"},
+    {"name":"stale-folder-snapshot","config":"ManualMC.cfg","constants":{"BugSplitClaim":"TRUE"},"expect":"invariant","property":"NoOpenDuringRemoval"},
+    {"name":"open-during-claim","config":"ManualMC.cfg","constants":{"BugAllowOpen":"TRUE"},"expect":"invariant","property":"NoOpenDuringRemoval"},
+    {"name":"guard-before-effects-exit","config":"ManualMC.cfg","constants":{"BugEarlyRelease":"TRUE"},"expect":"invariant","property":"NoOpenDuringRemoval"},
+    {"name":"lost-prior-quota-version","config":"ManualMC.cfg","constants":{"BugDropPrior":"TRUE"},"expect":"invariant","property":"AcceptedPendingIsRetained"},
+    {"name":"failed-new-write-erases-prior","config":"ManualMC.cfg","constants":{"BugClearPrior":"TRUE"},"expect":"invariant","property":"AcceptedPendingIsRetained"},
+    {"name":"cancel-after-temp-before-rename","config":"ManualMC.cfg","constants":{"BugSkipCommit":"TRUE"},"expect":"invariant","property":"NoCancelledCommit"},
+    {"name":"remove-during-captured-retry","config":"ManualMC.cfg","constants":{"BugUnlockRetry":"TRUE"},"expect":"invariant","property":"NoRetryAfterRemoval"}
+  ]
+}

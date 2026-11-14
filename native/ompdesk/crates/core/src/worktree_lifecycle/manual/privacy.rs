@@ -1,4 +1,4 @@
-//! Credential-marker parity with `worktree-facts.ts` / gui-bridge `redactor.ts`.
+//! Credential-marker rules ported from `worktree-facts.ts` / gui-bridge `redactor.ts`.
 //! File bytes are Latin1 there, so the scanner uses byte-wise JS ASCII word boundaries.
 //! Later diagnostic address/home passes cannot consume `<secret>` or `<token>` markers.
 use std::io::Read;

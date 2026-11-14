@@ -1,0 +1,13 @@
+{
+  "checker":{"kind":"tlc","config":"ManualMC.cfg"},
+  "properties":["NoOpenDuringRemoval","NoCancelledCommit","NoRetryAfterRemoval","AcceptedPendingIsRetained"],
+  "mutations":[
+    {"name":"split-folder-read-claim","why":"A new local acquire slips between listing and removal admission","search":"IF BugSplitClaim THEN ~s.snapshotOpen ELSE ~s.open","replace":"~s.snapshotOpen","breaks":"NoOpenDuringRemoval"},
+    {"name":"admit-open-under-removal","why":"A pool or host-open consumer omits the shared claim guard","search":"(~s.claim \\/ BugAllowOpen)","replace":"TRUE","breaks":"NoOpenDuringRemoval"},
+    {"name":"drop-guard-before-owned-effects","why":"A dropped request releases ownership while deletion still runs","search":"(~s.effect \\/ BugEarlyRelease)","replace":"TRUE","breaks":"NoOpenDuringRemoval"},
+    {"name":"replace-prior-quota-snapshot","why":"A newer cancelled save erases earlier accepted metadata","search":"IF BugDropPrior THEN <<>> ELSE s.pending","replace":"<<>>","breaks":"AcceptedPendingIsRetained"},
+    {"name":"nonquota-failure-clears-pending","why":"A rejected new mutation discards the previous quota retry","search":"IF BugClearPrior THEN <<>> ELSE @","replace":"<<>>","breaks":"AcceptedPendingIsRetained"},
+    {"name":"omit-rename-predicate","why":"Cancellation after temp write no longer fences the actual rename","search":"(s.alive[s.writing] \\/ BugSkipCommit)","replace":"TRUE","breaks":"NoCancelledCommit"},
+    {"name":"unlock-captured-retry","why":"A pending retry recreates metadata after canonical removal","search":"(s.busy = \"none\" \\/ (BugUnlockRetry /\\ s.busy = \"retry\"))","replace":"(s.busy \\in {\"none\", \"retry\"})","breaks":"NoRetryAfterRemoval"}
+  ]
+}

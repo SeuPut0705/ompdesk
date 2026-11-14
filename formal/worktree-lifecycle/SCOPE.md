@@ -22,3 +22,29 @@ The first five properties come from src/main/worktree-lifecycle.ts start, close,
 A prior, narrower model passed local SANY parse and TLC configuration load in check 20261114-095535-45ab. The expanded model has not been parsed or explored after Main's d4 instruction not to start another local check. No hosted matrix, mutation result or formal stamp is claimed.
 
 Base owns the global manifest and the hosted run. This directory is the only model copy. Runtime proof still requires Base's actual native source, admission, identity-bound bind, exact exit receipt and existing native git facade.
+
+## ManualPolicy model
+
+`ManualPolicy.tla` adds one local folder, one removal guard and up to two or three
+scoped metadata versions. It separates an open-folder listing from final claim
+admission, cancellation from the save mutex, and a temp-file write from its actual
+rename. A rejected newer mutation must not discard accepted pending metadata; a
+cancelled newer pending version must leave the prior admitted version available.
+Removal and retry use the same writer lock.
+
+The frozen manual properties are `NoOpenDuringRemoval`, `NoCancelledCommit`,
+`NoRetryAfterRemoval` and `AcceptedPendingIsRetained`. Their sources are
+`worktree-removals.ts`'s check-and-claim/acquire contract, `saved-worktrees.ts`'s
+scoped atomic saved.json update, the canonical retained writer and Main/Base d70's
+explicit cancellation and pending-version contract.
+
+The manual model excludes archive bytes, filesystem symlink races, git internals,
+disk exhaustion duration, multiple repository identities and unbounded metadata.
+It makes no fairness or eventual-save claim. Snapshot versions abstract whole
+record arrays, not individual fields or independent concurrent record edits.
+
+The model, manual matrix and mutations are source only. No SANY, TLC, mutation run
+or stamp has been executed for them. Base owns registration and one hosted run.
+The actual Root same-hub folders/claim admission and the same Claims Arc in every
+pool/host-open consumer remain integration prerequisites, not assumptions already
+verified about the application.
