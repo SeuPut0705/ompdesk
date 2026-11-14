@@ -20,6 +20,7 @@ import baiducloud from "../../../assets/provider-marks/baiducloud.svg?raw";
 import baseten from "../../../assets/provider-marks/baseten.svg?raw";
 import bedrock from "../../../assets/provider-marks/bedrock.svg?raw";
 import cerebras from "../../../assets/provider-marks/cerebras.svg?raw";
+import chutes from "../../../assets/provider-marks/chutes.svg?raw";
 import cline from "../../../assets/provider-marks/cline.svg?raw";
 import cloudflare from "../../../assets/provider-marks/cloudflare.svg?raw";
 import commandcode from "../../../assets/provider-marks/commandcode.svg?raw";
@@ -80,6 +81,7 @@ export const MARK_SOURCES = {
 	baseten,
 	bedrock,
 	cerebras,
+	chutes,
 	cline,
 	cloudflare,
 	commandcode,
@@ -177,6 +179,7 @@ export const PROVIDER_BRANDS: Readonly<Record<string, Brand>> = {
 	azure: brand("azure", "Microsoft"),
 	baseten: brand("baseten", "Baseten"),
 	cerebras: brand("cerebras", "Cerebras"),
+	chutes: brand("chutes", "Chutes"),
 	commandcode: brand("commandcode", "Command Code"),
 	cursor: brand("cursor", "Cursor"),
 	deepinfra: brand("deepinfra", "DeepInfra"),

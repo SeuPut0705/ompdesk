@@ -57,4 +57,4 @@ omp --version
 
 ## 그래도 안 되면
 
-재현 방법, `omp --version`, **진단 정보 복사** 내용(또는 OMPdesk 버전, 운영체제, [로그](#로그)의 관련 줄)과 함께 [이슈](https://github.com/SeuPut0705/ompdesk/issues)를 남겨 주세요.
+재현 방법, `omp --version`, **진단 정보 복사** 내용(또는 OMPdesk 버전, 운영체제, [로그](#로그)의 관련 줄)과 함께 [이슈](https://github.com/seuput-inc/ompdesk/issues)를 남겨 주세요.

@@ -1,5 +1,15 @@
 /** Korean text for backend-provided settings enum labels and descriptions. */
 export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
+	"Google Antigravity (Gemini, Claude, GPT-OSS)": "Google Antigravity(Gemini·Claude·GPT-OSS)",
+	"Google Antigravity is paused: Google's terms do not allow third-party sign-in and Google has suspended accounts that used it (see #18341). Use GEMINI_API_KEY (AI Studio) or google-vertex instead.":
+		"Google 약관은 타사 로그인을 허용하지 않으며, 이를 사용한 계정이 정지된 사례가 있어 Google Antigravity를 일시정지했어요(#18341). 대신 GEMINI_API_KEY(AI Studio) 또는 google-vertex를 사용하세요.",
+	"Never nudge mid-run": "작업 중에는 알리지 않음",
+	Capped: "횟수 제한",
+	"Nudge after 12 edits or commands, at most twice until the todo list changes or you send a message":
+		"수정이나 명령 12회 뒤에 알려요. 할 일 목록이 바뀌거나 메시지를 보낼 때까지 최대 두 번 알려요.",
+	Backoff: "간격 늘리기",
+	"Keep nudging with a doubling gap: after 12, 24, 48, 96, then every 192 edits or commands":
+		"수정이나 명령 12·24·48·96회 뒤에 알리고, 이후에는 192회마다 계속 알려요.",
 	"This Directory": "이 폴더만",
 	"Only sessions saved for this directory": "이 폴더에 저장된 세션만 보여요",
 	"Repository Worktrees": "저장소 워크트리 전체",

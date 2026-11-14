@@ -141,6 +141,16 @@ describe.each(Object.entries(TRANSLATIONS))("locale parity: %s", (lang, locale) 
 	});
 });
 
+describe("update repository wording", () => {
+	it("names the canonical repository in both languages", () => {
+		for (const locale of [en, ko]) {
+			for (const key of ["updates.auth.missing", "updates.auth.denied", "updates.auth.ok"]) {
+				expect(locale[key], key).toContain("seuput-inc/ompdesk");
+			}
+		}
+	});
+});
+
 describe("ko steer wording", () => {
 	// Stock's "steer" is one concept in the composer, the transcript, the queue, subagents and Settings.
 	it("calls a steer 추가 지시 wherever en mentions one, and never 스티어링", () => {

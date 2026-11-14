@@ -52,6 +52,10 @@ export interface SessionListFeed {
 	renameSession: (path: string, name: string) => Promise<void>;
 }
 
+interface ManagedSessionListFeed extends SessionListFeed {
+	forgetSession: (path: string) => void;
+}
+
 const REFRESH_DEBOUNCE_MS = 350;
 
 const INITIAL_STATE: SessionListState = { sessions: [], isLoading: true, live: false, error: null };
@@ -100,7 +104,7 @@ export const READ_RETRY_MAX_MS = 30_000;
 /** Feeds someone shows right now (`retain`ed). */
 const heldRefreshes = new Set<() => void>();
 
-function createSessionListFeed(scope: SessionListScope, device: string | undefined): SessionListFeed {
+function createSessionListFeed(scope: SessionListScope, device: string | undefined): ManagedSessionListFeed {
 	const ns = snapshotNs(device);
 	const seeded = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey(scope))?.value;
 	const store = createStore<SessionListState>()(() =>
@@ -117,7 +121,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 		);
 	};
 	let holders = 0;
-	/** Bumped when the last holder lets go: answers to older reads are dropped. */
+	/** Bumped on release or deletion: answers taken before either are dropped. */
 	let generation = 0;
 	let loaded = false;
 	let inFlight = false;
@@ -253,14 +257,25 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 		store,
 		retain,
 		refresh,
+		forgetSession: path => {
+			// Both scopes may already be reading the row that was just deleted.
+			generation++;
+			inFlight = false;
+			queued = false;
+			copy = null;
+			announced = null;
+			window.clearTimeout(debounceTimer);
+			window.clearTimeout(retryTimer);
+			failures = 0;
+			store.setState({ sessions: store.getState().sessions.filter(session => session.path !== path) });
+			if (holders > 0) refresh();
+		},
 		deleteSession: async path => {
 			await (device === undefined ? window.omp.sessions.delete(path) : window.omp.sessions.delete(path, device));
 			// Every list of this device drops it now, held or not, and so does each one's last-known copy: a list nobody
 			// shows would otherwise paint the deleted row again on its next mount (or the next launch) until its read.
 			for (const each of ["local", "global"] as const) {
-				const target = feeds.get(device === undefined ? each : `${each}:${device}`)?.store;
-				if (target)
-					target.setState({ sessions: target.getState().sessions.filter(session => session.path !== path) });
+				feeds.get(device === undefined ? each : `${each}:${device}`)?.forgetSession(path);
 				const cached = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey(each))?.value;
 				if (Array.isArray(cached) && cached.some(session => session.path === path))
 					snapshots().write(
@@ -270,7 +285,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 						cached.filter(session => session.path !== path),
 					);
 			}
-			refresh();
+			if (holders === 0) refresh();
 		},
 		renameSession: async (path, name) => {
 			await (device === undefined
@@ -286,7 +301,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 	};
 }
 
-const feeds = new Map<string, SessionListFeed>();
+const feeds = new Map<string, ManagedSessionListFeed>();
 
 /** One feed per scope and device (`device` = paired host deviceId; absent = this device). */
 export function sessionListFeed(scope: SessionListScope, device?: string): SessionListFeed {

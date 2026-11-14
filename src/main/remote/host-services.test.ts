@@ -76,6 +76,7 @@ import {
 	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
 	SESSIONS_DELETED_EVENT,
+	SESSIONS_DELETED_METHOD,
 	SIGN_IN_CALLBACK_METHOD,
 	SUMMARIES_EVENT,
 	type TabEventMessage,
@@ -905,6 +906,82 @@ describe("authenticated inbox forwarding", () => {
 		});
 		Object.defineProperty(sidecar, "rpcClient", { value: replacement, configurable: true });
 		expect(() => target.assertCurrent()).toThrow();
+	});
+});
+
+describe("delete during a pending open", () => {
+	it("refuses the tombstoned saved session after its workspace lookup resumes", async () => {
+		const { services, sidecars, recordedCwd, deleteSession } = setup();
+		const sessionPath = join(workDir, "pending-delete.jsonl");
+		writeFileSync(sessionPath, "");
+		deleteSession.mockImplementation(async path => {
+			rmSync(path);
+		});
+		const lookup = Promise.withResolvers<string | null>();
+		const entered = Promise.withResolvers<void>();
+		recordedCwd.mockImplementation(async () => {
+			entered.resolve();
+			return lookup.promise;
+		});
+		const first = new FakeConnection(peer("device-pending"));
+		const opening = services
+			.call(first.peer, "tab.open", { rtab: "pending", cwd: workDir, kind: "agent", sessionPath }, first)
+			.catch((error: unknown) => error);
+		await entered.promise;
+		await services.call(first.peer, "sessions.delete", { sessionPath }, first);
+		expect(existsSync(sessionPath)).toBe(false);
+		lookup.resolve(workDir);
+		expect(ipcErrorCode(await opening)).toBe("session_deleted");
+		expect(sidecars).toEqual([]);
+		expect(services.viewSession(sessionPath)).toBeNull();
+		expect(services.resumeFacts()).toEqual([]);
+		services.disconnected(first.peer, first);
+		const reconnected = new FakeConnection(first.peer);
+		expect(await services.call(first.peer, SESSIONS_DELETED_METHOD, { paths: [sessionPath] }, reconnected)).toEqual({
+			paths: [sessionPath],
+		});
+		const reopen = await services
+			.call(first.peer, "tab.open", { rtab: "reopened", cwd: workDir, kind: "agent", sessionPath }, reconnected)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(reopen)).toBe("session_deleted");
+		expect(sidecars).toEqual([]);
+	});
+
+	it("refuses an open during storage deletion without tombstoning a session whose delete fails", async () => {
+		const { services, sidecars, deleteSession } = setup();
+		const sessionPath = join(workDir, "pending-failed-delete.jsonl");
+		const storage = Promise.withResolvers<void>();
+		const entered = Promise.withResolvers<void>();
+		deleteSession.mockImplementation(async () => {
+			entered.resolve();
+			return storage.promise;
+		});
+		const first = new FakeConnection(peer("device-delete-failed"));
+		const deleting = services
+			.call(first.peer, "sessions.delete", { sessionPath }, first)
+			.catch((error: unknown) => error);
+		await entered.promise;
+		const reconnected = new FakeConnection(first.peer);
+		const opening = await services
+			.call(first.peer, "tab.open", { rtab: "held", cwd: workDir, kind: "agent", sessionPath }, reconnected)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(opening)).toBe("session_running");
+		expect(sidecars).toEqual([]);
+		expect(await services.call(first.peer, SESSIONS_DELETED_METHOD, { paths: [sessionPath] }, reconnected)).toEqual({
+			paths: [],
+		});
+		storage.reject(new Error("fixture storage failure"));
+		expect(await deleting).toMatchObject({ message: "fixture storage failure" });
+		expect(
+			await services.call(
+				first.peer,
+				"tab.open",
+				{ rtab: "retry", cwd: workDir, kind: "agent", sessionPath },
+				reconnected,
+			),
+		).toMatchObject({ attached: false });
+		expect(sidecars).toHaveLength(1);
+		expect(deletedSessions().has(sessionPath)).toBe(false);
 	});
 });
 

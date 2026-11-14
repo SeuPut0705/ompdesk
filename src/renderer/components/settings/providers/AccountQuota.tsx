@@ -51,14 +51,6 @@ export function accountNames(labels: readonly string[]): { address: string; suff
 	});
 }
 
-/** How the account stands: out of room (a gauge at its limit, or omp skipping it), running low, or fine. */
-export function accountStanding(account: AccountQuotaSource): "limited" | "low" | "ok" {
-	const gauges = accountGauges(quotaLimits(account));
-	if (account.state === "depleted" || gauges.some(gauge => gauge.fraction >= 1)) return "limited";
-	if (account.state === "reserve" || gauges.some(gauge => gauge.fraction >= NEAR_FRACTION)) return "low";
-	return "ok";
-}
-
 /**
  * The account's windows as shared gauges (share used, reset beneath each), each in its column of the provider's
  * set, on the track count the whole list shares; the tooltip lists every window and the read's age.
@@ -94,7 +86,14 @@ export function QuotaCell({
 			data-quota-updated={account.fetchedAt === undefined ? undefined : formatClock(account.fetchedAt)}
 			title={title}
 		>
-			<UsageGauges columns={columns} compact={compact} limits={limits} resets tracks={tracks} />
+			<UsageGauges
+				columns={columns}
+				compact={compact}
+				limits={limits}
+				resets
+				sharedLabels={compact}
+				tracks={tracks}
+			/>
 		</div>
 	);
 }

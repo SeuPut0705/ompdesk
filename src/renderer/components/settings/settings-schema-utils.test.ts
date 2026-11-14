@@ -20,8 +20,7 @@ const gated = (condition: string): SettingEntry => ({
 	default: false,
 	condition,
 });
-
-/** Stock gates that read the host or a config layer, never a setting value: the GUI keeps them visible. */
+/** Gates evaluated without setting values; source gates also use each entry's provenance. */
 const HOST_GATES = [
 	"macOS",
 	"hasImageProtocol",
@@ -29,6 +28,7 @@ const HOST_GATES = [
 	"contextFilesExtraNotProject",
 	"restrictedFoldersNotProject",
 	"perCallModelAllowNotProject",
+	"unpausedProvidersNotProject",
 ];
 
 /** Gates of stock's own memory settings, which OMPdesk does not list (ai-memory replaced them), so it has no rule for them. */
@@ -119,5 +119,22 @@ describe.skipIf(!stockAvailable)("settings condition gates against installed sto
 		for (const name of HOST_GATES) {
 			expect(isSettingVisible(gated(name), {})).toBe(true);
 		}
+	});
+});
+
+describe("project-supplied global editors", () => {
+	it.each([
+		"contextFilesExtraNotProject",
+		"restrictedFoldersNotProject",
+		"perCallModelAllowNotProject",
+		"unpausedProvidersNotProject",
+	])("does not promote a project list through %s", condition => {
+		const entry: SettingEntry = {
+			...gated(condition),
+			provenance: { layers: ["project"] },
+		};
+		expect(isSettingVisible(entry, {})).toBe(false);
+		expect(isSettingVisible({ ...entry, provenance: { layers: ["global"] } }, {})).toBe(true);
+		expect(isSettingVisible({ ...entry, provenance: { layers: [] } }, {})).toBe(true);
 	});
 });

@@ -10,9 +10,8 @@ import { GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
  * global settings instance, so the GUI re-evaluates them against its live
  * values; settings-schema-utils.test.ts pins each one to stock. `parent` is
  * the setting that opens the gate (the inactive row's "Configure" link).
- * Host gates (macOS, hasImageProtocol, nativeRendering) and the provenance
- * gates contextFilesExtraNotProject, restrictedFoldersNotProject and perCallModelAllowNotProject are not
- * value-evaluable: unknown gates keep the entry visible.
+ * Project-source gates use schema provenance so a disregarded project list is
+ * never promoted through a global editor. Host gates remain visible.
  */
 const SETTING_CONDITIONS: Record<string, { parent: string; visible: (values: Record<string, unknown>) => boolean }> = {
 	advisorEnabled: { parent: "advisor.enabled", visible: values => values["advisor.enabled"] === true },
@@ -36,9 +35,17 @@ const SETTING_CONDITIONS: Record<string, { parent: string; visible: (values: Rec
 	},
 };
 
-/** An entry is hidden only while its condition names a settings-backed gate that resolves false. */
+const PROJECT_SOURCE_GATES: Readonly<Record<string, true>> = {
+	contextFilesExtraNotProject: true,
+	restrictedFoldersNotProject: true,
+	perCallModelAllowNotProject: true,
+	unpausedProvidersNotProject: true,
+};
+
+/** Match stock's value and source gates; host-only conditions stay visible. */
 export function isSettingVisible(entry: SettingEntry, values: Record<string, unknown>): boolean {
 	if (entry.condition === undefined) return true;
+	if (Object.hasOwn(PROJECT_SOURCE_GATES, entry.condition)) return !entry.provenance?.layers.includes("project");
 	return SETTING_CONDITIONS[entry.condition]?.visible(values) ?? true;
 }
 

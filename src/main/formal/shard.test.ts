@@ -455,7 +455,7 @@ describe("the plan", () => {
 		);
 		const config = await keys();
 		expect(config["r1-liveness"]).not.toBe(before["r1-liveness"]);
-		expect(config["base1"]).not.toBe(before["base1"]);
+		expect(config.base1).not.toBe(before.base1);
 		expect(config["r0-all-invariants"]).toBe(before["r0-all-invariants"]);
 	});
 

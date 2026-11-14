@@ -1,3 +1,4 @@
+import { PRODUCT_REPO } from "../../shared/product-repo";
 import { memoryKo } from "./memory";
 export const ko: Record<string, string> = {
 	"mcp.rea.title": "REA — 리버스 엔지니어링 (내장)",
@@ -1298,26 +1299,12 @@ export const ko: Record<string, string> = {
 	"usage.resetting": "초기화 중…",
 	"usage.inUse": "사용 중",
 	"usage.updatedAgo": "{time} 전 업데이트",
-	// Why this session is on its account (the rotation's last decision, bridge account-rotation-core.ts RerankSkip/MoveWhy)
-	"usage.rotation.better": "이번 차례를 시작할 때 이 계정으로 옮겼어요. omp 순위에서 확실히 앞서요.",
-	"usage.rotation.near-limit": "이전 계정이 한도에 가까워서 이 계정으로 옮겼어요.",
-	"usage.rotation.much-better": "차례 도중에 이 계정으로 옮겼어요. 여유가 훨씬 커요.",
-	"usage.rotation.same": "그대로예요. omp 순위 1위 계정이에요.",
-	"usage.rotation.within-margin": "그대로예요. 다른 계정이 조금 나을 뿐이고, 옮기면 프롬프트 캐시를 잃어요.",
-	"usage.rotation.mid-turn": "차례 도중이라 그대로예요. 한도에 가깝지 않고, 옮기면 프롬프트 캐시를 잃어요.",
-	"usage.rotation.no-better": "그대로예요. 지금 더 여유 있는 계정이 없어요.",
-	"usage.rotation.usage-unreadable": "그대로예요. 계정의 사용량을 읽지 못해서 옮기지 않아요.",
-	"usage.rotation.explicit": "그대로예요. 이 세션을 이 계정으로 직접 고정했어요.",
-	"usage.rotation.restricted": "그대로예요. 이 세션은 계정 풀로 제한돼요.",
-	"usage.rotation.policy": "그대로예요. 계정 정책이 사용할 계정을 정해요.",
-	"usage.rotation.blocked": "이 모델에서는 이 계정이 막혀 있어요. 다음 요청은 다른 계정을 써요.",
-	"usage.rotation.subagents": "그대로예요. 이 세션의 서브에이전트가 이 계정으로 일하고 있어요.",
-	"usage.rotation.cold": "한 시간 넘게 쉬었어요. 다음 요청이 가장 나은 계정을 다시 골라요.",
-	"usage.rotation.no-choice": "그대로예요. 지금 이 모델을 처리할 다른 계정이 없어요.",
-	"usage.rotation.target-limited": "그대로예요. 다른 계정은 이 모델의 한도를 다 썼거나 거의 찼어요.",
-	"usage.rotation.pin-refused": "그대로예요. 계정을 바꾸지 못했어요.",
-	"usage.rotation.mode": "균등 순환이에요. 이 세션은 막힐 때까지 계정을 유지해요.",
-	"usage.rotation.unknown-provenance": "omp에 맡겼어요. 이 세션이 계정을 받은 경위를 읽지 못했어요.",
+	"usage.limitedShort": "한도",
+	"usage.note.overageBalance": "초과 잔액",
+	"usage.note.overageRequests": "초과 요청",
+	"usage.note.requests": "요청",
+	"usage.note.unlimited": "무제한",
+	"usage.note.deprioritized": "우선순위 낮음",
 
 	// First-run onboarding
 
@@ -5503,15 +5490,13 @@ export const ko: Record<string, string> = {
 	"updates.auth.source.gh": "GitHub CLI(gh) 로그인을 사용 중이에요",
 	"updates.auth.source.stored": "저장한 토큰을 사용 중이에요",
 	"updates.auth.source.none": "토큰 없이 업데이트하는 중이에요",
-	"updates.auth.missing":
-		"GitHub가 로그인한 계정에만 릴리스를 보여 줘요. gh로 로그인하거나 SeuPut0705/ompdesk에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.",
-	"updates.auth.denied":
-		"이 GitHub 계정으로는 SeuPut0705/ompdesk를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.",
+	"updates.auth.missing": `GitHub가 로그인한 계정에만 릴리스를 보여 줘요. gh로 로그인하거나 ${PRODUCT_REPO}에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.`,
+	"updates.auth.denied": `이 GitHub 계정으로는 ${PRODUCT_REPO}를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.`,
 	"updates.auth.invalid":
 		"GitHub가 토큰을 거부했어요(만료 또는 취소됨). 설정 › 일반에서 GitHub를 다시 연결하거나 새 토큰을 붙여 넣으세요.",
 	"updates.auth.network":
 		"GitHub에 연결하지 못했거나 시간당 요청 한도에 도달했어요. 잠시 뒤 다시 시도하세요. 토큰을 쓰면 한도가 늘어나요.",
-	"updates.auth.ok": "SeuPut0705/ompdesk 접근을 확인했어요.",
+	"updates.auth.ok": `${PRODUCT_REPO} 접근을 확인했어요.`,
 	"updates.auth.placeholder": "GitHub 토큰 붙여 넣기",
 	"updates.auth.tokenLabel": "GitHub 토큰",
 	"updates.auth.save": "토큰 저장",

@@ -4,7 +4,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageLimit, UsageReport } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
-import { en } from "../../../locales/en";
+import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useTabsStore } from "../../../stores/tabs";
@@ -27,8 +27,10 @@ Reflect.set(window, "omp", {
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
 
+// The renderer module graph loads only after the fake window.omp transport exists.
 const { createRoot } = await import("react-dom/client");
 const { SidebarUsage } = await import("./SidebarUsage");
+const { UsageQuotas } = await import("../../insights/UsageQuotas");
 
 let root: Root;
 let container: HTMLElement;
@@ -71,7 +73,7 @@ function fourAndFour(): UsageReport[] {
 	];
 }
 
-async function mount(list: UsageReport[]): Promise<Element | null> {
+async function mount(list: UsageReport[], insights = false): Promise<Element | null> {
 	useSessionStore.setState({ status: "ready" });
 	reports = list;
 	useTabsStore.setState({
@@ -82,17 +84,8 @@ async function mount(list: UsageReport[]): Promise<Element | null> {
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<SidebarUsage />
-			</I18nProvider>,
-		),
-	);
-	await act(async () => {
-		await new Promise(resolve => setTimeout(resolve, 20));
-	});
-	return container.querySelector(".omp-sidebar-usage");
+	await act(async () => root.render(<I18nProvider>{insights ? <UsageQuotas /> : <SidebarUsage />}</I18nProvider>));
+	return insights ? container : container.querySelector(".omp-sidebar-usage");
 }
 
 const row = (block: Element | null, id: number) => block?.querySelector(`[data-usage-account="${id}"]`) ?? null;
@@ -102,9 +95,74 @@ afterEach(async () => {
 	container?.remove();
 	useSidebarFolds.getState().reset();
 	useSessionStore.getState().reset();
+	vi.restoreAllMocks();
+	useModelStore.setState({ providers: [] });
 });
 
 describe("SidebarUsage", () => {
+	it("retains stock note-only balances, request counts and quota states without provider explanation sentences", async () => {
+		useModelStore.setState({
+			providers: [
+				{ id: "devin", name: "Devin", authenticated: true, loginAvailable: false, disabled: false, modelCount: 1 },
+			],
+		});
+		const block = await mount(
+			[
+				report("devin", 1, "devin@example.com", {
+					limits: [],
+					notes: ["Overage balance: $12.50", "A provider explanation sentence."],
+				}),
+				report("github-copilot", 2, "copilot@example.com", {
+					limits: [
+						{
+							id: "copilot:premium",
+							label: "Premium requests",
+							used: 24,
+							limit: 100,
+							unit: "requests",
+							notes: ["Overage requests: 17"],
+						},
+						{ id: "copilot:completions", label: "Completions", notes: ["Unlimited"] },
+					],
+				}),
+				report("minimax-code", 3, "minimax@example.com", { limits: [], notes: ["Requests: 23/100"] }),
+			],
+			true,
+		);
+		const value = (key: string) => block?.querySelector(`[data-usage-fact="usage.note.${key}"] dd`)?.textContent;
+		expect(value("overageBalance")).toBe("$12.50");
+		expect(value("overageRequests")).toBe("17");
+		expect(value("requests")).toBe("23/100");
+		expect(value("unlimited")).toBe("∞");
+		expect(block?.textContent).not.toContain("A provider explanation sentence.");
+		expect(
+			block?.querySelector('[role="progressbar"][aria-label="Premium requests"]')?.getAttribute("aria-valuenow"),
+		).toBe("0.24");
+	});
+
+	it("keeps five window names beside their own values when the provider needs several bands", async () => {
+		const block = await mount([
+			report("anthropic", 1, "five@example.com", {
+				limits: [
+					...limits("anthropic", 0.2, 0.3, 0.4),
+					gauge("anthropic:7d:opus", "Claude 7 Day (Opus)", 0.5, 90),
+					gauge("anthropic:7d:sonnet", "Claude 7 Day (Sonnet)", 0.6, 90),
+				],
+			}),
+		]);
+		const values = [...(row(block, 1)?.querySelectorAll(".omp-usage-gauge") ?? [])].map(cell => [
+			cell.querySelector("[data-usage-label]")?.textContent,
+			cell.querySelector("[data-usage-percent]")?.textContent,
+		]);
+		expect(values).toEqual([
+			["5H", "20%"],
+			["7D", "30%"],
+			["Fable", "40%"],
+			["Opus", "50%"],
+			["Sonnet", "60%"],
+		]);
+		expect(row(block, 1)?.querySelectorAll(".omp-usage-gauge-reset")).toHaveLength(5);
+	});
 	it("lists every account of every provider, grouped by provider with its count", async () => {
 		const block = await mount(fourAndFour());
 		const groups = [...(block?.querySelectorAll("[data-provider-row]") ?? [])];
@@ -112,9 +170,9 @@ describe("SidebarUsage", () => {
 		expect(ids).toEqual(["anthropic", "openai-codex"]);
 		const counts = groups.map(group => group.querySelector("[data-account-count]")?.textContent);
 		expect(counts.map(count => count?.replace("· ", ""))).toEqual(["4 accounts", "4 accounts"]);
-		const labels = [...(block?.querySelectorAll("[data-usage-account] [data-account-label]") ?? [])];
+		const rows = [...(block?.querySelectorAll("[data-usage-account]") ?? [])];
 		const wanted = [1, 2, 3, 4].flatMap(id => [`chatgpt${id}@example.com`, `claude${id}@example.com`]);
-		expect(labels.map(label => label.textContent).sort()).toEqual(wanted.sort());
+		expect(rows.map(row => row.getAttribute("aria-label")).sort()).toEqual(wanted.sort());
 	});
 
 	it("marks the account this session uses, and no other", async () => {
@@ -129,6 +187,7 @@ describe("SidebarUsage", () => {
 	it("marks an account at its limit, and one close to it", async () => {
 		const block = await mount([
 			report("anthropic", 1, "full@example.com", {
+				active: true,
 				limits: limits("anthropic", 0.4, 1),
 				resetAt: Date.now() + 3 * HOUR,
 			}),
@@ -139,27 +198,51 @@ describe("SidebarUsage", () => {
 		const weekly = (id: number) => row(block, id)?.querySelector('[data-window="7d"]')?.getAttribute("data-state");
 		expect([1, 2, 3].map(standing)).toEqual(["limited", "low", "ok"]);
 		expect([1, 2, 3].map(weekly)).toEqual(["limit", "near", "ok"]);
+		expect(row(block, 1)?.querySelector(".omp-account-state [aria-label]")?.getAttribute("aria-label")).toBe(
+			"In use",
+		);
 	});
 
 	it("shows every window of an account with its reset: 5H, 7D and a model's own", async () => {
 		const block = await mount(fourAndFour());
 		const gauges = [...(row(block, 2)?.querySelectorAll(".omp-usage-gauge") ?? [])];
-		expect(gauges.map(gauge => gauge.querySelector(".omp-usage-gauge-text")?.textContent)).toEqual([
-			"5H20%",
-			"7D30%",
-			"Fable10%",
+		expect(gauges.map(gauge => gauge.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow"))).toEqual([
+			"20",
+			"30",
+			"10",
 		]);
-		for (const gauge of gauges) expect(gauge.querySelector(".omp-usage-gauge-reset")?.textContent).toMatch(/^↻ \d/);
+		for (const gauge of gauges) expect(gauge.querySelector(".omp-usage-gauge-reset")?.textContent).toMatch(/^\d/);
 	});
 
-	it("shows a long address whole: it wraps, and the label is its tooltip", async () => {
-		const long = "a.very.long.address.of.somebody.with.many.dots@a-rather-long-company-domain.example.com";
-		const block = await mount([report("anthropic", 1, long)]);
-		const label = row(block, 1)?.querySelector("[data-account-label]");
-		expect(label?.textContent).toBe(long);
-		expect(label?.getAttribute("title")).toBe(long);
-		expect(label?.className).toContain("[overflow-wrap:anywhere]");
-		expect(label?.className).not.toContain("truncate");
+	it("preserves both reset units and the full reset timestamp in a shared-column cell", async () => {
+		const now = 1_800_000_000_000;
+		vi.spyOn(Date, "now").mockReturnValue(now);
+		const resetsAt = now + (3 * 24 + 11) * HOUR;
+		const block = await mount([
+			report("anthropic", 1, "full@example.com", {
+				limits: [{ id: "anthropic:7d", label: "7 day", windowId: "7d", usedFraction: 0.42, resetsAt }],
+			}),
+		]);
+		const reset = row(block, 1)?.querySelector(".omp-usage-gauge-reset");
+		expect(reset?.textContent).toBe("3d11h");
+		expect(reset?.getAttribute("title")).toBe(new Date(resetsAt).toISOString());
+		expect(reset?.getAttribute("aria-label")).toContain(new Date(resetsAt).toISOString());
+	});
+
+	it("distinguishes similar and duplicate long identifiers while retaining full accessible names", async () => {
+		const labels = [
+			"avery.long.account@first-company.example",
+			"avery.long.account@second-company.example",
+			"avery.long.account@first-company.example (Team)",
+		];
+		const block = await mount(labels.map((label, index) => report("anthropic", index + 1, label)));
+		const visible = labels.map((_, index) => row(block, index + 1)?.querySelector("[data-account-label]"));
+		expect(new Set(visible.map(label => label?.textContent)).size).toBe(3);
+		for (const [index, label] of labels.entries()) {
+			expect(row(block, index + 1)?.getAttribute("aria-label")).toBe(label);
+			expect(visible[index]?.getAttribute("title")).toBe(label);
+			expect(visible[index]?.textContent?.length).toBeLessThanOrEqual(7);
+		}
 	});
 
 	it("folds one provider's accounts and remembers it, the others stay", async () => {
@@ -181,17 +264,6 @@ describe("SidebarUsage", () => {
 		expect(block?.hasAttribute("data-collapsed")).toBe(true);
 		expect(block?.querySelector("[data-sidebar-usage-toggle]")).not.toBeNull();
 		expect(block?.querySelectorAll("[data-usage-account]")).toHaveLength(0);
-	});
-
-	it("says only why the session is on its current account", async () => {
-		const rotation = { why: "better", moved: true, phase: "turn-start", at: Date.now() };
-		const block = await mount([
-			report("anthropic", 1, "a@example.com", { active: true, rotation }),
-			report("anthropic", 2, "b@example.com", { rotation }),
-		]);
-		const reasons = block?.querySelectorAll("[data-account-reason]");
-		expect(reasons).toHaveLength(1);
-		expect(reasons?.[0]?.textContent).toBe(en["usage.rotation.better"]);
 	});
 
 	it("lists no API-key provider and renders nothing with no account", async () => {

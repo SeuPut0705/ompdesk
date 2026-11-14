@@ -116,6 +116,7 @@ export interface SessionRpcClient {
 	liveStop(): Promise<RpcResponse>;
 	debug(params: RpcDebugParams): Promise<RpcResponse>;
 	getAvailableModels(forceRefresh?: boolean): Promise<RpcResponse>;
+	getModelReleaseDates(): Promise<RpcResponse>;
 	setThinkingLevel(level: ThinkingLevel | "auto"): Promise<RpcResponse>;
 	cycleThinkingLevel(): Promise<RpcResponse>;
 	setFastMode(enabled: boolean): Promise<RpcResponse>;
@@ -506,6 +507,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		liveStop: () => rpcCommand({ type: "live_stop" }, 30_000),
 		debug: params => rpcCommand({ type: "debug", params }, 120_000),
 		getAvailableModels: forceRefresh => rpcCommand({ type: "get_available_models", forceRefresh }),
+		getModelReleaseDates: () => rpcCommand({ type: "get_model_release_dates" }),
 		setThinkingLevel: level => rpcCommand({ type: "set_thinking_level", level }),
 		cycleThinkingLevel: () => rpcCommand({ type: "cycle_thinking_level" }),
 		setFastMode: enabled => rpcCommand({ type: "set_fast_mode", enabled }),

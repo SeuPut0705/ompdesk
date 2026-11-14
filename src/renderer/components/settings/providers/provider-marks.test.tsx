@@ -29,6 +29,7 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"bedrock-mantle",
 	"cerebras",
 	"charm-hyper",
+	"chutes",
 	"cline-pass",
 	"cloudflare-ai-gateway",
 	"cloudflare-workers-ai",

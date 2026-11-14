@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "../../shared/rpc-types";
-import { formatTodoMarkdown, formatTranscriptMarkdown, parseTodoPhasesJson } from "./transcript-copy";
+import { useToastStore } from "../stores/toast";
+import { useTodoStore } from "../stores/todo";
+import { copyTodosToClipboard, parseTodoPhasesJson } from "./transcript-copy";
+import { formatTodoMarkdown, formatTranscriptMarkdown } from "./transcript-format";
 
 describe("formatTranscriptMarkdown", () => {
 	it("renders role headers and plain text per message", () => {
@@ -98,5 +101,29 @@ describe("parseTodoPhasesJson", () => {
 	it("rejects tasks without content or with an unknown status", () => {
 		expect(() => parseTodoPhasesJson([{ name: "P", tasks: [{ status: "pending" }] }])).toThrow();
 		expect(() => parseTodoPhasesJson([{ name: "P", tasks: [{ content: "a", status: "weird" }] }])).toThrow();
+	});
+});
+
+describe("copyTodosToClipboard", () => {
+	it("copies the requested list even when it changes while the formatter loads", async () => {
+		const previousTodos = useTodoStore.getState();
+		const previousToasts = useToastStore.getState();
+		const writeText = vi.fn(async () => {});
+		vi.stubGlobal("navigator", { clipboard: { writeText } });
+		try {
+			useTodoStore
+				.getState()
+				.setPhases([{ name: "Requested", tasks: [{ content: "Keep this task", status: "pending" }] }]);
+			const copying = copyTodosToClipboard();
+			useTodoStore
+				.getState()
+				.setPhases([{ name: "Replacement", tasks: [{ content: "Do not copy this task", status: "completed" }] }]);
+			await copying;
+			expect(writeText).toHaveBeenCalledExactlyOnceWith("# Todos\n\n## Requested\n\n- [ ] Keep this task");
+		} finally {
+			useTodoStore.setState(previousTodos, true);
+			useToastStore.setState(previousToasts, true);
+			vi.unstubAllGlobals();
+		}
 	});
 });

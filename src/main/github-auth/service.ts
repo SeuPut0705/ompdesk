@@ -7,7 +7,6 @@
  * from mixdog's github-cli.ts (Apache-2.0) facts, not its code.
  */
 
-import { PRODUCT_REPO } from "../../shared/feedback";
 import {
 	EMPTY_GITHUB_AUTH_STATE,
 	type GithubAuthAction,
@@ -16,6 +15,7 @@ import {
 	type GithubStarState,
 	githubLoginLive,
 } from "../../shared/github-auth";
+import { PRODUCT_REPO } from "../../shared/product-repo";
 import type { SetupItemState } from "../../shared/setup";
 import type { CoreRunner } from "../local/git/exec";
 import { type AuthTools, authCheck, authFillIdentity, authLogout, authSwitch, repoStar } from "./cli";

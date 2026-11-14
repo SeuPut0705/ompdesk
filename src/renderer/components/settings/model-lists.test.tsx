@@ -86,6 +86,7 @@ Reflect.set(window, "omp", {
 		setModelRole: vi.fn(async () => ok({})),
 		getLoginProviders: vi.fn(async () => ok({ providers: [] })),
 		getRecentModels: vi.fn(async () => ok({ selectors: [] })),
+		getModelReleaseDates: vi.fn(async () => ok({ dates: {} })),
 		getSettings: vi.fn(async () => ok({ values: {} })),
 	},
 	events: { onConfigUpdate: () => () => {} },
@@ -150,6 +151,8 @@ describe("every model list groups models by provider", () => {
 		useModelStore.setState({ availableModels: CATALOG, providers: PROVIDERS });
 		useUiStore.setState({ modelPickerOpen: true });
 		await mount(<ModelPicker />);
+		expect(shownGroups()).toEqual([...GROUPED.slice(0, 2), ["OpenRouter", []]]);
+		await click(document.body.querySelector('[data-model-group="openrouter"] button[aria-expanded="false"]'));
 		expect(shownGroups()).toEqual(GROUPED);
 	});
 });

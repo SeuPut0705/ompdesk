@@ -109,6 +109,7 @@ export type RpcCommand =
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
 	| { id?: string; type: "cycle_model"; direction?: "forward" | "backward" }
 	| { id?: string; type: "get_available_models"; forceRefresh?: boolean }
+	| { id?: string; type: "get_model_release_dates" }
 	| { id?: string; type: "set_thinking_level"; level: ThinkingLevel | "auto" }
 	| { id?: string; type: "cycle_thinking_level" }
 	| { id?: string; type: "set_steering_mode"; mode: "all" | "one-at-a-time" }
@@ -2560,6 +2561,11 @@ export interface AvailableModelsResult {
 	discoveryStates: ProviderDiscoveryState[];
 	refreshPending: boolean;
 	generation: number;
+}
+
+export interface ModelReleaseDatesResult {
+	/** Exact OpenRouter ids mapped to their canonical model's first public release, as UTC epoch milliseconds. */
+	dates: Record<string, number>;
 }
 
 export interface ProvidersResult {

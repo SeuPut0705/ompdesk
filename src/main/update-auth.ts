@@ -21,12 +21,12 @@ import * as path from "node:path";
 import { app, net, safeStorage } from "electron";
 import { codedError } from "../shared/ipc-error-codes";
 import type { UpdateAccess, UpdateAuthInfo, UpdateTokenSource } from "../shared/ipc-types";
+import { PRODUCT_REPO } from "../shared/product-repo";
 import { resolveLoginShellEnv, spawnPath } from "./shell-env";
 import { executableName } from "./spawn";
 import { classifyRepoAccess, firstUpdateToken, githubApiHeaders, type ResolvedUpdateToken } from "./updater-state";
 
-const RELEASE_REPO = { owner: "SeuPut0705", repo: "ompdesk" } as const;
-export const GITHUB_API_REPO = `https://api.github.com/repos/${RELEASE_REPO.owner}/${RELEASE_REPO.repo}`;
+export const GITHUB_API_REPO = `https://api.github.com/repos/${PRODUCT_REPO}`;
 
 const GH_TIMEOUT_MS = 5_000;
 

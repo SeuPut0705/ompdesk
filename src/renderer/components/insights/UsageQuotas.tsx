@@ -1,7 +1,7 @@
 /**
  * Insights › Usage: provider quota reports — one card per stored account
  * (several sign-ins of one provider each get their own) with limit bars,
- * reset countdowns, how old each report is and provider notes. Reports come
+ * reset countdowns and how old each report is. Reports come
  * from stock's usage cache through the tab's one usage poll
  * (hooks/use-usage-reports.ts): read when the page mounts, when it shows
  * another session tab, and live while it is open; the explicit refresh
@@ -19,7 +19,6 @@ import { formatClock, formatSpan } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { usageLimitLabel } from "../../lib/usage-labels";
-import { rotationReason } from "../../lib/usage-rotation";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -54,17 +53,35 @@ const STATUS_KEY: Record<string, string> = {
 	warning: "usage.status.warning",
 };
 
-function Notes({ notes }: { notes: string[] | undefined }) {
-	if (!notes || notes.length === 0) return null;
-	return (
-		<ul className="flex flex-col gap-0.5">
-			{notes.map(note => (
-				<li className="text-sc-xs text-(--sc-text-muted)" key={note}>
-					{note}
-				</li>
+// Stock's devin, github-copilot and minimax-code usage providers put these figures only in notes.
+// The renderer cannot import stock; retain the figures without rendering provider explanation sentences.
+const NOTE_FACTS: readonly [RegExp, string, string][] = [
+	[/^Overage balance: \$(-?\d+(?:\.\d+)?)$/, "usage.note.overageBalance", "$"],
+	[/^Overage requests: (\d+)$/, "usage.note.overageRequests", ""],
+	[/^Requests: (\d+\/\d+)$/, "usage.note.requests", ""],
+	[/^Unlimited$/, "usage.note.unlimited", "∞"],
+	[/^Requests deprioritized after a rate-limit burst\.$/, "usage.note.deprioritized", "↓"],
+];
+
+function NoteFacts({ notes, t }: { notes: readonly string[] | undefined; t: Translate }) {
+	const facts =
+		notes?.flatMap(note => {
+			for (const [pattern, key, prefix] of NOTE_FACTS) {
+				const match = pattern.exec(note);
+				if (match) return [{ key, value: `${prefix}${match[1] ?? ""}` }];
+			}
+			return [];
+		}) ?? [];
+	return facts.length > 0 ? (
+		<dl className="flex flex-wrap gap-x-4 gap-y-1 text-sc-sm text-(--sc-text-secondary)">
+			{facts.map(({ key, value }) => (
+				<div className="flex gap-1.5" data-usage-fact={key} key={`${key}:${value}`}>
+					<dt>{t(key)}</dt>
+					<dd className="tabular-nums">{value}</dd>
+				</div>
 			))}
-		</ul>
-	);
+		</dl>
+	) : null;
 }
 
 function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: number }) {
@@ -94,7 +111,7 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 				</div>
 			</div>
 			<ProgressBar ariaLabel={label} value={fraction} valueText="" />
-			<Notes notes={limit.notes} />
+			<NoteFacts notes={limit.notes} t={t} />
 		</li>
 	);
 }
@@ -113,7 +130,6 @@ function ProviderReportCard({
 	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
 }) {
 	const limits = Array.isArray(report.limits) ? report.limits : [];
-	const reason = report.active ? rotationReason(report.rotation, t) : null;
 	// Stock's provider display name (the catalog's login names); the id when the catalog has none.
 	const providerName = useModelStore(
 		state => state.providers.find(provider => provider.id === report.provider)?.name ?? report.provider,
@@ -153,16 +169,7 @@ function ProviderReportCard({
 						))}
 				</span>
 			</header>
-			{reason && (
-				<p
-					className="text-sc-xs break-words text-(--sc-text-muted)"
-					data-usage-rotation={report.rotation?.why}
-					title={report.rotation ? formatClock(report.rotation.at) : undefined}
-				>
-					{reason}
-				</p>
-			)}
-			<Notes notes={report.notes} />
+			<NoteFacts notes={report.notes} t={t} />
 			{limits.length > 0 && (
 				<ul className="flex flex-col divide-y divide-(--sc-divider)">
 					{limits.map(limit => (

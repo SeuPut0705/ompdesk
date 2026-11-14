@@ -1,3 +1,4 @@
+import { PRODUCT_REPO } from "../../shared/product-repo";
 import { memoryEn } from "./memory";
 export const en: Record<string, string> = {
 	"mcp.rea.title": "REA — reverse engineering (built in)",
@@ -1309,28 +1310,12 @@ export const en: Record<string, string> = {
 	"usage.resetting": "resetting…",
 	"usage.inUse": "In use",
 	"usage.updatedAgo": "Updated {time} ago",
-	// Why this session is on its account (the rotation's last decision, bridge account-rotation-core.ts RerankSkip/MoveWhy)
-	"usage.rotation.better": "Moved here at the start of this turn: omp ranks this account clearly first.",
-	"usage.rotation.near-limit": "Moved here because the previous account was about to run out.",
-	"usage.rotation.much-better": "Moved here mid-turn: this account has far more room to spare.",
-	"usage.rotation.same": "Stays: this is the account omp ranks first.",
-	"usage.rotation.within-margin":
-		"Stays: another account is only slightly better, and a move would lose the prompt cache.",
-	"usage.rotation.mid-turn":
-		"Stays mid-turn: the account is not near its limit, and a move would lose the prompt cache.",
-	"usage.rotation.no-better": "Stays: no other account has more room right now.",
-	"usage.rotation.usage-unreadable": "Stays: an account's usage couldn't be read, so nothing moves.",
-	"usage.rotation.explicit": "Stays: you pinned this session to this account.",
-	"usage.rotation.restricted": "Stays: this session is limited to an account pool.",
-	"usage.rotation.policy": "Stays: an account policy decides which account is used.",
-	"usage.rotation.blocked": "This account is blocked for this model: the next request uses another one.",
-	"usage.rotation.subagents": "Stays: a subagent of this session is running on it.",
-	"usage.rotation.cold": "Idle for over an hour: the next request picks the best account again.",
-	"usage.rotation.no-choice": "Stays: no other account can serve this model right now.",
-	"usage.rotation.target-limited": "Stays: the other account's limit for this model is spent or nearly full.",
-	"usage.rotation.pin-refused": "Stays: the account couldn't be changed.",
-	"usage.rotation.mode": "Even rotation: this session keeps its account until it is blocked.",
-	"usage.rotation.unknown-provenance": "Left to omp: how this session got its account couldn't be read.",
+	"usage.limitedShort": "Limited",
+	"usage.note.overageBalance": "Overage balance",
+	"usage.note.overageRequests": "Overage requests",
+	"usage.note.requests": "Requests",
+	"usage.note.unlimited": "Unlimited",
+	"usage.note.deprioritized": "Deprioritized",
 
 	// First-run onboarding
 
@@ -5510,15 +5495,13 @@ export const en: Record<string, string> = {
 	"updates.auth.source.gh": "Using your GitHub CLI (gh) login",
 	"updates.auth.source.stored": "Using the saved token",
 	"updates.auth.source.none": "No token, updating without one",
-	"updates.auth.missing":
-		"GitHub only shows the releases to a signed-in account. Sign in with gh or paste a GitHub token with access to SeuPut0705/ompdesk.",
-	"updates.auth.denied":
-		"This GitHub account can't see SeuPut0705/ompdesk. Accept the repository invite, or use a token from an account that has access.",
+	"updates.auth.missing": `GitHub only shows the releases to a signed-in account. Sign in with gh or paste a GitHub token with access to ${PRODUCT_REPO}.`,
+	"updates.auth.denied": `This GitHub account can't see ${PRODUCT_REPO}. Accept the repository invite, or use a token from an account that has access.`,
 	"updates.auth.invalid":
 		"GitHub rejected the token (expired or revoked). Connect GitHub again in Settings › General, or paste a new token.",
 	"updates.auth.network":
 		"Couldn't reach GitHub, or its hourly request limit was reached. Try again later; a token raises the limit.",
-	"updates.auth.ok": "Access to SeuPut0705/ompdesk confirmed.",
+	"updates.auth.ok": `Access to ${PRODUCT_REPO} confirmed.`,
 	"updates.auth.placeholder": "Paste a GitHub token",
 	"updates.auth.tokenLabel": "GitHub token",
 	"updates.auth.save": "Save token",
