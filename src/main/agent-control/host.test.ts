@@ -41,7 +41,7 @@ import {
 import { RpcClient } from "../rpc-client";
 import type { ScheduleService } from "../schedules";
 import { deleteSession, sessionDeleteInProgress } from "../session-mutations";
-import type { SidecarLink } from "../sidecar-types";
+import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import { FileEditReports } from "../web/file-edit-reports";
 import { UploadStore } from "../web/uploads";
@@ -161,8 +161,8 @@ function setup(
 	const nativeFiles = options.nativeRoot ? nativeInboxFiles(options.nativeRoot) : undefined;
 	const sidecars = new Map<
 		string,
-		Pick<SidecarLink, "cwd" | "device"> &
-			Partial<Pick<SidecarLink, "rpcClient" | "status" | "processAlive" | "bridgeRequest">>
+		Pick<SidecarLike, "cwd" | "device"> &
+			Partial<Pick<SidecarLike, "rpcClient" | "status" | "processAlive" | "bridgeRequest">>
 	>([["main0001", { cwd: "/repo" }]]);
 	const stocks = new Map<string, NativeInboxStock>();
 	const attachStock = (tabId: string, sessionPath: string) => {
@@ -175,7 +175,7 @@ function setup(
 		if (!instance) throw new Error("Missing actual RpcClient incarnation");
 		const stock = new NativeInboxStock(sessionPath, instance);
 		stock.session.isStreaming = options.busyTabs?.includes(tabId) ?? tabId === "busy0002";
-		const sidecar: Pick<SidecarLink, "cwd" | "status" | "processAlive" | "rpcClient" | "bridgeRequest"> = {
+		const sidecar: Pick<SidecarLike, "cwd" | "status" | "processAlive" | "rpcClient" | "bridgeRequest"> = {
 			cwd: "/repo",
 			status: "ready",
 			processAlive: true,
