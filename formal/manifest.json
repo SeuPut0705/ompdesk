@@ -277,6 +277,38 @@
 				"src/renderer/lib/themes.ts"
 			],
 			"syncCommit": "8f6c854237bed9b531f9d7ef84ea53b35b5a9c1b"
+		},
+		{
+			"id": "session-delete-safety",
+			"title": "Shared delete lifecycle projected onto list, open and restore safety",
+			"kind": "tla",
+			"dir": "session-delete-safety",
+			"spec": "SessionDeleteSafety.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/session-mutations.ts:46-73",
+				"src/main/session-index.ts:329-338",
+				"src/main/session-index.ts:441-444",
+				"src/main/session-list-share.ts:34-43",
+				"src/main/session-list-share.ts:46-60",
+				"src/main/session-list-share.ts:77-89",
+				"src/main/remote/host-services.ts:1878-1885",
+				"src/main/remote/host-services.ts:1929-1951",
+				"src/main/remote/host-services.ts:1967-2004",
+				"src/main/remote/host-services.ts:2127-2160",
+				"src/main/remote/host-services.ts:2839-2855",
+				"src/renderer/stores/session-list.ts:107-127",
+				"src/renderer/stores/session-list.ts:171-183",
+				"src/renderer/stores/session-list.ts:202-204",
+				"src/renderer/stores/session-list.ts:236-251",
+				"src/renderer/stores/session-list.ts:259-268",
+				"src/renderer/stores/session-list.ts:271-285",
+				"src/main/tab-layout.ts:80-108",
+				"native/ompdesk/crates/core/src/pool/layout.rs:156-158",
+				"native/ompdesk/crates/core/src/pool/layout.rs:270-277"
+			],
+			"syncCommit": null
 		}
 	]
 }
