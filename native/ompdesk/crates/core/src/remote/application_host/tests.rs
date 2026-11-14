@@ -32,6 +32,8 @@ struct Effects {
     fail_after_close: AtomicBool,
     session_effects: Mutex<Vec<(Arc<Target>, Value)>>,
     fail_session_effect: AtomicBool,
+    capture_gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    capture_started: Semaphore,
 }
 impl Effects {
     fn new() -> Arc<Self> {
@@ -54,6 +56,8 @@ impl Effects {
             fail_after_close: AtomicBool::new(false),
             session_effects: Mutex::default(),
             fail_session_effect: AtomicBool::new(false),
+            capture_gate: Mutex::default(),
+            capture_started: Semaphore::new(0),
         })
     }
 
@@ -118,6 +122,25 @@ impl Host for Effects {
     }
     fn snapshot(&self, target: &Arc<Target>) -> Result<Snapshot, Fault> {
         Ok(lock(&target.state).clone())
+    }
+    async fn capture_session_target(
+        &self,
+        target: &Arc<Target>,
+        expected_path: &str,
+    ) -> Result<Arc<Target>, Fault> {
+        let gate = lock(&self.capture_gate).take();
+        self.capture_started.add_permits(1);
+        if let Some(gate) = gate {
+            gate.await
+                .map_err(|_| Fault::new("capture_lost", "Capture gate dropped"))?;
+        }
+        if lock(&target.state).session_path.as_deref() != Some(expected_path) {
+            return Err(Fault::new(
+                "session_changed",
+                "The hosted session path changed",
+            ));
+        }
+        Ok(Arc::clone(target))
     }
     async fn stop_session(&self, target: &Arc<Target>) -> Result<(), Fault> {
         self.record_session_effect(target, json!({"type":"stop"}))
@@ -975,4 +998,33 @@ async fn captured_session_effect_failures_are_not_reported_as_success() {
     );
     assert_eq!(lock(&effects.session_effects).len(), 3);
     service.drop_peer("peer").await.unwrap();
+}
+
+#[tokio::test]
+async fn a_path_changed_while_freezing_never_becomes_a_session_holder() {
+    let (service, effects, _) = service();
+    let owner = Caller("peer".into());
+    let (_device, host, _keep) = pair().await;
+    service
+        .call(&owner, "tab.open", open("freezing"), &host)
+        .await
+        .unwrap();
+    let original = service.target("peer", "freezing").unwrap();
+    let (release, released) = tokio::sync::oneshot::channel();
+    *lock(&effects.capture_gate) = Some(released);
+    let capture = {
+        let service = Arc::clone(&service);
+        tokio::spawn(async move { service.capture_session("/session/one.jsonl").await })
+    };
+    effects.capture_started.acquire().await.unwrap().forget();
+    lock(&original.state).session_path = Some("/session/replacement.jsonl".into());
+    release.send(()).unwrap();
+    let error = capture
+        .await
+        .unwrap()
+        .err()
+        .expect("changed target must be refused");
+    assert_eq!(error.code, "session_changed");
+    assert!(lock(&effects.session_effects).is_empty());
+    assert_eq!(effects.closed.load(Ordering::SeqCst), 0);
 }
