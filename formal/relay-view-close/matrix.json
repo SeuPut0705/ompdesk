@@ -1,0 +1,7 @@
+{
+  "runs": [
+    { "name": "two-views-two-generations", "config": "MC.cfg", "expect": "pass" },
+    { "name": "source-receipt-check-removed", "config": "MC_receipt.cfg", "expect": "invariant", "property": "ReceiptValid" },
+    { "name": "target-connection-check-removed", "config": "MC_disconnect.cfg", "expect": "invariant", "property": "ExactCommit" }
+  ]
+}

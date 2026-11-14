@@ -1,0 +1,13 @@
+{
+  "runs": [
+    { "name": "delete-fences-two-scopes-two-opens-two-deletes", "config": "MC.cfg", "expect": "pass", "timeoutSec": 7200 },
+    { "name": "old-feed-read-without-invalidation", "config": "MC_read_bug.cfg", "expect": "invariant", "property": "NoFeedReinsert", "timeoutSec": 7200 },
+    { "name": "open-without-final-recheck", "config": "MC_open_bug.cfg", "expect": "invariant", "property": "NoOpenDuringDelete", "timeoutSec": 7200 },
+    { "name": "old-read-outlives-delete", "config": "MC_sanity_read.cfg", "expect": "invariant", "property": "NeverOldReadAfterDelete", "timeoutSec": 7200 },
+    { "name": "storage-tombstone-gap-reachable", "config": "MC_sanity_gap.cfg", "expect": "invariant", "property": "NeverStorageGap", "timeoutSec": 7200 },
+    { "name": "overlapping-deletes-reachable", "config": "MC_sanity_overlap.cfg", "expect": "invariant", "property": "NeverOverlap", "timeoutSec": 7200 },
+    { "name": "failed-delete-reachable", "config": "MC_sanity_failure.cfg", "expect": "invariant", "property": "NeverFailed", "timeoutSec": 7200 },
+    { "name": "reconnect-read-reachable-after-delete", "config": "MC_sanity_reconnect.cfg", "expect": "invariant", "property": "NeverRebuilt", "timeoutSec": 7200 },
+    { "name": "late-old-reply-dropped-before-fresh-rebuilt-read", "config": "MC_sanity_late_reconnect.cfg", "expect": "invariant", "property": "NeverLateReplyAndFreshRead", "timeoutSec": 7200 }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "checker": { "kind": "tlc", "config": "MC.cfg", "timeoutSec": 7200, "deadlock": false },
+  "properties": ["NoFeedReinsert", "NoOpenDuringDelete", "FenceCount", "ReconnectReadAbsent", "RestoredDeletedAbsent"],
+  "mutations": [
+    {
+      "name": "accept-pre-delete-read",
+      "why": "A delete no longer increments the feed generation before old reads finish.",
+      "search": "IF InvalidateReads THEN generation[s] + 1 ELSE generation[s]",
+      "replace": "generation[s]",
+      "breaks": "NoFeedReinsert",
+      "isolate": true
+    },
+    {
+      "name": "ignore-active-delete-at-publish",
+      "why": "The final open check ignores the in-flight delete count.",
+      "search": "IF RecheckOpen THEN OpenAllowed ELSE TRUE",
+      "replace": "IF RecheckOpen THEN ~tombstone ELSE TRUE",
+      "breaks": "NoOpenDuringDelete",
+      "isolate": true
+    },
+    {
+      "name": "ignore-tombstone-at-publish",
+      "why": "The final open check ignores a delete that finished during the lookup.",
+      "search": "IF RecheckOpen THEN OpenAllowed ELSE TRUE",
+      "replace": "IF RecheckOpen THEN fence = 0 ELSE TRUE",
+      "breaks": "NoOpenDuringDelete",
+      "isolate": true
+    },
+    {
+      "name": "one-delete-clears-all-counts",
+      "why": "One completed delete clears the fence while another delete still owns it.",
+      "search": "/\\ fence' = fence - 1\n    /\\ UNCHANGED <<file, op",
+      "replace": "/\\ fence' = 0\n    /\\ UNCHANGED <<file, op",
+      "breaks": "FenceCount",
+      "isolate": true
+    },
+    {
+      "name": "rebuild-accepts-obsolete-feed-read",
+      "why": "A rebuilt consumer accepts an old connection's pending read after deletion.",
+      "search": "readConn[s][r] = connection /\\ readGen[s][r] = generation[s]",
+      "replace": "TRUE",
+      "breaks": "ReconnectReadAbsent",
+      "isolate": true
+    },
+    {
+      "name": "shared-read-skips-wanted-generation",
+      "why": "A reconnecting reader accepts a shared copy older than its request.",
+      "search": "shared.copyGen >= shared.wants[s][r]",
+      "replace": "TRUE",
+      "breaks": "ReconnectReadAbsent",
+      "isolate": true
+    },
+    {
+      "name": "restore-ignores-tombstone",
+      "why": "A restored layout keeps the session path despite the tombstone.",
+      "search": "restoredRow' = ~tombstone",
+      "replace": "restoredRow' = TRUE",
+      "breaks": "RestoredDeletedAbsent",
+      "isolate": true
+    }
+  ]
+}

@@ -186,6 +186,54 @@
 			],
 			"syncCommit": "b1e89124da2858444ffa69308c75c8d2c1823e7f",
 			"verifySkill": ".omp/skills/stock-lane-verify/SKILL.md"
+		},
+		{
+			"id": "relay-view-close",
+			"title": "Exact relay view close authorization, commit and confirmed cleanup",
+			"kind": "tla",
+			"dir": "relay-view-close",
+			"spec": "RelayViewClose.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/agent-control/view-host.ts",
+				"src/main/agent-control/host.ts",
+				"src/main/agent-control/service.ts",
+				"src/main/remote/view-control.ts",
+				"src/main/remote/remote-sidecar.ts",
+				"src/main/remote/host-services.ts",
+				"src/main/sidecar-pool.ts",
+				"src/main/sidecar.ts#SidecarManager.whenExited",
+				"native/ompdesk/crates/core/src/agentctl/service/sessions/stop.rs",
+				"native/ompdesk/crates/core/src/agentctl/service/mod.rs",
+				"native/ompdesk/crates/core/src/agentctl/service/types.rs",
+				"native/ompdesk/crates/core/src/pool/windows.rs",
+				"native/ompdesk/crates/core/src/pool/persist.rs",
+				"native/ompdesk/crates/core/src/pool/api.rs"
+			],
+			"syncCommit": null
+		},
+		{
+			"id": "session-delete-fences",
+			"title": "Session delete list, open and rebuilt consumer fences",
+			"kind": "tla",
+			"dir": "session-delete-fences/tla",
+			"spec": "SessionDeleteFences.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/session-mutations.ts#deleteSession",
+				"src/main/deleted-sessions.ts",
+				"src/main/session-index.ts",
+				"src/main/session-list-share.ts",
+				"src/main/remote/host-services.ts",
+				"src/main/remote/host-session-list.ts",
+				"src/main/remote/devices.ts",
+				"src/renderer/stores/session-list.ts#createSessionListFeed",
+				"src/main/tab-layout.ts",
+				"src/main/saved-layouts.ts#layoutsToSave"
+			],
+			"syncCommit": null
 		}
 	]
 }
