@@ -76,7 +76,6 @@ export function QuotaCell({
 	columns,
 	tracks,
 	compact = false,
-	sharedLabels = false,
 	now,
 }: {
 	account: AccountQuotaSource;
@@ -84,7 +83,6 @@ export function QuotaCell({
 	tracks: number;
 	/** Slim bars with small type (`UsageGauges compact`): the sidebar's width. */
 	compact?: boolean;
-	sharedLabels?: boolean;
 	now: number;
 }) {
 	const t = useT();
@@ -109,7 +107,7 @@ export function QuotaCell({
 				compact={compact}
 				limits={limits}
 				resets
-				sharedLabels={sharedLabels}
+				sharedLabels={compact}
 				tracks={tracks}
 			/>
 		</div>
@@ -123,23 +121,9 @@ export function AccountBadges({ account, compact = false }: { account: AccountQu
 	if (compact) {
 		const limited = accountStanding(account) === "limited";
 		return account.inUse || limited ? (
-			<span
-				aria-label={[
-					account.inUse ? t("providers.accounts.inUse") : null,
-					limited ? t("providers.accounts.limited") : null,
-				]
-					.filter(Boolean)
-					.join(" · ")}
-				className={`omp-account-state ${limited ? "text-(--sc-warning)" : "text-(--sc-success)"}`}
-			>
-				{limited ? (
-					<>
-						{account.inUse && <span aria-hidden>● </span>}
-						{t("usage.limitedShort")}
-					</>
-				) : (
-					t("providers.accounts.inUse")
-				)}
+			<span className={`omp-account-state ${limited ? "text-(--sc-warning)" : "text-(--sc-success)"}`}>
+				{account.inUse && limited && <span aria-label={t("providers.accounts.inUse")}>● </span>}
+				{limited ? t("usage.limitedShort") : t("providers.accounts.inUse")}
 			</span>
 		) : null;
 	}

@@ -36,6 +36,8 @@ test("the narrow sidebar shows all three accounts and resets together above Sett
 		const scroller = page.locator("[data-sidebar-usage-scroll]");
 		await expect(block.locator("[data-usage-account]")).toHaveCount(3);
 		await expect(block.locator("[data-in-use]")).toHaveCount(1);
+		await expect(block.getByRole("progressbar")).toHaveCount(8);
+		await expect(block.locator(".omp-usage-gauge-reset")).toHaveCount(8);
 		for (const height of [860, 560]) {
 			await page.setViewportSize({ width: 1280, height });
 			const geometry = await block.evaluate(element => {
@@ -50,6 +52,11 @@ test("the narrow sidebar shows all three accounts and resets together above Sett
 					listHeight: list?.height,
 					settingsTop: settings?.top,
 					bottom: box.bottom,
+					minimumFont: Math.min(
+						...[
+							...element.querySelectorAll("[data-account-label], .omp-usage-gauge-text, .omp-usage-gauge-reset"),
+						].map(cell => Number.parseFloat(getComputedStyle(cell).fontSize)),
+					),
 					visibleAccounts: [...element.querySelectorAll("[data-usage-account]")].filter(row => {
 						const rect = row.getBoundingClientRect();
 						return scroller && rect.top >= scroller.top && rect.bottom <= scroller.bottom;
@@ -63,6 +70,7 @@ test("the narrow sidebar shows all three accounts and resets together above Sett
 			);
 			expect(geometry.bottom, "all account data stays above Settings").toBeLessThan(geometry.settingsTop ?? 0);
 			expect(geometry.visibleAccounts, "all three accounts are readable without scrolling").toBe(3);
+			expect(geometry.minimumFont, "values and resets retain readable type").toBeGreaterThanOrEqual(12);
 			// Every window's label, percentage and reset remain readable at this width.
 			const cut = await block.locator(".omp-usage-gauge-text, .omp-usage-gauge-reset").evaluateAll(
 				elements =>

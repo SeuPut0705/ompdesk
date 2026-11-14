@@ -97,7 +97,7 @@ function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers:
 						badges={<AccountBadges account={source} compact />}
 						compact
 						key={`${report.provider}:${report.credentialId ?? labels[index]}`}
-						quota={<QuotaCell account={source} columns={columns} compact sharedLabels now={now} tracks={0} />}
+						quota={<QuotaCell account={source} columns={columns} compact now={now} tracks={0} />}
 						quotaColumns={columns.length}
 						rowProps={{
 							"data-in-use": inUse || undefined,
