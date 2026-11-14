@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,12 +8,19 @@ use crate::server::{Fault, Scope};
 use crate::setup::runner::{CaptureOptions, Runner};
 use crate::setup::types::{Platform, RunOutcome};
 
+pub enum LaunchMode {
+    Runtime,
+    Update,
+}
+
 /// Trusted command context captured by native admission, never deserialized from a page.
 pub struct Command {
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub input: Vec<u8>,
     pub timeout: Duration,
+    pub env: BTreeMap<String, String>,
+    pub launch: LaunchMode,
 }
 
 pub struct Output {
@@ -47,12 +55,24 @@ impl Service {
         };
         let args: Vec<&str> = command.args.iter().map(String::as_str).collect();
         let spec = crate::setup::plans::command(&runtime.bin.to_string_lossy(), &args, platform);
+        let mut env = runtime.env;
+        env.extend(command.env);
+        let config = self.machine.config();
+        if matches!(command.launch, LaunchMode::Update) {
+            env = crate::machine::update_environment(
+                &runtime.bin,
+                &env,
+                &config.home,
+                config.platform,
+            );
+        }
+        crate::machine::omp_environment(&mut env, &runtime.bin, &config.home, config.platform);
         let timeout = command.timeout;
         let captured = self
             .runner
             .capture(
                 spec,
-                runtime.env,
+                env,
                 scope,
                 CaptureOptions {
                     cwd: Some(command.cwd),
