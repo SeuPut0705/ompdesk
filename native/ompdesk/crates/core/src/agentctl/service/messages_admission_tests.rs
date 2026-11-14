@@ -6,6 +6,8 @@ use super::super::tuning::Tuning;
 use crate::agentctl::inbox::{InboxIntent, InboxReceiver};
 use crate::agentctl::runtime::tests::native_rig;
 
+type Asked = std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>;
+
 fn snapshot(child: bool, card: bool) -> Value {
     let mut target = json!({
         "tabId": "target", "title": "target", "cwd": "/w", "status": "ready",
@@ -36,6 +38,66 @@ fn replies(method: &str, args: &Value) -> Result<Value, String> {
         "mail" => Ok(Value::Null),
         other => Err(format!("unexpected admission fixture call: {other}")),
     }
+}
+
+fn lookup_before_journal(
+    asked: &[(String, Value)],
+    request_id: &str,
+    text: &str,
+    intent: InboxIntent,
+) -> InboxReceiver {
+    use crate::agentctl::inbox::{
+        InboxAddress, InboxKind, InboxLogicalMessage, InboxLogicalPayload, NativeInboxLookup,
+    };
+
+    let logical = InboxLogicalMessage {
+        producer: InboxAddress {
+            device_id: "test-host".into(),
+            session_path: "/s/sender_1.jsonl".into(),
+        },
+        target: InboxAddress {
+            device_id: "test-host".into(),
+            session_path: "/s/target_2.jsonl".into(),
+        },
+        request_id: Some(request_id.into()),
+        intent,
+        trigger_turn: true,
+        payload: InboxLogicalPayload::Prompt { text: text.into() },
+    };
+    let mut status_seen = false;
+    let mut receiver = None;
+    for (method, args) in asked {
+        match method.as_str() {
+            "inboxStatus" => {
+                assert_eq!(
+                    args,
+                    &json!({ "tabId": "target", "sessionPath": "/s/target_2.jsonl", "device": null })
+                );
+                status_seen = true;
+            }
+            "lookupInbox" => {
+                assert!(status_seen);
+                assert_eq!(args["tabId"], "target");
+                let query: NativeInboxLookup =
+                    serde_json::from_value(args["query"].clone()).unwrap();
+                assert_eq!(query.receiver.session_path, logical.target.session_path);
+                assert!(query.receiver.device.is_none());
+                assert!(!query.receiver.instance.is_empty());
+                if let Some(first) = &receiver {
+                    assert_eq!(&query.receiver, first);
+                }
+                assert_eq!(query.entries.len(), 1);
+                let entry = &query.entries[0];
+                assert_eq!(entry.logical, logical);
+                assert_eq!(entry.key.kind, InboxKind::Prompt);
+                assert_eq!(entry.key.delivery_id, logical.delivery_id().unwrap());
+                assert!(entry.attachments.is_none());
+                receiver = Some(query.receiver);
+            }
+            _ => {}
+        }
+    }
+    receiver.expect("the first send queried real receiving responsibility before journal reading")
 }
 
 async fn check_follow_up(id: u64, child: bool, card: bool) {
@@ -204,13 +266,13 @@ async fn outside_parent_event_sink_errors_are_returned_to_the_reporter() {
 }
 
 async fn parent_change_while_reading_journal(id: u64, remove_parent: bool) {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use super::super::AgentControl;
 
-    let holder = Arc::new(Mutex::new(None::<AgentControl>));
-    let journal_entered = Arc::new(AtomicBool::new(false));
+    let holder = Arc::new(Mutex::new(None::<(AgentControl, Asked)>));
+    let journal_entered = Arc::new(AtomicUsize::new(usize::MAX));
     let callback_control = holder.clone();
     let callback_entered = journal_entered.clone();
     let (control, asked, mut deliveries, _fixture) = native_rig(
@@ -225,18 +287,22 @@ async fn parent_change_while_reading_journal(id: u64, remove_parent: bool) {
                 && args["command"]["type"] == "get_transcript_page"
             {
                 let held = callback_control.lock().unwrap();
-                let control = held.as_ref().unwrap();
+                let (control, asked) = held.as_ref().unwrap();
+                callback_entered.store(asked.lock().unwrap().len(), Ordering::SeqCst);
                 let mut changed = snapshot(false, false);
                 if !remove_parent {
                     changed["parents"] = json!({ "target": { "callerTabId": "another-opener" } });
                 }
                 crate::ports::apply_state(control.host.port(), 1, &changed.to_string()).unwrap();
-                callback_entered.store(true, Ordering::SeqCst);
+                assert_eq!(
+                    control.host.state().tabs[1].runtime_instance.as_deref(),
+                    Some("runtime-target")
+                );
             }
             replies(method, args)
         },
     );
-    *holder.lock().unwrap() = Some(control.clone());
+    *holder.lock().unwrap() = Some((control.clone(), asked.clone()));
     let initial = control.host.state();
     assert!(
         control
@@ -252,7 +318,8 @@ async fn parent_change_while_reading_journal(id: u64, remove_parent: bool) {
             None,
         )
         .await;
-    assert!(journal_entered.load(Ordering::SeqCst));
+    let boundary = journal_entered.load(Ordering::SeqCst);
+    assert_ne!(boundary, usize::MAX);
     let current = control.host.state();
     assert_ne!(current.parent_of("target"), initial.parent_of("target"));
     assert!(
@@ -264,9 +331,32 @@ async fn parent_change_while_reading_journal(id: u64, remove_parent: bool) {
     assert!(result.is_error, "{}", result.text);
     assert!(control.send_outbox.as_ref().unwrap().pending().is_empty());
     assert!(control.host.outbox().unwrap().pending().is_empty());
-    assert!(asked.lock().unwrap().iter().all(|(method, _)| {
-        method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
-    }));
+    let receiver = {
+        let recorded = asked.lock().unwrap();
+        assert!(recorded.iter().all(|(method, _)| {
+            method != "inbox" && method != "deliverInbox"
+        }));
+        assert!(recorded[boundary..].iter().all(|(method, _)| {
+            method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
+        }));
+        lookup_before_journal(
+            &recorded[..boundary],
+            "parent-boundary",
+            "do not admit after reparent",
+            InboxIntent::FollowUp,
+        )
+    };
+    assert!(
+        control
+            .receiving_inbox
+            .as_ref()
+            .unwrap()
+            .ledger
+            .pending(&receiver)
+            .unwrap()
+            .1
+            .is_empty()
+    );
     assert!(matches!(
         deliveries.try_recv(),
         Err(tokio::sync::mpsc::error::TryRecvError::Empty)
@@ -297,6 +387,8 @@ async fn draft_started_during_journal_read_waits_for_the_real_guard_and_state_ch
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let entered = Arc::new(Mutex::new(Some(entered_tx)));
     let held_reply = Arc::new(Mutex::new(Some(release_rx)));
+    let records = Arc::new(Mutex::new(None::<Asked>));
+    let event_records = records.clone();
     let (control, asked, mut deliveries, _fixture) = native_rig_async(
         9_340,
         snapshot(true, false),
@@ -310,7 +402,9 @@ async fn draft_started_during_journal_read_waits_for_the_real_guard_and_state_ch
             {
                 let held = held_reply.lock().unwrap().take();
                 if held.is_some() {
-                    entered.lock().unwrap().take().unwrap().send(()).unwrap();
+                    let recorded = event_records.lock().unwrap();
+                    let boundary = recorded.as_ref().unwrap().lock().unwrap().len();
+                    entered.lock().unwrap().take().unwrap().send(boundary).unwrap();
                 }
                 held
             } else {
@@ -324,6 +418,7 @@ async fn draft_started_during_journal_read_waits_for_the_real_guard_and_state_ch
             }
         },
     );
+    *records.lock().unwrap() = Some(asked.clone());
     let sending = control.run(
         "sender",
         "ompdesk_session_send",
@@ -331,10 +426,10 @@ async fn draft_started_during_journal_read_waits_for_the_real_guard_and_state_ch
         None,
     );
     tokio::pin!(sending);
-    tokio::select! {
+    let boundary = tokio::select! {
         result = &mut sending => panic!("send finished before the journal barrier: {}", result.text),
         entered = entered_rx => entered.expect("journal command was not entered"),
-    }
+    };
     let mut drafting = snapshot(true, false);
     drafting["tabs"][1]["drafting"] = json!(true);
     crate::ports::apply_state(control.host.port(), 1, &drafting.to_string()).unwrap();
@@ -354,9 +449,32 @@ async fn draft_started_during_journal_read_waits_for_the_real_guard_and_state_ch
     })
     .await;
     assert!(control.send_outbox.as_ref().unwrap().pending().is_empty());
-    assert!(asked.lock().unwrap().iter().all(|(method, _)| {
-        method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
-    }));
+    let receiver_before_admission = {
+        let recorded = asked.lock().unwrap();
+        assert!(recorded.iter().all(|(method, _)| {
+            method != "inbox" && method != "deliverInbox"
+        }));
+        assert!(recorded[boundary..].iter().all(|(method, _)| {
+            method != "inbox" && method != "inboxStatus" && method != "deliverInbox"
+        }));
+        lookup_before_journal(
+            &recorded[..boundary],
+            "journal-draft",
+            "after the person's draft",
+            InboxIntent::Immediate,
+        )
+    };
+    assert!(
+        control
+            .receiving_inbox
+            .as_ref()
+            .unwrap()
+            .ledger
+            .pending(&receiver_before_admission)
+            .unwrap()
+            .1
+            .is_empty()
+    );
     crate::ports::apply_state(control.host.port(), 2, &snapshot(true, false).to_string()).unwrap();
     let result = sending.await;
     assert!(!result.is_error, "{}", result.text);
