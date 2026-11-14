@@ -249,6 +249,24 @@ describe("ModelPicker OpenRouter group", () => {
 		);
 	};
 
+	it("reveals a raw catalog arriving during a pending read and navigates only its visible options", async () => {
+		recent = { selectors: [] };
+		const response = Promise.withResolvers<AvailableModelsResult>();
+		await mount([], response.promise);
+		await key("Enter");
+		expect(setModel).not.toHaveBeenCalled();
+		await act(async () => useModelStore.setState({ availableModels: routerModels }));
+		const { input, props } = inputProps();
+		input.value = "new b";
+		await act(async () => props.onChange({ target: input, currentTarget: input }));
+		expect(rows("openrouter")).toEqual(["New B"]);
+		const option = document.querySelector('[role="option"]');
+		expect(input.getAttribute("aria-activedescendant")).toBe(option?.getAttribute("id"));
+		await key("Enter");
+		expect(setModel).toHaveBeenCalledWith("openrouter", "new-b");
+		response.resolve({ models: routerModels, discoveryStates: [], refreshPending: false, generation: 1 });
+	});
+
 	it("keeps release ordering across raw catalog pushes and a late dated read without restoring removed models", async () => {
 		const response = Promise.withResolvers<AvailableModelsResult>();
 		const raw = routerModels.map(model => ({ provider: model.provider, id: model.id, name: model.name }));

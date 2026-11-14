@@ -58,6 +58,34 @@ describe("get_available_models handler", () => {
 		expect(result).toEqual(catalog);
 		expect(request).toHaveBeenCalledWith("models_catalog", { forceRefresh: true });
 	});
+
+	it("returns the stock catalog without starting or awaiting optional release metadata", async () => {
+		const started = Promise.withResolvers<void>();
+		const metadata = Promise.withResolvers<Response>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => {
+				started.resolve();
+				return metadata.promise;
+			}),
+		);
+		const catalog = { models: [{ provider: "openrouter", id: "sample/model" }], generation: 1 };
+		try {
+			const read = handlers.get_available_models(
+				{ type: "get_available_models" },
+				fakeCtx(
+					vi.fn(),
+					vi.fn(async () => catalog),
+				),
+			);
+			expect(
+				await Promise.race([Promise.resolve(read).then(() => "catalog"), started.promise.then(() => "metadata")]),
+			).toBe("catalog");
+			expect(await read).toEqual(catalog);
+		} finally {
+			metadata.resolve(Response.json({ providers: { openrouter: { models: {} } }, models: {} }));
+		}
+	});
 });
 
 describe("mergeProviderAccounts", () => {
