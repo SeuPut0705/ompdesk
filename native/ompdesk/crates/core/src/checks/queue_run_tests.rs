@@ -134,6 +134,7 @@ struct Host {
     refuse: Mutex<Option<String>>,
     /// While set, a batch's answer is withheld until the wait's scope is cancelled; counts the waits under way.
     hold_answers: AtomicUsize,
+    final_unknown: AtomicUsize,
     waiting: AtomicUsize,
     told: mpsc::UnboundedSender<RunResult>,
 }
@@ -177,7 +178,9 @@ impl QueueHost for Host {
             }
             let mut answer = answer::blank(
                 &run,
-                if red {
+                if self.final_unknown.load(Ordering::SeqCst) > 0 {
+                    AnswerVerdict::Unknown
+                } else if red {
                     AnswerVerdict::Red
                 } else {
                     AnswerVerdict::Green
@@ -185,6 +188,12 @@ impl QueueHost for Host {
                 clock::now_ms(),
                 if red { Next::Fix } else { Next::Land },
             );
+            if answer.verdict == AnswerVerdict::Unknown {
+                answer.say(Note {
+                    error: Some("the final batch result could not be read".into()),
+                    ..Note::new(NoteCode::Refused)
+                });
+            }
             if red {
                 answer.counts.failed = 1;
                 answer.failed.push(FailedTest {
@@ -249,6 +258,7 @@ impl QueueHost for Host {
 struct Watched {
     inner: GitHands,
     dropped: mpsc::UnboundedSender<String>,
+    save_attempt: Arc<Mutex<Option<mpsc::UnboundedSender<()>>>>,
 }
 
 impl Hands for Watched {
@@ -296,6 +306,11 @@ impl Hands for Watched {
 
     fn save(&self, queue: &LandQueue) {
         self.inner.save(queue);
+        if !queue.is_empty() {
+            if let Some(sender) = self.save_attempt.lock().unwrap().as_ref() {
+                let _ = sender.send(());
+            }
+        }
     }
 
     fn saved(&self) -> Vec<LandQueue> {
@@ -309,12 +324,14 @@ struct Run {
     queues: Arc<Queues>,
     told: mpsc::UnboundedReceiver<RunResult>,
     dropped: mpsc::UnboundedReceiver<String>,
+    save_attempt: Arc<Mutex<Option<mpsc::UnboundedSender<()>>>>,
 }
 
 fn start(batch_size: usize, push_before_first_run: Option<&str>) -> Run {
     let fixture = Fixture::new();
     let (told_tx, told) = mpsc::unbounded_channel();
     let (dropped_tx, dropped) = mpsc::unbounded_channel();
+    let save_attempt = Arc::new(Mutex::new(None));
     let host = Arc::new(Host {
         remote: fixture.remote.clone(),
         work: fixture.work.clone(),
@@ -323,6 +340,7 @@ fn start(batch_size: usize, push_before_first_run: Option<&str>) -> Run {
         push_before_first_run: Mutex::new(push_before_first_run.map(str::to_owned)),
         refuse: Mutex::default(),
         hold_answers: AtomicUsize::new(0),
+        final_unknown: AtomicUsize::new(0),
         waiting: AtomicUsize::new(0),
         told: told_tx,
     });
@@ -348,6 +366,7 @@ fn start(batch_size: usize, push_before_first_run: Option<&str>) -> Run {
             url: Box::new(move |_| remote.clone()),
         },
         dropped: dropped_tx,
+        save_attempt: save_attempt.clone(),
     };
     let tuning = Tuning {
         batch_size,
@@ -360,6 +379,7 @@ fn start(batch_size: usize, push_before_first_run: Option<&str>) -> Run {
         queues,
         told,
         dropped,
+        save_attempt,
     }
 }
 
@@ -604,6 +624,7 @@ async fn a_queue_opened_again_shows_what_it_had_and_a_build_is_the_same_commit()
         push_before_first_run: Mutex::default(),
         refuse: Mutex::default(),
         hold_answers: AtomicUsize::new(0),
+        final_unknown: AtomicUsize::new(0),
         waiting: AtomicUsize::new(0),
         told,
     });
@@ -715,6 +736,7 @@ async fn a_dropped_queue_ends_its_lanes_and_their_work_and_one_opened_again_is_t
         push_before_first_run: Mutex::default(),
         refuse: Mutex::default(),
         hold_answers: AtomicUsize::new(0),
+        final_unknown: AtomicUsize::new(0),
         waiting: AtomicUsize::new(0),
         told,
     });
@@ -751,3 +773,98 @@ async fn a_dropped_queue_ends_its_lanes_and_their_work_and_one_opened_again_is_t
     assert_eq!(hands.building.load(Ordering::SeqCst), 1);
     drop(again);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_final_unknown_ends_the_trial_without_redispatching_or_landing() {
+    let mut run = start(1, None);
+    run.host.final_unknown.store(1, Ordering::SeqCst);
+    let before = run.fixture.main();
+    let sha = run.fixture.branch("b1", "one.txt", "1\n");
+    let id = run.enqueue("b1", &sha).await;
+    let results = run.results(1).await;
+    let answer = &results[&id].answer;
+    assert_eq!(answer.verdict, AnswerVerdict::Red);
+    assert_eq!(answer.run_id, id);
+    assert!(answer.notes.iter().any(|note| note.contains("the final batch result could not be read")));
+    assert_eq!(run.starts(), 1);
+    assert_eq!(run.fixture.main(), before);
+    run.no_candidates_left().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_acknowledged_enqueue_survives_reopen_after_a_save_failure() {
+    let run = start(10, None);
+    let before = run.fixture.main();
+    let sha = run.fixture.branch("b1", "one.txt", "1\n");
+    let queue_dir = run.fixture.dir.join("queue");
+    std::fs::create_dir_all(&queue_dir).unwrap();
+    let lanes = queue_dir.join("lanes");
+    std::fs::write(&lanes, b"blocked").unwrap();
+    let (attempt_tx, mut attempt_rx) = mpsc::unbounded_channel();
+    *run.save_attempt.lock().unwrap() = Some(attempt_tx);
+    let request = LandRequest {
+        repo: "o/r".into(),
+        branch: "b1".into(),
+        sha,
+        base: "main".into(),
+        pr: None,
+        title: "change b1".into(),
+        scope: StartScope::Changed,
+    };
+    let queues = run.queues.clone();
+    let enqueue = tokio::spawn(async move { queues.enqueue(origin(), request).await });
+    tokio::time::timeout(Duration::from_secs(30), attempt_rx.recv())
+        .await
+        .expect("the queue tries to save")
+        .expect("the save observer remains open");
+    std::fs::remove_file(&lanes).unwrap();
+    let reply = tokio::time::timeout(Duration::from_secs(30), enqueue)
+        .await
+        .expect("enqueue is retried after storage recovers")
+        .unwrap()
+        .unwrap();
+    assert_eq!(reply.decision, StartDecision::Held);
+    let id = reply.run_id.unwrap();
+    let Run { fixture, host, queues, .. } = run;
+    let mut closed = queues.entries();
+    queues.stop();
+    drop(queues);
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while closed.changed().await.is_ok() {}
+    })
+    .await
+    .expect("the old queue stops");
+    let remote = fixture.remote.to_string_lossy().into_owned();
+    let hands = GitHands {
+        git: Box::new(|scope| Some(Git::new(runner(), scope))),
+        dir: Box::new(move || queue_dir.clone()),
+        url: Box::new(move |_| remote.clone()),
+    };
+    let again = open_with(
+        host,
+        Arc::new(hands),
+        Tuning { batch_size: 10, window_ms: 60 * 60_000 },
+    );
+    let request = LandRequest {
+        repo: "o/r".into(),
+        branch: "b2".into(),
+        sha: "s2".into(),
+        base: "main".into(),
+        pr: None,
+        title: "change b2".into(),
+        scope: StartScope::Changed,
+    };
+    again.enqueue(origin(), request).await.unwrap();
+    let entries = again.entries();
+    let shown = entries.borrow();
+    assert!(
+        shown.iter().any(|entry| entry.id == id && entry.branch == "b1"),
+        "the acknowledged entry is present after reopening: {shown:?}"
+    );
+    assert_eq!(fixture.main(), before);
+    assert!(
+        !fixture.heads().iter().any(|head| head.starts_with(QUEUE_BRANCH_PREFIX)),
+        "waiting entries do not push a candidate"
+    );
+}
+
