@@ -1269,7 +1269,7 @@ async fn enqueue_revalidates_resolved_identity_visibility_and_control_before_kee
     let mut disabled = state(vec![tab("boss", "/s/boss.jsonl")]);
     disabled["enabled"] = json!(false);
     let mut deleted = state(vec![tab("boss", "/s/boss.jsonl")]);
-    deleted["deleted"] = json!({ "byPath": [{ "path": "/s/boss.jsonl", "at": 7.0 }] });
+    deleted["deleted"] = json!({ "byPath": [{ "path": crate::agentctl::service::host::node_resolve("/s/boss.jsonl"), "at": 7.0 }] });
     let mut deleting = state(vec![tab("boss", "/s/boss.jsonl")]);
     deleting["mailBlocked"] = json!(["boss"]);
     let states = [
