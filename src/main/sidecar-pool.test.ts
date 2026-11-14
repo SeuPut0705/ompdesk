@@ -581,6 +581,13 @@ describe("SidecarPool exact window-view leave", () => {
 			cleanupUnconfirmed: true,
 			retryAvailable: false,
 			target: { device: "host-source", rtab: "remote-proxy", sessionPath: SESSION },
+			message: `The local view closed, but its cleanup was not confirmed: ${JSON.stringify({
+				code: "remote_leave_unconfirmed",
+				localViewClosed: true,
+				cleanupUnconfirmed: true,
+				retryAvailable: false,
+				target: { device: "host-source", rtab: "remote-proxy", sessionPath: SESSION },
+			})}`,
 		});
 		await entered.promise;
 		expect(pool.tabsForWindow(owner.win)).toEqual([]);
