@@ -191,6 +191,27 @@ impl Callers {
         true
     }
 
+    /// Admit a captured tab effect under the same lock as both presentation and execution retirement.
+    pub fn admit_tab_effect<T>(
+        &self,
+        owner: &Owner,
+        tab: &str,
+        effect: impl FnOnce() -> Result<T, Fault>,
+    ) -> Result<T, Fault> {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(record) = state.executions.get(owner) {
+            if record.facts.tab != tab
+                || !matches!(record.life, Life::Bound { .. })
+                || state.active_tabs.get(tab) != Some(owner)
+            {
+                return Err(closed());
+            }
+        } else if state.stopped || !state.owners.contains_key(owner) {
+            return Err(closed());
+        }
+        effect()
+    }
+
     /// `effect` must only capture/enqueue native work, never await or reenter this registry.
     /// A window is required for creation; cleanup retains the execution identity after a page closes.
     pub fn admit_execution<T>(
