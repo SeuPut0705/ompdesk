@@ -50,6 +50,12 @@ pub struct Service {
     stopping: tokio::sync::Mutex<()>,
 }
 
+#[derive(Clone, Copy)]
+enum JoinedResult {
+    Caller,
+    Mutation,
+}
+
 impl Service {
     pub fn new(config: Config, launcher: Arc<dyn Launcher>) -> Self {
         let closed = Arc::new(AtomicBool::new(false));
@@ -121,6 +127,17 @@ impl Service {
         }
     }
 
+    /// A mutation's confirmed result remains authoritative after withdrawal is requested.
+    pub fn mutation_joined(
+        &self,
+        method: &str,
+        params: &Value,
+        timeout: Duration,
+        scope: Scope,
+    ) -> impl Future<Output = Result<Value, Fault>> + Send + 'static + use<> {
+        self.joined(method, params, timeout, scope, JoinedResult::Mutation)
+    }
+
     /// Admits immediately and waits for the worker's answer, withdrawal, or confirmed exit.
     /// A dropped future withdraws the request, but its scope stays alive until that receipt.
     pub fn request_joined(
@@ -129,6 +146,17 @@ impl Service {
         params: &Value,
         timeout: Duration,
         scope: Scope,
+    ) -> impl Future<Output = Result<Value, Fault>> + Send + 'static + use<> {
+        self.joined(method, params, timeout, scope, JoinedResult::Caller)
+    }
+
+    fn joined(
+        &self,
+        method: &str,
+        params: &Value,
+        timeout: Duration,
+        scope: Scope,
+        result_policy: JoinedResult,
     ) -> impl Future<Output = Result<Value, Fault>> + Send + 'static + use<> {
         let deadline = tokio::time::Instant::now() + timeout;
         let placed = if scope.cancelled() {
@@ -170,7 +198,7 @@ impl Service {
                         let _ = placed.inbox.send(super::Msg::GaveUp(placed.id));
                         tokio::select! {
                             biased;
-                            receipt = &mut answer => receipt.map_or_else(|_| Err(unconfirmed_fault()), |_| Err(Fault::new("stock_timeout", "omp stock helper request timed out"))),
+                            receipt = &mut answer => withdrawn_answer(receipt, result_policy, Fault::new("stock_timeout", "omp stock helper request timed out")),
                             _ = &mut unconfirmed => Err(unconfirmed_fault()),
                         }
                     },
@@ -178,7 +206,7 @@ impl Service {
                         let _ = placed.inbox.send(super::Msg::GaveUp(placed.id));
                         tokio::select! {
                             biased;
-                            receipt = &mut answer => receipt.map_or_else(|_| Err(unconfirmed_fault()), |_| Err(Fault::cancelled())),
+                            receipt = &mut answer => withdrawn_answer(receipt, result_policy, Fault::cancelled()),
                             _ = &mut unconfirmed => Err(unconfirmed_fault()),
                         }
                     },
@@ -221,6 +249,19 @@ fn unconfirmed_fault() -> Fault {
         "stock_exit_unconfirmed",
         "Stock worker exit could not be confirmed",
     )
+}
+
+fn withdrawn_answer(
+    answer: Result<super::Answer, tokio::sync::oneshot::error::RecvError>,
+    policy: JoinedResult,
+    caller_error: Fault,
+) -> Result<Value, Fault> {
+    match policy {
+        JoinedResult::Mutation => decode_answer(answer),
+        JoinedResult::Caller => {
+            answer.map_or_else(|_| Err(unconfirmed_fault()), |_| Err(caller_error))
+        }
+    }
 }
 
 fn decode_answer(

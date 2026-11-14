@@ -501,6 +501,74 @@ async fn joined_cancel_waits_for_active_worker_answer() {
 }
 
 #[tokio::test]
+async fn known_mutation_success_survives_cancel_and_timeout_after_effect_admission() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    for timeout in [false, true] {
+        let (service, listener) = joined_fixture().await;
+        let (scope, gone) = Scope::watched();
+        let mut result = Box::pin(service.mutation_joined(
+            "sessions.mutate",
+            &json!({}),
+            Duration::from_secs(60),
+            scope.clone(),
+        ));
+        let mut control = worker_started(listener).await;
+        if timeout {
+            tokio::time::pause();
+            tokio::time::advance(Duration::from_secs(60)).await;
+        } else {
+            scope.cancel();
+        }
+        drop(scope);
+        let mut cancelled = [0; 6];
+        control.read_exact(&mut cancelled).await.unwrap();
+        assert_eq!(&cancelled, b"cancel");
+        assert_pending(result.as_mut()).await;
+        let mut gone = Box::pin(gone.wait());
+        assert_pending(gone.as_mut()).await;
+        if timeout {
+            tokio::time::resume();
+        }
+        control.write_all(b"r").await.unwrap();
+        assert_eq!(result.await.unwrap(), json!("mutated"));
+        gone.await;
+        service.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn withdrawn_mutation_never_becomes_a_committed_success() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (service, listener) = joined_fixture().await;
+    let active = service.request_joined(
+        "sessions.active",
+        &json!({}),
+        Duration::from_secs(60),
+        Scope::detached(),
+    );
+    let mut control = worker_started(listener).await;
+    let (scope, gone) = Scope::watched();
+    let queued = service.mutation_joined(
+        "sessions.queued",
+        &json!({}),
+        Duration::from_secs(60),
+        scope.clone(),
+    );
+    let mut notice = [0; 6];
+    control.read_exact(&mut notice).await.unwrap();
+    assert_eq!(&notice, b"queued");
+    scope.cancel();
+    drop(scope);
+    control.read_exact(&mut notice).await.unwrap();
+    assert_eq!(&notice, b"cancel");
+    control.write_all(b"r").await.unwrap();
+    assert_eq!(active.await.unwrap(), json!("mutated"));
+    assert!(queued.await.is_err());
+    gone.wait().await;
+    service.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn joined_timeout_waits_for_active_worker_answer() {
     use tokio::io::AsyncWriteExt;
     let (service, listener) = joined_fixture().await;

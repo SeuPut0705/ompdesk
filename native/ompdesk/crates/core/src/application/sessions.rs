@@ -530,7 +530,7 @@ impl SessionIndex {
         let path = self.validate_target(path)?;
         let params = json!({"sessionPath": path, "sessionsRoot": self.root});
         self.stock
-            .request_joined("sessions.delete", &params, STOCK_TIMEOUT, scope)
+            .mutation_joined("sessions.delete", &params, STOCK_TIMEOUT, scope)
             .await?;
         Ok(())
     }
@@ -552,7 +552,7 @@ impl SessionIndex {
         let params = json!({"sessionPath": source, "cwd": cwd, "sessionsRoot": self.root});
         let result = self
             .stock
-            .request_joined("sessions.move", &params, STOCK_TIMEOUT, scope)
+            .mutation_joined("sessions.move", &params, STOCK_TIMEOUT, scope)
             .await?;
         let moved = result["sessionPath"]
             .as_str()

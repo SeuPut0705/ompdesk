@@ -314,7 +314,7 @@ async fn stored_delete_retains_scope_after_cancellation_and_drop() {
         assert!(pending);
         control.write_all(b"r").await.unwrap();
         if cancel {
-            assert_eq!(task.await.unwrap().unwrap_err().code, "cancelled");
+            task.await.unwrap().unwrap();
         } else {
             assert!(task.await.unwrap_err().is_cancelled());
         }
