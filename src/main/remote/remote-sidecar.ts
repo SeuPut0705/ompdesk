@@ -64,6 +64,7 @@ import type { TranscriptCache } from "./transcript-cache";
 export interface RemoteLink {
 	readonly deviceId: string;
 	readonly state: RemoteLinkState;
+	readonly connectionBinding?: Readonly<{ coreGeneration: number; linkId: number }>;
 	request<T>(method: string, params: unknown, timeoutMs?: number): Promise<T>;
 }
 
@@ -244,6 +245,28 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	get device(): string {
 		return this.#link.deviceId;
+	}
+
+	get remoteCardBinding() {
+		const connectionBinding = this.#link.connectionBinding;
+		if (
+			this.#disposed ||
+			this.#link.state !== "online" ||
+			this.#status !== "ready" ||
+			!this.#processAlive ||
+			!this.#opened ||
+			!this.#omp ||
+			!this.#resume ||
+			!connectionBinding
+		)
+			return undefined;
+		return {
+			hostDeviceId: this.#link.deviceId,
+			sessionPath: this.#resume,
+			ompEpoch: this.#omp,
+			rtab: this.#rtab,
+			connectionBinding,
+		};
 	}
 
 	get offline(): boolean {

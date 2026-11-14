@@ -13,6 +13,7 @@ import type { HostHello } from "./host-server";
 import type { PairedHost } from "./hosts-store";
 import type { Identity } from "./identity";
 import { type TabHolder, tabHolderOf, WireEvent, WireResponse } from "./protocol";
+import type { RemoteLink } from "./remote-sidecar";
 import type { SharingCore } from "./sharing";
 import { Link, type Liveness, type WireMessage } from "./wire";
 
@@ -199,7 +200,9 @@ function route(): void {
 	if (routed) return;
 	routed = true;
 	const process = core();
-	process.on("remote.client.state", data => clients.get((data as ClientTold).client)?.told(data as ClientTold));
+	process.on("remote.client.state", (data, _bin, generation) =>
+		clients.get((data as ClientTold).client)?.told(data as ClientTold, generation),
+	);
 	process.on("remote.client.log", data => {
 		const { client, event, details } = data as {
 			client: number;
@@ -230,6 +233,7 @@ export class RemoteClient {
 	#hello: HostHello | null = null;
 	#error: string | null = null;
 	#link: Link | null = null;
+	#linkGeneration = 0;
 	#closed = false;
 	/** `connect` was called: the core is reconnecting this link. */
 	#running = false;
@@ -245,6 +249,14 @@ export class RemoteClient {
 
 	get state(): LinkState {
 		return this.#state;
+	}
+
+	get connectionBinding(): RemoteLink["connectionBinding"] {
+		const link = this.#link;
+		const generation = core().generation;
+		if (this.#state !== "online" || !link || link.closed || generation === 0 || generation !== this.#linkGeneration)
+			return undefined;
+		return { coreGeneration: this.#linkGeneration, linkId: link.id };
 	}
 
 	/** The last hello from the host; kept while offline. */
@@ -403,14 +415,19 @@ export class RemoteClient {
 	}
 
 	/** A transition the core told. */
-	told(told: ClientTold): void {
-		if (this.#closed) return;
+	told(told: ClientTold, generation: number): void {
+		if (this.#closed || generation === 0 || generation !== core().generation) return;
 		this.#host = { ...told.host, addresses: [...told.host.addresses] };
 		this.#hello = told.hello;
 		this.#error = told.error;
-		if (told.state === "online" && told.link !== null && this.#link?.id !== told.link) {
+		if (
+			told.state === "online" &&
+			told.link !== null &&
+			(this.#link?.id !== told.link || this.#linkGeneration !== generation)
+		) {
 			const link = new Link(told.link);
 			this.#link = link;
+			this.#linkGeneration = generation;
 			link.onClose(() => {
 				if (this.#link === link) this.#dropLink(`${this.#host.name} went offline`);
 			});
@@ -427,6 +444,7 @@ export class RemoteClient {
 
 	#dropLink(message: string): void {
 		this.#link = null;
+		this.#linkGeneration = 0;
 		for (const [id, pending] of this.#pending) {
 			clearTimeout(pending.timer);
 			this.#pending.delete(id);
