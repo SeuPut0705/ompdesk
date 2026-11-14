@@ -19,6 +19,7 @@
 //!   `rpc`, `sideChannelLater` and `exiting`.
 
 mod api;
+pub mod application;
 mod claims;
 mod later;
 pub mod layout;

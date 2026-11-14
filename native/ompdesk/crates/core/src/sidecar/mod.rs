@@ -25,11 +25,13 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::server::{Answer, Call, Events, Fault, Registry, Reply};
 
+pub mod application;
 pub mod bridge;
 mod frames;
 mod lane;
 mod launch;
 mod messages;
+pub mod native;
 mod process;
 mod queue;
 mod stop;

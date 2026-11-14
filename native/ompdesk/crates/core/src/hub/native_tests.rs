@@ -66,7 +66,8 @@ fn native_delivery_order_reentrancy_and_generation_fence() {
         let observed = Rc::new(RefCell::new(Vec::new()));
         let log = observed.clone();
         spawn(async move {
-            log.borrow_mut().push(answer.await.unwrap());
+            let value = answer.await.unwrap();
+            log.borrow_mut().push(value);
         });
         drain();
         assert!(sink.events.borrow().is_empty());
