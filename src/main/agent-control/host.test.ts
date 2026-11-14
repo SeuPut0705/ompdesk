@@ -346,7 +346,13 @@ describe("private Inbox receiving guards", () => {
 			entries: [],
 			receipts: [],
 		}));
-		const sidecar = { cwd: "/repo", status: "ready", processAlive: true, rpcClient, bridgeRequest };
+		const sidecar = {
+			cwd: "/repo",
+			status: "ready",
+			processAlive: true,
+			rpcClient,
+			bridgeRequest,
+		} satisfies Pick<SidecarLike, "cwd" | "status" | "processAlive" | "rpcClient" | "bridgeRequest">;
 		env.sidecars.set("recipient", sidecar);
 		const receiver = { sessionPath, instance: "bridge-a" };
 		const transfer: NativeInboxTransfer = {
