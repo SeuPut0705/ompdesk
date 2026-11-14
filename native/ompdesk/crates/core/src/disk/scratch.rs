@@ -76,8 +76,8 @@ fn unlinked(dir: &Path) -> Result<(), Fault> {
 #[serde(rename_all = "camelCase")]
 pub struct Facts {
     /// When anything in the folder (a file, a folder, the folder itself) last changed, epoch ms.
-    newest_ms: f64,
-    entries: u64,
+    pub(crate) newest_ms: f64,
+    pub(crate) entries: u64,
 }
 
 fn mtime_ms(meta: &fs::Metadata) -> f64 {
@@ -336,13 +336,13 @@ fn named(
 
 #[derive(Serialize, Debug, Default, PartialEq)]
 pub struct Swept {
-    bytes: u64,
+    pub(crate) bytes: u64,
     /// Entries removed (a folder with nothing named in it counts once).
-    removed: u64,
+    pub(crate) removed: u64,
     /// Files left because a reply names them.
-    kept: u64,
+    pub(crate) kept: u64,
     /// Entries that could not be removed.
-    left: u64,
+    pub(crate) left: u64,
 }
 
 fn drop_unnamed(

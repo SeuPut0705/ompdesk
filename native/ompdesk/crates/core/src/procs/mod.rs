@@ -34,26 +34,26 @@ const PS_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ListParams {
-    env: String,
-    timeout_ms: u64,
+pub(crate) struct ListParams {
+    pub(crate) env: String,
+    pub(crate) timeout_ms: u64,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct EndParams {
-    env: String,
-    tags: Vec<String>,
+pub(crate) struct EndParams {
+    pub(crate) env: String,
+    pub(crate) tags: Vec<String>,
     #[serde(default)]
-    keep_arg: Option<String>,
-    grace_ms: u64,
-    timeout_ms: u64,
+    pub(crate) keep_arg: Option<String>,
+    pub(crate) grace_ms: u64,
+    pub(crate) timeout_ms: u64,
 }
 
 /// One process as a scan saw it, and a row of `procs.list`.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Row {
+pub(crate) struct Row {
     pid: u32,
     ppid: u32,
     /// Resident bytes (Windows: the working set); 0 when unreadable.
@@ -65,7 +65,7 @@ struct Row {
     name: String,
     /// The asked variable's value in its environment, when that could be read and holds one.
     #[serde(skip_serializing_if = "Option::is_none")]
-    tag: Option<String>,
+    pub(crate) tag: Option<String>,
     /// Its command line's arguments, read only where `procs.end` checks `keepArg`.
     #[serde(skip)]
     args: Vec<String>,
@@ -76,30 +76,30 @@ struct Row {
 }
 
 #[derive(Debug, Serialize)]
-struct Ended {
-    pid: u32,
-    name: String,
-    bytes: u64,
+pub(crate) struct Ended {
+    pub(crate) pid: u32,
+    pub(crate) name: String,
+    pub(crate) bytes: u64,
     /// It still ran when the force reached it.
-    forced: bool,
+    pub(crate) forced: bool,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
-struct Named {
-    pid: u32,
-    name: String,
+pub(crate) struct Named {
+    pub(crate) pid: u32,
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Default, Serialize)]
-struct Report {
-    ended: Vec<Ended>,
+pub(crate) struct Report {
+    pub(crate) ended: Vec<Ended>,
     /// Targets still running at the end.
-    left: Vec<Named>,
+    pub(crate) left: Vec<Named>,
     /// Shared workers (`keepArg`) and what they started, never signalled.
-    kept: Vec<Named>,
+    pub(crate) kept: Vec<Named>,
     /// Asked tags this process or one of its ancestors carries: the app itself runs under them, so nothing with one
     /// of them was touched.
-    own: Vec<String>,
+    pub(crate) own: Vec<String>,
 }
 
 pub fn register(registry: &mut Registry) {
@@ -144,12 +144,12 @@ fn check_tag(tag: &str) -> Result<(), Fault> {
     ))
 }
 
-async fn list(params: ListParams, scope: Scope) -> Result<Vec<Row>, Fault> {
+pub(crate) async fn list(params: ListParams, scope: Scope) -> Result<Vec<Row>, Fault> {
     check_env(&params.env)?;
     scan(&params.env, params.timeout_ms, scope, HashSet::new()).await
 }
 
-async fn end(params: EndParams, scope: Scope) -> Result<Report, Fault> {
+pub(crate) async fn end(params: EndParams, scope: Scope) -> Result<Report, Fault> {
     check_env(&params.env)?;
     for tag in &params.tags {
         check_tag(tag)?;
