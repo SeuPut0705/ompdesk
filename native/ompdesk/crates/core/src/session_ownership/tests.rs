@@ -67,6 +67,71 @@ impl Drop for World {
 }
 
 #[test]
+fn quota_recovery_restores_tags_and_scratch_sessions_without_another_save() {
+    let world = World::new();
+    let service = world.service();
+    let existing = service
+        .acquire(&world.owner(), world.facts("existing.jsonl"))
+        .unwrap();
+    let previous_tags = fs::read(&world.config.process_file).unwrap();
+    let previous_scratch = fs::read(&world.config.scratch_file).unwrap();
+    let tag_quota = crate::disk::saves::test_support::Quota::new(&world.config.process_file);
+    let scratch_quota = crate::disk::saves::test_support::Quota::new(&world.config.scratch_file);
+    let owner = world.owner();
+    let first = world.facts("first.jsonl");
+    let latest = world.facts("latest.jsonl");
+    let lease = service.acquire(&owner, first.clone()).unwrap();
+    let artifact = lease.scratch.as_ref().unwrap().join("picture.png");
+    fs::write(&artifact, b"retained picture").unwrap();
+    service.update(&owner, latest.clone()).unwrap();
+    assert_eq!(
+        service
+            .owners()
+            .iter()
+            .find(|record| record.tag == lease.tag)
+            .unwrap()
+            .facts,
+        latest
+    );
+    assert_eq!(fs::read(&world.config.process_file).unwrap(), previous_tags);
+    assert_eq!(
+        fs::read(&world.config.scratch_file).unwrap(),
+        previous_scratch
+    );
+    service.freeze();
+    drop(service);
+    let before_recovery = world.service();
+    assert_eq!(before_recovery.owners().len(), 1);
+    assert_eq!(before_recovery.owners()[0].tag, existing.tag);
+    drop(before_recovery);
+
+    tag_quota.recover();
+    scratch_quota.recover();
+
+    let reopened = world.service();
+    let owners = reopened.owners();
+    assert_eq!(owners.len(), 2);
+    assert_eq!(
+        owners
+            .iter()
+            .find(|record| record.tag == lease.tag)
+            .unwrap()
+            .facts,
+        latest
+    );
+    let records = reopened.scratch_records();
+    let restored = records
+        .iter()
+        .find(|record| record.tag == lease.tag)
+        .unwrap();
+    assert_eq!(
+        restored.sessions,
+        vec![first.session_path.unwrap(), latest.session_path.unwrap()]
+    );
+    assert_eq!(fs::read(artifact).unwrap(), b"retained picture");
+}
+
+#[test]
 fn owns_one_random_16_byte_tag_across_restart_and_session_changes() {
     let world = World::new();
     let service = world.service();
