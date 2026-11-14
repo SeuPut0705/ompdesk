@@ -631,6 +631,81 @@ describe("SidecarPool exact window-view leave", () => {
 			spy.mockRestore();
 		}
 	});
+
+	it("does not resurrect an acknowledged owner view if the core is lost before cleanup", async () => {
+		const { pool, owner, acknowledgement, sent } = await remoteProxy();
+		const identity = pool.viewIdentity(owner.win, "remote-proxy");
+		if (!identity) throw new Error("expected an owner view identity");
+		const sharedHub = hub();
+		const originalCall = sharedHub.call.bind(sharedHub);
+		let finishes = 0;
+		const spy = vi
+			.spyOn(sharedHub, "call")
+			.mockImplementation(<T>(to: number, method: string, params?: unknown): T => {
+				if (method === "finishExactWindowView") {
+					finishes++;
+					if (finishes === 1) core().abandon("fixture loses core after the view commit");
+					throw new CoreError("hub_lost", "fixture cleanup core lost");
+				}
+				return originalCall<T>(to, method, params);
+			});
+		let outcome: unknown;
+		try {
+			acknowledgement.resolve(null);
+			outcome = await pool
+				.leaveWindowView(owner.win, "remote-proxy", identity, SESSION, () => true, authorize)
+				.catch((error: unknown) => error);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		expect(pool.tabLayoutForWindow(owner.win)).toBeNull();
+		expect(pool.viewIdentity(owner.win, "remote-proxy")).toBeNull();
+		expect(outcome).toMatchObject({ localViewClosed: true, cleanupUnconfirmed: true, retryAvailable: false });
+		expect(finishes).toBe(1);
+		expect(sent.filter(method => method === "tab.leave")).toHaveLength(1);
+		expect(sent).not.toContain("tab.close");
+	});
+
+	it("does not restore a departed local viewer's stream after core loss following its commit", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8701);
+		const viewer = fakeWindow(-8702);
+		pool.acquire("/a", owner.win, "viewer-loss", SESSION);
+		pool.attachViewer(viewer.win, "viewer-loss");
+		sidecars[0]?.emitStatus("ready");
+		const identity = pool.viewIdentity(viewer.win, "viewer-loss");
+		if (!identity) throw new Error("expected a viewer identity");
+		const sharedHub = hub();
+		const originalCall = sharedHub.call.bind(sharedHub);
+		let finishes = 0;
+		const spy = vi
+			.spyOn(sharedHub, "call")
+			.mockImplementation(<T>(to: number, method: string, params?: unknown): T => {
+				if (method === "finishExactWindowView") {
+					finishes++;
+					if (finishes === 1) core().abandon("fixture loses core after viewer commit");
+					throw new CoreError("hub_lost", "fixture cleanup core lost");
+				}
+				return originalCall<T>(to, method, params);
+			});
+		let outcome: unknown;
+		try {
+			outcome = await pool
+				.leaveWindowView(viewer.win, "viewer-loss", identity, SESSION, () => true, authorize)
+				.catch((error: unknown) => error);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(pool.tabsForWindow(viewer.win)).toEqual([]);
+		viewer.sent.length = 0;
+		sidecars[0]?.emitAgentEvents(["agent_start"]);
+		expect(viewer.sentTo(IPC_EVENTS.EVENTS_BATCH)).toEqual([]);
+		expect(pool.tabsForWindow(owner.win).map(tab => tab.tabId)).toEqual(["viewer-loss"]);
+		expect(sidecars[0]?.disposed).toBe(false);
+		expect(outcome).toMatchObject({ localViewClosed: true, cleanupUnconfirmed: true });
+		expect(finishes).toBe(1);
+	});
 });
 
 describe("SidecarPool session kind", () => {
