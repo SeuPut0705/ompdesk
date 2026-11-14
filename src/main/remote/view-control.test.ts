@@ -173,10 +173,11 @@ describe("view control", () => {
 		const initiallyAuthorized = Promise.withResolvers<void>();
 		const rig = network(ready.promise);
 		let active = true;
-		const authorization = {
-			authorize: vi.fn(async () => {
-				initiallyAuthorized.resolve();
-			}),
+		const authorize = vi.fn(async () => {
+			initiallyAuthorized.resolve();
+		});
+		const authorization = Object.assign(authorize, {
+			authorize,
 			validate: vi.fn(async () => {
 				if (!active) throw new Error("caller revoked");
 			}),
@@ -184,7 +185,7 @@ describe("view control", () => {
 			release: vi.fn(async () => {
 				active = false;
 			}),
-		};
+		});
 		const closing: Promise<void> = Reflect.apply(rig.controls.get("A")!.close, rig.controls.get("A"), [
 			view("B").handle,
 			authorization,
@@ -210,12 +211,13 @@ describe("view control", () => {
 		});
 		const a = rig.controls.get("A")!;
 		const b = rig.controls.get("B")!;
-		const authorization = {
-			authorize: vi.fn(async () => {}),
+		const authorize = vi.fn(async () => {});
+		const authorization = Object.assign(authorize, {
+			authorize,
 			validate: vi.fn(() => validation.promise),
 			current: () => true,
 			release: vi.fn(async () => {}),
-		};
+		});
 		const closing: Promise<void> = Reflect.apply(a.close, a, [view("B").handle, authorization]);
 		const denied = expect(closing).rejects.toThrow();
 		await Promise.race([finalChallenge.promise, closing]);
