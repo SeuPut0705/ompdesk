@@ -306,3 +306,36 @@ async fn a_busy_callback_port_is_reported_instead_of_a_stale_listener_completion
     device.disconnect_for_test();
     host.disconnect_for_test();
 }
+
+#[tokio::test]
+async fn reopening_a_later_snapshot_row_cancels_its_unsent_close() {
+    let (device, host, _keep) = pair().await;
+    let mut incoming = host.take_requests().unwrap();
+    let closes = PendingTabCloses::default();
+    closes.defer("one".into());
+    closes.defer("two".into());
+    let flush = closes.flush(&device);
+    tokio::pin!(flush);
+    let first = tokio::select! {
+        first = incoming.recv() => first.unwrap(),
+        () = &mut flush => panic!("No close was sent"),
+    };
+    let reopened = if first.params["rtab"] == "one" {
+        "two"
+    } else {
+        "one"
+    };
+    closes.cancel(reopened);
+    host.answer(first.id, Ok(Value::Null)).unwrap();
+    let stale = tokio::select! {
+        () = &mut flush => None,
+        next = incoming.recv() => next,
+    };
+    if let Some(stale) = &stale {
+        host.answer(stale.id, Ok(Value::Null)).unwrap();
+        flush.await;
+    }
+    assert!(stale.is_none(), "A reopened snapshot row was closed");
+    device.disconnect_for_test();
+    host.disconnect_for_test();
+}
