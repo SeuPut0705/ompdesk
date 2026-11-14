@@ -211,7 +211,7 @@
 				"native/ompdesk/crates/core/src/pool/persist.rs",
 				"native/ompdesk/crates/core/src/pool/api.rs"
 			],
-			"syncCommit": null
+			"syncCommit": "d771e71928651f73eb48a035f0e87ffce4e501fd"
 		},
 		{
 			"id": "session-delete-fences",
