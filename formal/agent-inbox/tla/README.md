@@ -7,3 +7,16 @@ The frozen properties are in Properties.md. Baseline bounds are one prompt and o
 A failed save stutters without returning Disk. Source replay can survive a failed cleanup save after destination ACK. Terminal native IDs remain; payload retirement does not remove identity responsibility. The additive d16 FirstDispatchStable property covers changed proposed dN versus first durable dispatch; the original ten properties are unchanged. Precise producer-authentication codec and actual wrapper text remain native regression obligations, not model-proven facts. Hosted-only receiver projection must use current authenticated HostTab data and fail closed; a stale UI snapshot is insufficient.
 
 The prepared matrix has two positive bounds and eleven negative configurations. Eleven mutation candidates cover the eleven frozen properties. Run the standard hosted formal runner only after authorized integrated source publication. No local TLC, even depth one, is authorized. Preserve traces and independent source correspondence before claiming verification.
+
+## Static successor coverage
+
+Run before the hosted model checker:
+
+```sh
+bun test formal/agent-inbox/tla/audit-actions.test.ts
+bun formal/agent-inbox/tla/audit-actions.ts
+```
+
+The audit compares `VARIABLES` and `vars`, then reports each action's primed assignments, plain-name `UNCHANGED` tuple, missing names and repeated names. It includes every `Next` branch and any other primed/`UNCHANGED` definition. Unsupported branch or tuple syntax fails closed. This is syntactic coverage for this model's conjunctive action shape, not a TLA parser or proof that conditional branches fully constrain every successor.
+
+The original `68354d800` source reports ten omissions across `AcceptMemory`, `SaveReceiver` and `QueueBatch` (25 variables, 21 actions). The correction adds only those names to their existing `UNCHANGED` tuples. The eleven frozen predicates and all configuration, mode, bound and timeout inputs remain unchanged. SANY does not establish this successor coverage, and a passing audit does not replace TLC.

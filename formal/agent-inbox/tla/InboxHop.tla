@@ -67,7 +67,7 @@ AcceptMemory == /\ (Fence \/ StaleFence) /\ source # {}
                 /\ unsafeUsed' = unsafeUsed \/ ~Fence
                 /\ UNCHANGED <<source, introduced, recvDisk, terminalMem, terminalDisk, blobs, retained,
                                queued, journal, durableInput, providerContext, output, acked, generation,
-                               capturedGeneration, available, crashes, payloadVersion, legacyOwned>>
+                               capturedGeneration, available, crashes, payloadVersion, legacyOwned, diskDispatch, ackDispatch, offeredDispatch>>
 \* A failed write leaves recvMem and source intact. Only this successful save updates disk responsibility.
 \* @code native/ompdesk/crates/core/src/agentctl/runtime/inbox_delivery.rs:178-267 Recheck the current receiver after awaited imports before native save/ACK.
 SaveReceiver == /\ (Fence \/ StaleFence)
@@ -75,7 +75,7 @@ SaveReceiver == /\ (Fence \/ StaleFence)
                 /\ unsafeUsed' = unsafeUsed \/ ~Fence
                 /\ UNCHANGED <<source, introduced, recvMem, terminalMem, blobs, retained, queued, journal,
                                durableInput, providerContext, output, acked, generation, capturedGeneration,
-                               available, crashes, payloadVersion, legacyOwned>>
+                               available, crashes, payloadVersion, legacyOwned, dispatch, ackDispatch, offeredDispatch>>
 \* @code native/ompdesk/crates/core/src/agentctl/runtime/inbox_source.rs:336-487 Retire producer originals only for exact receiving Disk keys.
 Acknowledge == /\ LET taken == IF AckMemory THEN Elems(recvMem) ELSE Elems(recvDisk)
                  IN /\ source' = source \ taken /\ acked' = acked \cup taken
@@ -104,7 +104,7 @@ QueueBatch == /\ (Fence \/ StaleFence)
               /\ legacyOwned' = legacyOwned \/ ClaimLegacy
               /\ UNCHANGED <<source, introduced, recvMem, recvDisk, terminalMem, terminalDisk, blobs,
                              retained, journal, durableInput, providerContext, output, acked, generation,
-                             capturedGeneration, available, crashes, payloadVersion>>
+                             capturedGeneration, available, crashes, payloadVersion, dispatch, diskDispatch, ackDispatch, offeredDispatch>>
 StockCommit == /\ queued # <<>> /\ journal' = journal \o queued /\ queued' = <<>>
                /\ UNCHANGED <<source, introduced, recvMem, recvDisk, terminalMem, terminalDisk, blobs,
                               retained, durableInput, providerContext, output, acked, generation,
