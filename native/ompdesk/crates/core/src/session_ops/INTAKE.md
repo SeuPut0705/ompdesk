@@ -1,6 +1,6 @@
 # Session operations source checkpoint
 
-Status: source checkpoint, not final adapter proof. Core exports this module; NativeApp has not registered or enabled it beside Electron. Base observed the unchanged capture-cancellation regressions fail; the post-capture correction and scoped-claim migration have not run.
+Status: source checkpoint, not final adapter proof. Core exports this module; NativeApp has not registered or enabled it beside Electron. Base observed the unchanged capture-cancellation regressions fail and the minimal f76 correction pass. The later scoped-claim migration has not run.
 
 ## Ownership
 
@@ -45,7 +45,7 @@ The canonical Session and CommandError helpers are now consumed through deb9. Se
 
 ## Verification limits
 
-Base ran the unchanged Coordinator plus cancellation source 5222/export e27 and actual 938/deb9 in official check `20261114-115906-4756`, using its existing warm target and explicit cargo/rustc/rustdoc 1.95. Both targeted tests failed: cancellation during capture still released one holder and renamed one live session, each expected zero. Base reported that a concurrent root-manifest edit made the checker result nonreusable; this is observed test output, not a reusable green result. The post-capture correction is untested. This worktree has run no Rust check, formatter, SANY parse, TLC matrix, mutation or actual stock/child integration. Main assigned the next warm proof to Base and prohibited duplicate/cold-target runs.
+Base ran the unchanged Coordinator plus cancellation source 5222/export e27 and actual 938/deb9 in official check `20261114-115906-4756`, using its existing warm target and explicit cargo/rustc/rustdoc 1.95. Both targeted tests failed: cancellation during capture still released one holder and renamed one live session, each expected zero. Base reported that a concurrent root-manifest edit made that checker result nonreusable. Base then ran minimal correction f76, taken into its root as ca025e4f2, against the unchanged two tests in official check `20261114-120650-092b`: 2 passed, 0 failed, same existing warm target and explicit cargo/rustc/rustdoc 1.95. That result covers only the post-capture cancellation checks, not later scoped claims or actual NativeHost/child/storage integration. This worktree has run no Rust check, formatter, SANY parse, TLC matrix, mutation or actual stock/child integration. Main assigned warm proof to Base and prohibited duplicate/cold-target runs.
 
 The final Rust proof must prepend the installed 1.95 bin directory to PATH and set RUSTC and RUSTDOC explicitly. Record the actual cargo, rustc, rustdoc and Clippy driver paths and versions; a `rustup run 1.95` label is not provenance when Homebrew binaries remain selected. Do not install or mutate a toolchain.
 
