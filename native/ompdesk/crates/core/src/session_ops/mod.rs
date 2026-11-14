@@ -141,12 +141,22 @@ impl<H: Host> Coordinator<H> {
         if scope.cancelled() {
             return Err(Fault::cancelled().into());
         }
-        match mutation {
-            Mutation::Delete => self.delete(owner, target, scope).await,
-            Mutation::Stop => self.stop(owner, target, scope).await,
-            Mutation::Rename(name) => self.rename(owner, target, &name, scope).await,
-            Mutation::Move(cwd) => self.move_session(owner, target, cwd, scope).await,
-        }
+        let coordinator = Self {
+            host: Arc::clone(&self.host),
+            authority: Arc::clone(&self.authority),
+            now_ms: self.now_ms,
+        };
+        let owner = owner.clone();
+        // The domain task owns this exact Scope until result-dependent commit and cleanup finish. Dropping a
+        // caller's answer detaches its JoinHandle; it must not drop the work after a storage effect was admitted.
+        tokio::spawn(async move {
+            match mutation {
+                Mutation::Delete => coordinator.delete(&owner, target, scope).await,
+                Mutation::Stop => coordinator.stop(&owner, target, scope).await,
+                Mutation::Rename(name) => coordinator.rename(&owner, target, &name, scope).await,
+                Mutation::Move(cwd) => coordinator.move_session(&owner, target, cwd, scope).await,
+            }
+        }).await.map_err(|_| Error::Effect(Fault::new("session_operation", "Session operation task failed")))?
     }
 
     async fn delete(&self, owner: &Owner, target: Target, scope: Scope) -> Result<Output, Error> {
