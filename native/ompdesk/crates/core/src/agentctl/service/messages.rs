@@ -300,9 +300,9 @@ impl AgentControl {
                     )
                     .contains(&target.tab_id)
         };
-        let state = self.host.state();
-        let (producer, recipient) = inbox_source::addresses(&state, caller, target)?;
-        let own_child = owns_target(&state);
+        let admitted_state = self.host.state();
+        let (producer, recipient) = inbox_source::addresses(&admitted_state, caller, target)?;
+        let own_child = owns_target(&admitted_state);
         let follow_up = own_child && args.delivery.as_deref() == Some("follow_up");
         let logical = InboxLogicalMessage {
             producer,
@@ -346,6 +346,7 @@ impl AgentControl {
         if current_producer != logical.producer
             || current_recipient != logical.target
             || owns_target(&state) != own_child
+            || state.parent_of(&target.tab_id) != admitted_state.parent_of(&target.tab_id)
         {
             return fail("The logical source or recipient changed before source persistence");
         }
