@@ -327,3 +327,82 @@ async fn stored_delete_retains_scope_after_cancellation_and_drop() {
     }
     stock.close().await.unwrap();
 }
+
+#[test]
+fn local_session_access_uses_the_admitted_owner_and_canonical_index_root() {
+    use crate::application::callers::Callers;
+    use crate::application::session_access::SessionAccess;
+    use crate::session_ops::Target;
+    use ompdesk_app_contract::NativeCaller;
+
+    let (index, _) = index();
+    let callers = Arc::new(Callers::new(17));
+    let owner = callers
+        .admit_page(NativeCaller::Desktop {
+            win_id: 3,
+            wc_id: 5,
+        })
+        .unwrap()
+        .owner;
+    let access = SessionAccess::new(Arc::clone(&callers), index);
+    let target = access
+        .local_target(
+            &owner,
+            Target {
+                path: "/synthetic/sessions/folder/../one.jsonl".into(),
+                device: None,
+            },
+        )
+        .unwrap();
+    let normalized = Path::new(&target.path);
+    assert_eq!(normalized.file_name().unwrap(), "one.jsonl");
+    assert_eq!(
+        normalized.parent().unwrap().file_name().unwrap(),
+        "sessions"
+    );
+    for path in [
+        "/synthetic/sessions",
+        "/synthetic/sessions/../outside.jsonl",
+        "/synthetic/sessions/not-a-session.txt",
+    ] {
+        assert!(
+            access
+                .local_target(
+                    &owner,
+                    Target {
+                        path: path.into(),
+                        device: None,
+                    },
+                )
+                .is_err()
+        );
+    }
+    callers.revoke(&owner);
+    assert_eq!(
+        access.local_target(&owner, target).unwrap_err().code,
+        "caller_closed"
+    );
+}
+
+#[test]
+fn local_session_access_never_applies_a_foreign_device_path_to_local_storage() {
+    use crate::application::callers::Callers;
+    use crate::application::session_access::SessionAccess;
+    use crate::session_ops::Target;
+
+    let (index, _) = index();
+    let callers = Arc::new(Callers::new(18));
+    let owner = callers.admit_peer("peer".into(), 11).unwrap().owner;
+    let access = SessionAccess::new(callers, index);
+    let target = Target {
+        path: "/synthetic/sessions/one.jsonl".into(),
+        device: None,
+    };
+    assert!(access.local_target(&owner, target.clone()).is_ok());
+    let mut foreign = target;
+    foreign.device = Some("other-host".into());
+    assert_eq!(
+        access.local_target(&owner, foreign).unwrap_err().code,
+        "session_execution_host"
+    );
+}
