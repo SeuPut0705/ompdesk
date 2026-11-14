@@ -334,7 +334,7 @@ pub fn application_template(
 }
 
 /// The page the Documentation item opens.
-pub const DOCUMENTATION_URL: &str = "https://github.com/SeuPut0705/ompdesk";
+pub const DOCUMENTATION_URL: &str = "https://github.com/seuput-inc/ompdesk";
 
 /// What choosing an item of the application menu does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -626,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn every_item_does_what_it_did() {
+    fn every_item_preserves_behavior_except_the_transferred_documentation_url() {
         let tables = tables();
         let clicks = of("menu", "src/main/menu.ts#click");
         assert!(clicks.len() > 200);
@@ -650,7 +650,19 @@ mod tests {
             } else {
                 let action =
                     action_of(&found.id).unwrap_or_else(|| panic!("{}: no action", step.input));
-                assert_eq!(expected(&action), signature(&step.output), "{}", step.input);
+                if action == Action::Documentation {
+                    // The capture predates the repository's organization transfer. Keep that historical fact visible.
+                    assert_eq!(
+                        signature(&step.output),
+                        ["open:https://github.com/SeuPut0705/ompdesk"]
+                    );
+                    assert_eq!(
+                        expected(&action),
+                        ["open:https://github.com/seuput-inc/ompdesk"]
+                    );
+                } else {
+                    assert_eq!(expected(&action), signature(&step.output), "{}", step.input);
+                }
             }
         }
     }
