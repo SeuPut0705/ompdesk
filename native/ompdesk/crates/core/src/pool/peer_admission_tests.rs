@@ -37,10 +37,7 @@ fn lane_config(tab: String) -> SidecarConfig {
 #[tokio::test]
 async fn a_rejoined_peer_keeps_its_execution_but_each_admission_captures_the_current_run() {
     let callers = Arc::new(Callers::new(64));
-    let host = Arc::new(TestHost {
-        callers: Some(Arc::clone(&callers)),
-        ..Default::default()
-    });
+    let host = test_host(Arc::clone(&callers));
     let app = Arc::new(Application::new(host));
     let pool = Service::new(
         Config {

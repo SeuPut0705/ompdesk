@@ -1385,4 +1385,4 @@ impl Drop for Waiting {
 
 #[cfg(test)]
 #[path = "native_tests.rs"]
-mod tests;
+pub(crate) mod tests;

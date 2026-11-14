@@ -2,10 +2,11 @@ use super::*;
 use crate::pool::application::{Released, Spawn, asks::Collaborators};
 
 #[derive(Default)]
-struct TestHost {
+pub(crate) struct TestHost {
     callers: Option<Arc<Callers>>,
     listening: Mutex<Vec<i64>>,
     announcements: Mutex<Vec<(Value, Value, Option<u64>)>>,
+    notifications: Mutex<Vec<effects::Notification>>,
     running_changes: std::sync::atomic::AtomicUsize,
     releases: Mutex<Vec<Released<crate::sidecar::native::Service>>>,
     fail_running: std::sync::atomic::AtomicBool,
@@ -18,6 +19,13 @@ struct TestHost {
             Arc<crate::sidecar::native::Service>,
         )>,
     >,
+}
+
+pub(crate) fn test_host(callers: Arc<Callers>) -> Arc<TestHost> {
+    Arc::new(TestHost {
+        callers: Some(callers),
+        ..Default::default()
+    })
 }
 
 impl super::super::Host for TestHost {
@@ -135,7 +143,7 @@ impl effects::Host for TestHost {
             | effects::Notification::SettleWatch { .. }
             | effects::Notification::ModelWaitForget { .. }
             | effects::Notification::SessionFile { .. } => {}
-            _ => unreachable!(),
+            notification => locked(&self.notifications).push(notification),
         }
     }
 }
