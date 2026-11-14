@@ -59,6 +59,8 @@ pub struct Tombstones {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HostState {
+    /// This app's persistent identity from main's trusted remote identity service.
+    pub device_id: String,
     /// `enabled()`: Settings › Tools & extensions switch.
     pub enabled: bool,
     /// `fullEnabled()`.

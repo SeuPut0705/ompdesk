@@ -132,6 +132,7 @@ function setup(
 	const activity: ((event: { type: string; tabId: string }) => void)[] = [];
 	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
 	const deps: AgentControlHostDeps = {
+		deviceId: "fixture-host",
 		pool: {
 			tabsForWindow: target => (target === win2 ? otherTabs : target === webWin ? webTabs : tabs),
 			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),

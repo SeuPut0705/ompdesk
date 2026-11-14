@@ -100,6 +100,8 @@ export interface ControlTab {
 	worktree?: IpcTabWorktree;
 	/** The session file; absent until the session has one. */
 	sessionPath?: string;
+	/** The actual local RpcClient incarnation; command proxies have none. */
+	runtimeInstance?: string;
 	/** What an agent opened the session for (`agentTaskTitle`) until it has a title. */
 	task?: string;
 	/** How its last finished turn ended; absent while one runs or before the first. */
@@ -311,6 +313,7 @@ export interface AppPorts {
 export type Landing = { ok: true; path: string } | { ok: false; error: string; code?: string };
 
 export interface AgentControlHost {
+	readonly deviceId: string;
 	/** Settings › Tools & extensions switch (this computer's). */
 	enabled(): boolean;
 	/** `agentControlFull` (default on): no card at all; implies `approveEnabled` and `manageEnabled`. */
@@ -581,6 +584,7 @@ const NO_DEADLINE = Number.POSITIVE_INFINITY;
 
 /** What main's snapshot holds (`HostState` in the core), as JSON. */
 interface HostSnapshot {
+	deviceId: string;
 	enabled: boolean;
 	fullEnabled: boolean;
 	approveEnabled: boolean;
@@ -965,6 +969,7 @@ export class AgentControl {
 		for (const key of TEXT_KEYS) texts[key] = host.text(key, {});
 		const app = host.appPorts;
 		return {
+			deviceId: host.deviceId,
 			enabled: host.enabled(),
 			fullEnabled: host.fullEnabled(),
 			approveEnabled: host.approveEnabled(),

@@ -81,6 +81,7 @@ interface FakeTab extends ControlTab {
 }
 
 class FakeHost implements AgentControlHost {
+	readonly deviceId = "fixture-host";
 	tabsById = new Map<string, FakeTab>();
 	sent: { tabId: string; command: RpcCommand }[] = [];
 	views: { tabId: string; how: string }[] = [];

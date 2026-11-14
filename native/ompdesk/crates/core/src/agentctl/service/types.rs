@@ -207,6 +207,8 @@ pub struct ControlTab {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_instance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_run: Option<RunOutcome>,

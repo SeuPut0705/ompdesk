@@ -98,6 +98,7 @@ import {
 	type WorktreeRef,
 	type WorktreeRemoval,
 } from "./branches";
+import { localInboxRuntimeInstance } from "./inbox-runtime-instance";
 import type { MailDelivery } from "./mail";
 import {
 	AgentControl,
@@ -148,6 +149,8 @@ function summaryWork(summary: SessionSummary): StoredWork | undefined {
 }
 
 export interface AgentControlHostDeps {
+	/** This app's persistent identity, loaded by the existing remote identity service. */
+	deviceId: string;
 	pool: Pick<
 		SidecarPool,
 		| "tabsForWindow"
@@ -692,6 +695,9 @@ export class AgentControlRuntime {
 		const autoClosable = this.#autoClosable(info);
 		const formerIds = this.#deps.pool.formerTabIds(info.tabId);
 		const facts = this.#deps.pool.tabFacts(info.tabId);
+		const runtimeInstance = info.device
+			? undefined
+			: localInboxRuntimeInstance(this.#deps.pool.sidecarOf(info.tabId)?.rpcClient);
 		const owner = this.#deps.pool.windowOfTab(info.tabId);
 		// A paired web page's tab: what its page last said about unsaved Files edits in it (never assumed clean).
 		const webEdits =
@@ -700,6 +706,7 @@ export class AgentControlRuntime {
 				: undefined;
 		return {
 			tabId: info.tabId,
+			...(runtimeInstance ? { runtimeInstance } : {}),
 			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
 			title: info.title || info.task || "",
 			cwd: info.cwd,
@@ -959,6 +966,7 @@ export class AgentControlRuntime {
 	#host(): AgentControlHost {
 		const deps = this.#deps;
 		return {
+			deviceId: deps.deviceId,
 			enabled: () => this.#controlEnabled(),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			approveEnabled: () => this.#approveEnabled(),
