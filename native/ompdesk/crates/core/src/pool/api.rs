@@ -1808,7 +1808,7 @@ pub(super) fn raw_node(value: &Value) -> SplitNode {
 impl Ctx {
     /// A new core's pool is seeded with the tabs main still holds handles for (the old core was lost): each is an
     /// entry as a deferred acquire makes it, from the facts the handle can say (`SidecarPool.#reseed` lists what is
-    /// lost with the old pool: run state, titles, asks, viewers, splits; the session file survives).
+    /// lost with the old pool: run state, titles, asks and splits; session files and viewer membership survive).
     pub(super) fn seed(&self, tabs: &[Value]) {
         let mut windows: Vec<i64> = Vec::new();
         for tab in tabs {
@@ -1828,6 +1828,13 @@ impl Ctx {
                 entry.owner_detached = tab["ownerDetached"].as_bool() == Some(true);
                 if entry.owner_detached {
                     entry.view_generations.remove(&win);
+                }
+                if let Some(viewers) = tab["viewers"].as_array() {
+                    for viewer in viewers.iter().filter_map(Value::as_i64) {
+                        entry.viewers.push(viewer);
+                        entry.view_serial += 1;
+                        entry.view_generations.insert(viewer, entry.view_serial);
+                    }
                 }
                 // The file the tab held: it owns it again (F-OWN), as at its acquire. Tabs come in acquisition order.
                 if let Some(file) = tab["sessionFile"].as_str().filter(|file| !file.is_empty()) {
@@ -1858,6 +1865,14 @@ impl Ctx {
             });
             if tab["ownerDetached"].as_bool() != Some(true) {
                 self.when_closed(win, super::state::Closer::Entry(seq));
+            }
+            if let Some(viewers) = tab["viewers"].as_array() {
+                for viewer in viewers.iter().filter_map(Value::as_i64) {
+                    self.when_closed(viewer, super::state::Closer::Viewer(seq, viewer));
+                    if !windows.contains(&viewer) {
+                        windows.push(viewer);
+                    }
+                }
             }
             if !windows.contains(&win) {
                 windows.push(win);

@@ -636,6 +636,14 @@ describe("SidecarPool exact window-view leave", () => {
 		const { pool, owner, acknowledgement, sent } = await remoteProxy();
 		const identity = pool.viewIdentity(owner.win, "remote-proxy");
 		if (!identity) throw new Error("expected an owner view identity");
+		let savedLayout = pool.tabLayoutForWindow(owner.win);
+		let persisted = false;
+		pool.onWindowTabsChanged = (win, layout) => {
+			if (win === owner.win) {
+				savedLayout = layout;
+				persisted = true;
+			}
+		};
 		const sharedHub = hub();
 		const originalCall = sharedHub.call.bind(sharedHub);
 		let finishes = 0;
@@ -658,6 +666,11 @@ describe("SidecarPool exact window-view leave", () => {
 		} finally {
 			spy.mockRestore();
 		}
+		expect(persisted).toBe(true);
+		expect(savedLayout).toBeNull();
+		const relaunched = fakePool();
+		if (savedLayout) relaunched.pool.restoreLayout(owner.win, savedLayout);
+		expect(relaunched.pool.tabsForWindow(owner.win)).toEqual([]);
 		expect(pool.tabsForWindow(owner.win)).toEqual([]);
 		expect(pool.tabLayoutForWindow(owner.win)).toBeNull();
 		expect(pool.viewIdentity(owner.win, "remote-proxy")).toBeNull();
@@ -671,8 +684,12 @@ describe("SidecarPool exact window-view leave", () => {
 		const { pool, sidecars } = fakePool();
 		const owner = fakeWindow(8701);
 		const viewer = fakeWindow(-8702);
+		const survivingViewer = fakeWindow(-8703);
 		pool.acquire("/a", owner.win, "viewer-loss", SESSION);
 		pool.attachViewer(viewer.win, "viewer-loss");
+		pool.attachViewer(survivingViewer.win, "viewer-loss");
+		pool.acquire("/other", survivingViewer.win, "other-tab");
+		pool.setActiveTab(survivingViewer.win, "other-tab");
 		sidecars[0]?.emitStatus("ready");
 		const identity = pool.viewIdentity(viewer.win, "viewer-loss");
 		if (!identity) throw new Error("expected a viewer identity");
@@ -702,6 +719,7 @@ describe("SidecarPool exact window-view leave", () => {
 		sidecars[0]?.emitAgentEvents(["agent_start"]);
 		expect(viewer.sentTo(IPC_EVENTS.EVENTS_BATCH)).toEqual([]);
 		expect(pool.tabsForWindow(owner.win).map(tab => tab.tabId)).toEqual(["viewer-loss"]);
+		expect(pool.tabsForWindow(survivingViewer.win).map(tab => tab.tabId)).toContain("viewer-loss");
 		expect(sidecars[0]?.disposed).toBe(false);
 		expect(outcome).toMatchObject({ localViewClosed: true, cleanupUnconfirmed: true });
 		expect(finishes).toBe(1);

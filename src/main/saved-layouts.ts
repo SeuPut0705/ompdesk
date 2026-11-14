@@ -4,6 +4,22 @@
  */
 import type { PersistedTabLayout } from "./tab-layout";
 
+export interface WindowLayout {
+	window: number;
+	layout: PersistedTabLayout | null;
+}
+
+export function projectWindowLayouts(
+	previous: readonly WindowLayout[],
+	liveWindows: readonly number[],
+	changed?: WindowLayout,
+): WindowLayout[] {
+	const known = new Map<number, WindowLayout>();
+	for (const row of previous) known.set(row.window, row);
+	if (changed) known.set(changed.window, changed);
+	return liveWindows.map(window => known.get(window) ?? { window, layout: null });
+}
+
 /**
  * The layouts to store, or null to leave the store as it is.
  * - An approved quit never writes: its teardown releases tabs and closes windows one by one, and each step would save
@@ -15,8 +31,9 @@ import type { PersistedTabLayout } from "./tab-layout";
 export function layoutsToSave(facts: {
 	quitApproved: boolean;
 	live: PersistedTabLayout[];
+	liveWindowCount: number;
 	stored: unknown;
 }): PersistedTabLayout[] | null {
-	if (facts.quitApproved || facts.live.length === 0) return null;
+	if (facts.quitApproved || facts.liveWindowCount === 0) return null;
 	return JSON.stringify(facts.stored) === JSON.stringify(facts.live) ? null : facts.live;
 }

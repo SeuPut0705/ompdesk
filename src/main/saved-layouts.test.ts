@@ -4,7 +4,7 @@
  * quit (21 Oct 2026: an update restart whose first quit never finished) must leave what the user had.
  */
 import { describe, expect, it } from "vitest";
-import { layoutsToSave } from "./saved-layouts";
+import { layoutsToSave, projectWindowLayouts } from "./saved-layouts";
 import type { PersistedTabLayout } from "./tab-layout";
 
 function layout(...cwds: string[]): PersistedTabLayout {
@@ -14,25 +14,27 @@ function layout(...cwds: string[]): PersistedTabLayout {
 describe("layoutsToSave", () => {
 	it("writes the live windows when they differ from what is stored", () => {
 		const live = [layout("/a", "/b"), layout("/c")];
-		expect(layoutsToSave({ quitApproved: false, live, stored: [layout("/a")] })).toEqual(live);
+		expect(layoutsToSave({ quitApproved: false, live, liveWindowCount: 2, stored: [layout("/a")] })).toEqual(live);
 	});
 
 	it("writes nothing when the stored layouts already read the same, or no window is left", () => {
 		const live = [layout("/a")];
-		expect(layoutsToSave({ quitApproved: false, live, stored: JSON.parse(JSON.stringify(live)) })).toBeNull();
-		expect(layoutsToSave({ quitApproved: false, live: [], stored: live })).toBeNull();
+		expect(
+			layoutsToSave({ quitApproved: false, live, liveWindowCount: 1, stored: JSON.parse(JSON.stringify(live)) }),
+		).toBeNull();
+		expect(layoutsToSave({ quitApproved: false, live: [], liveWindowCount: 0, stored: live })).toBeNull();
 	});
 
 	it("keeps a window the user closed out of the saved session", () => {
 		const stored = [layout("/a"), layout("/b")];
-		expect(layoutsToSave({ quitApproved: false, live: [layout("/a")], stored })).toEqual([layout("/a")]);
+		expect(layoutsToSave({ quitApproved: false, live: [layout("/a")], liveWindowCount: 1, stored })).toEqual([
+			layout("/a"),
+		]);
 	});
 
 	it("forgets the closed session when its live window has an empty committed layout", () => {
 		const stored = [layout("/closed-session")];
-		const saved: PersistedTabLayout[] | null = Reflect.apply(layoutsToSave, undefined, [
-			{ quitApproved: false, live: [], liveWindowCount: 1, stored },
-		]);
+		const saved = layoutsToSave({ quitApproved: false, live: [], liveWindowCount: 1, stored });
 		expect(saved).toEqual([]);
 	});
 
@@ -40,7 +42,37 @@ describe("layoutsToSave", () => {
 		const stored = [layout("/a", "/remote"), layout("/b")];
 		// Tabs released one by one, then each window closing: every step would otherwise rewrite the session smaller.
 		for (const live of [[layout("/a"), layout("/b")], [layout("/b")], [layout("/a", "/remote")], []]) {
-			expect(layoutsToSave({ quitApproved: true, live, stored })).toBeNull();
+			expect(layoutsToSave({ quitApproved: true, live, liveWindowCount: live.length, stored })).toBeNull();
 		}
+	});
+});
+
+describe("committed desktop layout projection", () => {
+	it("persists the acknowledged close and other windows without another core read", () => {
+		const before = [
+			{ window: 10, layout: layout("/closed", "/kept") },
+			{ window: 20, layout: layout("/other") },
+			{ window: 30, layout: null },
+		];
+		const current = projectWindowLayouts(before, [20, 30, 10], { window: 10, layout: layout("/kept") });
+		const saved = layoutsToSave({
+			quitApproved: false,
+			live: current.flatMap(row => (row.layout ? [row.layout] : [])),
+			liveWindowCount: 3,
+			stored: before.flatMap(row => (row.layout ? [row.layout] : [])),
+		});
+		expect(JSON.parse(JSON.stringify(saved))).toEqual([layout("/other"), layout("/kept")]);
+		expect(before[0]?.layout).toEqual(layout("/closed", "/kept"));
+	});
+
+	it("does not let a late callback restore a closed window or replace another live window", () => {
+		const current = projectWindowLayouts([{ window: 20, layout: layout("/kept") }], [20, 30], {
+			window: 10,
+			layout: layout("/closed"),
+		});
+		expect(current).toEqual([
+			{ window: 20, layout: layout("/kept") },
+			{ window: 30, layout: null },
+		]);
 	});
 });

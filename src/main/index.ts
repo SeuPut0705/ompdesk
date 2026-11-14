@@ -186,7 +186,7 @@ import { filesChanged, githubPort, gitPort, scanPath, sessionPorts, watchPath } 
 import { RoutineTriggers } from "./routines/triggers";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { SafeStore } from "./safe-store";
-import { layoutsToSave } from "./saved-layouts";
+import { layoutsToSave, projectWindowLayouts, type WindowLayout } from "./saved-layouts";
 import { ompRunLauncher, ScheduleService } from "./schedules";
 import { whenSessionFree } from "./session-free";
 import { SessionIndex } from "./session-index";
@@ -698,19 +698,25 @@ function closeHostDeletedTabs(host: string, paths: readonly string[]): void {
 	});
 }
 
-/**
- * Rewrite the saved session from the live windows. Runs on every tab change and
- * every window close, so a window the user closed for good never comes back and
- * a secondary window's tabs are no longer dropped on the floor.
- */
-function persistTabLayouts(): void {
-	const live: PersistedTabLayout[] = [];
-	for (const win of windowManager.getAllWindows()) {
-		const layout = sidecarPool.tabLayoutForWindow(win);
-		if (layout) live.push(layout);
-	}
+let desktopWindowLayouts: WindowLayout[] = [];
+const restoringWindowLayouts = new Set<number>();
+
+/** Persist confirmed window layouts without querying a core that may have been lost after a close commit. */
+function persistTabLayouts(changed?: WindowLayout): void {
+	const windows = windowManager.getAllWindows();
+	desktopWindowLayouts = projectWindowLayouts(
+		desktopWindowLayouts,
+		windows.map(win => win.webContents.id),
+		changed,
+	);
+	const live = desktopWindowLayouts.flatMap(row => (row.layout ? [row.layout] : []));
 	const store = prefsStore();
-	const layouts = layoutsToSave({ quitApproved: quitApproved(), live, stored: store.get("tabLayouts") });
+	const layouts = layoutsToSave({
+		quitApproved: quitApproved(),
+		live,
+		liveWindowCount: windows.length,
+		stored: store.get("tabLayouts"),
+	});
 	if (!layouts) return;
 	store.set("tabLayouts", layouts);
 	if (store.has("tabLayout")) store.delete("tabLayout");
@@ -723,7 +729,18 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
 	if (!active) return null;
 	// The window record keeps a path on this machine; a paired host's cwd means nothing here.
 	const win = windowManager.createWindow({ cwd: active.device ? resolveInitialCwd() : active.cwd });
-	if (sidecarPool.restoreLayout(win, layout) > 0) return win;
+	desktopWindowLayouts.push({ window: win.webContents.id, layout });
+	restoringWindowLayouts.add(win.webContents.id);
+	let restored: number;
+	try {
+		restored = sidecarPool.restoreLayout(win, layout);
+	} finally {
+		restoringWindowLayouts.delete(win.webContents.id);
+	}
+	if (restored > 0) {
+		persistTabLayouts({ window: win.webContents.id, layout: sidecarPool.tabLayoutForWindow(win) });
+		return win;
+	}
 	win.close();
 	return null;
 }
@@ -1428,15 +1445,14 @@ app.whenReady().then(async () => {
 	// A paired web device's window is filed under the device (its window id changes every launch); a quit tears
 	// the tabs down, which must not read as the device closing them.
 	sidecarPool.onWindowTabsChanged = (win, layout) => {
-		// A window's tab took or let go of a session, or learned who opened it: paired devices may list it otherwise, and
-		// a tab on a paired device that a session here opened is every other view's family row.
-		hostServices.listingChanged();
-		hostServices.workChanged();
 		if (win instanceof WebClientWindow) {
 			if (!quitApproved()) webTabLayouts.save(win.deviceId, layout);
-			return;
+		} else if (!restoringWindowLayouts.has(win.webContents.id)) {
+			persistTabLayouts({ window: win.webContents.id, layout });
 		}
-		persistTabLayouts();
+		// Publish the acknowledged layout before callbacks that may read or recover the core.
+		hostServices.listingChanged();
+		hostServices.workChanged();
 	};
 	// Every take or let-go of a session file, a session-id change too (it re-registers only at the next get_state):
 	// the devices' "held on this host" follows each one, so no device's read in the gap can hide a later close.

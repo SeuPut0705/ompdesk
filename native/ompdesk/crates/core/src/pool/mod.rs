@@ -336,6 +336,8 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
             &p.s("tab").unwrap_or_default(),
             &p.s("identity").unwrap_or_default(),
             &p.s("sessionPath").unwrap_or_default(),
+            p.b("web"),
+            &p.v("facts"),
         )),
         "finishExactWindowView" => later(async move {
             done(

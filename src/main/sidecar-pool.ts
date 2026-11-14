@@ -240,6 +240,8 @@ interface TabHandle {
 	sidecar: SidecarLike;
 	winId: number;
 	ownerDetached: boolean;
+	/** Attached local viewer windows, retained so a replacement core can reconstruct their views. */
+	viewers: Set<number>;
 	hostCalls: Map<string, { request: HostToolCallRequest; view: number | null; delivered: boolean }>;
 	disconnectedViews: Set<number>;
 	/** Paired host deviceId the tab runs on (immutable, set at acquire). */
@@ -534,9 +536,9 @@ export class SidecarPool {
 	 * handles can say: the tab id, its owner window, its device, its kind and status, the session file the core
 	 * last held for it (F-OWN: the double-attach guard and the resume facts survive a loss). What a lost core loses: each tab's run (a turn on reads as
 	 * idle until its next event), the last outcome, titles and the cached session id, the open asks and sign-ins,
-	 * extension state, drafts, subagent levels, counters (`touched`, `prompted`, `exits`), each window's view (the
-	 * first tab of a window is active and visible again; splits are gone) and every observer's debounce. The windows
-	 * re-read their tab lists at their next resync.
+	 * extension state, drafts, subagent levels, counters (`touched`, `prompted`, `exits`), each window's active view
+	 * (the first tab is active and visible again; splits are gone) and every observer's debounce. Viewer membership
+	 * survives; windows re-read their tab lists at their next resync.
 	 */
 	#reseed(): void {
 		const tabs = [...this.#handles]
@@ -551,6 +553,7 @@ export class SidecarPool {
 				status: handle.sidecar.status,
 				sessionFile: handle.sessionFile,
 				full: [...(handle.full?.windows.keys() ?? [])],
+				viewers: [...handle.viewers],
 				views: [...handle.views.keys()],
 			}));
 		this.#call("seed", { tabs });
@@ -582,6 +585,28 @@ export class SidecarPool {
 		} catch (error) {
 			this.#settling.delete(token);
 			return Promise.reject(error);
+		}
+		return promise;
+	}
+	/** Finish only in the core instance that accepted the exact commit. */
+	#laterBound<T>(method: string, params: object, generation: number, epoch: number): Promise<T> {
+		const token = ++this.#token;
+		const { promise, resolve, reject } = Promise.withResolvers<T>();
+		this.#settling.set(token, { resolve: resolve as (value: unknown) => void, reject });
+		try {
+			if (!this.#open || this.#hub.generation !== generation || this.#viewEpoch !== epoch) {
+				throw new CoreError("hub_lost", "The pool was lost after the view commit");
+			}
+			this.#summaryRead = null;
+			this.#hub.call(this.#id, method, {
+				...params,
+				token,
+				now: Date.now(),
+				wt: this.onWindowTabsChanged !== null,
+			});
+		} catch (error) {
+			this.#settling.delete(token);
+			reject(poolError(error));
 		}
 		return promise;
 	}
@@ -752,6 +777,7 @@ export class SidecarPool {
 					sidecar,
 					winId: item.win as number,
 					ownerDetached: item.ownerDetached === true,
+					viewers: new Set(),
 					hostCalls: new Map(),
 					disconnectedViews: new Set(),
 					device,
@@ -909,6 +935,7 @@ export class SidecarPool {
 
 	/** The window's one "closed" listener (registered at the core's word): every tab it owned or viewed goes. */
 	#windowClosed(id: number): void {
+		for (const handle of this.#handles.values()) handle.viewers.delete(id);
 		this.#call("windowClosed", { win: id });
 	}
 
@@ -1278,6 +1305,7 @@ export class SidecarPool {
 			device: undefined,
 			winId,
 			ownerDetached: false,
+			viewers: new Set(),
 			hostCalls: new Map(),
 			disconnectedViews: new Set(),
 			gone: false,
@@ -1398,7 +1426,11 @@ export class SidecarPool {
 	 * window with no tab yet makes it its active one. True when `win` shows the tab now, false when the tab is unknown.
 	 */
 	attachViewer(win: ClientWindow, tabId: string): boolean {
-		return this.#call<boolean>("attachViewer", { win: this.#windowId(win), tab: tabId });
+		const id = this.#windowId(win);
+		const attached = this.#call<boolean>("attachViewer", { win: id, tab: tabId });
+		const handle = this.#live(tabId);
+		if (attached && handle && (handle.ownerDetached || handle.winId !== id)) handle.viewers.add(id);
+		return attached;
 	}
 
 	/**
@@ -1406,7 +1438,10 @@ export class SidecarPool {
 	 * the window reported stops counting. False when `win` is not a viewer of the tab (its owner closes it with `releaseTab`).
 	 */
 	detachViewer(win: ClientWindow, tabId: string): boolean {
-		return this.#call<boolean>("detachViewer", { win: this.#windowId(win), tab: tabId });
+		const id = this.#windowId(win);
+		const detached = this.#call<boolean>("detachViewer", { win: id, tab: tabId });
+		if (detached) this.#handles.get(tabId)?.viewers.delete(id);
+		return detached;
 	}
 
 	/** This surface's attachment and session identity, not just the tab id it happens to show. */
@@ -1426,13 +1461,16 @@ export class SidecarPool {
 		beforeCommit: () => Promise<() => boolean>,
 	): Promise<boolean> {
 		if (!stillClosable() || this.viewIdentity(win, tabId) !== expectedIdentity) return false;
-		let committed: { seq: number; owner: boolean; last: boolean } | null;
+		let committed: { seq: number; owner: boolean; last: boolean; layout: PersistedTabLayout | null } | null;
 		let prepared: PreparedRemoteViewLeave | undefined;
+		let generation = 0;
+		let epoch = 0;
+		const winId = this.#windowId(win);
 		try {
 			const current = await beforeCommit();
 			if (!stillClosable() || !current() || this.viewIdentity(win, tabId) !== expectedIdentity) return false;
-			const generation = this.#hub.generation;
-			const epoch = this.#viewEpoch;
+			generation = this.#hub.generation;
+			epoch = this.#viewEpoch;
 			const sidecar = this.#live(tabId)?.sidecar;
 			prepared = sidecar instanceof RemoteSidecar ? sidecar.prepareViewLeave(expectedSessionPath) : undefined;
 			if (!this.#open || generation === 0 || this.#hub.generation !== generation || this.#viewEpoch !== epoch) {
@@ -1442,10 +1480,16 @@ export class SidecarPool {
 			this.#summaryRead = null;
 			try {
 				committed = this.#hub.call(this.#id, "commitExactWindowView", {
-					win: this.#windowId(win),
+					win: winId,
 					tab: tabId,
 					identity: expectedIdentity.slice(expectedIdentity.indexOf("/") + 1),
 					sessionPath: expectedSessionPath,
+					web: isWebWindow(winId),
+					facts: Object.fromEntries(
+						[...this.#handles]
+							.filter(([, handle]) => !handle.gone)
+							.map(([tab, handle]) => [tab, { cwd: handle.sidecar.cwd }]),
+					),
 					now: Date.now(),
 					wt: this.onWindowTabsChanged !== null,
 				});
@@ -1464,14 +1508,30 @@ export class SidecarPool {
 			prepared?.cancel();
 			return false;
 		}
+		const handle = this.#live(tabId);
+		let flush: (() => void) | undefined;
+		if (handle) {
+			if (committed.owner) handle.ownerDetached = true;
+			else handle.viewers.delete(winId);
+			const full = handle.full;
+			if (full?.windows.delete(winId)) {
+				if (full.windows.size === 0) {
+					handle.full = null;
+					full.remove();
+				}
+				flush = full.flush;
+			}
+		}
+		this.onWindowTabsChanged?.(win, committed.layout);
+		flush?.();
 		const upstream = prepared && committed.last ? prepared.commit() : Promise.resolve();
 		if (!committed.last) prepared?.cancel();
-		const cleanup = this.#later<void>("finishExactWindowView", {
-			win: this.#windowId(win),
-			tab: tabId,
-			...committed,
-			remote: prepared !== undefined,
-		});
+		const cleanup = this.#laterBound<void>(
+			"finishExactWindowView",
+			{ win: winId, tab: tabId, ...committed, remote: prepared !== undefined },
+			generation,
+			epoch,
+		);
 		const [remoteResult, cleanupResult] = await Promise.allSettled([upstream, cleanup]);
 		if (remoteResult.status === "rejected" || cleanupResult.status === "rejected") {
 			const cause =

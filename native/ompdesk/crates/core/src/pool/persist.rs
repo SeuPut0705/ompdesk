@@ -12,7 +12,16 @@ impl Ctx {
     /// names the stored sessions it views (another window owns them): after a relaunch it views them again.
     pub(super) async fn tab_layout_for_window(&self, win: i64) -> R<Value> {
         let (_, web) = self.window_facts(win).await?;
-        let tabs: Vec<String> = self.with(|pool| {
+        let tabs = self.layout_tabs(win, web);
+        if tabs.is_empty() {
+            return Ok(Value::Null);
+        }
+        let facts = self.facts(&tabs).await?;
+        Ok(self.tab_layout_from_facts(win, web, &facts))
+    }
+
+    fn layout_tabs(&self, win: i64, web: bool) -> Vec<String> {
+        self.with(|pool| {
             pool.entries
                 .iter()
                 .filter(|entry| {
@@ -21,12 +30,15 @@ impl Ctx {
                 })
                 .map(|entry| entry.tab_id.clone())
                 .collect()
-        });
+        })
+    }
+
+    pub(super) fn tab_layout_from_facts(&self, win: i64, web: bool, facts: &Value) -> Value {
+        let tabs = self.layout_tabs(win, web);
         if tabs.is_empty() {
-            return Ok(Value::Null);
+            return Value::Null;
         }
-        let facts = self.facts(&tabs).await?;
-        Ok(self.with(|pool| {
+        self.with(|pool| {
             let active = pool.active_by_window.get(&win).cloned();
             let active_index = tabs
                 .iter()
@@ -136,6 +148,6 @@ impl Ctx {
                 );
             }
             Value::Object(layout)
-        }))
+        })
     }
 }

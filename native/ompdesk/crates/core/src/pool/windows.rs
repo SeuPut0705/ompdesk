@@ -539,8 +539,10 @@ impl Ctx {
         tab: &str,
         identity: &str,
         session_path: &str,
+        web: bool,
+        facts: &Value,
     ) -> Value {
-        self.with(|pool| {
+        let mut committed = self.with(|pool| {
             let Some(entry) = pool.entry(tab) else {
                 return Value::Null;
             };
@@ -568,7 +570,11 @@ impl Ctx {
             entry.view_generations.remove(&win);
             entry.leave_pending = true;
             json!({"seq": entry.seq, "owner": owner, "last": last})
-        })
+        });
+        if let Some(result) = committed.as_object_mut() {
+            result.insert("layout".into(), self.tab_layout_from_facts(win, web, facts));
+        }
+        committed
     }
 
     #[allow(clippy::too_many_arguments)]
