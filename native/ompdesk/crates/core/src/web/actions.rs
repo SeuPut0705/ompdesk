@@ -357,6 +357,10 @@ fn list_dirs(
     let needle = order.lowercase(js_trim(query));
     let entries = disk::read_dir(&path.to_string_lossy()).map_err(|e| match e.code {
         "ENOTDIR" => Fault::new("not_a_directory", "Not a directory"),
+        // Windows reports an existing file as ENOENT when opening it as a directory.
+        "ENOENT" if disk::stat(&path.to_string_lossy()).is_ok_and(|info| !info.is_dir()) => {
+            Fault::new("not_a_directory", "Not a directory")
+        }
         "ENOENT" => Fault::new("file_not_found", "Directory not found"),
         _ => e.fault(Codes::None),
     })?;

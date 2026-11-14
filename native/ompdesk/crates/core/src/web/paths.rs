@@ -120,10 +120,11 @@ fn resolve_from(root: &Path, target: &Path) -> PathBuf {
     #[cfg(windows)]
     let target = {
         let mut parts = target.components();
-        if let Some(Component::Prefix(prefix)) = parts.next() {
-            if !target.has_root() && root.components().next() == Some(Component::Prefix(prefix)) {
-                return normalize(&root.join(parts.as_path()));
-            }
+        if let Some(Component::Prefix(prefix)) = parts.next()
+            && !target.has_root()
+            && root.components().next() == Some(Component::Prefix(prefix))
+        {
+            return normalize(&root.join(parts.as_path()));
         }
         target
     };
