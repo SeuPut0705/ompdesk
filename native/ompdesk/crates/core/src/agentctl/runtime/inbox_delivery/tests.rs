@@ -143,7 +143,7 @@ async fn blocked_hosted_snapshot_refuses_before_import_or_keep_then_recovers_the
             bytes.to_vec(),
         )
         .await
-        .unwrap();
+        .unwrap_or_else(|failure| panic!("Upload fixture failed: {}", failure.message));
     let original = transfer(upload.path.clone(), bytes);
     let blocked = runtime
         .accept_inbox(params(7_491, original.clone()))

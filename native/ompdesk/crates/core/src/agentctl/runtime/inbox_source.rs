@@ -10,6 +10,7 @@ use crate::agentctl::inbox::{
     NativeInboxUpload,
 };
 use crate::agentctl::journal::Persistence;
+use crate::agentctl::journal::attachments::{AttachmentRef, LandedFile};
 use crate::agentctl::journal::mail_outbox::OutboxMail;
 use crate::agentctl::journal::send_outbox::OutboxSend;
 use crate::agentctl::rules::mail::{Mail, delivery_for, mail_details};
@@ -420,11 +421,12 @@ impl Runtime {
         let _pin = store.pin(shas).map_err(Fail::other)?;
         let mut uploads = Vec::new();
         let mut landed = HashSet::new();
+        let file_reference: for<'a> fn(&'a LandedFile) -> &'a AttachmentRef = |file| &file.file;
         for entry in &entries {
             for reference in entry.attachments.iter().flat_map(|set| {
                 set.images
                     .iter()
-                    .chain(set.files.iter().map(|file| &file.file))
+                    .chain(set.files.iter().map(file_reference))
             }) {
                 if !landed.insert(reference.sha256.clone()) {
                     continue;

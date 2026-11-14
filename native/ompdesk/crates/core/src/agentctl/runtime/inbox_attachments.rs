@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::agentctl::inbox::{NativeInboxKey, NativeInboxTransfer};
 use crate::agentctl::journal::attachments::{
-    ATTACHMENT_MAX_BYTES, AttachmentPin, AttachmentRef, AttachmentStore, sha256_hex,
+    ATTACHMENT_MAX_BYTES, AttachmentPin, AttachmentRef, AttachmentStore, LandedFile, sha256_hex,
 };
 use crate::agentctl::journal::inbox_ledger::Ownership;
 use crate::agentctl::journal::{Clock, Persistence};
@@ -32,13 +32,14 @@ pub(super) async fn import(
     let mut expected: HashMap<&str, &AttachmentRef> = HashMap::new();
     let mut all_hashes = HashSet::new();
     let mut needs_upload = HashSet::new();
+    let file_reference: for<'a> fn(&'a LandedFile) -> &'a AttachmentRef = |file| &file.file;
     for item in &transfer.entries {
         let ownership = owned.get(&item.entry.key());
         let already_owned = ownership.is_some();
         for reference in item.attachments.iter().flat_map(|set| {
             set.images
                 .iter()
-                .chain(set.files.iter().map(|file| &file.file))
+                .chain(set.files.iter().map(file_reference))
         }) {
             if reference.size > ATTACHMENT_MAX_BYTES as u64 {
                 return Err(format!(

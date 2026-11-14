@@ -150,7 +150,7 @@ async fn exercise(revocation: Revocation, id: u64) {
             bytes.to_vec(),
         )
         .await
-        .unwrap();
+        .unwrap_or_else(|failure| panic!("Upload fixture failed: {}", failure.message));
     let original = transfer(upload.path.clone(), bytes);
     let request = captured_params(id, original.clone(), &original_route);
     let accepting_runtime = runtime.clone();

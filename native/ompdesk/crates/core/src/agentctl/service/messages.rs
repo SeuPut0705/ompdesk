@@ -10,7 +10,7 @@ use tokio::time::Instant;
 use super::AgentControl;
 use super::fail::{Fail, R, fail, unanswered_text};
 use super::host::{Deadline, HostState};
-use super::js::{number, one_line, trim, trim_start};
+use super::js::{one_line, trim, trim_start};
 use super::pace::pace_line;
 use super::resolve::OpenOptions;
 use super::state::SessionState;
@@ -29,9 +29,7 @@ use crate::agentctl::journal::send_outbox::{
 };
 use crate::agentctl::journal::session_fates::FateState;
 use crate::agentctl::rules::custody::custody_of;
-use crate::agentctl::rules::mail::{
-    Mail, MailCheck, MailKind, Posted, delivery_for, mail_details, mail_text,
-};
+use crate::agentctl::rules::mail::{Mail, MailCheck, MailKind, Posted, delivery_for};
 
 /// `EVIDENCE_MESSAGES`.
 const EVIDENCE_MESSAGES: u64 = 200;
