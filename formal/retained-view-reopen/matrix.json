@@ -1,0 +1,9 @@
+{
+  "runs": [
+    { "name": "join-path-runtime-privacy-permission", "config": "MC.cfg", "expect": "pass" },
+    { "name": "eligible-live-session-refused", "config": "MC_refuse.cfg", "expect": "invariant", "property": "JoinSafety" },
+    { "name": "two-overlapping-list-reads", "config": "MC_list.cfg", "expect": "pass" },
+    { "name": "two-close-operations", "config": "MC_close.cfg", "expect": "pass" },
+    { "name": "old-starting-frame", "config": "MC_frame.cfg", "expect": "pass" }
+  ]
+}

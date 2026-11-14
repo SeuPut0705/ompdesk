@@ -1,0 +1,12 @@
+{
+  "checker": { "kind": "tlc", "config": "MC.cfg", "deadlock": false },
+  "properties": ["JoinSafety", "RuntimeSafety", "ViewSafety", "SerialSafety", "WorkSafety"],
+  "mutations": [
+    { "name": "ignore-actual-attachment", "why": "An actual attachment is treated as a new child, changing custody and enabling setup-failure cleanup.", "search": "LET joined == s.actual IN", "replace": "LET joined == FALSE IN", "breaks": "JoinSafety", "isolate": true },
+    { "name": "start-another-execution", "why": "Reopen starts a second execution instead of attaching the retained one.", "search": "!.executions = s.executions", "replace": "!.executions = s.executions + 1", "breaks": "RuntimeSafety", "isolate": true },
+    { "name": "apply-old-list-absence", "why": "A stale read, including one that lists retired A but not B, removes B after its await.", "search": "s.reads[i].item \\in {\"none\", \"A\"} /\\ s.reads[i].revision = s.revision", "replace": "s.reads[i].item \\in {\"none\", \"A\"}", "breaks": "ViewSafety", "config": "MC_list.cfg", "isolate": true },
+    { "name": "old-close-ack-deletes-runtime", "why": "An old close acknowledgment deletes B's renderer runtime.", "search": "!.rendererRuntime = IF current THEN \"none\" ELSE @", "replace": "!.rendererRuntime = \"none\"", "breaks": "ViewSafety", "config": "MC_close.cfg", "isolate": true },
+    { "name": "old-rollback-continuation", "why": "A failed A close resumes its held reconcile after B's close starts, overwriting B's serial and deleting B's runtime.", "search": "LET valid == s.serial = s.closes[i].serial /\\ s.view = \"none\"", "replace": "LET valid == s.view = \"none\"", "breaks": "SerialSafety", "config": "MC_close.cfg", "isolate": true },
+    { "name": "accept-old-starting-frame", "why": "A starting frame from A resets B's work state.", "search": "frameToken = s.view", "replace": "TRUE", "breaks": "WorkSafety", "config": "MC_frame.cfg", "isolate": true }
+  ]
+}

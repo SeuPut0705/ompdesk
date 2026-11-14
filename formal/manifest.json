@@ -234,6 +234,49 @@
 				"src/main/saved-layouts.ts#layoutsToSave"
 			],
 			"syncCommit": null
+		},
+		{
+			"id": "retained-view-reopen",
+			"title": "Retained execution rejoin custody and renderer view incarnation",
+			"kind": "tla",
+			"dir": "retained-view-reopen",
+			"spec": "RetainedViewReopen.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/tab-spawn.ts",
+				"src/main/agent-control/host.ts",
+				"src/main/agent-control/service.ts",
+				"native/ompdesk/crates/core/src/pool/mod.rs",
+				"native/ompdesk/crates/core/src/agentctl/service/sessions/open.rs",
+				"native/ompdesk/crates/core/src/agentctl/service/types.rs",
+				"native/ompdesk/crates/core/src/pool/state.rs",
+				"native/ompdesk/crates/core/src/pool/windows.rs",
+				"native/ompdesk/crates/core/src/pool/listen.rs",
+				"native/ompdesk/crates/core/src/pool/api.rs",
+				"native/ompdesk/crates/core/src/web/router.rs",
+				"src/main/web/ws-router.ts",
+				"src/main/sidecar-pool.ts",
+				"src/shared/ipc-types.ts",
+				"src/shared/omp-api.ts",
+				"src/renderer/stores/tabs.ts",
+				"src/renderer/stores/tab-actions.ts",
+				"src/renderer/stores/session-runtime-context.tsx",
+				"src/renderer/hooks/use-rpc-events.ts",
+				"src/renderer/hooks/use-plan-approval.ts",
+				"src/renderer/components/layout/composer/use-composer-commands.ts",
+				"src/renderer/components/dialogs/BtwDialog.tsx",
+				"src/renderer/components/dialogs/LiveVoiceDialog.tsx",
+				"src/renderer/components/modes/ModeConfig.tsx",
+				"src/renderer/components/settings/AdvisorModelRow.tsx",
+				"src/renderer/components/settings/FallbackModelsSection.tsx",
+				"src/renderer/components/settings/ModelRolesSection.tsx",
+				"src/renderer/components/settings/OtherExtensionIds.tsx",
+				"src/renderer/components/settings/settings-data.tsx",
+				"src/renderer/lib/compaction-limits.ts",
+				"src/renderer/lib/themes.ts"
+			],
+			"syncCommit": null
 		}
 	]
 }
