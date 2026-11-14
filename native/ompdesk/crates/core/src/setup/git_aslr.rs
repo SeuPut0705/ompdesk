@@ -213,16 +213,16 @@ pub fn git_aslr_overridden(query: &str, root: &str) -> bool {
             if let Some((_, value)) = after.split_once("REG_SZ") {
                 path = Some(value.trim().to_lowercase());
             }
-        } else if let Some((_, after)) = line.split_once("MitigationOptions") {
-            if let Some((_, value)) = after.split_once("REG_BINARY") {
-                options = Some(
-                    value
-                        .trim()
-                        .chars()
-                        .take_while(char::is_ascii_hexdigit)
-                        .collect(),
-                );
-            }
+        } else if let Some((_, after)) = line.split_once("MitigationOptions")
+            && let Some((_, value)) = after.split_once("REG_BINARY")
+        {
+            options = Some(
+                value
+                    .trim()
+                    .chars()
+                    .take_while(char::is_ascii_hexdigit)
+                    .collect(),
+            );
         }
     }
     false

@@ -478,12 +478,18 @@ impl Data {
         if self.shared.cancelled(scope) {
             return Err("cancelled".to_owned());
         }
-        if let Some(Presence::Present { path: Some(root), extra, .. }) = detection.presence.get_mut(&Item::Git) {
-            if extra.get("gitAslrOverride").and_then(Value::as_bool) == Some(true) {
-                if let Some(dir) = self.config.state_path.parent() {
-                    if !crate::setup::git_aslr::Record::read(&dir.join("git-aslr.json")).images(root).is_empty() { extra.insert("gitAslrUndoable".to_owned(), Value::Bool(true)); }
-                }
-            }
+        if let Some(Presence::Present {
+            path: Some(root),
+            extra,
+            ..
+        }) = detection.presence.get_mut(&Item::Git)
+            && extra.get("gitAslrOverride").and_then(Value::as_bool) == Some(true)
+            && let Some(dir) = self.config.state_path.parent()
+            && !crate::setup::git_aslr::Record::read(&dir.join("git-aslr.json"))
+                .images(root)
+                .is_empty()
+        {
+            extra.insert("gitAslrUndoable".to_owned(), Value::Bool(true));
         }
         for id in Item::ALL {
             let presence = detection

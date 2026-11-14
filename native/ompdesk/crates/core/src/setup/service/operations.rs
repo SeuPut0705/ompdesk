@@ -68,10 +68,10 @@ impl Data {
         tokio::pin!(work);
         let outcome = tokio::select! { outcome = &mut work => outcome, () = scope.on_cancel() => { check.cancel(); work.await }, () = tokio::time::sleep(Duration::from_secs(60)) => { check.cancel(); work.await } };
         let text = lock(&text);
-        if outcome == RunOutcome::Succeeded {
-            if let Some(version) = parse_update_check(&text) {
-                return Ok(version);
-            }
+        if outcome == RunOutcome::Succeeded
+            && let Some(version) = parse_update_check(&text)
+        {
+            return Ok(version);
         }
         Err(update_detail(&text)
             .unwrap_or_else(|| "omp update --check did not report a version".to_owned()))
@@ -97,12 +97,12 @@ impl Data {
             .managed
             .filter(|id| matches!(id, Item::Gh | Item::Node | Item::AgentDesktop))
         {
-            if self.detection.is_none() {
-                if let Err(detail) = self.detect(scope).await {
-                    return ToolOutcome::Failed {
-                        detail: Some(detail),
-                    };
-                }
+            if self.detection.is_none()
+                && let Err(detail) = self.detect(scope).await
+            {
+                return ToolOutcome::Failed {
+                    detail: Some(detail),
+                };
             }
             let release = match self.resolve(item, scope).await {
                 Ok(release) => release,
@@ -152,18 +152,17 @@ impl Data {
         overrides: Environment,
         scope: &Scope,
     ) -> ToolOutcome {
-        if let Some(download) = download {
-            if let Err(fault) =
+        if let Some(download) = download
+            && let Err(fault) =
                 download::fetch(download, self.config.mirror.clone(), scope, &|_, _| {}).await
-            {
-                return if scope.cancelled() {
-                    ToolOutcome::Cancelled
-                } else {
-                    ToolOutcome::Failed {
-                        detail: Some(fault.message),
-                    }
-                };
-            }
+        {
+            return if scope.cancelled() {
+                ToolOutcome::Cancelled
+            } else {
+                ToolOutcome::Failed {
+                    detail: Some(fault.message),
+                }
+            };
         }
         let mut env = match self.environment(scope).await {
             Ok(env) => env,
