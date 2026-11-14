@@ -101,7 +101,9 @@ export function route(mac: boolean, hub: HubAnswer | undefined, gate: () => Gate
 		const text = hub.out.trim();
 		return { via: "hub", code: text.startsWith("Checks refused") ? 2 : 0, text };
 	}
-	const why = hub ? (hub.err || hub.out).trim() || `ompdesk exited ${hub.code}` : "no ompdesk command found";
+	// The CLI's first line names what went wrong; the rest is advice for a person (`Run ompdesk help ...`).
+	const said = hub ? (hub.err || hub.out).trim().split("\n")[0]?.trim() : undefined;
+	const why = hub ? said || `ompdesk exited ${hub.code}` : "no ompdesk command found";
 	if (!mac) return { via: "direct", why };
 	if (!noHub(hub)) return { via: "refused", code: 1, why: `the checks hub did not start it: ${why}` };
 	const state = gate();

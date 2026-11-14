@@ -74,13 +74,17 @@ describe("ci-run route", () => {
 		expect(route(false, old, unread)).toMatchObject({ via: "direct" });
 	});
 
-	it("dispatches macOS directly while no hub answers and the ticket gate is off", () => {
+	it("dispatches macOS directly while no hub answers and the ticket gate is off, saying so in one line", () => {
 		for (const hub of [down, old, undefined]) {
 			expect(route(true, hub, gateOff)).toMatchObject({
 				via: "direct",
 				why: expect.stringContaining("the ticket gate is off"),
 			});
 		}
+		expect(route(true, old, gateOff)).toEqual({
+			via: "direct",
+			why: 'ompdesk: unknown command "checks"; the ticket gate is off',
+		});
 	});
 
 	it("refuses macOS without a hub while the ticket gate is on, or cannot be read", () => {
