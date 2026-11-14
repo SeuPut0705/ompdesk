@@ -483,7 +483,19 @@ impl AgentControl {
         remember: bool,
     ) -> R<Carried> {
         let (images, to_land) = plan(resolved, inline);
-        let mut files = Vec::new();
+        self.carry_planned(tab_id, device, images, to_land, remember)
+            .await
+    }
+
+    pub(super) async fn carry_planned(
+        &self,
+        tab_id: &str,
+        device: Option<&str>,
+        images: Vec<Resolved>,
+        to_land: Vec<Resolved>,
+        remember: bool,
+    ) -> R<Carried> {
+        let mut files = Vec::with_capacity(to_land.len());
         for file in &to_land {
             if let Some((path, at)) = self.host.landed.get(device, &file.file.sha256, self.now()) {
                 files.push(LandedFile {

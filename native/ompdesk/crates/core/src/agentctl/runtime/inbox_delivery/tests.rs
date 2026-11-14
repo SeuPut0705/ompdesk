@@ -109,13 +109,15 @@ fn transfer(path: String, bytes: &[u8]) -> NativeInboxTransfer {
 
 fn params(port: u64, transfer: NativeInboxTransfer) -> AcceptParams {
     AcceptParams {
-        port,
-        tab_id: "hosted-only".into(),
         transfer,
-        upload_device_id: "source-host".into(),
-        expected_producer_device_id: "source-host".into(),
-        expected_runtime_instance: "actual-rpc-client".into(),
-        expected_route: Some(hosted_route()),
+        admission: AdmissionParams {
+            port,
+            tab_id: "hosted-only".into(),
+            upload_device_id: "source-host".into(),
+            expected_producer_device_id: "source-host".into(),
+            expected_runtime_instance: "actual-rpc-client".into(),
+            expected_route: Some(hosted_route()),
+        },
     }
 }
 
@@ -190,7 +192,15 @@ async fn blocked_hosted_snapshot_refuses_before_import_or_keep_then_recovers_the
         bytes
     );
     let replay = runtime.accept_inbox(params(7_491, original)).await.unwrap();
-    assert_eq!(replay, accepted);
+    assert_eq!(replay.persistence, Persistence::Disk);
+    assert_eq!(replay.receiver, accepted.receiver);
+    assert_eq!(replay.deliveries[0].key, accepted.deliveries[0].key);
+    assert_eq!(
+        replay.deliveries[0].dispatch,
+        accepted.deliveries[0].dispatch
+    );
+    assert!(!accepted.deliveries[0].existing);
+    assert!(replay.deliveries[0].existing);
     assert_eq!(inbox.ledger.pending(&receiver()).unwrap().1.len(), 1);
     control.host.port().close();
 }
@@ -265,7 +275,7 @@ async fn missing_peer_capture_cannot_keep_and_local_admission_requires_the_local
     input.entries[0].attachments = None;
     input.uploads.clear();
     let mut missing_capture = params(7_492, input.clone());
-    missing_capture.expected_route = None;
+    missing_capture.admission.expected_route = None;
     assert!(runtime.accept_inbox(missing_capture).await.is_err());
     assert_unowned_after_restart(&ledger_file, &input.entries);
     assert!(inbox.ledger.pending(&receiver()).unwrap().1.is_empty());
@@ -274,25 +284,30 @@ async fn missing_peer_capture_cannot_keep_and_local_admission_requires_the_local
     input.entries[0].logical.producer.device_id = "receiver-host".into();
     input.entries[0].entry.delivery_id = input.entries[0].logical.delivery_id().unwrap();
     let mut local = params(7_492, input);
-    local.expected_route = None;
-    local.expected_producer_device_id = "receiver-host".into();
+    local.admission.expected_route = None;
+    local.admission.expected_producer_device_id = "receiver-host".into();
     // A local producer identity does not turn a peer-owned upload namespace into a local admission.
     assert!(
         runtime
             .accept_inbox(AcceptParams {
-                port: local.port,
-                tab_id: local.tab_id.clone(),
                 transfer: local.transfer.clone(),
-                upload_device_id: local.upload_device_id.clone(),
-                expected_producer_device_id: local.expected_producer_device_id.clone(),
-                expected_runtime_instance: local.expected_runtime_instance.clone(),
-                expected_route: None,
+                admission: AdmissionParams {
+                    port: local.admission.port,
+                    tab_id: local.admission.tab_id.clone(),
+                    upload_device_id: local.admission.upload_device_id.clone(),
+                    expected_producer_device_id: local
+                        .admission
+                        .expected_producer_device_id
+                        .clone(),
+                    expected_runtime_instance: local.admission.expected_runtime_instance.clone(),
+                    expected_route: None,
+                },
             })
             .await
             .is_err()
     );
     assert_unowned_after_restart(&ledger_file, &local.transfer.entries);
-    local.upload_device_id = crate::web::uploads::LOCAL_DEVICE.into();
+    local.admission.upload_device_id = crate::web::uploads::LOCAL_DEVICE.into();
     let accepted = runtime.accept_inbox(local).await.unwrap();
     assert_eq!(accepted.persistence, Persistence::Disk);
     assert_eq!(inbox.ledger.pending(&receiver()).unwrap().1.len(), 1);

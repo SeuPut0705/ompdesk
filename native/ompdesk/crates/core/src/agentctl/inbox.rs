@@ -177,7 +177,6 @@ pub(crate) struct NativeInboxKey {
     pub delivery_id: String,
 }
 
-#[cfg(test)]
 impl NativeInboxKey {
     pub fn provider_id(&self) -> String {
         serde_json::to_string(&(self.kind, self.delivery_id.as_str()))
@@ -324,7 +323,7 @@ impl NativeInboxTransferEntry {
     }
 }
 
-fn logical_payload<'a>(
+pub(crate) fn logical_payload<'a>(
     logical: &InboxLogicalMessage,
     attachments: Option<(&[AttachmentRef], impl Iterator<Item = &'a AttachmentRef>)>,
 ) -> Result<Value, serde_json::Error> {
@@ -388,7 +387,10 @@ fn deserialize_attachments<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<AttachedSet>, D::Error> {
     let value = Value::deserialize(deserializer)?;
     match read_attached(Some(&value)) {
-        Attached::None => Ok(None),
+        Attached::None => Ok(Some(AttachedSet {
+            images: Vec::new(),
+            files: Vec::new(),
+        })),
         Attached::Set(set) => Ok(Some(set)),
         Attached::Corrupt => Err(serde::de::Error::custom(
             "Invalid native inbox attachment references",

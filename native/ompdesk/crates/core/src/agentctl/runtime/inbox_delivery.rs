@@ -6,8 +6,9 @@ use serde::Deserialize;
 
 use super::{Runtime, check_mail_target, fault_of, runtime_of};
 use crate::agentctl::inbox::{
-    InboxBlock, InboxContent, InboxIntent, InboxPayload, InboxReceiver, InboxRoute,
-    NativeInboxAcceptance, NativeInboxRequest, NativeInboxTransfer,
+    InboxBlock, InboxContent, InboxIntent, InboxLogicalMessage, InboxPayload, InboxReceiver,
+    InboxRoute, NativeInboxAcceptance, NativeInboxLookup, NativeInboxLookupReply,
+    NativeInboxRequest, NativeInboxTransfer,
 };
 use crate::agentctl::journal::Persistence;
 use crate::agentctl::journal::attachments::with_attached;
@@ -18,10 +19,9 @@ use crate::server::{Call, Fault, Registry, Reply};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AcceptParams {
+struct AdmissionParams {
     port: u64,
     tab_id: String,
-    transfer: NativeInboxTransfer,
     /// Injected by the authenticated receiving route, never forwarded from the producer's payload.
     upload_device_id: String,
     /// Original producer host, overwritten from the authenticated direct peer/local host by the route.
@@ -31,6 +31,20 @@ struct AcceptParams {
     /// Original private peer route capture. Absent only for this execution host's local admission.
     #[serde(default)]
     expected_route: Option<InboxRoute>,
+}
+
+#[derive(Deserialize)]
+struct AcceptParams {
+    #[serde(flatten)]
+    admission: AdmissionParams,
+    transfer: NativeInboxTransfer,
+}
+
+#[derive(Deserialize)]
+struct LookupParams {
+    #[serde(flatten)]
+    admission: AdmissionParams,
+    query: NativeInboxLookup,
 }
 
 impl Runtime {
@@ -149,9 +163,13 @@ impl Runtime {
         Ok(target)
     }
 
-    fn inbox_admission(&self, params: &AcceptParams) -> Result<(), Fault> {
+    fn inbox_admission<'a>(
+        &self,
+        params: &AdmissionParams,
+        receiver: &InboxReceiver,
+        logicals: impl Iterator<Item = &'a InboxLogicalMessage>,
+    ) -> Result<(), Fault> {
         let state = self.host().state();
-        let receiver = &params.transfer.receiver;
         Self::inbox_target(
             &state,
             &params.tab_id,
@@ -186,10 +204,10 @@ impl Runtime {
                 "The original authenticated receiving route is no longer current",
             ));
         }
-        for entry in &params.transfer.entries {
-            if entry.logical.producer.device_id != params.expected_producer_device_id
-                || entry.logical.target.device_id != state.device_id
-                || entry.logical.target.session_path != receiver.session_path
+        for logical in logicals {
+            if logical.producer.device_id != params.expected_producer_device_id
+                || logical.target.device_id != state.device_id
+                || logical.target.session_path != receiver.session_path
             {
                 return Err(Fault::new(
                     "inbox_producer",
@@ -240,10 +258,51 @@ impl Runtime {
         Ok(status)
     }
 
+    async fn lookup_inbox(&self, params: LookupParams) -> Result<NativeInboxLookupReply, Fault> {
+        let inbox = self.control.receiving_inbox.as_ref().ok_or_else(|| {
+            Fault::new(
+                "inbox_unconfigured",
+                "The native receiving journal is not configured",
+            )
+        })?;
+        let LookupParams {
+            admission: params,
+            query,
+        } = params;
+        self.inbox_admission(
+            &params,
+            &query.receiver,
+            query.entries.iter().map(|entry| &entry.logical),
+        )?;
+        self.check_inbox_instance(
+            &params.tab_id,
+            &query.receiver,
+            &params.expected_runtime_instance,
+        )
+        .await?;
+        self.inbox_admission(
+            &params,
+            &query.receiver,
+            query.entries.iter().map(|entry| &entry.logical),
+        )?;
+        let entries = inbox
+            .ledger
+            .lookup(&query.receiver, &query.entries)
+            .map_err(|error| Fault::new("inbox_lookup_unconfirmed", error))?;
+        Ok(NativeInboxLookupReply {
+            receiver: query.receiver,
+            entries,
+        })
+    }
+
     async fn accept_inbox(
         self: &Arc<Self>,
         params: AcceptParams,
     ) -> Result<NativeInboxAcceptance, Fault> {
+        let AcceptParams {
+            admission: params,
+            transfer,
+        } = params;
         let inbox = self.control.receiving_inbox.as_ref().ok_or_else(|| {
             Fault::new(
                 "inbox_unconfigured",
@@ -256,13 +315,17 @@ impl Runtime {
                 "An authenticated upload namespace is required",
             ));
         }
-        let receiver = &params.transfer.receiver;
+        let receiver = &transfer.receiver;
         let _lane = inbox.lane(receiver).await;
         let status = self
             .check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
             .await?;
-        self.inbox_admission(&params)?;
-        for entry in &params.transfer.entries {
+        self.inbox_admission(
+            &params,
+            receiver,
+            transfer.entries.iter().map(|entry| &entry.logical),
+        )?;
+        for entry in &transfer.entries {
             entry
                 .logical
                 .validate(&entry.entry)
@@ -276,11 +339,18 @@ impl Runtime {
         }
         let mut owned = inbox
             .ledger
-            .known(receiver, &params.transfer.entries)
+            .known(receiver, &transfer.entries)
             .map_err(|error| Fault::new("inbox_conflict", error))?;
-        let fence = || self.inbox_admission(&params).map_err(|error| error.message);
+        let fence = || {
+            self.inbox_admission(
+                &params,
+                receiver,
+                transfer.entries.iter().map(|entry| &entry.logical),
+            )
+            .map_err(|error| error.message)
+        };
         let imported = super::inbox_attachments::import(
-            params.transfer.clone(),
+            transfer.clone(),
             &owned,
             &inbox.store,
             &inbox.uploads,
@@ -293,7 +363,11 @@ impl Runtime {
         let status = self
             .check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
             .await?;
-        self.inbox_admission(&params)?;
+        self.inbox_admission(
+            &params,
+            receiver,
+            transfer.entries.iter().map(|entry| &entry.logical),
+        )?;
         if !status.receipts.is_empty() {
             inbox
                 .ledger
@@ -301,7 +375,7 @@ impl Runtime {
                 .map_err(|error| Fault::new("inbox_receipt_not_saved", error))?;
             owned = inbox
                 .ledger
-                .known(receiver, &params.transfer.entries)
+                .known(receiver, &transfer.entries)
                 .map_err(|error| Fault::new("inbox_conflict", error))?;
         }
         let accepted = inbox.ledger.keep(receiver, &imported.transfer.entries);
@@ -480,6 +554,7 @@ impl Runtime {
             receiver: receiver.clone(),
             entries,
         };
+        drop(_lane);
         let reply = self
             .host()
             .deliver_inbox(tab_id, &request)
@@ -538,12 +613,19 @@ fn materialize_report_details(
 
 async fn accept(call: Call) -> Result<Reply, Fault> {
     let params: AcceptParams = call.params()?;
-    let runtime = runtime_of(params.port)?;
+    let runtime = runtime_of(params.admission.port)?;
     Reply::json(&runtime.accept_inbox(params).await?)
+}
+
+async fn lookup(call: Call) -> Result<Reply, Fault> {
+    let params: LookupParams = call.params()?;
+    let runtime = runtime_of(params.admission.port)?;
+    Reply::json(&runtime.lookup_inbox(params).await?)
 }
 
 pub(super) fn register(registry: &mut Registry) {
     registry.add("agentRuntime.acceptInbox", |call| Box::pin(accept(call)));
+    registry.add("agentRuntime.lookupInbox", |call| Box::pin(lookup(call)));
 }
 
 #[cfg(test)]

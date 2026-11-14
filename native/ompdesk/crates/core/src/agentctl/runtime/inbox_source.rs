@@ -5,15 +5,16 @@ use std::sync::Arc;
 
 use super::{Runtime, check_mail_target, runtime_of};
 use crate::agentctl::inbox::{
-    InboxAddress, InboxAdmission, InboxIntent, InboxLogicalMessage, InboxLogicalPayload,
-    InboxSourceExecution, NativeInboxAcceptance, NativeInboxKey, NativeInboxTransfer,
-    NativeInboxUpload,
+    InboxAddress, InboxAdmission, InboxIntent, InboxLogicalAttachments, InboxLogicalMessage,
+    InboxLogicalPayload, InboxSourceExecution, NativeInboxAcceptance, NativeInboxKey,
+    NativeInboxLookup, NativeInboxLookupEntry, NativeInboxLookupReply, NativeInboxLookupResult,
+    NativeInboxTransfer, NativeInboxUpload,
 };
 use crate::agentctl::journal::Persistence;
 use crate::agentctl::journal::attachments::{AttachmentRef, LandedFile};
 use crate::agentctl::journal::mail_outbox::OutboxMail;
 use crate::agentctl::journal::send_outbox::OutboxSend;
-use crate::agentctl::rules::mail::{Mail, delivery_for, mail_details};
+use crate::agentctl::rules::mail::{DeliveryReceipt, Mail, delivery_for, mail_details};
 use crate::agentctl::service::attach::Landing;
 use crate::agentctl::service::fail::{Fail, R};
 use crate::agentctl::service::host::HostState;
@@ -56,6 +57,124 @@ pub(crate) fn keep_prompt(
         .keep_source(Source::Prompt(entry), execution)
 }
 
+/// Initial caller admission only; durable replay retains its producer after that execution ends.
+pub(crate) async fn lookup(
+    port: u64,
+    tab_id: &str,
+    entries: Vec<NativeInboxLookupEntry>,
+    execution: &InboxSourceExecution,
+) -> R<(NativeInboxLookup, NativeInboxLookupReply)> {
+    let runtime = runtime_of(port).map_err(|error| Fail::other(error.message))?;
+    runtime.host().fresh().await?;
+    let target = runtime.source_target(tab_id, None)?;
+    for entry in &entries {
+        runtime.check_source_admission(&entry.logical, execution)?;
+        entry
+            .logical
+            .validate_identity(entry.key.kind, &entry.key.delivery_id)
+            .map_err(Fail::other)?;
+    }
+    let path = target
+        .session_path
+        .as_deref()
+        .ok_or_else(|| Fail::other("No current recipient session"))?;
+    let status = runtime
+        .host()
+        .inbox_status(tab_id, path, target.device.as_deref())
+        .await?;
+    runtime.host().fresh().await?;
+    runtime.source_target(tab_id, Some(&target))?;
+    if status.receiver.session_path != path
+        || status.receiver.device.is_some()
+        || status.receiver.instance.is_empty()
+    {
+        return Err(Fail::other("The native lookup bridge recipient changed"));
+    }
+    for entry in &entries {
+        runtime.check_source_admission(&entry.logical, execution)?;
+    }
+    let query = NativeInboxLookup {
+        receiver: status.receiver,
+        entries,
+    };
+    let reply = runtime.host().lookup_inbox(tab_id, &query).await?;
+    runtime.host().fresh().await?;
+    runtime.source_target(tab_id, Some(&target))?;
+    for entry in &query.entries {
+        runtime.check_source_admission(&entry.logical, execution)?;
+    }
+    validate_lookup_reply(&query, &reply)?;
+    Ok((query, reply))
+}
+
+fn validate_lookup_reply(query: &NativeInboxLookup, reply: &NativeInboxLookupReply) -> R<()> {
+    if reply.receiver != query.receiver {
+        return Err(Fail::other(
+            "The native lookup reply names another receiving context",
+        ));
+    }
+    let mut expected: HashSet<_> = query.entries.iter().map(|entry| &entry.key).collect();
+    if expected.len() != query.entries.len() || reply.entries.len() != expected.len() {
+        return Err(Fail::other(
+            "The native lookup identity set differs from the query",
+        ));
+    }
+    for result in &reply.entries {
+        let key = match result {
+            NativeInboxLookupResult::Missing { key }
+            | NativeInboxLookupResult::ExistingPending { key, .. }
+            | NativeInboxLookupResult::ExistingContextObserved { key, .. } => key,
+        };
+        if !expected.remove(key) {
+            return Err(Fail::other(
+                "The native lookup reply repeats or adds an identity",
+            ));
+        }
+        if let NativeInboxLookupResult::ExistingContextObserved {
+            context_receipt, ..
+        } = result
+            && (context_receipt.request_id.is_empty()
+                || context_receipt.instance.is_empty()
+                || context_receipt.session_path != query.receiver.session_path
+                || context_receipt.ids.as_slice() != [key.provider_id()])
+        {
+            return Err(Fail::other(
+                "The native lookup proof does not identify this exact delivery",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn context_observed(port: u64, tab_id: &str, key: &NativeInboxKey) -> R<bool> {
+    let runtime = runtime_of(port).map_err(|error| Fail::other(error.message))?;
+    runtime.host().fresh().await?;
+    let target = runtime.source_target(tab_id, None)?;
+    let path = target
+        .session_path
+        .as_deref()
+        .ok_or_else(|| Fail::other("No current receiving session"))?;
+    let reply = runtime
+        .host()
+        .inbox_status(tab_id, path, target.device.as_deref())
+        .await?;
+    runtime.host().fresh().await?;
+    runtime.source_target(tab_id, Some(&target))?;
+    if reply.receiver.session_path != path
+        || reply.receiver.device.is_some()
+        || reply.receiver.instance.is_empty()
+    {
+        return Err(Fail::other("The native provider-context recipient changed"));
+    }
+    let mut observed = false;
+    crate::agentctl::journal::inbox_ledger::visit_current_receipts(
+        &reply.receiver,
+        &reply,
+        |current, _| observed |= current == *key,
+    )
+    .map_err(Fail::other)?;
+    Ok(observed)
+}
 /// A report's initial keep and responsibility handoff share the existing source receiver lane.
 /// Another batch cannot settle this caller's row before its exact Disk receipt is returned.
 pub(crate) async fn post_report(
@@ -63,7 +182,7 @@ pub(crate) async fn post_report(
     tab_id: &str,
     entry: OutboxMail,
     execution: &InboxSourceExecution,
-) -> R<NativeInboxAcceptance> {
+) -> R<DeliveryReceipt> {
     let runtime = runtime_of(port).map_err(|error| Fail::other(error.message))?;
     runtime.host().fresh().await?;
     let target = runtime.source_target(tab_id, None)?;
@@ -86,24 +205,56 @@ pub(crate) async fn post_report(
             .clone()
             .ok_or_else(|| Fail::other("A report requires a native source identity"))?,
     };
+    let logical = entry
+        .native_source
+        .bound()
+        .map_err(Fail::other)?
+        .ok_or_else(|| Fail::other("An unbound report cannot query native responsibility"))?;
+    let query = NativeInboxLookupEntry {
+        key: expected.clone(),
+        logical: logical.clone(),
+        attachments: entry
+            .attachments
+            .as_ref()
+            .map(|set| InboxLogicalAttachments {
+                images: set.images.clone(),
+                files: set.files.iter().map(|landed| landed.file.clone()).collect(),
+            }),
+    };
+    let (query, reply) = lookup(port, tab_id, vec![query], execution).await?;
+    if !matches!(
+        reply.entries.as_slice(),
+        [NativeInboxLookupResult::Missing { .. }]
+    ) {
+        return Ok(DeliveryReceipt::Existing);
+    }
     sends
         .lane(&key, async {
+            let (_, reply) = lookup(port, tab_id, query.entries, execution).await?;
+            if !matches!(
+                reply.entries.as_slice(),
+                [NativeInboxLookupResult::Missing { .. }]
+            ) {
+                return Ok(DeliveryReceipt::Existing);
+            }
             if runtime.keep_source(Source::Report(entry), execution)? != Persistence::Disk {
                 return Err(Fail::other(
                     "Source report disk responsibility is unconfirmed",
                 ));
             }
             let acceptance = runtime.offer_inbox(tab_id).await?;
-            if !acceptance
+            let delivery = acceptance
                 .deliveries
                 .iter()
-                .any(|delivery| delivery.key == expected)
-            {
-                return Err(Fail::other(
-                    "The receiver Disk receipt did not identify this exact report",
-                ));
-            }
-            Ok(acceptance)
+                .find(|delivery| delivery.key == expected)
+                .ok_or_else(|| {
+                    Fail::other("The receiver Disk receipt did not identify this exact report")
+                })?;
+            Ok(if delivery.existing {
+                DeliveryReceipt::Existing
+            } else {
+                DeliveryReceipt::New
+            })
         })
         .await
 }
@@ -220,6 +371,35 @@ impl Runtime {
         .ok_or_else(|| {
             Fail::other("Unbound legacy data cannot be promoted to native source authority")
         })?;
+        self.check_source_admission(logical, execution)?;
+        let at = self.control.now().max(*last + 1.0);
+        *last = at;
+        match source {
+            Source::Prompt(mut entry) => {
+                entry.at = at;
+                self.control
+                    .send_outbox
+                    .as_ref()
+                    .ok_or_else(|| Fail::other("The source send journal is not configured"))?
+                    .keep(entry)
+                    .map_err(Fail::other)
+            }
+            Source::Report(mut entry) => {
+                entry.at = at;
+                self.host()
+                    .outbox()
+                    .ok_or_else(|| Fail::other("The source report journal is not configured"))?
+                    .keep(entry)
+                    .map_err(Fail::other)
+            }
+        }
+    }
+
+    fn check_source_admission(
+        &self,
+        logical: &InboxLogicalMessage,
+        execution: &InboxSourceExecution,
+    ) -> R<()> {
         let state = self.host().state();
         let current = state
             .tabs
@@ -248,27 +428,7 @@ impl Runtime {
             })
             .ok_or_else(|| Fail::other("The logical recipient is no longer current"))?;
         check_mail_target(&state, recipient)?;
-        let at = self.control.now().max(*last + 1.0);
-        *last = at;
-        match source {
-            Source::Prompt(mut entry) => {
-                entry.at = at;
-                self.control
-                    .send_outbox
-                    .as_ref()
-                    .ok_or_else(|| Fail::other("The source send journal is not configured"))?
-                    .keep(entry)
-                    .map_err(Fail::other)
-            }
-            Source::Report(mut entry) => {
-                entry.at = at;
-                self.host()
-                    .outbox()
-                    .ok_or_else(|| Fail::other("The source report journal is not configured"))?
-                    .keep(entry)
-                    .map_err(Fail::other)
-            }
-        }
+        Ok(())
     }
 
     pub(super) async fn resend_native_sources(self: &Arc<Self>) {
@@ -490,3 +650,7 @@ impl Runtime {
         Ok(acceptance)
     }
 }
+
+#[cfg(test)]
+#[path = "inbox_source/lookup_tests.rs"]
+mod lookup_tests;

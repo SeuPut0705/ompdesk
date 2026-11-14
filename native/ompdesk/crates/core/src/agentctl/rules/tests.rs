@@ -151,7 +151,11 @@ async fn the_mailbox_replays_the_typescripts_scenarios() {
                         "id": mail.id, "to": mail.to, "kind": mail.kind.as_str(),
                         "dispatch": mail.dispatch, "merged": mail.merged, "ok": !fail,
                     }));
-                    if fail { Err("down".to_owned()) } else { Ok(()) }
+                    if fail {
+                        Err("down".to_owned())
+                    } else {
+                        Ok(super::mail::DeliveryReceipt::New)
+                    }
                 })
             })
         };
@@ -254,7 +258,7 @@ fn mailbox_with(log: Arc<Mutex<Vec<String>>>) -> Mailbox {
             log.lock()
                 .unwrap()
                 .push(format!("{}:{}", mail.id, mail.merged.unwrap_or(0)));
-            Ok(())
+            Ok(super::mail::DeliveryReceipt::New)
         })
     }))
 }
@@ -874,4 +878,77 @@ fn a_paired_pages_clean_or_unreported_tab_is_released_unless_the_person_is_at_it
             assert_eq!(tab_close_step(&at, true), TabCloseStep::Release);
         }
     }
+}
+
+fn native_report(id: &str, text: &str, kind: MailKind) -> Mail {
+    use crate::agentctl::inbox::{
+        InboxAddress, InboxAdmission, InboxIntent, InboxLogicalMessage, InboxLogicalPayload,
+        InboxSourceExecution,
+    };
+    let mut mail = Mail::new(id, "child", "Child", "parent", kind, text, 1.0);
+    mail.native_source = Some(InboxAdmission {
+        logical: InboxLogicalMessage {
+            producer: InboxAddress {
+                device_id: "source".into(),
+                session_path: "/child.jsonl".into(),
+            },
+            target: InboxAddress {
+                device_id: "receiver".into(),
+                session_path: "/parent.jsonl".into(),
+            },
+            request_id: Some(id.into()),
+            intent: InboxIntent::Immediate,
+            trigger_turn: false,
+            payload: InboxLogicalPayload::Report {
+                text: text.into(),
+                details: Default::default(),
+                instruction: None,
+                card: None,
+            },
+        },
+        execution: InboxSourceExecution {
+            tab_id: "child".into(),
+            runtime_instance: Some("execution".into()),
+        },
+    });
+    mail
+}
+
+#[tokio::test(start_paused = true)]
+async fn native_reports_obey_stale_dispatch_and_coalesce_without_overwriting_a_pending_identity() {
+    let log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let mailbox = mailbox_with(log.clone());
+    mailbox.seed("child", 2);
+    let mut stale = native_report("stale", "old result", MailKind::Done);
+    stale.dispatch = Some("d1".into());
+    assert_eq!(mailbox.post(stale).await.unwrap(), Posted::Stale);
+    assert!(log.lock().unwrap().is_empty());
+    let first = native_report("stable", "original progress", MailKind::Progress);
+    assert_eq!(mailbox.post(first.clone()).await.unwrap(), Posted::Queued);
+    assert_eq!(mailbox.post(first).await.unwrap(), Posted::Queued);
+    let conflict = native_report("stable", "changed instructions", MailKind::Progress);
+    assert!(mailbox.post(conflict).await.is_err());
+    assert_eq!(
+        mailbox.state("child", "parent").unwrap().last.text,
+        "original progress"
+    );
+    assert!(log.lock().unwrap().is_empty());
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(*log.lock().unwrap(), ["stable:0"]);
+}
+
+#[tokio::test]
+async fn a_native_delivery_uses_the_receiver_existing_result_after_mailbox_restart() {
+    let mailbox = Mailbox::new(Arc::new(|_: Mail| {
+        Box::pin(async { Ok(super::mail::DeliveryReceipt::Existing) })
+    }));
+    assert_eq!(
+        mailbox
+            .post(native_report("stable", "already owned", MailKind::Done))
+            .await
+            .unwrap(),
+        Posted::Duplicate,
+    );
 }

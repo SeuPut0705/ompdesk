@@ -29,13 +29,21 @@ fn retry_after_source_removal_and_receiver_restart_returns_first_dispatch_withou
         .unwrap();
     assert_eq!(first.persistence, Persistence::Disk);
     assert_eq!(first.deliveries[0].dispatch, Some(1));
+    assert!(!first.deliveries[0].existing);
     let mut retry = original.clone();
     retry.dispatch = Some(2);
     retry.entry.sender.session = "changed display sender".into();
     retry.entry.payload = InboxPayload::Prompt {
         content: InboxContent::Text("changed display name; d2".into()),
     };
-    assert_eq!(ledger.keep(&before, &[retry.clone()]).unwrap(), first);
+    let duplicate = ledger.keep(&before, &[retry.clone()]).unwrap();
+    assert_eq!(duplicate.persistence, Persistence::Disk);
+    assert_eq!(duplicate.deliveries[0].key, first.deliveries[0].key);
+    assert_eq!(
+        duplicate.deliveries[0].dispatch,
+        first.deliveries[0].dispatch
+    );
+    assert!(duplicate.deliveries[0].existing);
     assert_eq!(
         ledger.pending(&before).unwrap().1.as_slice(),
         std::slice::from_ref(&original)
@@ -49,7 +57,12 @@ fn retry_after_source_removal_and_receiver_restart_returns_first_dispatch_withou
     let after = receiver("after");
     let accepted = reopened.keep(&after, &[retry]).unwrap();
     assert_eq!(accepted.persistence, Persistence::Disk);
-    assert_eq!(accepted.deliveries, first.deliveries);
+    assert_eq!(accepted.deliveries[0].key, first.deliveries[0].key);
+    assert_eq!(
+        accepted.deliveries[0].dispatch,
+        first.deliveries[0].dispatch
+    );
+    assert!(accepted.deliveries[0].existing);
     assert!(reopened.pending(&after).unwrap().1.is_empty());
 }
 
@@ -78,7 +91,17 @@ fn concurrent_retries_keep_one_first_presentation_and_return_its_dispatch_to_eve
         .into_iter()
         .map(|thread| thread.join().unwrap())
         .collect();
-    assert_eq!(accepted[0], accepted[1]);
+    assert_eq!(accepted[0].persistence, Persistence::Disk);
+    assert_eq!(accepted[1].persistence, Persistence::Disk);
+    assert_eq!(accepted[0].deliveries[0].key, accepted[1].deliveries[0].key);
+    assert_eq!(
+        accepted[0].deliveries[0].dispatch,
+        accepted[1].deliveries[0].dispatch
+    );
+    assert_ne!(
+        accepted[0].deliveries[0].existing,
+        accepted[1].deliveries[0].existing
+    );
     let pending = ledger.pending(&receiver("current")).unwrap().1;
     let dispatch = accepted[0].deliveries[0].dispatch.unwrap();
     assert_eq!(
