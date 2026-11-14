@@ -274,6 +274,71 @@ describe("SidecarPool exact window-view leave", () => {
 		return { pool, owner, sidecar, entered, acknowledgement, sent };
 	}
 
+	it("waits for the exact last local sidecar to exit before confirming its view closed", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8091);
+		pool.acquire("/a", owner.win, "local-exit", SESSION);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "local-exit");
+		if (!identity) throw new Error("expected an owner view identity");
+		let settled = false;
+		const closing = pool.leaveWindowView(owner.win, "local-exit", identity, SESSION, () => true, authorize);
+		void closing.then(() => { settled = true; }, () => { settled = true; });
+		await Promise.resolve();
+		await Promise.resolve();
+		hub().barrier();
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		const settledBeforeExit = settled;
+		expect(sidecar.disposed).toBe(true);
+		sidecar.exited.resolve();
+		expect(await closing).toBe(true);
+		expect(settledBeforeExit).toBe(false);
+	});
+
+	it("reports a post-commit partial close when the last local sidecar exit cannot be confirmed", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8092);
+		pool.acquire("/a", owner.win, "local-exit-failed", SESSION);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "local-exit-failed");
+		if (!identity) throw new Error("expected an owner view identity");
+		const closing = pool.leaveWindowView(owner.win, "local-exit-failed", identity, SESSION, () => true, authorize);
+		const outcome = closing.then(value => value, (error: unknown) => error);
+		void sidecar.exited.promise.catch(() => {});
+		await Promise.resolve();
+		await Promise.resolve();
+		hub().barrier();
+		expect(sidecar.disposed).toBe(true);
+		const failure = new Error("exit confirmation failed");
+		sidecar.exited.reject(failure);
+		expect(await outcome).toMatchObject({
+			localViewClosed: true,
+			cleanupUnconfirmed: true,
+			cause: failure,
+		});
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+	});
+
+	it("confirms an owner view leaving without waiting for or disposing the surviving viewer's sidecar", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8093);
+		const viewer = fakeWindow(-8094);
+		pool.acquire("/a", owner.win, "local-viewer", SESSION);
+		pool.attachViewer(viewer.win, "local-viewer");
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "local-viewer");
+		if (!identity) throw new Error("expected an owner view identity");
+		expect(await pool.leaveWindowView(owner.win, "local-viewer", identity, SESSION, () => true, authorize)).toBe(true);
+		expect(sidecar.disposed).toBe(false);
+		expect(pool.tabsForWindow(viewer.win).map(tab => tab.tabId)).toEqual(["local-viewer"]);
+	});
+
 	it("fences a surface by its attachment and session, including detach and reattach", async () => {
 		const { pool, sidecars } = fakePool();
 		const owner = fakeWindow(8101);
