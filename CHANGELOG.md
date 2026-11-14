@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.129.0] - 2026-11-14
+
+좁은 사이드바에서 사용 한도가 세션 목록을 밀어내고 차단 안내가 잘리던 회귀를 고쳤어요.
+
+### 고친 것
+- 사용 한도 전체 높이를 제한하고 계정 목록만 안에서 스크롤해요. 좁은 폭에서도 한도와 리셋 시간을 모두 읽을 수 있고, 사용 중 계정의 차단 안내는 설정 줄 위에 남아요. 계정 선택이나 정보를 숨기지 않아요.
+- 세션에서 모델을 바꿔도 전역 기본 모델을 덮어쓰지 않아요. 새 세션은 모델 역할의 기본값으로 시작해요.
+- Windows 에이전트 셸에서 `ompdesk` 런처가 실행되지 않던 것을 고쳤어요. WSL의 `run --heavy`는 Linux 명령을 돌리면서 Windows와 같은 자리 풀을 쓰고, 중첩 호출은 바깥 자리를 재사용해요.
+- `ompdesk check`가 완료 직후 마지막 판정 로그를 놓치지 않아요. 원격 기기의 연결 시도가 주소를 찾는 동안 새 연결 알림을 받았을 때 이전 시도의 시간으로 끊기던 것도 고쳤어요.
+- 작업 폴더가 없으면 git 실행 파일이 없다는 말 대신 해당 폴더가 없다고 알려요. 네이티브 빌드는 PATH의 Homebrew cargo 대신 저장소가 고정한 Rust 툴체인을 찾아요.
+
+### 바뀐 것
+- 채팅 왼쪽 턴 눈금은 한 번에 20개만 보여요. 위의 이전 항목으로 앞선 턴을 보고, 스크롤하면 현재 턴의 눈금이 따라와요.
+- 푸시 전에 바뀐 파일의 정적 검사를 실행해요. 형식 검사는 작은 작업으로 나눠 돌리고 입력이 같은 확정 결과를 재사용해요. session-listing의 빠른 변이 검사는 탭 변경 2회 범위로 줄였고, 3회 설정은 깊은 검사에 남겼어요.
+- 부하에 따라 흔들리던 시험의 동기화를 고치고 벽시계 성능 단정을 벤치마크로 옮겼어요.
+
+사용 한도 화면은 샘플 계정으로 이 컴퓨터·연결된 컴퓨터·휴대폰을 대조했어요. 실제 계정 정보는 시험 자료에 넣지 않았어요.
+
+<!-- en -->
+
+This fixes the regression where usage filled a narrow sidebar and cut off the blocked-account notice.
+
+### Fixed
+- The usage block has a height limit and scrolls only its account list. Limits and reset times remain readable at narrow widths, and the in-use account's blocked notice stays above Settings. Account selection and information remain available.
+- Picking a session model no longer overwrites the global default role. New sessions start with that role's default.
+- The `ompdesk` launcher now works in the Windows agent shell. Under WSL, `run --heavy` runs a Linux command using the same slot pool as Windows. Nested calls reuse the outer slot.
+- An attached `ompdesk check` no longer misses its final verdict log. A peer wake during address lookup no longer ends a fresh connection attempt using the previous attempt's time.
+- A missing working folder is named instead of being reported as a missing git executable. Native builds resolve the repository's pinned Rust toolchain instead of a Homebrew cargo first on PATH.
+
+### Changed
+- The chat turn rail shows 20 ticks at a time. The earlier item opens preceding turns, and scrolling keeps the current turn in view.
+- Pushes run static checks on changed files. Formal checks run as smaller jobs and reuse settled verdicts on identical inputs. The fast session-listing mutation check now covers 2 tab changes; the 3-change configuration remains in the deep checks.
+- Load-sensitive tests use explicit synchronization, and a wall-clock performance assertion is now a benchmark.
+
+The usage view was compared on this computer, a paired computer and a phone using sample accounts. No real account details were included in the test data.
+
 ## [0.128.0] - 2026-11-14
 
 설정 맨 위에서 다른 컴퓨터의 설정을 한 번에 볼 수 있고, 사이드바에서 모든 계정의 사용량과 세션이 그 계정에 있는 이유를 볼 수 있어요.

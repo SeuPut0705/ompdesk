@@ -45,6 +45,7 @@ async function seedProject(project: string): Promise<void> {
 }
 
 const dir = process.env.OMP_GUI_PARITY;
+const BLOCKED_USAGE = process.env.OMP_GUI_TEST_USAGE_ACCOUNTS === "blocked";
 
 const VIEWS = ["local", "remote", "phone"] as const;
 type View = (typeof VIEWS)[number];
@@ -54,11 +55,18 @@ const DESKTOP: Look = {
 	height: 860,
 	dpr: 1,
 	orientation: "landscape",
-	theme: "light",
-	lang: "en",
+	theme: BLOCKED_USAGE ? "dark" : "light",
+	lang: BLOCKED_USAGE ? "ko" : "en",
 	device: "electron",
 };
-const PHONE: Look = { width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "en" };
+const PHONE: Look = {
+	width: 390,
+	height: 844,
+	dpr: 3,
+	orientation: "portrait",
+	theme: DESKTOP.theme,
+	lang: DESKTOP.lang,
+};
 
 const VIEW_LOOK: Record<View, Look> = { local: DESKTOP, remote: DESKTOP, phone: PHONE };
 const VIEW_LABEL: Record<View, string> = {
@@ -154,19 +162,19 @@ if (dir) {
 		const pageErrors: string[] = [];
 		try {
 			const hostProfile = await makeRemoteProfile(parent, "host", {
-				language: "en",
-				theme: "light",
+				language: DESKTOP.lang,
+				theme: DESKTOP.theme,
 				// The usage row under a reply (`reply-usage`): on here, on the paired computer and through to the phone.
-				prefs: { displayPreferences: { showTokenUsage: true } },
+				prefs: { displayPreferences: { showTokenUsage: true }, ...(BLOCKED_USAGE ? { sidebarWidth: 227 } : {}) },
 				// Only the host's omp starts under the hold: its slow-start bound is short, so the banner shows within seconds.
 				env: { OMP_GUI_START_SLOW_MS: "1500" },
 			});
 			await seedProject(hostProfile.project);
 			const clientProfile = await makeRemoteProfile(parent, "client", {
-				language: "en",
-				theme: "light",
+				language: DESKTOP.lang,
+				theme: DESKTOP.theme,
 				port: hostProfile.port,
-				prefs: { displayPreferences: { showTokenUsage: true } },
+				prefs: { displayPreferences: { showTokenUsage: true }, ...(BLOCKED_USAGE ? { sidebarWidth: 227 } : {}) },
 			});
 			host = await launchRemote(hostProfile);
 			client = await launchRemote(clientProfile);
@@ -217,7 +225,7 @@ if (dir) {
 					...devices["Pixel 7"],
 					viewport: { width: PHONE.width, height: PHONE.height },
 					deviceScaleFactor: PHONE.dpr,
-					colorScheme: "light",
+					colorScheme: PHONE.theme,
 				})
 			).newPage();
 			for (const [name, page] of [
@@ -230,6 +238,14 @@ if (dir) {
 			await phonePaired(phone);
 			// The phone's display switches are its own (device prefs), read when each view loads its page afresh.
 			await phone.evaluate(() => window.omp.prefs.set("displayPreferences.showTokenUsage", true));
+			if (BLOCKED_USAGE) {
+				await phone.evaluate(async () => {
+					await window.omp.prefs.set("language", "ko");
+					await window.omp.prefs.set("themeName", "dark");
+					await window.omp.prefs.set("sidebarWidth", 227);
+					localStorage.setItem("omp.sidebarWidth", "227");
+				});
+			}
 			// B announces the new phone in a toast; the toasts are dismissed before each capture (openRow), so let it land.
 			await expect
 				.poll(() => b.locator('[data-toast-stack] button[aria-label="Close"]').count(), { timeout: 10_000 })

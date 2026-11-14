@@ -94,6 +94,7 @@ import {
 } from "./fixture-settings";
 import { PLAN_FILE_PATH, PLAN_MARKDOWN, SESSION_TREE } from "./fixture-sheets";
 import { statsAnswer } from "./fixture-stats";
+import { blockedAccountUsage } from "./fixture-usage";
 import { diskCareState, orphanWorktrees, savedWorktreeRestore, savedWorktrees } from "./fixture-work-tree";
 import { createHarnessSummaries, type HarnessSummaries } from "./summaries";
 
@@ -108,6 +109,8 @@ const FIRST_RUN = new URLSearchParams(location.search).get("firstrun") === "1";
 const ACCOUNTS = new URLSearchParams(location.search).get("accounts") === "1";
 /** `?jobs=tree`: Background tasks lists subagents' jobs nested under them (./fixture-jobs.ts). */
 const JOBS_TREE = new URLSearchParams(location.search).get("jobs") === "tree";
+/** `?usage=blocked`: the sidebar usage block of the owner's 0.128.0 report (./fixture-usage.ts). */
+const BLOCKED_USAGE = new URLSearchParams(location.search).get("usage") === "blocked";
 const FIRST_RUN_PROVIDERS = [
 	["anthropic", "Anthropic (Claude Pro/Max)"],
 	["cerebras", "Cerebras"],
@@ -444,7 +447,10 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			// `get_usage` also feeds the sidebar usage meter, the composer's account limit and the turn-error notice,
 			// so its reports stay behind `?board=busy`.
 			case "get_usage":
-				return respond(command, BOARD_BUSY ? boardUsage() : { reports: [] });
+				return respond(
+					command,
+					BLOCKED_USAGE ? { reports: blockedAccountUsage() } : BOARD_BUSY ? boardUsage() : { reports: [] },
+				);
 			case "get_orphan_worktrees":
 				return respond(command, orphanWorktrees());
 			case "remove_orphan_worktree":

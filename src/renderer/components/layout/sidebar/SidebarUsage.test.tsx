@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -185,23 +183,15 @@ describe("SidebarUsage", () => {
 		expect(block?.querySelectorAll("[data-usage-account]")).toHaveLength(0);
 	});
 
-	it("scrolls the groups inside a capped height, so many accounts never take the sidebar", async () => {
-		const block = await mount(fourAndFour());
-		expect(block?.querySelector(".omp-sidebar-usage-groups")?.hasAttribute("data-sidebar-usage-scroll")).toBe(true);
-		const css = readFileSync(fileURLToPath(new URL("../../../styles/sidebar.css", import.meta.url)), "utf8");
-		const rule = /\.omp-sidebar-usage-groups\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-		expect(rule).toMatch(/max-height:\s*min\(\s*20rem,\s*40dvh\s*\)/);
-		expect(rule).toMatch(/overflow-y:\s*auto/);
-	});
-
-	it("says why the session is on its account, on that account's row only", async () => {
+	it("says only why the session is on its current account", async () => {
 		const rotation = { why: "better", moved: true, phase: "turn-start", at: Date.now() };
 		const block = await mount([
 			report("anthropic", 1, "a@example.com", { active: true, rotation }),
 			report("anthropic", 2, "b@example.com", { rotation }),
 		]);
-		expect(row(block, 1)?.querySelector("[data-account-reason]")?.textContent).toBe(en["usage.rotation.better"]);
-		expect(row(block, 2)?.querySelector("[data-account-reason]")).toBeNull();
+		const reasons = block?.querySelectorAll("[data-account-reason]");
+		expect(reasons).toHaveLength(1);
+		expect(reasons?.[0]?.textContent).toBe(en["usage.rotation.better"]);
 	});
 
 	it("lists no API-key provider and renders nothing with no account", async () => {
