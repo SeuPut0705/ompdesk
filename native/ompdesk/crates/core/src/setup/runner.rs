@@ -130,6 +130,7 @@ impl Runner {
 
     /// The retained reaper owns stdin's scratch file until the supervised tree has exited.
     /// Each stream keeps its first `max_bytes`, draining the rest as upkeep's original runner did.
+    /// Isolated installers use a merged log and must go through `run`, not separate-stream capture.
     pub async fn capture(
         &self,
         mut spec: SpawnSpec,
@@ -158,11 +159,11 @@ impl Runner {
             if held.cancelled() {
                 return empty(RunOutcome::Cancelled);
             }
-            if spec.isolated && !input.is_empty() {
+            if spec.isolated {
                 return empty(failed(
                     "spawn",
                     None,
-                    "An isolated command cannot read stdin".to_owned(),
+                    "Isolated commands use a merged log; use Runner::run".to_owned(),
                 ));
             }
             let paths = runner.paths.clone();

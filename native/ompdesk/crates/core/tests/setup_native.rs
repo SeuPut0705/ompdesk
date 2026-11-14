@@ -617,6 +617,42 @@ async fn capture_separates_streams_and_drains_past_each_cap_without_stopping() {
 }
 
 #[tokio::test]
+async fn capture_rejects_isolated_commands_instead_of_merging_their_streams() {
+    use ompdesk_core::setup::runner::CaptureOptions;
+    let fixture = Fixture::new("capture-isolated");
+    let runner = Runner::new(
+        PathBuf::from(env!("CARGO_BIN_EXE_ompdesk-core")),
+        fixture.root.join("scratch"),
+    );
+    let mut spec = plans::command(
+        "/bin/sh",
+        &["-c", "printf output; printf error >&2; touch \"$ROOT/ran\""],
+        Platform::Darwin,
+    );
+    spec.isolated = true;
+    let env = BTreeMap::from([(
+        "ROOT".to_owned(),
+        fixture.root.to_string_lossy().into_owned(),
+    )]);
+    let captured = runner
+        .capture(
+            spec,
+            env,
+            Scope::detached(),
+            CaptureOptions {
+                cwd: None,
+                input: Vec::new(),
+                timeout: std::time::Duration::from_secs(30),
+                max_bytes: 4096,
+            },
+        )
+        .await;
+    assert!(matches!(captured.outcome, RunOutcome::Failed { .. }));
+    assert!(!fixture.root.join("ran").exists());
+    assert!(captured.stdout.is_empty() && captured.stderr.is_empty());
+}
+
+#[tokio::test]
 async fn capture_timeout_ends_tree_before_removing_its_input_file() {
     use ompdesk_core::setup::runner::CaptureOptions;
     use std::time::Duration;
