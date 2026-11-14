@@ -4,7 +4,9 @@
 
 A deleted session must not return to the deleting consumer's feed or saved snapshot through an older read. A paired `tab.open` that yielded during lookup must not publish a view or sidecar after a delete started or finished. Otherwise a deleted conversation can appear again or be reopened against a removed file.
 
-The model is a candidate TLA+ description, not a checked proof. It targets one saved ID and the file path representing it, two list scopes, two open requests, two delete instances, two read slots per scope, and connection generations 0 and 1. `matrix.json` records the proposed baseline, broken variants, and reachability runs. No state counts, durations, or passing verdict are available.
+The model targets one saved ID and the file path representing it, two list scopes, two open requests, two delete instances, two read slots per scope, and connection generations 0 and 1. It is not a checked proof. Hosted run `43573249638` timed out the baseline after 7,200 seconds and reported an incompletely specified `badOpen` successor in the `open-without-final-recheck` negative. The original error artifact is retained; no stamp was produced.
+
+The subsequent model-only correction parenthesizes the full Boolean right-hand side of the `badOpen'` assignment. It changes neither production code, bounds, actions, nor frozen properties. The negative must still produce the expected `NoOpenDuringDelete` invariant violation rather than a model error. A successful negative alone cannot establish the baseline or mutation verdict.
 
 ## Included
 

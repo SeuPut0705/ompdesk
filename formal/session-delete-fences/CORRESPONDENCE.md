@@ -1,6 +1,8 @@
 # Correspondence: session delete fences
 
-Sync commit: `null`. This model is unrun and has not been stamped against final source. Source references are to the candidate tree read while this model was authored. A reviewer must compare them again after consumer fixes.
+Sync commit: `null`. Hosted run `43573249638` did not establish this model: the baseline and mutation baseline timed out, and the open negative failed with an incompletely specified successor. Source references are to the candidate tree read while this model was authored. A reviewer must compare them again after consumer fixes.
+
+The model-only `OpenPublish` correction groups `badOpen' = (badOpen \/ condition)` as one Boolean assignment. Previously, the equality could be the left disjunct of `\/`, leaving `badOpen'` unspecified when the right disjunct held. This repairs the model transition, not the production final deletion recheck, and supplies no production counterexample or whole-model passing verdict.
 
 | Model element | Source | Abstraction |
 |---|---|---|

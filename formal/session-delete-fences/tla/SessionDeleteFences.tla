@@ -197,7 +197,7 @@ OpenPublish(o) ==
     /\ LET allowed == IF RecheckOpen THEN OpenAllowed ELSE TRUE IN
        /\ op' = [op EXCEPT ![o] = IF allowed THEN "published" ELSE "refused"]
        /\ published' = IF allowed /\ published = {} THEN {o} ELSE published
-       /\ badOpen' = badOpen \/ (allowed /\ published = {} /\ ~OpenAllowed)
+       /\ badOpen' = (badOpen \/ (allowed /\ published = {} /\ ~OpenAllowed))
     /\ UNCHANGED <<file, tombstone, dpc, fence, feed, snapshot, generation, readPc, readGen, readConn, readRow, connection, online, acknowledged, rebuilt, rebuiltRow, restored, restoredRow>>
     /\ UNCHANGED shared
 
