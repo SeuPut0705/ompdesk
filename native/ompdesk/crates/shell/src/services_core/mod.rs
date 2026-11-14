@@ -4,6 +4,85 @@
 
 use std::path::Path;
 
+pub mod notice;
+pub mod path;
+pub mod reply;
+
+use serde_json::{Value, json};
+
+fn js_whitespace(c: char) -> bool {
+    matches!(c, '\t'..='\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
+        | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
+/// Page links may open web pages or a mail draft, never an arbitrary registered application.
+/// The lower-level shell backend also validates OS argument syntax.
+pub fn external_url_allowed(url: &Value) -> bool {
+    let Some(url) = url.as_str() else {
+        return false;
+    };
+    if url.starts_with("https://") || url.starts_with("http://") {
+        return true;
+    }
+    let Some(scheme) = url.get(..7) else {
+        return false;
+    };
+    scheme.eq_ignore_ascii_case("mailto:")
+        && url.len() > 7
+        && !url[7..].chars().any(|c| js_whitespace(c) || c.is_control())
+}
+
+/// A fixed OS settings destination, separate from page URLs. It opens a pane, never changes a permission.
+pub fn privacy_pane_url(pane: &str, macos: bool) -> Result<String, &'static str> {
+    if !macos {
+        return Err("Privacy & Security panes exist only on macOS.");
+    }
+    let suffix = match pane {
+        "accessibility" => "Privacy_Accessibility",
+        "screen_recording" => "Privacy_ScreenCapture",
+        "input_monitoring" => "Privacy_ListenEvent",
+        "automation" => "Privacy_Automation",
+        "full_disk_access" => "Privacy_AllFiles",
+        "files_and_folders" => "Privacy_FilesAndFolders",
+        "microphone" => "Privacy_Microphone",
+        "camera" => "Privacy_Camera",
+        _ => return Err("Unknown Privacy & Security pane"),
+    };
+    Ok(format!(
+        "x-apple.systempreferences:com.apple.preference.security?{suffix}"
+    ))
+}
+
+/// The page's file/folder picker. A folder picker permits creating a folder but never multiple selections.
+pub fn open_dialog_options(filters: &Value, options: &Value) -> Value {
+    let mut result = json!({
+        "properties": if options.get("directory").and_then(Value::as_bool) == Some(true) {
+            vec!["openDirectory", "createDirectory"]
+        } else {
+            vec!["openFile", "multiSelections"]
+        },
+        "filters": if filters.is_null() { json!([]) } else { filters.clone() },
+    });
+    for key in ["title", "buttonLabel"] {
+        if let Some(value) = options.get(key) {
+            result[key] = value.clone();
+        }
+    }
+    if let Some(title) = options.get("title") {
+        result["message"] = title.clone();
+    }
+    result
+}
+
+pub fn save_dialog_options(default_path: &Value, filters: &Value) -> Value {
+    json!({
+        "defaultPath": if default_path.is_null() { json!("session.html") } else { default_path.clone() },
+        "filters": if filters.is_null() {
+            json!([{ "name": "HTML", "extensions": ["html"] }])
+        } else { filters.clone() },
+    })
+}
+
 /// Types that start code when opened, on any platform (a repo's `run.bat` is revealed on a Mac too). Scripts an
 /// interpreter's install can claim are here too: python.org's Python Launcher runs a `.py` on open on macOS, and a file
 /// a repo or the agent writes rarely carries the exec bit the POSIX check needs.
@@ -208,6 +287,42 @@ mod tests {
 
     fn captured() -> Value {
         serde_json::from_str(include_str!("captured.json")).unwrap()
+    }
+
+    #[test]
+    fn page_service_boundaries_match_the_typescript() {
+        let captured: Value = serde_json::from_str(include_str!("boundary-captured.json")).unwrap();
+        for row in captured["privacyPane"].as_array().unwrap() {
+            assert_eq!(
+                privacy_pane_url(row["pane"].as_str().unwrap(), true).unwrap(),
+                row["url"]
+            );
+            assert_eq!(
+                privacy_pane_url(row["pane"].as_str().unwrap(), false),
+                Err("Privacy & Security panes exist only on macOS.")
+            );
+        }
+        for row in captured["externalUrl"].as_array().unwrap() {
+            assert_eq!(
+                external_url_allowed(&row["url"]),
+                row["allowed"].as_bool().unwrap(),
+                "{row}"
+            );
+        }
+        for row in captured["openDialog"].as_array().unwrap() {
+            let input = &row["input"];
+            assert_eq!(
+                open_dialog_options(&input["filters"], input),
+                row["options"]
+            );
+        }
+        for row in captured["saveDialog"].as_array().unwrap() {
+            let input = &row["input"];
+            assert_eq!(
+                save_dialog_options(&input["defaultPath"], &input["filters"]),
+                row["options"]
+            );
+        }
     }
 
     #[test]

@@ -153,6 +153,39 @@ describe.skipIf(!executable)("services against the shell", () => {
 		expect(await services.openOrReveal(file("a.js"))).toBe("opened");
 	});
 
+	it("rejects OS-invalid web URL arguments rather than opening them", async () => {
+		await expect(services.openExternal("https://example.invalid/a\u0001b")).rejects.toThrow("control characters");
+	});
+
+	it("does not show a native picker for a caller without a desktop window", async () => {
+		expect(await services.openDialog(undefined)).toBeNull();
+		expect(await services.saveDialog(undefined)).toBeNull();
+		expect(await services.saveImage(undefined, "picture.png", "image/png", new Uint8Array([1, 2]))).toEqual({
+			saved: false,
+		});
+	});
+
+	it.runIf(process.env.GITHUB_ACTIONS === "true")(
+		"round-trips clipboard text and restores the runner clipboard",
+		async () => {
+			const previous = await services.readClipboard();
+			try {
+				await services.writeClipboard("OMPdesk 서비스\n한글 🙂");
+				expect(await services.readClipboard()).toBe("OMPdesk 서비스\n한글 🙂");
+				await services.writeClipboard("");
+				expect(await services.readClipboard()).toBe("");
+			} finally {
+				await services.writeClipboard(previous);
+			}
+		},
+	);
+
+	it.runIf(windows)("refuses macOS privacy panes on Windows", async () => {
+		await expect(services.openPrivacyPane("accessibility")).rejects.toThrow(
+			"Privacy & Security panes exist only on macOS.",
+		);
+	});
+
 	// It shows a real message box for half a second, so it runs only on a GitHub runner, never on a person's desktop.
 	it.runIf(process.env.GITHUB_ACTIONS === "true")(
 		"closes a confirm card nobody answers once its time is up, and answers its cancelId (refused)",
