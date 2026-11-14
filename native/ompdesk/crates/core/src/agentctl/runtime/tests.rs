@@ -929,3 +929,71 @@ async fn authenticated_mail_targets_rebind_by_session_without_reusing_stale_toke
     assert_eq!(control.host.outbox().unwrap().pending()[0].id, entry.id);
     control.host.port().close();
 }
+
+#[tokio::test]
+async fn immediate_delivery_rechecks_binding_after_spawn_before_its_first_poll() {
+    use crate::agentctl::journal::{Persistence, mail_outbox::OutboxMail};
+    for authenticated in [false, true] {
+        let dir = MailDir::new();
+        let mut initial = state(if authenticated {
+            Vec::new()
+        } else {
+            vec![tab("old-token", "/s/boss.jsonl")]
+        });
+        if authenticated {
+            initial["mailTargets"] = json!([tab("old-token", "/s/boss.jsonl")]);
+        }
+        let (control, runtime, told) = rig(
+            7_480 + u64::from(authenticated),
+            initial,
+            dir.files(),
+            |method, _| {
+                if method == "mail" {
+                    Ok(json!({ "duplicate": false }))
+                } else {
+                    Err(format!("unexpected {method}"))
+                }
+            },
+        );
+        let outbox = control.host.outbox().unwrap().clone();
+        let entry = OutboxMail {
+            id: "bound-result".into(),
+            session_path: "/s/boss.jsonl".into(),
+            device: None,
+            from: None,
+            from_device: None,
+            content: "answer".into(),
+            details: mail_details("bound-result"),
+            delivery: DELIVERY,
+            attachments: None,
+            attachments_corrupt: false,
+            at: control.now(),
+        };
+        assert_eq!(outbox.keep(entry.clone()).unwrap(), Persistence::Disk);
+        let sending = runtime.send_kept_mail(outbox.clone(), "old-token".into(), entry.clone());
+        let mut switched = state(vec![tab("old-token", "/s/different.jsonl")]);
+        if authenticated {
+            switched = state(Vec::new());
+            switched["mailTargets"] = json!([tab("new-token", "/s/boss.jsonl")]);
+        }
+        crate::ports::apply_state(control.host.port(), 1, &switched.to_string()).unwrap();
+        sending.await.unwrap();
+        assert!(told_of(&told, "mail").is_empty());
+        assert_eq!(outbox.pending(), [entry.clone()]);
+        let mut restored = state(if authenticated {
+            Vec::new()
+        } else {
+            vec![tab("new-token", "/s/boss.jsonl")]
+        });
+        if authenticated {
+            restored["mailTargets"] = json!([tab("new-token", "/s/boss.jsonl")]);
+        }
+        crate::ports::apply_state(control.host.port(), 2, &restored.to_string()).unwrap();
+        runtime
+            .send_kept_mail(outbox, "new-token".into(), entry)
+            .await
+            .unwrap();
+        assert_eq!(told_of(&told, "mail")[0]["tabId"], "new-token");
+        control.host.port().close();
+    }
+}

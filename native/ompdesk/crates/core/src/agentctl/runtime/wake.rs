@@ -147,35 +147,22 @@ impl Runtime {
             aside: true,
         };
         let (content, details) = (mail_text(&mail), mail_details(&mail));
-        let persistence = outbox
-            .keep(OutboxMail {
-                id: id.clone(),
-                session_path: path.to_owned(),
-                device: device.map(str::to_owned),
-                from: None,
-                from_device: None,
-                content: content.clone(),
-                details: details.clone(),
-                delivery,
-                attachments: None,
-                attachments_corrupt: false,
-                at: mail.at,
-            })
-            .map_err(Fail::other)?;
+        let kept = OutboxMail {
+            id,
+            session_path: path.to_owned(),
+            device: device.map(str::to_owned),
+            from: None,
+            from_device: None,
+            content,
+            details,
+            delivery,
+            attachments: None,
+            attachments_corrupt: false,
+            at: mail.at,
+        };
+        let persistence = outbox.keep(kept.clone()).map_err(Fail::other)?;
         if persistence == Persistence::Disk {
-            let me = self.clone();
-            let tab = tab_id.to_owned();
-            tokio::spawn(async move {
-                if let Ok(Some(answer)) = me
-                    .host()
-                    .send_mail(&tab, &content, &details, delivery)
-                    .await
-                    && answer.duplicate
-                    && answer.journaled
-                {
-                    outbox.settle(&id);
-                }
-            });
+            self.send_kept_mail(outbox, tab_id.to_owned(), kept);
         }
         Ok(persistence)
     }
@@ -241,37 +228,27 @@ impl Runtime {
             }
             return fail("This runtime has no mail outbox.");
         };
-        if let Err(error) = outbox.keep(OutboxMail {
-            id: id.clone(),
+        let kept = OutboxMail {
+            id,
             session_path: session_path.to_owned(),
             device: None,
             from: None,
             from_device: None,
-            content: content.clone(),
-            details: details.clone(),
+            content,
+            details,
             delivery,
             attachments: None,
             attachments_corrupt: false,
             at: mail.at,
-        }) {
+        };
+        if let Err(error) = outbox.keep(kept.clone()) {
             if let Some(wake) = self.rt().wakes.remove(run_id) {
                 wake.cancel();
             }
             return Err(Fail::other(error));
         }
         if let Some(tab) = existing {
-            let (me, outbox) = (self.clone(), outbox);
-            tokio::spawn(async move {
-                if let Ok(Some(answer)) = me
-                    .host()
-                    .send_mail(&tab, &content, &details, delivery)
-                    .await
-                    && answer.duplicate
-                    && answer.journaled
-                {
-                    outbox.settle(&id);
-                }
-            });
+            self.send_kept_mail(outbox, tab, kept);
         }
         let state = self.host().state();
         let owner = owner_of(&state, session_path);

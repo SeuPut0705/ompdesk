@@ -36,7 +36,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 
-use super::journal::mail_outbox::{MailAnswer, OutboxMail, RedeliverDeps, redeliver_mail};
+use super::journal::mail_outbox::{
+    MailAnswer, MailOutbox, OutboxMail, RedeliverDeps, redeliver_mail,
+};
 use super::service::AgentControl;
 use super::service::fail::{R, fail};
 use super::service::host::{Host, HostState};
@@ -196,6 +198,23 @@ impl Runtime {
     }
 
     // ---- redelivery -------------------------------------------------------------------------------------------------
+
+    fn send_kept_mail(
+        self: &Arc<Self>,
+        outbox: Arc<MailOutbox>,
+        tab: String,
+        mail: OutboxMail,
+    ) -> JoinHandle<()> {
+        let me = self.clone();
+        tokio::spawn(async move {
+            if let Some(answer) = (MailTabs { host: me.host() }).send(&tab, &mail).await
+                && answer.duplicate
+                && answer.journaled
+            {
+                outbox.settle(&mail.id);
+            }
+        })
+    }
 
     /// Accepted reports whose receiver's journal does not hold them yet, sent again to its live tab (`#redeliverMail`).
     pub fn redeliver_mail(self: &Arc<Self>) {
