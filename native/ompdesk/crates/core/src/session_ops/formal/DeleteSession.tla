@@ -9,22 +9,22 @@ vars == <<phase, guard, attached, alive, receipts, confirmed, releaseFault,
 Init == /\ phase = "idle" /\ guard = FALSE
         /\ attached = Runtimes /\ alive = Runtimes
         /\ receipts = {} /\ confirmed = {}
-        /\ releaseFault = FALSE /\ exitFault = {} /\ storageFault = FALSE
+        /\ releaseFault = FALSE /\ exitFault = FALSE /\ storageFault = FALSE
         /\ stored = FALSE /\ tombstone = FALSE /\ notified = FALSE
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:163-169 Coordinator::delete awaits Base's scoped guard before capture
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:138-139 Coordinator::delete begins Base's guard before capture
 Begin == /\ phase = "idle"
          /\ phase' = "captured" /\ guard' = TRUE
          /\ UNCHANGED <<attached, alive, receipts, confirmed, releaseFault, exitFault,
                         storageFault, stored, tombstone, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:173-175 Coordinator::delete preflight
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:140-142 Coordinator::delete preflight
 Preflight == /\ phase = "captured"
              /\ phase' = IF RefuseBusy /\ InitiallyBusy THEN "failed" ELSE "closing"
              /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
                             exitFault, storageFault, stored, tombstone, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:183-186 Host::release returns captured exit receipts or joins them internally
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:146-148 Host::release returns exact captured exit receipts
 Release(r) == /\ phase = "closing" /\ r \in attached
               /\ attached' = attached \ {r} /\ receipts' = receipts \cup {r}
               /\ UNCHANGED <<phase, guard, alive, confirmed, releaseFault, exitFault,
@@ -36,9 +36,8 @@ Exit(r) == /\ r \in receipts /\ r \in alive
            /\ UNCHANGED <<phase, guard, attached, receipts, confirmed, releaseFault,
                           exitFault, storageFault, stored, tombstone, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:197-201 Coordinator::delete joins every release receipt
-Confirm(r) == /\ phase = "joining" /\ r \in receipts /\ r \notin alive
-              /\ r \notin confirmed /\ r \notin exitFault
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:160-163 Coordinator::delete joins every release receipt
+Confirm(r) == /\ r \in receipts /\ r \notin alive /\ r \notin confirmed
               /\ confirmed' = confirmed \cup {r}
               /\ UNCHANGED <<phase, guard, attached, alive, receipts, releaseFault,
                              exitFault, storageFault, stored, tombstone, notified>>
@@ -49,59 +48,57 @@ ReleaseFailed == /\ phase = "closing" /\ attached # {}
                  /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, exitFault,
                                 storageFault, stored, tombstone, notified>>
 
-\* Environment: one captured receipt rejects. Other receipts remain owed, and a rejection never proves exit.
-ReceiptFailed(r) == /\ phase = "joining" /\ r \in receipts
-                    /\ r \notin confirmed /\ r \notin exitFault
-                    /\ exitFault' = exitFault \cup {r}
-                    /\ UNCHANGED <<phase, guard, attached, alive, receipts, confirmed, releaseFault,
-                                   storageFault, stored, tombstone, notified>>
+\* Environment: a captured receipt rejects instead of proving process exit.
+ReceiptFailed == /\ phase \in {"closing", "joining"} /\ receipts # {}
+                 /\ exitFault' = TRUE /\ phase' = "failed"
+                 /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
+                                storageFault, stored, tombstone, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:178-196 Coordinator::delete finishes release operations
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:145-159 Coordinator::delete finishes all release operations
 ReleasedAll == /\ phase = "closing" /\ attached = {}
                /\ phase' = "joining"
                /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
                               exitFault, storageFault, stored, tombstone, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:197-204 Coordinator::delete propagates faults only after every owed receipt settles
-JoinFailed == /\ phase = "joining" /\ (releaseFault \/ exitFault # {})
-              /\ confirmed \cup exitFault = receipts
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:160-167 Coordinator::delete propagates a release fault after joining
+JoinFailed == /\ phase = "joining" /\ releaseFault /\ confirmed = receipts
               /\ phase' = "failed"
               /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
                              exitFault, storageFault, stored, tombstone, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:208 Coordinator::delete storage effect follows successful exact exits
-Store == /\ phase = "joining" /\ ~releaseFault /\ exitFault = {}
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:171 Coordinator::delete storage effect follows successful exact exits
+Store == /\ phase = "joining" /\ ~releaseFault /\ ~exitFault
          /\ (~RequireExit \/ confirmed = Runtimes)
          /\ phase' = "stored" /\ stored' = TRUE
          /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
                         exitFault, storageFault, tombstone, notified>>
 
-StorageFailed == /\ phase = "joining" /\ ~releaseFault /\ exitFault = {} /\ confirmed = Runtimes
+StorageFailed == /\ phase = "joining" /\ ~releaseFault /\ ~exitFault /\ confirmed = Runtimes
                  /\ phase' = "failed" /\ storageFault' = TRUE
                  /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
                                 exitFault, stored, tombstone, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:209 Coordinator::delete commits tombstone memory, not disk acknowledgment
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:172 Coordinator::delete commits tombstone memory, not disk acknowledgment
 Commit == /\ (phase = "stored" \/ (~CommitAfterStorage /\ phase = "joining"))
           /\ tombstone' = TRUE /\ phase' = "committed"
           /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
                          exitFault, storageFault, stored, notified>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:217-220 Coordinator::delete invalidates and notifies after canonical commit
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:175-178 Coordinator::delete notifies only after storage and canonical commit
 Notify == /\ phase = "committed"
           /\ notified' = TRUE /\ phase' = "notified"
           /\ UNCHANGED <<guard, attached, alive, receipts, confirmed, releaseFault,
                          exitFault, storageFault, stored, tombstone>>
 
-\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:150-159 The owned domain task and exact Scope retain the guard through effects
+\* @code native/ompdesk/crates/core/src/session_ops/mod.rs:137-179 Deletion guard remains alive through notification or failed cleanup
 Finish == /\ phase \in {"notified", "failed"}
           /\ phase' = "done" /\ guard' = FALSE
           /\ UNCHANGED <<attached, alive, receipts, confirmed, releaseFault, exitFault,
                          storageFault, stored, tombstone, notified>>
 
 Next == Begin \/ Preflight \/ ReleasedAll \/ JoinFailed \/ Store \/ StorageFailed
-        \/ ReleaseFailed \/ Commit \/ Notify \/ Finish
-        \/ (\E r \in Runtimes : Release(r) \/ Exit(r) \/ Confirm(r) \/ ReceiptFailed(r))
+        \/ ReleaseFailed \/ ReceiptFailed \/ Commit \/ Notify \/ Finish
+        \/ (\E r \in Runtimes : Release(r) \/ Exit(r) \/ Confirm(r))
 Spec == Init /\ [][Next]_vars
 
 \* FROZEN PROPERTIES
@@ -110,6 +107,6 @@ NoFalseDeletion == tombstone => stored
 NoPrematureNotice == notified => stored /\ tombstone
 BusyKeepsHolders == InitiallyBusy => attached = Runtimes
 GuardCoversEffects == phase \notin {"idle", "done"} => guard
-NoStorageAfterExitFailure == exitFault # {} => ~stored
+NoStorageAfterExitFailure == exitFault => ~stored
 \* END FROZEN PROPERTIES
 =============================================================================
