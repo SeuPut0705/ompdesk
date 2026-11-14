@@ -14,9 +14,10 @@ use tokio::task::JoinHandle;
 
 use super::activity::{Activity, ActivityKind};
 use super::{Runtime, runtime_of};
+use crate::agentctl::journal::Persistence;
 use crate::agentctl::journal::mail_outbox::OutboxMail;
 use crate::agentctl::rules::mail::{Mail, MailDelivery, MailKind, mail_details, mail_text};
-use crate::agentctl::service::fail::R;
+use crate::agentctl::service::fail::{Fail, R, fail};
 use crate::agentctl::service::host::HostState;
 use crate::server::{Call, Fault, Registry, Reply, at_once};
 
@@ -67,12 +68,122 @@ struct WakeParams {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct MailRecipient {
+    pub session_path: String,
+    pub device: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnqueueParams {
+    port: u64,
+    delivery_id: String,
+    tab_id: String,
+    from_title: String,
+    text: String,
+    expected: MailRecipient,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct StopParams {
     port: u64,
     run_id: String,
 }
 
 impl Runtime {
+    /// Transfers one stable source delivery into the outbox, not into model-consumed context.
+    pub(crate) fn enqueue_mail(
+        self: &Arc<Self>,
+        delivery_id: &str,
+        tab_id: &str,
+        from_title: &str,
+        text: &str,
+        expected: &MailRecipient,
+    ) -> R<Persistence> {
+        if delivery_id.is_empty() {
+            return fail("A durable mail delivery needs its source id.");
+        }
+        let state = self.host().state();
+        if !state.enabled {
+            return fail("OMPdesk control tools are disabled.");
+        }
+        let target = state
+            .tabs
+            .iter()
+            .find(|tab| tab.tab_id == tab_id)
+            .ok_or_else(|| Fail::other("The resolved mail target is no longer open."))?;
+        let path = target
+            .session_path
+            .as_deref()
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| Fail::other("The resolved mail target has no saved session path."))?;
+        let device = target.device.as_deref().filter(|device| !device.is_empty());
+        if path != expected.session_path
+            || device
+                != expected
+                    .device
+                    .as_deref()
+                    .filter(|device| !device.is_empty())
+        {
+            return fail("The resolved mail recipient changed before acceptance.");
+        }
+        if target.hidden || state.deleted_at_path(path, device).is_some() {
+            return fail("The resolved mail recipient is hidden or deleted.");
+        }
+        let outbox = self
+            .host()
+            .outbox()
+            .cloned()
+            .ok_or_else(|| Fail::other("This runtime has no mail outbox."))?;
+        let id = format!("system-{delivery_id}");
+        let mail = Mail::new(
+            &id,
+            "ompdesk",
+            from_title,
+            tab_id,
+            MailKind::Note,
+            text,
+            self.control.now(),
+        );
+        let delivery = MailDelivery {
+            trigger_turn: true,
+            aside: true,
+        };
+        let (content, details) = (mail_text(&mail), mail_details(&mail));
+        let persistence = outbox
+            .keep(OutboxMail {
+                id: id.clone(),
+                session_path: path.to_owned(),
+                device: device.map(str::to_owned),
+                from: None,
+                from_device: None,
+                content: content.clone(),
+                details: details.clone(),
+                delivery,
+                attachments: None,
+                attachments_corrupt: false,
+                at: mail.at,
+            })
+            .map_err(Fail::other)?;
+        if persistence == Persistence::Disk {
+            let me = self.clone();
+            let tab = tab_id.to_owned();
+            tokio::spawn(async move {
+                if let Ok(Some(answer)) = me
+                    .host()
+                    .send_mail(&tab, &content, &details, delivery)
+                    .await
+                    && answer.duplicate
+                    && answer.journaled
+                {
+                    outbox.settle(&id);
+                }
+            });
+        }
+        Ok(persistence)
+    }
+
     /// Delivers the wake-up of run `run_id` to the session `session_path` and follows its turn. Fails when the session
     /// cannot be reached (no window to open it in, the open failed): nothing is kept then.
     pub async fn wake(
@@ -128,21 +239,29 @@ impl Runtime {
         let (content, details) = (mail_text(&mail), mail_details(&mail));
         // Kept until the session's journal holds it, and sent to its tab when there is one; with none yet, or its omp
         // starting, the outbox pass sends it once the tab answers.
-        let outbox = self.host().outbox().cloned();
-        if let Some(outbox) = &outbox {
-            outbox.keep(OutboxMail {
-                id: id.clone(),
-                session_path: session_path.to_owned(),
-                device: None,
-                from: None,
-                from_device: None,
-                content: content.clone(),
-                details: details.clone(),
-                delivery,
-                attachments: None,
-                attachments_corrupt: false,
-                at: mail.at,
-            });
+        let Some(outbox) = self.host().outbox().cloned() else {
+            if let Some(wake) = self.rt().wakes.remove(run_id) {
+                wake.cancel();
+            }
+            return fail("This runtime has no mail outbox.");
+        };
+        if let Err(error) = outbox.keep(OutboxMail {
+            id: id.clone(),
+            session_path: session_path.to_owned(),
+            device: None,
+            from: None,
+            from_device: None,
+            content: content.clone(),
+            details: details.clone(),
+            delivery,
+            attachments: None,
+            attachments_corrupt: false,
+            at: mail.at,
+        }) {
+            if let Some(wake) = self.rt().wakes.remove(run_id) {
+                wake.cancel();
+            }
+            return Err(Fail::other(error));
         }
         if let Some(tab) = existing {
             let (me, outbox) = (self.clone(), outbox);
@@ -153,7 +272,6 @@ impl Runtime {
                     .await
                     && answer.duplicate
                     && answer.journaled
-                    && let Some(outbox) = outbox
                 {
                     outbox.settle(&id);
                 }
@@ -308,6 +426,20 @@ async fn wake_call(call: Call) -> Result<Reply, Fault> {
     }
 }
 
+fn enqueue_call(call: &Call) -> Result<Reply, Fault> {
+    let params: EnqueueParams = call.params()?;
+    let persistence = runtime_of(params.port)?
+        .enqueue_mail(
+            &params.delivery_id,
+            &params.tab_id,
+            &params.from_title,
+            &params.text,
+            &params.expected,
+        )
+        .map_err(|error| super::fault_of(&error))?;
+    Reply::json(&json!({ "deliveryId": params.delivery_id, "persistence": persistence }))
+}
+
 /// `agentRuntime.wakeStop {port, runId}` → `{holder, started}`. Done as its line is read, after the activity before it.
 fn wake_stop_call(call: &Call) -> Result<Reply, Fault> {
     let params: StopParams = call.params()?;
@@ -316,6 +448,9 @@ fn wake_stop_call(call: &Call) -> Result<Reply, Fault> {
 }
 
 pub fn register(registry: &mut Registry) {
+    registry.add("agentRuntime.enqueueMail", |call| {
+        at_once(enqueue_call(&call))
+    });
     registry.add("agentRuntime.wake", |call| Box::pin(wake_call(call)));
     registry.add("agentRuntime.wakeStop", |call| {
         at_once(wake_stop_call(&call))

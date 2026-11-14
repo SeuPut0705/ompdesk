@@ -168,26 +168,6 @@ impl OwedDeps for Owed<'_> {
             HandOver::Refused
         }
     }
-
-    async fn drained(&self, tab_id: &str) -> bool {
-        let deadline = Deadline::Ms(self.ctl.tuning.state_timeout_ms);
-        let Ok(response) = self
-            .ctl
-            .host
-            .command(tab_id, &json!({ "type": "get_state" }), deadline)
-            .await
-        else {
-            return false;
-        };
-        if !response.success {
-            return false;
-        }
-        let Some(data) = response.data else {
-            return false;
-        };
-        data.get("isStreaming") == Some(&Value::Bool(false))
-            && data.get("queuedMessageCount").and_then(Value::as_f64) == Some(0.0)
-    }
 }
 
 fn sent_answer(value: &Value) -> Option<SentAnswer> {
@@ -374,6 +354,7 @@ impl AgentControl {
             .unwrap_or_else(|| caller.tab_id.clone());
         let device = target.device.as_deref();
         if let Some(kept) = &kept {
+            kept.outbox.retry_failed_save().map_err(Fail::other)?;
             // Messages an omp before this one held and lost (a relaunch) reach it first, in order.
             let owed = Owed {
                 ctl: self,
@@ -519,7 +500,7 @@ impl AgentControl {
             if carried.count > 0 {
                 made.attachments = Some(carried.set.clone());
             }
-            kept.outbox.keep(made.clone());
+            kept.outbox.keep(made.clone()).map_err(Fail::other)?;
             entry = Some(made);
         }
         let settle = |entry: &Option<OutboxSend>| {

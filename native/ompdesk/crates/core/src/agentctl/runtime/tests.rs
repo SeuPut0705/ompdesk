@@ -224,7 +224,8 @@ async fn a_pass_sends_a_kept_report_again_to_the_tab_that_holds_its_session_unti
             attachments: None,
             attachments_corrupt: false,
             at: control.now(),
-        });
+        })
+        .unwrap();
     for _ in 0..2 {
         runtime.redeliver_mail();
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -588,5 +589,219 @@ async fn a_running_child_is_read_again_only_when_it_moved_and_a_list_went_out() 
     runtime.live_review("boss").await;
     settle().await;
     assert_eq!(asks_of(&told, "command"), after_live);
+    control.host.port().close();
+}
+
+fn recipient(path: &str) -> super::wake::MailRecipient {
+    super::wake::MailRecipient {
+        session_path: path.into(),
+        device: None,
+    }
+}
+
+struct MailDir(std::path::PathBuf);
+
+impl MailDir {
+    fn new() -> Self {
+        Self(crate::fs::disk::make_temp_dir("ompdesk-runtime-mail-").unwrap())
+    }
+
+    fn files(&self) -> Files {
+        Files {
+            mail_outbox: Some(JournalFile {
+                file: Some(self.0.join("mail.json")),
+            }),
+            ..Files::default()
+        }
+    }
+}
+
+impl Drop for MailDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[tokio::test]
+async fn failed_wake_storage_removes_tracking_and_sends_no_prompt() {
+    let dir = MailDir::new();
+    std::fs::create_dir(dir.0.join("mail.json")).unwrap();
+    let (control, runtime, told) = rig(
+        7_430,
+        state(vec![tab("boss", "/s/boss.jsonl")]),
+        dir.files(),
+        wake_main,
+    );
+    assert!(
+        runtime
+            .wake("failed", "/s/boss.jsonl", "routine", "work", 130)
+            .await
+            .is_err()
+    );
+    assert!(runtime.rt().wakes.is_empty());
+    assert!(told_of(&told, "mail").is_empty());
+    assert_eq!(
+        control.host.outbox().unwrap().pending()[0].id,
+        "wake-failed"
+    );
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn a_wake_without_an_outbox_cannot_send_or_leave_a_watcher() {
+    let (control, runtime, told) = rig(
+        7_431,
+        state(vec![tab("boss", "/s/boss.jsonl")]),
+        Files::default(),
+        wake_main,
+    );
+    assert!(
+        runtime
+            .wake("missing", "/s/boss.jsonl", "routine", "work", 130)
+            .await
+            .is_err()
+    );
+    assert!(runtime.rt().wakes.is_empty());
+    assert!(told_of(&told, "mail").is_empty());
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn enqueue_memory_and_disk_failure_never_ack_disk_or_start_delivery() {
+    use crate::agentctl::journal::Persistence;
+    let expected = recipient("/s/boss.jsonl");
+    let (control, runtime, told) = rig(
+        7_432,
+        state(vec![tab("boss", "/s/boss.jsonl")]),
+        with_outbox(),
+        wake_main,
+    );
+    assert_eq!(
+        runtime
+            .enqueue_mail(
+                "checks:hub:entry-1:result",
+                "boss",
+                "Checks",
+                "answer",
+                &expected
+            )
+            .unwrap(),
+        Persistence::Memory
+    );
+    assert!(runtime.rt().wakes.is_empty());
+    assert!(told_of(&told, "mail").is_empty());
+    control.host.port().close();
+    let dir = MailDir::new();
+    std::fs::create_dir(dir.0.join("mail.json")).unwrap();
+    let (control, runtime, told) = rig(
+        7_433,
+        state(vec![tab("boss", "/s/boss.jsonl")]),
+        dir.files(),
+        wake_main,
+    );
+    assert!(
+        runtime
+            .enqueue_mail(
+                "checks:hub:entry-1:result",
+                "boss",
+                "Checks",
+                "answer",
+                &expected
+            )
+            .is_err()
+    );
+    assert!(told_of(&told, "mail").is_empty());
+    assert_eq!(
+        control.host.outbox().unwrap().pending()[0].id,
+        "system-checks:hub:entry-1:result"
+    );
+    assert!(runtime.rt().wakes.is_empty());
+    control.host.port().close();
+}
+
+#[tokio::test]
+async fn enqueue_revalidates_resolved_identity_visibility_and_control_before_keep() {
+    let expected = recipient("/s/boss.jsonl");
+    let mut hidden = tab("boss", "/s/boss.jsonl");
+    hidden["hidden"] = json!(true);
+    let mut paired = tab("boss", "/s/boss.jsonl");
+    paired["device"] = json!("another-device");
+    let mut disabled = state(vec![tab("boss", "/s/boss.jsonl")]);
+    disabled["enabled"] = json!(false);
+    let mut deleted = state(vec![tab("boss", "/s/boss.jsonl")]);
+    deleted["deleted"] = json!({ "byPath": [{ "path": "/s/boss.jsonl", "at": 7.0 }] });
+    let states = [
+        state(vec![tab("boss", "/s/changed.jsonl")]),
+        state(vec![hidden]),
+        state(vec![paired]),
+        disabled,
+        deleted,
+    ];
+    for (index, state) in states.into_iter().enumerate() {
+        let (control, runtime, told) = rig(7_440 + index as u64, state, with_outbox(), wake_main);
+        assert!(
+            runtime
+                .enqueue_mail(
+                    "checks:hub:entry-1:result",
+                    "boss",
+                    "Checks",
+                    "answer",
+                    &expected
+                )
+                .is_err()
+        );
+        assert!(control.host.outbox().unwrap().pending().is_empty());
+        assert!(told_of(&told, "mail").is_empty());
+        control.host.port().close();
+    }
+}
+
+#[tokio::test]
+async fn disk_enqueue_survives_reload_and_receiver_journal_deduplicates_effect() {
+    use crate::agentctl::journal::{Persistence, mail_outbox::MailOutbox};
+    let dir = MailDir::new();
+    let (sent, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let journal = Arc::new(Mutex::new(std::collections::HashSet::new()));
+    let receiver = journal.clone();
+    let (control, runtime, _) = rig(
+        7_450,
+        state(vec![tab("boss", "/s/boss.jsonl")]),
+        dir.files(),
+        move |method, args| {
+            if method != "mail" {
+                return Err(format!("unexpected {method}"));
+            }
+            let id = args["details"]["id"].as_str().unwrap().to_owned();
+            let duplicate = !receiver.lock().unwrap().insert(id.clone());
+            sent.send((id, duplicate)).unwrap();
+            Ok(json!({ "duplicate": duplicate, "journaled": duplicate }))
+        },
+    );
+    let expected = recipient("/s/boss.jsonl");
+    let delivery = "checks:hub:entry-1:result";
+    assert_eq!(
+        runtime
+            .enqueue_mail(delivery, "boss", "Checks", "answer", &expected)
+            .unwrap(),
+        Persistence::Disk
+    );
+    assert_eq!(
+        received.recv().await.unwrap(),
+        (format!("system-{delivery}"), false)
+    );
+    let restored = MailOutbox::new(Some(dir.0.join("mail.json")));
+    assert_eq!(restored.pending()[0].id, format!("system-{delivery}"));
+    assert_eq!(
+        runtime
+            .enqueue_mail(delivery, "boss", "Checks", "answer", &expected)
+            .unwrap(),
+        Persistence::Disk
+    );
+    assert_eq!(
+        received.recv().await.unwrap(),
+        (format!("system-{delivery}"), true)
+    );
+    assert_eq!(journal.lock().unwrap().len(), 1);
+    assert!(runtime.rt().wakes.is_empty());
     control.host.port().close();
 }

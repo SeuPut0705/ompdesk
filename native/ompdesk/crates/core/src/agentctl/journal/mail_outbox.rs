@@ -3,10 +3,10 @@
 //! device), until the receiver's journal holds its id. Every pass asks the receiver's current omp again with the same
 //! id: its bridge answers `{duplicate, journaled}` for an id it holds or queued and delivers one it has never seen.
 //!
-//! Kept in `<userData>/mail-outbox.json` (mode 0o600, newest `MAIL_OUTBOX_MAX`, none older than `MAIL_OUTBOX_TTL_MS`),
-//! written when a report is accepted, never in a quit hook.
+//! Kept in `<userData>/mail-outbox.json` (mode 0o600), written when a report is accepted, never in a quit hook.
+//! Unconsumed reports do not expire. A failed keep retains memory and the disk writer's retry, but is not an ACK.
 //!
-//! Seams: the clock, and `RedeliverDeps` (the tab pool's `tabOf` and the receiver's bridge answer). The outbox is
+//! Seams: `RedeliverDeps` (the tab pool's `tabOf` and the receiver's bridge answer). The outbox is
 //! internally locked (`&self`), so a pass may await the bridge while the host keeps reports. `RedeliverDeps::send`
 //! answers `None` where the TypeScript promise rejected or answered nothing: either keeps the report for the next pass.
 
@@ -17,14 +17,8 @@ use std::sync::Mutex;
 use serde_json::{Map, Value};
 
 use super::attachments::{Attached, AttachedSet, read_attached};
-use super::{
-    Clock, THREE_DAYS_MS, js_number, number, object, read_array, string, stringify, system_clock,
-    write_text,
-};
+use super::{Persistence, js_number, number, object, persist_text, read_array, string, stringify};
 use crate::agentctl::rules::mail::MailDelivery;
-
-pub const MAIL_OUTBOX_MAX: usize = 100;
-pub const MAIL_OUTBOX_TTL_MS: f64 = THREE_DAYS_MS;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutboxMail {
@@ -124,32 +118,24 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxMail> {
 
 struct State {
     file: Option<PathBuf>,
-    now: Clock,
+    save_failed: bool,
     /// Oldest first.
     entries: Vec<OutboxMail>,
 }
 
 impl State {
-    fn trim(&mut self) {
-        let oldest = (self.now)() - MAIL_OUTBOX_TTL_MS;
-        let before = self.entries.len();
-        self.entries.retain(|entry| entry.at >= oldest);
-        let mut changed = self.entries.len() != before;
-        while self.entries.len() > MAIL_OUTBOX_MAX {
-            self.entries.remove(0);
-            changed = true;
-        }
-        if changed {
-            self.save();
-        }
-    }
-
-    fn save(&self) {
-        let Some(file) = &self.file else { return };
+    fn save(&mut self) -> Result<Persistence, String> {
+        let Some(file) = self.file.as_deref() else {
+            self.save_failed = false;
+            return persist_text(None, "", Some(0o600));
+        };
         let text = stringify(self.entries.iter().map(OutboxMail::to_json).collect());
-        if let Err(error) = write_text(file, &text, Some(0o600)) {
+        let result = persist_text(Some(file), &text, Some(0o600));
+        self.save_failed = result.is_err();
+        if let Err(error) = &result {
             eprintln!("[mail-outbox] not saved: {error}");
         }
+        result
     }
 }
 
@@ -159,13 +145,9 @@ pub struct MailOutbox {
 
 impl MailOutbox {
     pub fn new(file: Option<PathBuf>) -> MailOutbox {
-        MailOutbox::with_clock(file, system_clock())
-    }
-
-    pub fn with_clock(file: Option<PathBuf>, now: Clock) -> MailOutbox {
         let mut state = State {
             file,
-            now,
+            save_failed: false,
             entries: Vec::new(),
         };
         if let Some(file) = state.file.clone() {
@@ -190,12 +172,22 @@ impl MailOutbox {
     }
 
     /// Keep an accepted report (the same id replaces its entry).
-    pub fn keep(&self, entry: OutboxMail) {
+    pub(crate) fn keep(&self, entry: OutboxMail) -> Result<Persistence, String> {
         let mut state = self.state();
-        state.entries.retain(|held| held.id != entry.id);
-        state.entries.push(entry);
-        state.trim();
-        state.save();
+        match state.entries.iter_mut().find(|held| held.id == entry.id) {
+            Some(held) => *held = entry,
+            None => state.entries.push(entry),
+        }
+        state.save()
+    }
+
+    /// A failed admission cannot be sent by a later sweep before the same state is saved.
+    pub(crate) fn retry_failed_save(&self) -> Result<(), String> {
+        let mut state = self.state();
+        if state.save_failed {
+            state.save()?;
+        }
+        Ok(())
     }
 
     /// The files of a report landed again (their uploads were deleted): its text and files as they stand now.
@@ -207,7 +199,7 @@ impl MailOutbox {
         kept.content = content.to_owned();
         kept.details = details.clone();
         kept.attachments = Some(attachments.clone());
-        state.save();
+        let _ = state.save();
     }
 
     /// The SHA-256 of every attachment a report still waiting names: what the attachment store must keep.
@@ -225,15 +217,13 @@ impl MailOutbox {
         let before = state.entries.len();
         state.entries.retain(|held| held.id != id);
         if state.entries.len() != before {
-            state.save();
+            let _ = state.save();
         }
     }
 
-    /// The reports still waiting for their receiver's journal, oldest first; one past its age is dropped.
+    /// The reports still waiting for their receiver's journal, oldest first.
     pub fn pending(&self) -> Vec<OutboxMail> {
-        let mut state = self.state();
-        state.trim();
-        state.entries.clone()
+        self.state().entries.clone()
     }
 }
 
@@ -258,6 +248,9 @@ pub trait RedeliverDeps: Sync {
 /// One pass over the outbox: each report whose receiver has a live tab is sent again with its id. An answer that says
 /// the journal holds it settles it; any other answer keeps it for the next pass.
 pub async fn redeliver_mail<D: RedeliverDeps>(outbox: &MailOutbox, deps: &D) {
+    if outbox.retry_failed_save().is_err() {
+        return;
+    }
     for mail in outbox.pending() {
         let Some(tab_id) = deps.tab_of(&mail.session_path, mail.device.as_deref()) else {
             continue;

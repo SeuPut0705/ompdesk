@@ -2,13 +2,12 @@
 //! omp's memory and journals it only when its loop takes it, so an omp that ends first loses it (`send-outbox.ts`).
 //! Main keeps each message, per receiver session file (and paired device), until the receiver's journal holds its
 //! marker. It remembers which omp process it handed the message to: that omp still holds it, so it is never sent there
-//! again; a different omp (a relaunch's) gets it once, in the order sent. An omp that holds it no more while idle with
-//! nothing queued lets it go.
+//! again; a different omp (a relaunch's) gets it once, in the order sent. An empty queue is not a consumed receipt.
 //!
-//! Kept in `<userData>/send-outbox.json` (mode 0o600, written when a message is handed over, never in a quit hook),
-//! newest `SEND_OUTBOX_MAX`, none older than `SEND_OUTBOX_TTL_MS`.
+//! Kept in `<userData>/send-outbox.json` (mode 0o600), never in a quit hook. Unconsumed messages do not expire.
+//! A failed keep retains memory and the disk writer's retry, but cannot return a successful acceptance.
 //!
-//! Seams: the clock, and `OwedDeps` for what `deliver_owed` asks of the tab pool and the receiver's omp: its methods
+//! Seams: `OwedDeps` for what `deliver_owed` asks of the tab pool and the receiver's omp: its methods
 //! answer `None`/`Refused`/`false` where the TypeScript promise rejected (the TypeScript caught every rejection as
 //! those). The outbox is internally locked (`&self` methods) so a delivery may hold it across its awaits; `lane` runs
 //! work for one receiver at a time (a `tokio` mutex per key, first come first served).
@@ -21,13 +20,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Map, Value};
 
 use super::attachments::{Attached, AttachedSet, attached_sig, read_attached};
-use super::{
-    Clock, THREE_DAYS_MS, js_number, number, object, read_array, string, stringify, system_clock,
-    write_text,
-};
-
-pub const SEND_OUTBOX_MAX: usize = 200;
-pub const SEND_OUTBOX_TTL_MS: f64 = THREE_DAYS_MS;
+use super::{Persistence, js_number, number, object, persist_text, read_array, string, stringify};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamingBehavior {
@@ -211,7 +204,7 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxSend> {
 
 struct State {
     file: Option<PathBuf>,
-    now: Clock,
+    save_failed: bool,
     /// Oldest first.
     entries: Vec<(String, OutboxSend)>,
 }
@@ -227,35 +220,26 @@ impl State {
         self.entries.iter().position(|(held, _)| held == key)
     }
 
-    fn trim(&mut self) {
-        let oldest = (self.now)() - SEND_OUTBOX_TTL_MS;
-        let before = self.entries.len();
-        self.entries.retain(|(_, entry)| entry.at >= oldest);
-        let mut changed = self.entries.len() != before;
-        while self.entries.len() > SEND_OUTBOX_MAX {
-            self.entries.remove(0);
-            changed = true;
-        }
-        if changed {
-            self.save();
-        }
-    }
-
-    fn save(&self) {
-        let Some(file) = &self.file else { return };
+    fn save(&mut self) -> Result<Persistence, String> {
+        let Some(file) = self.file.as_deref() else {
+            self.save_failed = false;
+            return persist_text(None, "", Some(0o600));
+        };
         let text = stringify(
             self.entries
                 .iter()
                 .map(|(_, entry)| entry.to_json())
                 .collect(),
         );
-        if let Err(error) = write_text(file, &text, Some(0o600)) {
+        let result = persist_text(Some(file), &text, Some(0o600));
+        self.save_failed = result.is_err();
+        if let Err(error) = &result {
             eprintln!("[send-outbox] not saved: {error}");
         }
+        result
     }
 
-    fn pending(&mut self) -> Vec<OutboxSend> {
-        self.trim();
+    fn pending(&self) -> Vec<OutboxSend> {
         self.entries
             .iter()
             .map(|(_, entry)| entry.clone())
@@ -265,13 +249,9 @@ impl State {
 
 impl SendOutbox {
     pub fn new(file: Option<PathBuf>) -> SendOutbox {
-        SendOutbox::with_clock(file, system_clock())
-    }
-
-    pub fn with_clock(file: Option<PathBuf>, now: Clock) -> SendOutbox {
         let mut state = State {
             file,
-            now,
+            save_failed: false,
             entries: Vec::new(),
         };
         if let Some(file) = state.file.clone() {
@@ -298,15 +278,22 @@ impl SendOutbox {
     }
 
     /// Keep a message about to be handed over (the same marker to the same receiver replaces its entry).
-    pub fn keep(&self, entry: OutboxSend) {
+    pub(crate) fn keep(&self, entry: OutboxSend) -> Result<Persistence, String> {
         let mut state = self.state();
         let key = key_of(&entry);
-        if let Some(at) = state.position(&key) {
-            state.entries.remove(at);
+        match state.position(&key) {
+            Some(at) => state.entries[at].1 = entry,
+            None => state.entries.push((key, entry)),
         }
-        state.entries.push((key, entry));
-        state.trim();
-        state.save();
+        state.save()
+    }
+
+    pub(crate) fn retry_failed_save(&self) -> Result<(), String> {
+        let mut state = self.state();
+        if state.save_failed {
+            state.save()?;
+        }
+        Ok(())
     }
 
     /// The message is in the hands of the omp `instance` (it queues or runs it).
@@ -323,7 +310,7 @@ impl SendOutbox {
             kept.instance_last = true;
         }
         kept.instance = Some(instance.to_owned());
-        state.save();
+        let _ = state.save();
     }
 
     /// The receiver's journal holds it (or it will never be owed again): nothing more to do.
@@ -331,7 +318,7 @@ impl SendOutbox {
         let mut state = self.state();
         if let Some(at) = state.position(&entry_key(session_path, device, mark)) {
             state.entries.remove(at);
-            state.save();
+            let _ = state.save();
         }
     }
 
@@ -385,7 +372,7 @@ impl SendOutbox {
         let kept = &mut state.entries[at].1;
         kept.message = message.to_owned();
         kept.attachments = Some(attachments.clone());
-        state.save();
+        let _ = state.save();
     }
 
     /// The SHA-256 of every attachment a message still owed names: what the attachment store must keep.
@@ -442,8 +429,6 @@ pub trait OwedDeps: Sync {
     ) -> impl Future<Output = Option<SentAnswer>> + Send;
     /// Hand the prompt to the receiver's omp.
     fn prompt(&self, tab_id: &str, entry: &OutboxSend) -> impl Future<Output = HandOver> + Send;
-    /// The receiver's omp is idle with nothing queued: a message it held and did not journal was withdrawn.
-    fn drained(&self, tab_id: &str) -> impl Future<Output = bool> + Send;
 }
 
 /// Hand one receiver session what is still owed to it, in order: settle what its journal holds; leave what its
@@ -455,6 +440,9 @@ pub async fn deliver_owed<D: OwedDeps>(
     session_path: &str,
     device: Option<&str>,
 ) -> bool {
+    if outbox.retry_failed_save().is_err() {
+        return false;
+    }
     let owed = outbox.owed_to(session_path, device);
     if owed.is_empty() {
         return true;
@@ -466,7 +454,6 @@ pub async fn deliver_owed<D: OwedDeps>(
     let Some(answer) = deps.sent(&tab_id, &marks).await else {
         return false;
     };
-    let mut drained: Option<bool> = None;
     for entry in &owed {
         if answer.journaled.contains(&entry.mark) {
             outbox.settle(&entry.session_path, entry.device.as_deref(), &entry.mark);
@@ -477,18 +464,6 @@ pub async fn deliver_owed<D: OwedDeps>(
             || entry.instance.as_deref() == Some(same_tab.as_str())
         {
             outbox.handed(entry, &answer.instance);
-            // Its omp holds it no more and never journaled it: withdrawn from the queue.
-            let gone = match drained {
-                Some(known) => known,
-                None => {
-                    let asked = deps.drained(&tab_id).await;
-                    drained = Some(asked);
-                    asked
-                }
-            };
-            if gone {
-                outbox.settle(&entry.session_path, entry.device.as_deref(), &entry.mark);
-            }
             continue;
         }
         if deps.prompt(&tab_id, entry).await == HandOver::Refused {

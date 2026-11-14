@@ -1,24 +1,11 @@
-//! The files the agent-control service keeps across launches (9g; was `call-journal.ts`, `send-outbox.ts`,
-//! `mail-outbox.ts`, `session-fates.ts` and `pending-cleanups.ts` in `src/main/agent-control/`). Built, not yet called:
-//! the TypeScript service still uses its own copies until the service cutover.
+//! Durable agent-control journals and delivery outboxes.
 //!
-//! Every file is a JSON array in `<userData>`, written the way the TypeScript wrote it: one
-//! `writeFileAtomicSync`/`writeFileAtomicDeferred` (here `disk::tree::write_atomic_if`: a sibling temp file renamed
-//! over the target, tried again on Windows while the target is held), mode 0o600 where the TypeScript pinned one, with
-//! the keys of every object in the order the TypeScript's object literals gave them (`serde_json`'s `preserve_order`),
-//! numbers spelled as `JSON.stringify` spells them (`js_number`).
+//! Files use `disk::saves::write_kept`: failed full-disk writes retain their content for retry and return an error.
+//! Outbox acceptance distinguishes a completed disk write from an explicitly memory-only store. A receiver's journal
+//! receipt transfers delivery responsibility; it does not prove that a model consumed the message.
 //!
-//! Seams the service passes in (each module's header names its own):
-//! - the clock, `Clock` (`Date.now`), so a test fixes the time;
-//! - the receiver's omp and the tab pool, as the traits `send_outbox::OwedDeps` and `mail_outbox::RedeliverDeps`.
-//!
-//! Differences from the TypeScript, shared by every module here:
-//! - `session_fates` and `pending_cleanups` wrote with `writeFileAtomicDeferred` (one attempt at once, a refused rename
-//!   retried on a timer, a newer write calling the older off). Here the write is one blocking `write_atomic_if`
-//!   (the retries sleep in the caller, only on Windows), so there is nothing to call off and writes land in order.
-//! - A file with a lone UTF-16 surrogate escape (`"\ud800"`) is unreadable to `serde_json`; `JSON.parse` takes it.
-//!   Such a file reads as damaged (nothing recorded). No writer here produces one.
-//! - A number that `JSON.stringify` prints with an exponent (`1e+21`) prints as `1e21`.
+//! Other journal compatibility follows the TypeScript captures: object key order, whole-number spelling and legacy
+//! record parsing. Lone UTF-16 surrogate escapes remain unreadable to `serde_json`.
 
 pub mod attachments;
 pub mod call_journal;
@@ -105,6 +92,25 @@ pub(crate) fn write_text(file: &Path, text: &str, mode: Option<u32>) -> Result<(
     crate::disk::saves::write_kept(file, text.as_bytes(), mode, 0o777)
         .map(|_| ())
         .map_err(|fault| fault.message)
+}
+
+/// A completed durable write is distinct from a store configured only in memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Persistence {
+    Disk,
+    Memory,
+}
+
+pub(crate) fn persist_text(
+    file: Option<&Path>,
+    text: &str,
+    mode: Option<u32>,
+) -> Result<Persistence, String> {
+    match file {
+        Some(file) => write_text(file, text, mode).map(|()| Persistence::Disk),
+        None => Ok(Persistence::Memory),
+    }
 }
 
 /// `JSON.stringify(items)`.
