@@ -105,9 +105,7 @@ impl<H: Host> Application<H> {
                 window: item["win"].as_i64().unwrap_or_default(),
             },
             "command" => {
-                let Some(sidecar) = self.sidecar(&tab()) else {
-                    return None;
-                };
+                let sidecar = self.sidecar(&tab())?;
                 let call = self.host.command(sidecar, item["command"].clone());
                 return Some(Box::pin(async move {
                     let _ = call.await;

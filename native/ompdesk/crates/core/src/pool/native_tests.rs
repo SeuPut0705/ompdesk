@@ -150,15 +150,16 @@ async fn native_pool_finishes_effects_before_answer_and_keeps_seeded_host_identi
     service.feed("local", "events", json!([{"type": "agent_end", "messages": [
         {"role": "assistant", "stopReason": "stop", "content": [{"type": "text", "text": "done"}]}
     ]}]), false).await.unwrap();
-    let announcements = locked(&host.announcements);
-    assert_eq!(announcements[0].0["type"], "busy");
-    assert_eq!(announcements[0].1[0]["facts"]["busy"], true);
-    assert_eq!(announcements[0].1[0]["sessionFile"], "/local/session.jsonl");
-    assert_eq!(announcements[1].0["type"], "idle");
-    assert_eq!(announcements[1].1[0]["facts"]["busy"], false);
-    assert_eq!(announcements[1].0["outcome"]["reply"], "done");
-    assert_eq!(host.running_changes.load(Ordering::SeqCst), 2);
-    drop(announcements);
+    {
+        let announcements = locked(&host.announcements);
+        assert_eq!(announcements[0].0["type"], "busy");
+        assert_eq!(announcements[0].1[0]["facts"]["busy"], true);
+        assert_eq!(announcements[0].1[0]["sessionFile"], "/local/session.jsonl");
+        assert_eq!(announcements[1].0["type"], "idle");
+        assert_eq!(announcements[1].1[0]["facts"]["busy"], false);
+        assert_eq!(announcements[1].0["outcome"]["reply"], "done");
+        assert_eq!(host.running_changes.load(Ordering::SeqCst), 2);
+    }
     let out = service.out;
     drop(service);
     let (send, recv) = oneshot::channel();
