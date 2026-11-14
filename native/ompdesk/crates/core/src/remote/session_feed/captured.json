@@ -1,0 +1,15 @@
+{
+  "asked": [{"scope":"global","versioned":true},{"scope":"global","versioned":true},{"scope":"global","versioned":true}],
+  "changes": [
+    {"device":"host","set":[{"path":"/c","modified":"2026-11-14T01:00:00Z","label":"/c","device":"host"}],"remove":["/a"]},
+    {"device":"host"},
+    {"device":"host"},
+    {"device":"host","set":[],"remove":["/c"]}
+  ],
+  "shown": [
+    {"version":1,"sessions":[{"path":"/a","modified":"2026-11-14T00:00:00Z","label":"/a","device":"host"},{"path":"/b","modified":"2026-11-13T23:00:00Z","label":"/b","device":"host"}]},
+    {"version":2,"sessions":[{"path":"/c","modified":"2026-11-14T01:00:00Z","label":"/c","device":"host"},{"path":"/b","modified":"2026-11-13T23:00:00Z","label":"/b","device":"host"}]},
+    {"version":2,"sessions":[{"path":"/c","modified":"2026-11-14T01:00:00Z","label":"/c","device":"host"},{"path":"/b","modified":"2026-11-13T23:00:00Z","label":"/b","device":"host"}]},
+    {"version":3,"sessions":[{"path":"/b","modified":"2026-11-13T23:00:00Z","label":"/b","device":"host"}]}
+  ]
+}

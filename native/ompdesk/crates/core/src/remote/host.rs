@@ -384,46 +384,65 @@ impl HostSide for Asks {
         let (handle, queue) = super::link::channel();
         super::state().links.insert(self.link, handle);
         *self.queue.lock().unwrap_or_else(|p| p.into_inner()) = Some(queue);
-        let answer = super::ask(
-            &self.events,
-            "open",
-            json!({
-                "host": self.host,
-                "link": self.link,
-                "deviceId": device_id,
-                "hello": hello,
-                "peer": peer,
-                "waitedMs": waited,
-            }),
-        )
-        .await;
-        let Some(fields) = answer
-            .as_ref()
-            .and_then(|a| a.get("hello"))
-            .and_then(Value::as_object)
-            .cloned()
-        else {
-            super::forget_link(self.link);
-            *self.queue.lock().unwrap_or_else(|p| p.into_inner()) = None;
-            return None;
+        let (fields, device_name, deflate, context) = if let Some(native) =
+            super::devices::native::accept(self.host, self.link, peer.clone(), hello, waited).await
+        {
+            match native {
+                Ok(accepted) => (
+                    accepted.hello,
+                    accepted.device_name,
+                    accepted.deflate,
+                    accepted.context,
+                ),
+                Err(_) => {
+                    super::forget_link(self.link);
+                    *self.queue.lock().unwrap_or_else(|p| p.into_inner()) = None;
+                    return None;
+                }
+            }
+        } else {
+            let answer = super::ask(
+                &self.events,
+                "open",
+                json!({
+                    "host":self.host,"link":self.link,"deviceId":device_id,
+                    "hello":hello,"peer":peer,"waitedMs":waited,
+                }),
+            )
+            .await
+            .unwrap_or(Value::Null);
+            let Some(fields) = answer.get("hello").and_then(Value::as_object).cloned() else {
+                super::forget_link(self.link);
+                *self.queue.lock().unwrap_or_else(|p| p.into_inner()) = None;
+                return None;
+            };
+            (
+                fields,
+                answer
+                    .get("deviceName")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                answer
+                    .get("deflate")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                answer
+                    .get("context")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )
         };
-        let answer = answer.unwrap_or(Value::Null);
         self.opened.store(true, Ordering::SeqCst);
         super::devices::opened(
             self.host,
             self.link,
-            answer.get("deviceName").and_then(Value::as_str),
+            device_name.as_deref(),
+            hello.get("appVersion").and_then(Value::as_str),
         );
         Some(Opened {
             hello: fields,
-            deflate: answer
-                .get("deflate")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            context: answer
-                .get("context")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            deflate,
+            context,
         })
     }
 }

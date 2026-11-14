@@ -30,7 +30,7 @@ use crate::server::{Call, Fault, Reply};
 /// A JSON object as `JSON.parse` keeps it: each key's value as written, a repeated key's last.
 type Fields = HashMap<String, Box<RawValue>>;
 
-fn file(dir: &Path, kind: &str, key: &str) -> PathBuf {
+pub(super) fn file(dir: &Path, kind: &str, key: &str) -> PathBuf {
     let digest = Sha256::digest(key.as_bytes());
     let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
     dir.join(format!("{kind}-{}", &hex[..40]))

@@ -31,7 +31,7 @@ fn is_hash(hash: &str) -> bool {
 
 /// `Buffer.from(text, "base64")` as node decodes it: both alphabets, any other character skipped, the first `=` the
 /// end, a last group of two or three characters giving one or two bytes.
-pub(super) fn node_base64(text: &str) -> Vec<u8> {
+pub(crate) fn node_base64(text: &str) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(text.len() / 4 * 3 + 2);
     let (mut bits, mut count) = (0u32, 0);
     for byte in text.bytes() {
@@ -132,14 +132,16 @@ impl Drop for Loading<'_> {
 }
 
 /// `load`, shared by every read of the same reference at the same time.
-async fn shared(
+pub(super) async fn shared_with<F, R>(
     folder: &Arc<Folder>,
     reference: String,
     limit: u64,
-    events: &Events,
-    scope: &Scope,
-    asker: u64,
-) -> Option<String> {
+    fetch: F,
+) -> Option<String>
+where
+    F: FnOnce() -> R,
+    R: Future<Output = Option<String>>,
+{
     let waiting = {
         let mut loading = folder.loading.lock().unwrap_or_else(|p| p.into_inner());
         match loading.get_mut(&reference) {
@@ -162,16 +164,27 @@ async fn shared(
         reference: &reference,
         data: None,
     };
-    loading.data = load(folder, &reference, limit, true, || async {
+    loading.data = load(folder, &reference, limit, true, fetch).await;
+    loading.data.clone()
+}
+
+async fn shared(
+    folder: &Arc<Folder>,
+    reference: String,
+    limit: u64,
+    events: &Events,
+    scope: &Scope,
+    asker: u64,
+) -> Option<String> {
+    shared_with(folder, reference.clone(), limit, || async {
         let mut data = Map::new();
-        data.insert("ref".into(), Value::String(reference.clone()));
+        data.insert("ref".into(), Value::String(reference));
         let answer = ask(events, Some(scope), asker, "blob", data).await.ok()?;
         serde_json::from_str::<Option<String>>(answer.get())
             .ok()
             .flatten()
     })
-    .await;
-    loading.data.clone()
+    .await
 }
 
 #[derive(Deserialize)]
