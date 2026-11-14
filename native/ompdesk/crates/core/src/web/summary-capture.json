@@ -1,0 +1,642 @@
+[
+  {
+    "markdown": "",
+    "limit": 1,
+    "expected": ""
+  },
+  {
+    "markdown": "",
+    "limit": 10,
+    "expected": ""
+  },
+  {
+    "markdown": "",
+    "limit": 40,
+    "expected": ""
+  },
+  {
+    "markdown": "",
+    "limit": 160,
+    "expected": ""
+  },
+  {
+    "markdown": "done",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "done",
+    "limit": 10,
+    "expected": "done"
+  },
+  {
+    "markdown": "done",
+    "limit": 40,
+    "expected": "done"
+  },
+  {
+    "markdown": "done",
+    "limit": 160,
+    "expected": "done"
+  },
+  {
+    "markdown": "😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 ",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 ",
+    "limit": 10,
+    "expected": "😀한글 😀한글…"
+  },
+  {
+    "markdown": "😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 ",
+    "limit": 40,
+    "expected": "😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글…"
+  },
+  {
+    "markdown": "😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 ",
+    "limit": 160,
+    "expected": "😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글 😀한글…"
+  },
+  {
+    "markdown": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "limit": 10,
+    "expected": "word word…"
+  },
+  {
+    "markdown": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "limit": 40,
+    "expected": "word word word word word word word…"
+  },
+  {
+    "markdown": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "limit": 160,
+    "expected": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word…"
+  },
+  {
+    "markdown": "**a __b__ c**",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "**a __b__ c**",
+    "limit": 10,
+    "expected": "a _b_ c"
+  },
+  {
+    "markdown": "**a __b__ c**",
+    "limit": 40,
+    "expected": "a _b_ c"
+  },
+  {
+    "markdown": "**a __b__ c**",
+    "limit": 160,
+    "expected": "a _b_ c"
+  },
+  {
+    "markdown": "__a **b** c__",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "__a **b** c__",
+    "limit": 10,
+    "expected": "a *b* c"
+  },
+  {
+    "markdown": "__a **b** c__",
+    "limit": 40,
+    "expected": "a *b* c"
+  },
+  {
+    "markdown": "__a **b** c__",
+    "limit": 160,
+    "expected": "a *b* c"
+  },
+  {
+    "markdown": "***a***",
+    "limit": 1,
+    "expected": "a"
+  },
+  {
+    "markdown": "***a***",
+    "limit": 10,
+    "expected": "a"
+  },
+  {
+    "markdown": "***a***",
+    "limit": 40,
+    "expected": "a"
+  },
+  {
+    "markdown": "***a***",
+    "limit": 160,
+    "expected": "a"
+  },
+  {
+    "markdown": "``a`b``",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "``a`b``",
+    "limit": 10,
+    "expected": "ab"
+  },
+  {
+    "markdown": "``a`b``",
+    "limit": 40,
+    "expected": "ab"
+  },
+  {
+    "markdown": "``a`b``",
+    "limit": 160,
+    "expected": "ab"
+  },
+  {
+    "markdown": "`unclosed",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "`unclosed",
+    "limit": 10,
+    "expected": "`unclosed"
+  },
+  {
+    "markdown": "`unclosed",
+    "limit": 40,
+    "expected": "`unclosed"
+  },
+  {
+    "markdown": "`unclosed",
+    "limit": 160,
+    "expected": "`unclosed"
+  },
+  {
+    "markdown": "``unclosed",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "``unclosed",
+    "limit": 10,
+    "expected": "unclosed"
+  },
+  {
+    "markdown": "``unclosed",
+    "limit": 40,
+    "expected": "unclosed"
+  },
+  {
+    "markdown": "``unclosed",
+    "limit": 160,
+    "expected": "unclosed"
+  },
+  {
+    "markdown": "a ~~b~~ c",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "a ~~b~~ c",
+    "limit": 10,
+    "expected": "a b c"
+  },
+  {
+    "markdown": "a ~~b~~ c",
+    "limit": 40,
+    "expected": "a b c"
+  },
+  {
+    "markdown": "a ~~b~~ c",
+    "limit": 160,
+    "expected": "a b c"
+  },
+  {
+    "markdown": "a _b* c",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "a _b* c",
+    "limit": 10,
+    "expected": "a b c"
+  },
+  {
+    "markdown": "a _b* c",
+    "limit": 40,
+    "expected": "a b c"
+  },
+  {
+    "markdown": "a _b* c",
+    "limit": 160,
+    "expected": "a b c"
+  },
+  {
+    "markdown": "max_tokens 2 * 3 = 6",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "max_tokens 2 * 3 = 6",
+    "limit": 10,
+    "expected": "max_token…"
+  },
+  {
+    "markdown": "max_tokens 2 * 3 = 6",
+    "limit": 40,
+    "expected": "max_tokens 2 * 3 = 6"
+  },
+  {
+    "markdown": "max_tokens 2 * 3 = 6",
+    "limit": 160,
+    "expected": "max_tokens 2 * 3 = 6"
+  },
+  {
+    "markdown": "[a [b](url) c](url)",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "[a [b](url) c](url)",
+    "limit": 10,
+    "expected": "a [b c](u…"
+  },
+  {
+    "markdown": "[a [b](url) c](url)",
+    "limit": 40,
+    "expected": "a [b c](url)"
+  },
+  {
+    "markdown": "[a [b](url) c](url)",
+    "limit": 160,
+    "expected": "a [b c](url)"
+  },
+  {
+    "markdown": "![a](url) [b](url)",
+    "limit": 1,
+    "expected": "b"
+  },
+  {
+    "markdown": "![a](url) [b](url)",
+    "limit": 10,
+    "expected": "b"
+  },
+  {
+    "markdown": "![a](url) [b](url)",
+    "limit": 40,
+    "expected": "b"
+  },
+  {
+    "markdown": "![a](url) [b](url)",
+    "limit": 160,
+    "expected": "b"
+  },
+  {
+    "markdown": "<!-- hidden -->kept",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "<!-- hidden -->kept",
+    "limit": 10,
+    "expected": "kept"
+  },
+  {
+    "markdown": "<!-- hidden -->kept",
+    "limit": 40,
+    "expected": "kept"
+  },
+  {
+    "markdown": "<!-- hidden -->kept",
+    "limit": 160,
+    "expected": "kept"
+  },
+  {
+    "markdown": "<details>x</details>",
+    "limit": 1,
+    "expected": "x"
+  },
+  {
+    "markdown": "<details>x</details>",
+    "limit": 10,
+    "expected": "x"
+  },
+  {
+    "markdown": "<details>x</details>",
+    "limit": 40,
+    "expected": "x"
+  },
+  {
+    "markdown": "<details>x</details>",
+    "limit": 160,
+    "expected": "x"
+  },
+  {
+    "markdown": "~~~js\nprivate\n~~~\n\nDone.",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "~~~js\nprivate\n~~~\n\nDone.",
+    "limit": 10,
+    "expected": "Done."
+  },
+  {
+    "markdown": "~~~js\nprivate\n~~~\n\nDone.",
+    "limit": 40,
+    "expected": "Done."
+  },
+  {
+    "markdown": "~~~js\nprivate\n~~~\n\nDone.",
+    "limit": 160,
+    "expected": "Done."
+  },
+  {
+    "markdown": "```\nprivate",
+    "limit": 1,
+    "expected": ""
+  },
+  {
+    "markdown": "```\nprivate",
+    "limit": 10,
+    "expected": ""
+  },
+  {
+    "markdown": "```\nprivate",
+    "limit": 40,
+    "expected": ""
+  },
+  {
+    "markdown": "```\nprivate",
+    "limit": 160,
+    "expected": ""
+  },
+  {
+    "markdown": "## Heading\n\n- [x] one\n- two",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "## Heading\n\n- [x] one\n- two",
+    "limit": 10,
+    "expected": "Heading…"
+  },
+  {
+    "markdown": "## Heading\n\n- [x] one\n- two",
+    "limit": 40,
+    "expected": "Heading. one two"
+  },
+  {
+    "markdown": "## Heading\n\n- [x] one\n- two",
+    "limit": 160,
+    "expected": "Heading. one two"
+  },
+  {
+    "markdown": "> > [!WARNING] watch",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "> > [!WARNING] watch",
+    "limit": 10,
+    "expected": "watch"
+  },
+  {
+    "markdown": "> > [!WARNING] watch",
+    "limit": 40,
+    "expected": "watch"
+  },
+  {
+    "markdown": "> > [!WARNING] watch",
+    "limit": 160,
+    "expected": "watch"
+  },
+  {
+    "markdown": "| a | b |\n|---|---|\n\nDone.",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "| a | b |\n|---|---|\n\nDone.",
+    "limit": 10,
+    "expected": "Done."
+  },
+  {
+    "markdown": "| a | b |\n|---|---|\n\nDone.",
+    "limit": 40,
+    "expected": "Done."
+  },
+  {
+    "markdown": "| a | b |\n|---|---|\n\nDone.",
+    "limit": 160,
+    "expected": "Done."
+  },
+  {
+    "markdown": "  ```\nnot a fence\n  ```",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "  ```\nnot a fence\n  ```",
+    "limit": 10,
+    "expected": "not a fen…"
+  },
+  {
+    "markdown": "  ```\nnot a fence\n  ```",
+    "limit": 40,
+    "expected": "not a fence"
+  },
+  {
+    "markdown": "  ```\nnot a fence\n  ```",
+    "limit": 160,
+    "expected": "not a fence"
+  },
+  {
+    "markdown": "a\r\nb\r\n\r\nc",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "a\r\nb\r\n\r\nc",
+    "limit": 10,
+    "expected": "a b. c"
+  },
+  {
+    "markdown": "a\r\nb\r\n\r\nc",
+    "limit": 40,
+    "expected": "a b. c"
+  },
+  {
+    "markdown": "a\r\nb\r\n\r\nc",
+    "limit": 160,
+    "expected": "a b. c"
+  },
+  {
+    "markdown": "***\n\na",
+    "limit": 1,
+    "expected": "a"
+  },
+  {
+    "markdown": "***\n\na",
+    "limit": 10,
+    "expected": "a"
+  },
+  {
+    "markdown": "***\n\na",
+    "limit": 40,
+    "expected": "a"
+  },
+  {
+    "markdown": "***\n\na",
+    "limit": 160,
+    "expected": "a"
+  },
+  {
+    "markdown": "a\n\n b?\n\nc",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "a\n\n b?\n\nc",
+    "limit": 10,
+    "expected": "a. b? c"
+  },
+  {
+    "markdown": "a\n\n b?\n\nc",
+    "limit": 40,
+    "expected": "a. b? c"
+  },
+  {
+    "markdown": "a\n\n b?\n\nc",
+    "limit": 160,
+    "expected": "a. b? c"
+  },
+  {
+    "markdown": "**a\nb**",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "**a\nb**",
+    "limit": 10,
+    "expected": "**a b**"
+  },
+  {
+    "markdown": "**a\nb**",
+    "limit": 40,
+    "expected": "**a b**"
+  },
+  {
+    "markdown": "**a\nb**",
+    "limit": 160,
+    "expected": "**a b**"
+  },
+  {
+    "markdown": "a b",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "a b",
+    "limit": 10,
+    "expected": "a b"
+  },
+  {
+    "markdown": "a b",
+    "limit": 40,
+    "expected": "a b"
+  },
+  {
+    "markdown": "a b",
+    "limit": 160,
+    "expected": "a b"
+  },
+  {
+    "markdown": "`a\nb`",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "`a\nb`",
+    "limit": 10,
+    "expected": "a b"
+  },
+  {
+    "markdown": "`a\nb`",
+    "limit": 40,
+    "expected": "a b"
+  },
+  {
+    "markdown": "`a\nb`",
+    "limit": 160,
+    "expected": "a b"
+  },
+  {
+    "markdown": "___x___",
+    "limit": 1,
+    "expected": "x"
+  },
+  {
+    "markdown": "___x___",
+    "limit": 10,
+    "expected": "x"
+  },
+  {
+    "markdown": "___x___",
+    "limit": 40,
+    "expected": "x"
+  },
+  {
+    "markdown": "___x___",
+    "limit": 160,
+    "expected": "x"
+  },
+  {
+    "markdown": "<a\nb>kept",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "<a\nb>kept",
+    "limit": 10,
+    "expected": "kept"
+  },
+  {
+    "markdown": "<a\nb>kept",
+    "limit": 40,
+    "expected": "kept"
+  },
+  {
+    "markdown": "<a\nb>kept",
+    "limit": 160,
+    "expected": "kept"
+  },
+  {
+    "markdown": "[x](a(b))",
+    "limit": 1,
+    "expected": "…"
+  },
+  {
+    "markdown": "[x](a(b))",
+    "limit": 10,
+    "expected": "x)"
+  },
+  {
+    "markdown": "[x](a(b))",
+    "limit": 40,
+    "expected": "x)"
+  },
+  {
+    "markdown": "[x](a(b))",
+    "limit": 160,
+    "expected": "x)"
+  }
+]

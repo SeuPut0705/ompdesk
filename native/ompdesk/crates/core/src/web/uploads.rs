@@ -370,6 +370,13 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) 
 }
 
 impl UploadStore {
+    /// The original `UploadStore.owns`: a path below this device's upload folder, not the folder itself.
+    pub fn owns(&self, device: &str, file: &str) -> bool {
+        let folder = self.inner.device_dir(device);
+        let target = resolve(Path::new(file));
+        target != folder && target.starts_with(folder)
+    }
+
     /// How much of the device's day is spoken for, reserved before anything is read or written.
     async fn reserve(
         &self,

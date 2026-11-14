@@ -1074,13 +1074,17 @@ pub fn register(registry: &mut Registry) {
     registry.add("web.blobs.serve", |call| Box::pin(serve(call)));
 }
 
+pub fn mint_token() -> Result<String, Fault> {
+    use base64::Engine as _;
+    let mut bytes = [0; 24];
+    crate::sys::random(&mut bytes).map_err(|error| Fault::new("random", error.to_string()))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
 /// A token minted the way main does (24 random bytes, base64url).
 #[cfg(test)]
 fn mint() -> String {
-    use base64::Engine as _;
-    let mut bytes = [0; 24];
-    crate::sys::random(&mut bytes).unwrap();
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    mint_token().unwrap()
 }
 
 #[cfg(test)]

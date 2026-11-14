@@ -905,7 +905,7 @@ impl Edge {
             }
         }
         self.inner.pair_guard.succeed(&address);
-        let (device, cookie) = deps.devices.create(
+        let (device, cookie) = deps.devices.create_checked(
             NewDevice {
                 name: device_name,
                 user_agent,
@@ -915,7 +915,8 @@ impl Edge {
                 grants,
             },
             self.now(),
-        );
+            &*deps.blocks,
+        ).ok_or_else(|| fail(403, "blocked"))?;
         if !asked {
             deps.desktop.device_connected(&device);
         }
