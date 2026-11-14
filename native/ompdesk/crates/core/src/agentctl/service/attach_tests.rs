@@ -915,3 +915,262 @@ async fn a_report_retry_or_conflict_does_not_land_or_restore_source_bytes_after_
     assert_eq!(std::fs::read(receiver_path).unwrap(), PDF);
     control.host.port().close();
 }
+
+async fn an_attached_report_shares_its_held_receiver_result(kind: &str, port: u64) {
+    use std::future::{Future, poll_fn};
+    use std::task::Poll;
+
+    use crate::agentctl::inbox::{InboxKind, NativeInboxTransfer};
+
+    let dir = temp(&format!("held-{kind}-attachment"));
+    let mut snapshot = native_state(vec![tab("a"), tab("b")]);
+    snapshot["tabs"][1]["busySince"] = json!(1.0);
+    let (control, asked, mut deliveries, fixture) = native_rig(
+        port,
+        snapshot.clone(),
+        Caps::default(),
+        &files_in(&dir),
+        Tuning::default(),
+        omp,
+    );
+    let receiver = control
+        .host
+        .inbox_status("a", "/s/a_1.jsonl", None)
+        .await
+        .unwrap()
+        .receiver;
+    let inbox = control.receiving_inbox.as_ref().unwrap();
+    let held = inbox.lane(&receiver).await;
+    let args = json!({
+        "id": format!("held-{kind}-file"), "kind": kind, "text": "original attached report",
+        "blocking": false, "attachments": [{ "path": "/w/doc.pdf" }],
+    });
+    let first = control.run("b", "ompdesk_report", args.clone(), None);
+    tokio::pin!(first);
+    let request = tokio::select! {
+        result = &mut first => panic!("{kind} completed before receiver acceptance: {}", result.text),
+        request = fixture.until_told(&asked, "inbox") => request,
+    };
+    assert_eq!(request["tabId"], "a");
+    let transfer: NativeInboxTransfer =
+        serde_json::from_value(request["transfer"].clone()).unwrap();
+    assert_eq!(transfer.receiver, receiver);
+    assert_eq!(transfer.entries.len(), 1);
+    let original = &transfer.entries[0];
+    let key = original.entry.key();
+    assert_eq!(key.kind, InboxKind::Report);
+    let original_files = &original.attachments.as_ref().unwrap().files;
+    assert_eq!(original_files.len(), 1);
+    assert_eq!(original_files[0].file.name, "doc.pdf");
+    assert!(
+        inbox
+            .ledger
+            .known(&receiver, std::slice::from_ref(original))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(inbox.ledger.pending(&receiver).unwrap().1.is_empty());
+
+    // The selected delivery has already carried its bytes. A second carry cannot repair this poisoned source.
+    let sha = crate::agentctl::journal::attachments::sha256_hex(PDF);
+    let source_blob = dir.join("agent-attachments").join(&sha);
+    assert_eq!(std::fs::read(&source_blob).unwrap(), PDF);
+    std::fs::remove_file(&source_blob).unwrap();
+    std::fs::create_dir(&source_blob).unwrap();
+    control
+        .host
+        .landed
+        .set(None, &sha, "/expired/source-landing", 0.0);
+    let landed_before_join = asked_with(&asked, "land").len();
+    assert_eq!(landed_before_join, 1);
+
+    snapshot["tabs"][1]["busySince"] = json!(2.0);
+    crate::ports::apply_state(control.host.port(), 1, &snapshot.to_string()).unwrap();
+    let repeated = control.run("b", "ompdesk_report", args.clone(), None);
+    tokio::pin!(repeated);
+    // This marker is set immediately before polling the real Mailbox post, after its actual lookup completed.
+    poll_fn(|cx| match repeated.as_mut().poll(cx) {
+        Poll::Ready(result) => {
+            panic!(
+                "{kind} retry did not await the first receiver result: {}",
+                result.text
+            )
+        }
+        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(2.0)) => {
+            Poll::Ready(())
+        }
+        Poll::Pending => Poll::Pending,
+    })
+    .await;
+    let mut changed = args;
+    changed["text"] = json!("conflicting attached report");
+    let conflict = control.run("b", "ompdesk_report", changed, None).await;
+    assert!(conflict.is_error, "{}", conflict.text);
+    assert!(
+        conflict.text.to_ascii_lowercase().contains("conflict"),
+        "{}",
+        conflict.text
+    );
+    assert_eq!(asked_with(&asked, "land").len(), landed_before_join);
+    assert_eq!(asked_with(&asked, "inbox").len(), 1);
+    assert!(source_blob.is_dir());
+    assert!(
+        inbox
+            .ledger
+            .known(&receiver, std::slice::from_ref(original))
+            .unwrap()
+            .is_empty()
+    );
+
+    std::fs::remove_dir(&source_blob).unwrap();
+    std::fs::write(&source_blob, PDF).unwrap();
+    drop(held);
+    let (first, repeated) = tokio::join!(first, repeated);
+    assert!(!first.is_error, "{}", first.text);
+    assert!(!repeated.is_error, "{}", repeated.text);
+    let delivery = delivered(&mut deliveries).await;
+    assert_eq!(
+        delivery["request"]["entries"][0]["deliveryId"],
+        key.delivery_id
+    );
+    let file = &delivery["request"]["entries"][0]["details"]["attachments"][0];
+    assert_eq!(file["name"], "doc.pdf");
+    assert_eq!(std::fs::read(file["path"].as_str().unwrap()).unwrap(), PDF);
+    let pending = inbox.ledger.pending(&receiver).unwrap().1;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].entry.key(), key);
+    assert_eq!(pending[0].logical, original.logical);
+    assert_eq!(asked_with(&asked, "land").len(), landed_before_join);
+    assert_eq!(asked_with(&asked, "inbox").len(), 1);
+    assert!(deliveries.try_recv().is_err());
+    let summary = format!("attached: 1 (1 file at {})", original_files[0].path);
+    assert!(first.text.contains(&summary), "{}", first.text);
+    assert!(repeated.text.contains(&summary), "{}", repeated.text);
+    assert_eq!(repeated.text, first.text);
+    control.host.port().close();
+}
+
+#[tokio::test(start_paused = true)]
+async fn attached_done_joins_its_active_receiver_acceptance_without_preparing_again() {
+    an_attached_report_shares_its_held_receiver_result("done", 9_420).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn attached_question_joins_its_active_receiver_acceptance_without_preparing_again() {
+    an_attached_report_shares_its_held_receiver_result("question", 9_421).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn attached_progress_joins_its_selected_receiver_acceptance_without_preparing_again() {
+    an_attached_report_shares_its_held_receiver_result("progress", 9_422).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn attached_progress_joins_before_selection_without_preparing_either_waiter() {
+    use std::future::{Future, poll_fn};
+    use std::task::Poll;
+
+    use crate::agentctl::inbox::{InboxKind, NativeInboxTransfer};
+
+    let dir = temp("pending-progress-attachment");
+    let mut snapshot = native_state(vec![tab("a"), tab("b")]);
+    snapshot["tabs"][1]["busySince"] = json!(1.0);
+    let (control, asked, mut deliveries, fixture) = native_rig(
+        9_423,
+        snapshot.clone(),
+        Caps::default(),
+        &files_in(&dir),
+        Tuning::default(),
+        omp,
+    );
+    let receiver = control
+        .host
+        .inbox_status("a", "/s/a_1.jsonl", None)
+        .await
+        .unwrap()
+        .receiver;
+    let inbox = control.receiving_inbox.as_ref().unwrap();
+    let held = inbox.lane(&receiver).await;
+    let args = json!({
+        "id": "pending-file-progress", "kind": "progress", "text": "original progress",
+        "blocking": false, "attachments": [{ "path": "/w/doc.pdf" }],
+    });
+    let first = control.run("b", "ompdesk_report", args.clone(), None);
+    tokio::pin!(first);
+    poll_fn(|cx| match first.as_mut().poll(cx) {
+        Poll::Ready(result) => panic!("progress completed before selection: {}", result.text),
+        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(1.0)) => {
+            Poll::Ready(())
+        }
+        Poll::Pending => Poll::Pending,
+    })
+    .await;
+    snapshot["tabs"][1]["busySince"] = json!(2.0);
+    crate::ports::apply_state(control.host.port(), 1, &snapshot.to_string()).unwrap();
+    let repeated = control.run("b", "ompdesk_report", args, None);
+    tokio::pin!(repeated);
+    poll_fn(|cx| match repeated.as_mut().poll(cx) {
+        Poll::Ready(result) => panic!("pending progress retry completed early: {}", result.text),
+        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(2.0)) => {
+            Poll::Ready(())
+        }
+        Poll::Pending => Poll::Pending,
+    })
+    .await;
+    assert!(asked_with(&asked, "land").is_empty());
+    assert!(asked_with(&asked, "inbox").is_empty());
+    let sha = crate::agentctl::journal::attachments::sha256_hex(PDF);
+    assert!(!dir.join("agent-attachments").join(&sha).exists());
+    assert!(inbox.ledger.pending(&receiver).unwrap().1.is_empty());
+
+    // Only the coalescer's selected Deliver can now materialize and reach the real held receiver.
+    let request = tokio::select! {
+        result = &mut first => panic!("progress completed before receiver acceptance: {}", result.text),
+        result = &mut repeated => panic!("joined progress completed before receiver acceptance: {}", result.text),
+        request = fixture.until_told(&asked, "inbox") => request,
+    };
+    let transfer: NativeInboxTransfer =
+        serde_json::from_value(request["transfer"].clone()).unwrap();
+    assert_eq!(transfer.receiver, receiver);
+    assert_eq!(transfer.entries.len(), 1);
+    let original = &transfer.entries[0];
+    let key = original.entry.key();
+    assert_eq!(key.kind, InboxKind::Report);
+    assert_eq!(asked_with(&asked, "land").len(), 1);
+    assert_eq!(
+        std::fs::read(dir.join("agent-attachments").join(&sha)).unwrap(),
+        PDF
+    );
+    assert!(
+        inbox
+            .ledger
+            .known(&receiver, std::slice::from_ref(original))
+            .unwrap()
+            .is_empty()
+    );
+    drop(held);
+    let (first, repeated) = tokio::join!(first, repeated);
+    assert!(!first.is_error, "{}", first.text);
+    assert!(!repeated.is_error, "{}", repeated.text);
+    let delivery = delivered(&mut deliveries).await;
+    assert_eq!(
+        delivery["request"]["entries"][0]["deliveryId"],
+        key.delivery_id
+    );
+    let file = &delivery["request"]["entries"][0]["details"]["attachments"][0];
+    assert_eq!(file["name"], "doc.pdf");
+    assert_eq!(std::fs::read(file["path"].as_str().unwrap()).unwrap(), PDF);
+    let pending = inbox.ledger.pending(&receiver).unwrap().1;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].entry.key(), key);
+    assert_eq!(asked_with(&asked, "land").len(), 1);
+    assert_eq!(asked_with(&asked, "inbox").len(), 1);
+    let summary = format!(
+        "attached: 1 (1 file at {})",
+        original.attachments.as_ref().unwrap().files[0].path
+    );
+    assert!(first.text.contains(&summary), "{}", first.text);
+    assert!(repeated.text.contains(&summary), "{}", repeated.text);
+    assert_eq!(repeated.text, first.text);
+    control.host.port().close();
+}

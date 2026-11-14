@@ -114,7 +114,7 @@ pub(crate) fn native_rig<F>(
     AgentControl,
     Told,
     tokio::sync::mpsc::UnboundedReceiver<Value>,
-    impl Drop + use<F>,
+    NativeFixture,
 )
 where
     F: Fn(&str, &Value) -> Result<Value, String> + Send + Sync + 'static,
@@ -140,7 +140,7 @@ pub(crate) fn native_rig_async<F, Fut>(
     AgentControl,
     Told,
     tokio::sync::mpsc::UnboundedReceiver<Value>,
-    impl Drop + use<F, Fut>,
+    NativeFixture,
 )
 where
     F: Fn(String, Value) -> Fut + Send + Sync + 'static,
@@ -158,6 +158,7 @@ where
         root: root.clone(),
         ports: Vec::new(),
         tasks: Vec::new(),
+        recorded: Arc::default(),
     };
     let host_id = state["deviceId"]
         .as_str()
@@ -330,6 +331,7 @@ where
             tx,
             Arc::new(NativeMain {
                 asked: asked.clone(),
+                recorded: fixture.recorded.clone(),
                 journal: journal.clone(),
                 delivered: delivered.clone(),
                 reply: reply.clone(),
@@ -344,6 +346,7 @@ where
         source_tx,
         Arc::new(NativeMain {
             asked: asked.clone(),
+            recorded: fixture.recorded.clone(),
             journal,
             delivered,
             reply,
@@ -354,10 +357,25 @@ where
     (control, asked, received, fixture)
 }
 
-struct NativeFixture {
+pub(crate) struct NativeFixture {
     root: std::path::PathBuf,
     ports: Vec<Arc<Port<HostState>>>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
+    recorded: Arc<tokio::sync::Notify>,
+}
+
+impl NativeFixture {
+    pub(crate) async fn until_told(&self, told: &Told, method: &str) -> Value {
+        loop {
+            let changed = self.recorded.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if let Some((_, args)) = told.lock().unwrap().iter().find(|(name, _)| name == method) {
+                return args.clone();
+            }
+            changed.await;
+        }
+    }
 }
 
 impl Drop for NativeFixture {
@@ -390,6 +408,7 @@ struct NativeDestination {
 
 struct NativeMain<F> {
     asked: Told,
+    recorded: Arc<tokio::sync::Notify>,
     journal: Arc<Mutex<std::collections::HashMap<String, Vec<Value>>>>,
     delivered: tokio::sync::mpsc::UnboundedSender<Value>,
     reply: Arc<F>,
@@ -451,6 +470,7 @@ where
                 .lock()
                 .unwrap()
                 .push((method.clone(), args.clone()));
+            context.recorded.notify_waiters();
             let Some(ask) = data["ask"].as_u64() else {
                 continue;
             };
