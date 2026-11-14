@@ -68,9 +68,9 @@
     },
     {
       "name": "initial-state-shape-corrupt",
-      "why": "The model must reject an undeclared sticky-event field value.",
-      "search": "badPause |-> FALSE",
-      "replace": "badPause |-> \"invalid\"",
+      "why": "The model must reject an initial epoch outside its finite generation domain without a TLC type-comparison error.",
+      "search": "epoch |-> 0, broken |-> FALSE",
+      "replace": "epoch |-> Cardinality(Workers) + 1, broken |-> FALSE",
       "breaks": "TypeOK",
       "isolate": true
     }
