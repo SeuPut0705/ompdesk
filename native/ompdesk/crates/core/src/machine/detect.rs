@@ -5,9 +5,10 @@ use std::sync::atomic::Ordering;
 
 use serde_json::{Value, json};
 
+#[cfg(test)]
+use super::rea_node_supported;
 use super::{
-    Environment, Failure, Platform, REA_NODE_REQUIREMENT, Resolution, Service, paths,
-    rea_node_supported, runtime,
+    Environment, Failure, Platform, REA_NODE_REQUIREMENT, Resolution, Service, paths, runtime,
 };
 use crate::fs::order::js_trim;
 use crate::server::Fault;
