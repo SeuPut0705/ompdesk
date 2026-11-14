@@ -17,6 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
 
 use super::asks::Asker;
+use crate::aimemory::application::{CaptureCommand, CaptureOutput, Host, RunCommand};
 use crate::fs::error::{Codes, NodeError, uv_code};
 use crate::fs::order::js_trim;
 use crate::json::whole_surrogates;
@@ -274,20 +275,18 @@ pub async fn run_smol(
     run_smol_within(launch, message, cwd, TIMEOUT).await
 }
 
-async fn run_smol_within(
-    launch: &OmpLaunch,
-    message: &Message,
-    cwd: &Path,
-    timeout: Duration,
-) -> Result<ModelResult, Fault> {
+async fn prepare_cwd(cwd: &Path) -> Result<(), Fault> {
     let folder = cwd.to_owned();
     tokio::task::spawn_blocking(move || std::fs::create_dir_all(folder))
         .await
         .map_err(|error| Fault::new("internal", error.to_string()))?
         .map_err(|error| {
             NodeError::new(&error, "mkdir", Some(&cwd.to_string_lossy())).fault(Codes::None)
-        })?;
-    let args = [
+        })
+}
+
+fn smol_args(message: &Message) -> Vec<String> {
+    [
         "-p",
         "--mode",
         "json",
@@ -305,8 +304,10 @@ async fn run_smol_within(
         &message.system,
     ]
     .map(str::to_owned)
-    .to_vec();
-    let ran = run_omp(launch, args, cwd, &message.user, timeout).await?;
+    .to_vec()
+}
+
+fn smol_result(ran: Ran) -> Result<ModelResult, Fault> {
     let result = parse_omp_json(&ran.stdout);
     match result {
         Some(result) if ran.code == 0 => Ok(result),
@@ -322,6 +323,58 @@ async fn run_smol_within(
             ))
         }
     }
+}
+
+async fn run_smol_within(
+    launch: &OmpLaunch,
+    message: &Message,
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<ModelResult, Fault> {
+    prepare_cwd(cwd).await?;
+    let ran = run_omp(launch, smol_args(message), cwd, &message.user, timeout).await?;
+    smol_result(ran)
+}
+
+struct CaptureScope(crate::server::Scope);
+
+impl Drop for CaptureScope {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+async fn run_native(host: &dyn Host, message: &Message, cwd: &Path) -> Result<ModelResult, Fault> {
+    let launch = host
+        .omp_launch()
+        .await
+        .map_err(|failure| Fault::new("memory_omp", failure.message()))?;
+    prepare_cwd(cwd).await?;
+    let mut env = launch.env;
+    env.insert("OTEL_SDK_DISABLED".into(), "true".into());
+    let scope = CaptureScope(crate::server::Scope::detached());
+    let output: CaptureOutput = host
+        .capture(
+            CaptureCommand {
+                command: RunCommand {
+                    bin: launch.bin,
+                    args: smol_args(message),
+                    env,
+                    isolated: false,
+                    cwd: cwd.to_owned(),
+                },
+                input: message.user.as_bytes().to_vec(),
+                timeout: TIMEOUT,
+                max_bytes: OUTPUT_CAP,
+            },
+            scope.0.clone(),
+        )
+        .await?;
+    smol_result(Ran {
+        code: output.code,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
 }
 
 /// Where the model call goes.
@@ -349,13 +402,7 @@ impl Model {
 
     pub async fn call(&self, message: &Message) -> Result<ModelResult, Fault> {
         match self {
-            Model::Native(host, cwd) => {
-                let launch = host
-                    .omp_launch()
-                    .await
-                    .map_err(|failure| Fault::new("memory_omp", failure.message()))?;
-                run_smol(&launch, message, cwd).await
-            }
+            Model::Native(host, cwd) => run_native(host.as_ref(), message, cwd).await,
             Model::Omp(asker, cwd) => {
                 let launch = asker.ask("omp", json!({})).await?;
                 let launch: OmpLaunch = serde_json::from_value(launch).map_err(|error| {
@@ -416,6 +463,29 @@ mod tests {
         launch: Mutex<OmpLaunch>,
         refused: AtomicBool,
         calls: AtomicUsize,
+        output: Mutex<Option<Result<CaptureOutput, Fault>>>,
+        captured: Mutex<Vec<CaptureCommand>>,
+        scope: Mutex<Option<crate::server::Scope>>,
+        started: tokio::sync::Notify,
+        blocked: AtomicBool,
+    }
+
+    impl NativeSelector {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                launch: Mutex::new(OmpLaunch {
+                    bin: "resolved-omp".into(),
+                    env: BTreeMap::from([("OTEL_SDK_DISABLED".into(), "false".into())]),
+                }),
+                refused: AtomicBool::new(false),
+                calls: AtomicUsize::new(0),
+                output: Mutex::new(None),
+                captured: Mutex::new(Vec::new()),
+                scope: Mutex::new(None),
+                started: tokio::sync::Notify::new(),
+                blocked: AtomicBool::new(false),
+            })
+        }
     }
 
     impl Host for NativeSelector {
@@ -453,69 +523,112 @@ mod tests {
                 Ok(self.launch.lock().unwrap().clone())
             })
         }
+        fn capture(
+            &self,
+            command: CaptureCommand,
+            scope: crate::server::Scope,
+        ) -> Boxed<'_, Result<CaptureOutput, Fault>> {
+            Box::pin(async move {
+                self.captured.lock().unwrap().push(command);
+                *self.scope.lock().unwrap() = Some(scope);
+                self.started.notify_one();
+                if self.blocked.load(Ordering::SeqCst) {
+                    std::future::pending::<()>().await;
+                }
+                self.output
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("capture response")
+            })
+        }
     }
 
     #[tokio::test]
-    async fn native_model_resolves_each_call_and_preserves_failures() {
+    async fn native_model_uses_supervised_capture_and_preserves_results_and_faults() {
         let root = temp("native");
-        let rec = root.join("rec");
-        std::fs::create_dir_all(&rec).unwrap();
-        let bin = recorder(&root);
-        put(&rec, "out", &assistant("native reply"));
-        put(&rec, "err", "");
-        put(&rec, "code", "0");
-        let host = Arc::new(NativeSelector {
-            launch: Mutex::new(launch(&bin, &rec, 0)),
-            refused: AtomicBool::new(false),
-            calls: AtomicUsize::new(0),
-        });
+        let host = NativeSelector::new();
         let model = Model::Native(host.clone(), root.join("empty"));
         let message = Message {
             system: "system".into(),
-            user: "digest".into(),
+            user: "한글 digest\nsecond line".into(),
         };
+        *host.output.lock().unwrap() = Some(Ok(CaptureOutput {
+            code: 0,
+            stdout: assistant("native reply").into_bytes(),
+            stderr: Vec::new(),
+        }));
         assert_eq!(model.call(&message).await.unwrap().text, "native reply");
-        put(&rec, "out", "");
-        put(&rec, "err", "provider refused\n");
-        put(&rec, "code", "3");
-        host.launch
-            .lock()
-            .unwrap()
-            .env
-            .insert("CODE".into(), "3".into());
+        {
+            let captures = host.captured.lock().unwrap();
+            let capture = &captures[0];
+            assert_eq!(capture.command.bin, "resolved-omp");
+            assert_eq!(capture.command.cwd, root.join("empty"));
+            assert!(!capture.command.isolated);
+            assert_eq!(capture.command.env["OTEL_SDK_DISABLED"], "true");
+            assert_eq!(capture.input, message.user.as_bytes());
+            assert_eq!(capture.timeout, Duration::from_secs(180));
+            assert_eq!(capture.max_bytes, 64 * 1024 * 1024);
+            assert_eq!(
+                capture.command.args,
+                [
+                    "-p",
+                    "--mode",
+                    "json",
+                    "--no-tools",
+                    "--no-session",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-rules",
+                    "--no-title",
+                    "--model",
+                    "pi/smol",
+                    "--thinking",
+                    "off",
+                    "--system-prompt",
+                    "system",
+                ]
+            );
+        }
+        host.launch.lock().unwrap().bin = "updated-omp".into();
+        *host.output.lock().unwrap() = Some(Ok(CaptureOutput {
+            code: 3,
+            stdout: assistant("must not succeed").into_bytes(),
+            stderr: b"warning\nprovider refused\n".to_vec(),
+        }));
         assert_eq!(
             model.call(&message).await.unwrap_err().message,
             "omp exited 3: provider refused"
+        );
+        assert_eq!(host.captured.lock().unwrap()[1].command.bin, "updated-omp");
+        *host.output.lock().unwrap() = Some(Err(Fault::new(
+            "omp_timeout",
+            "omp -p timed out after 180000ms",
+        )));
+        let timed_out = model.call(&message).await.unwrap_err();
+        assert_eq!(timed_out.code, "omp_timeout");
+        assert_eq!(timed_out.message, "omp -p timed out after 180000ms");
+        *host.output.lock().unwrap() = Some(Err(Fault::cancelled()));
+        assert_eq!(
+            model.call(&message).await.unwrap_err().code,
+            Fault::cancelled().code
         );
         host.refused.store(true, Ordering::SeqCst);
         assert_eq!(
             model.call(&message).await.unwrap_err().message,
             "omp selection refused"
         );
-        assert_eq!(host.calls.load(Ordering::SeqCst), 3);
+        assert_eq!(host.calls.load(Ordering::SeqCst), 5);
+        assert_eq!(host.captured.lock().unwrap().len(), 4);
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[tokio::test]
-    async fn cancelling_a_native_model_ends_its_direct_child() {
-        use tokio::io::AsyncReadExt;
+    async fn dropping_a_native_model_cancels_the_supervised_capture_scope() {
         let root = temp("native-cancel");
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let bin = stand_in(
-            &root,
-            "exec /bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/$MODEL_PORT; printf ready >&3; read -r <&3'",
-            "",
-        );
-        let mut env: BTreeMap<String, String> = std::env::vars().collect();
-        env.insert("MODEL_PORT".into(), port.to_string());
-        let host = Arc::new(NativeSelector {
-            launch: Mutex::new(OmpLaunch { bin, env }),
-            refused: AtomicBool::new(false),
-            calls: AtomicUsize::new(0),
-        });
-        let model = Model::Native(host, root.join("empty"));
+        let host = NativeSelector::new();
+        host.blocked.store(true, Ordering::SeqCst);
+        let model = Model::Native(host.clone(), root.join("empty"));
         let running = tokio::spawn(async move {
             model
                 .call(&Message {
@@ -524,19 +637,14 @@ mod tests {
                 })
                 .await
         });
-        let (mut connection, _) = listener.accept().await.unwrap();
-        let mut ready = [0; 5];
-        connection.read_exact(&mut ready).await.unwrap();
-        assert_eq!(&ready, b"ready");
+        host.started.notified().await;
+        let scope = host.scope.lock().unwrap().clone().unwrap();
+        assert!(!scope.cancelled());
         running.abort();
         assert!(running.await.unwrap_err().is_cancelled());
-        let mut next = [0; 1];
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(5), connection.read(&mut next))
-                .await
-                .unwrap()
-                .unwrap(),
-            0
+        assert!(
+            scope.cancelled(),
+            "executor scope outlived the cancelled model"
         );
         let _ = std::fs::remove_dir_all(root);
     }

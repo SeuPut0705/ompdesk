@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -49,6 +50,20 @@ pub struct RunOutput {
     pub output: String,
 }
 
+/// Separate model streams; the shared Setup runner owns the supervisor and its entire process tree.
+pub struct CaptureCommand {
+    pub command: RunCommand,
+    pub input: Vec<u8>,
+    pub timeout: Duration,
+    pub max_bytes: usize,
+}
+
+pub struct CaptureOutput {
+    pub code: i32,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
 /// Base implements these with its one prefs store, first-tab barrier, Machine selectors and Setup executor.
 /// `run` must observe `scope`, join the supervisor's exit before returning, and retain its output's last 16 KiB
 /// UTF-16 units. An isolated setup inherits no app handle; it is not a proxy to Node or a second worker pool.
@@ -61,6 +76,13 @@ pub trait Host: Send + Sync {
     fn bun_present(&self) -> Boxed<'_, Result<bool, Failure>>;
     fn omp_launch(&self) -> Boxed<'_, Result<OmpLaunch, Failure>>;
     fn run(&self, command: RunCommand, scope: Scope) -> Boxed<'_, Result<RunOutput, Failure>>;
+    /// Keep each stream's first `max_bytes` bytes while draining the remainder. Cancellation/timeout answers
+    /// only after the tree exits. A dropped future cancels its scope; a retained reaper owns input/scratch until exit.
+    fn capture(
+        &self,
+        command: CaptureCommand,
+        scope: Scope,
+    ) -> Boxed<'_, Result<CaptureOutput, Fault>>;
 }
 
 pub(super) struct Native {

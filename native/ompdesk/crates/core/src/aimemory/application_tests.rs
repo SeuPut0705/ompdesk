@@ -138,6 +138,9 @@ impl Host for TestHost {
     fn omp_launch(&self) -> Boxed<'_, Result<OmpLaunch, Failure>> {
         Box::pin(async { Err(Failure::step("No model in service tests")) })
     }
+    fn capture(&self, _: CaptureCommand, _: Scope) -> Boxed<'_, Result<CaptureOutput, Fault>> {
+        unreachable!("service tests never invoke the model")
+    }
     fn run(&self, command: RunCommand, scope: Scope) -> Boxed<'_, Result<RunOutput, Failure>> {
         Box::pin(async move {
             assert_eq!(command.cwd, self.root);
