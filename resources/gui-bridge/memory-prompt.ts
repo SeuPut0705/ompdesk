@@ -3,30 +3,13 @@
  * session page is filed under), whether the session is a child (a subagent, or a session another agent opened) that
  * must neither create nor consume a handoff, the conclusion a turn ended on, and the checkout its folder belongs to.
  *
- * Imports only `./redactor` on purpose: the ai-memory build embeds both files into the omp extension it generates
- * (`native/memory` `install_hooks.rs`, `include_str!`; the extension drops this one import line, the redactor sits
- * above it). It lives in the gui-bridge folder so every side reads the one rule: the bridge (memory recall names a
- * recalled conclusion by it), main (the one-time retitle, the learning pass) and the tests. The wrapper tag, the
- * `Title:` label and stock's subagent prefix are the same protocol lines `agent-control.ts` and
- * `subagent-title-contracts.ts` read; `memory-prompt.test.ts` keeps the three in step.
+ * Prompt classification has one Rust implementation (`core/src/aimemory/prompt_policy.rs`), compiled into the
+ * embedded WASM consumed by `memory-policy.ts`. The memory build embeds that module, its bytes and the redactor
+ * into the generated terminal extension, so the same policy works while OMPdesk is closed.
  */
+
+import { memoryPromptFacts } from "./memory-policy";
 import { redactDiagnosticsText } from "./redactor";
-
-const AGENT_MESSAGE_TAG = "ompdesk-agent-message";
-/** Either form: `from` alone (journals written before), or `from` and the sender's saved id `session`. */
-const WRAPPED_START = new RegExp(`^<${AGENT_MESSAGE_TAG} from="[^"]*"(?: session="[^"]*")?>[ \\t]*(?:\\r?\\n|$)`);
-const WRAPPED_END = new RegExp(`(?:\\r?\\n|^)[ \\t]*</${AGENT_MESSAGE_TAG}>[ \\t]*$`);
-/** Stock wraps every subagent assignment in `prompts/system/subagent-user-prompt.md`. */
-const STOCK_PREFIX = /^Complete assignment thoroughly:[ \t]*(?:\r?\n|$)/i;
-/** The preamble ai-memory's own title rule already knows as scaffolding. */
-const SUBAGENT_PREAMBLE = /^You are a subagent spawned by another session\.[ \t]*(?:\r?\n|$)/i;
-const TITLE_LINE = /^[ \t]*Title:[ \t]*(\S[^\r\n]*?)[ \t]*(?:\r?\n|$)/;
-/** A title is one short sentence; anything longer is not a title line. */
-const TITLE_MAX = 120;
-const UNWRAP_LIMIT = 4;
-
-/** A line that says nothing about the task: a tag on its own, a rule, a code fence. */
-const NOISE_LINE = /^(?:<\/?[A-Za-z][\w:-]*(?:\s[^>]*)?>|[-*_=~]{3,}|`{3,}.*)$/;
 
 export interface PromptParts {
 	/** The prompt without the agent-message wrapper and stock's subagent prefix. */
@@ -39,71 +22,18 @@ export interface PromptParts {
 
 /** The prompt's text without the protocol that carried it (both wrappers, in whatever order they nest). */
 export function unwrapPrompt(prompt: string): PromptParts {
-	let body = prompt.trim();
-	let agentMessage = false;
-	let subagentAssignment = false;
-	for (let round = 0; round < UNWRAP_LIMIT; round++) {
-		const start = WRAPPED_START.exec(body);
-		if (start) {
-			agentMessage = true;
-			body = body.slice(start[0].length).replace(WRAPPED_END, "").trim();
-			continue;
-		}
-		const stock = STOCK_PREFIX.exec(body) ?? SUBAGENT_PREAMBLE.exec(body);
-		if (stock) {
-			subagentAssignment = true;
-			body = body.slice(stock[0].length).trim();
-			continue;
-		}
-		break;
-	}
+	const { body, agentMessage, subagentAssignment } = memoryPromptFacts(prompt);
 	return { body, agentMessage, subagentAssignment };
 }
 
-function clip(text: string): string {
-	const flat = text.replaceAll(/\s+/g, " ").trim();
-	return flat.length > TITLE_MAX ? `${flat.slice(0, TITLE_MAX - 1).trimEnd()}…` : flat;
-}
-
-/** `Title:` label, markdown heading marks and quote/list markers are protocol or typography, never the words. */
-function bareLine(line: string): string {
-	return line
-		.replace(/^[ \t]*Title:[ \t]*/i, "")
-		.replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+)/, "")
-		.trim();
-}
-
-/**
- * A heading of a single word (`# Target`, `## Context`, `# 목표`) labels a section of a brief, it names no task; the
- * line under it does.
- */
-const SECTION_LABEL = /^[ \t]*#{1,6}[ \t]+[^\s#]+[ \t]*:?[ \t]*$/;
-
 /** The first line of `text` that says something about the task, or undefined. */
 export function firstMeaningfulLine(text: string): string | undefined {
-	let label: string | undefined;
-	for (const raw of text.split(/\r?\n/)) {
-		const line = raw.trim();
-		if (!line || NOISE_LINE.test(line)) continue;
-		const bare = bareLine(line);
-		if (!bare || NOISE_LINE.test(bare)) continue;
-		if (SECTION_LABEL.test(line)) {
-			label ??= clip(bare.replace(/:$/, ""));
-			continue;
-		}
-		return clip(bare);
-	}
-	return label;
+	return memoryPromptFacts(text).firstLine ?? undefined;
 }
 
 /** A page title that names no task: the wrapper's tag, stock's prefix, the preamble, or the id the page fell back to. */
 export function isJunkTitle(title: string | undefined): boolean {
-	const text = (title ?? "").trim();
-	if (!text) return true;
-	if (text.startsWith(`<${AGENT_MESSAGE_TAG}`) || text.startsWith(`</${AGENT_MESSAGE_TAG}`)) return true;
-	if (/^Complete assignment thoroughly:?$/i.test(text)) return true;
-	if (/^You are a subagent spawned by another session\.?$/i.test(text)) return true;
-	return /^Session [0-9a-f]{8}-[0-9a-f]{4}-/i.test(text) || text === "session";
+	return memoryPromptFacts(title ?? "").junk;
 }
 
 export interface PromptTitleOptions {
@@ -113,8 +43,7 @@ export interface PromptTitleOptions {
 
 /** The assignment's own `Title:` line (the task named in the person's language), or undefined. */
 export function explicitTitle(prompt: string): string | undefined {
-	const title = TITLE_LINE.exec(unwrapPrompt(prompt).body)?.[1];
-	return title && title.length <= TITLE_MAX ? title : undefined;
+	return memoryPromptFacts(prompt).explicit ?? undefined;
 }
 
 /**
@@ -123,17 +52,12 @@ export function explicitTitle(prompt: string): string | undefined {
  * that has nothing to say (the wrapper alone, an empty text).
  */
 export function promptTitle(prompt: string, options: PromptTitleOptions = {}): string | undefined {
-	const explicit = explicitTitle(prompt);
-	if (explicit) return explicit;
-	const name = options.sessionName?.trim();
-	if (name && !isJunkTitle(name)) return clip(name);
-	return firstMeaningfulLine(unwrapPrompt(prompt).body);
+	return memoryPromptFacts(prompt, options.sessionName).title ?? undefined;
 }
 
 /** An agent (not a person) wrote this prompt: another session's wrapped message, or a subagent's assignment. */
 export function isAgentPrompt(prompt: string): boolean {
-	const parts = unwrapPrompt(prompt);
-	return parts.agentMessage || parts.subagentAssignment;
+	return memoryPromptFacts(prompt).agent;
 }
 
 /**

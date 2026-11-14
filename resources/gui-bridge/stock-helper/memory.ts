@@ -1,20 +1,11 @@
 import { isAbsolute, join } from "node:path";
-import {
-	conclusionExcerpt,
-	explicitTitle,
-	firstMeaningfulLine,
-	isAgentPrompt,
-	isJunkTitle,
-	promptTitle,
-	unwrapPrompt,
-} from "../memory-prompt";
+import { memoryPromptFacts } from "../memory-policy";
+import { conclusionExcerpt } from "../memory-prompt";
 import type { HelperMethods } from "./dispatch";
 
 /**
- * What the memory upkeep and care (the core's `upkeep`/`care`) ask of `memory-prompt.ts` and of a stored journal,
- * which they do not copy: stock worker methods `memory.promptFacts` and `memory.journal`, and the two pure functions
- * behind them, which main answers a test's asks with too (`src/main/ai-memory/core-asks.ts`). Nothing from omp is
- * imported at the top level, so main can import this file.
+ * Stock SDK journal loading remains in this worker. OMPdesk's prompt classification is the single Rust/WASM
+ * policy; `promptFacts` is an in-process test-client adapter, not a stock worker method.
  */
 
 /** One prompt to ask about: its text exactly as the caller passed it, and the omp session's own title when it is
@@ -35,14 +26,10 @@ export interface PromptFacts {
 
 /** What `memory-prompt.ts` says of each prompt, in order. */
 export function promptFacts(items: readonly PromptItem[]): PromptFacts[] {
-	return items.map(({ text, sessionName }) => ({
-		agent: isAgentPrompt(text),
-		junk: isJunkTitle(text),
-		title: promptTitle(text, { sessionName }) ?? null,
-		explicit: explicitTitle(text) ?? null,
-		body: unwrapPrompt(text).body,
-		firstLine: firstMeaningfulLine(text) ?? null,
-	}));
+	return items.map(({ text, sessionName }) => {
+		const { agent, junk, title, explicit, body, firstLine } = memoryPromptFacts(text, sessionName);
+		return { agent, junk, title, explicit, body, firstLine };
+	});
 }
 
 interface Turn {
@@ -104,17 +91,6 @@ function field(value: unknown, key: string): unknown {
 	return value !== null && typeof value === "object" && key in value ? Reflect.get(value, key) : undefined;
 }
 
-function items(params: unknown): PromptItem[] {
-	const list = field(params, "items");
-	if (!Array.isArray(list)) throw new Error("Invalid prompt items");
-	return list.map(entry => {
-		const text = field(entry, "text");
-		const sessionName = field(entry, "sessionName");
-		if (typeof text !== "string") throw new Error("Invalid prompt items");
-		return typeof sessionName === "string" ? { text, sessionName } : { text };
-	});
-}
-
 /** Stock `loadSessionMessagesReadOnly` as `sessions.messages` loads it: no writer, no lock, safe against a file a
  * live omp writes; the messages along the persisted leaf. */
 async function readMessages(sessionPath: string): Promise<unknown[]> {
@@ -131,7 +107,6 @@ async function readMessages(sessionPath: string): Promise<unknown[]> {
 }
 
 export const methods: HelperMethods = {
-	"memory.promptFacts": params => promptFacts(items(params)),
 	"memory.journal": async params => {
 		const sessionPath = field(params, "sessionPath");
 		if (typeof sessionPath !== "string" || !isAbsolute(sessionPath) || !sessionPath.endsWith(".jsonl"))

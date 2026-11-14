@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isAgentPrompt, isJunkTitle, promptTitle, unwrapPrompt } from "../../resources/gui-bridge/memory-prompt";
 import { journalFacts, methods, promptFacts } from "../../resources/gui-bridge/stock-helper/memory";
 import { wrapAgentMessage } from "../shared/agent-control";
 
-describe("memory.promptFacts", () => {
-	it("answers what memory-prompt says of each prompt, in order", () => {
+describe("native prompt facts", () => {
+	it("extracts agent titles, session names and empty prompts", () => {
 		const wrapped = wrapAgentMessage("Title: 일 하나\n\nbody text", "부모");
 		const items = [
 			{ text: wrapped },
@@ -14,15 +13,14 @@ describe("memory.promptFacts", () => {
 			{ text: "Session 0a1b2c3d-1111-2222-3333-444455556666" },
 		];
 		const facts = promptFacts(items);
-		expect(facts).toHaveLength(items.length);
 		expect(facts[0]).toEqual({
 			agent: true,
 			// A page title that is the wrapper's own tag names no task.
 			junk: true,
 			title: "일 하나",
 			explicit: "일 하나",
-			body: unwrapPrompt(wrapped).body,
-			firstLine: facts[0]?.firstLine,
+			body: "Title: 일 하나\n\nbody text",
+			firstLine: "일 하나",
 		});
 		// A session's own name wins over the prompt's first line, for the prompt that carries it.
 		expect(facts[1]).toMatchObject({
@@ -34,23 +32,6 @@ describe("memory.promptFacts", () => {
 		expect(facts[1]?.firstLine).toBe("fix the build");
 		expect(facts[3]).toEqual({ agent: false, junk: true, title: null, explicit: null, body: "", firstLine: null });
 		expect(facts[4]?.junk).toBe(true);
-		for (const [index, item] of items.entries()) {
-			expect(facts[index]).toMatchObject({
-				agent: isAgentPrompt(item.text),
-				junk: isJunkTitle(item.text),
-				title:
-					promptTitle(item.text, { sessionName: "sessionName" in item ? item.sessionName : undefined }) ?? null,
-			});
-		}
-	});
-
-	it("is the stock worker's method, and refuses params that are no prompts", async () => {
-		const handler = methods["memory.promptFacts"];
-		expect(await handler?.({ items: [{ text: "a task" }] })).toEqual(promptFacts([{ text: "a task" }]));
-		await expect(Promise.resolve().then(() => handler?.({ items: [{ text: 5 }] }))).rejects.toThrow(
-			"Invalid prompt items",
-		);
-		await expect(Promise.resolve().then(() => handler?.({}))).rejects.toThrow("Invalid prompt items");
 	});
 });
 
