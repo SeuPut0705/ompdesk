@@ -12,7 +12,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcSidecarStatusPayload, IpcSignIn } from "../../shared/ipc-types";
+import type { IpcSidecarStatusPayload, IpcSignIn, IpcTabInfo } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	AgentSessionEvent,
@@ -253,7 +253,7 @@ function installMockOmp(): {
 }
 
 type TabBatchHandler = (events: AgentSessionEvent[], tabId: string) => void;
-type TabSidecarStatusHandler = (payload: IpcSidecarStatusPayload, tabId: string) => void;
+type TabSidecarStatusHandler = (payload: IpcSidecarStatusPayload, tabId: string, viewId?: string) => void;
 
 /**
  * Tab-routed variant of the legacy harness above: the modern preload exposes
@@ -263,6 +263,7 @@ type TabSidecarStatusHandler = (payload: IpcSidecarStatusPayload, tabId: string)
 function installTabRoutedMockOmp(): {
 	emitTabBatch: TabBatchHandler;
 	emitTabStatus: TabSidecarStatusHandler;
+	listTabs: Mock<() => Promise<IpcTabInfo[]>>;
 	notify: Mock<(title: string, body: string) => void>;
 	commandForTab: Mock<(tabId: string, command: RpcCommand) => Promise<RpcResponse>>;
 } {
@@ -302,7 +303,7 @@ function installTabRoutedMockOmp(): {
 	const notify = vi.fn();
 	const omp = {
 		tabs: {
-			list: vi.fn(async () => []),
+			list: vi.fn<() => Promise<IpcTabInfo[]>>(async () => []),
 			close: vi.fn(async () => true),
 			setActive: vi.fn(async () => true),
 			setView: vi.fn(async () => true),
@@ -340,7 +341,8 @@ function installTabRoutedMockOmp(): {
 	(window as unknown as { omp: typeof omp }).omp = omp;
 	return {
 		emitTabBatch: (events, tabId) => tabBatchHandler(events, tabId),
-		emitTabStatus: (payload, tabId) => tabStatusHandler(payload, tabId),
+		emitTabStatus: (payload, tabId, viewId) => tabStatusHandler(payload, tabId, viewId),
+		listTabs: omp.tabs.list,
 		notify,
 		commandForTab,
 	};
@@ -2251,6 +2253,37 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		// Without the tombstone gate this frame falls through to the focused
 		// runtime and resets its stores wholesale.
 		expect(sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().messages).toContain(kept);
+	});
+
+	it("rejects the retired view's late starting frame after the same execution is rejoined", async () => {
+		const { emitTabStatus, listTabs } = installTabRoutedMockOmp();
+		seedTwoTabs();
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t-dead" ? { ...tab, viewId: "pool/entry/view-A" } : tab)),
+		}));
+		await mount(<RpcEventsProbe />);
+		await flush();
+		await act(async () => {
+			await useTabsStore.getState().closeTab("t-dead");
+		});
+		listTabs.mockResolvedValue([
+			{ tabId: "t-live", cwd: "/alpha", status: "ready", kind: "agent" },
+			{ tabId: "t-dead", cwd: "/beta", status: "ready", kind: "agent", viewId: "pool/entry/view-B" },
+		]);
+		await act(async () => {
+			await useTabsStore.getState().applyAgentView({ tabId: "t-dead", how: "focus" });
+		});
+		const kept = { role: "user", content: [{ type: "text", text: "new view work" }], timestamp: 7 } as AgentMessage;
+		const messages = () => sessionRuntimeStore<MessagesStore>("t-dead", "messages")!.getState();
+		messages().appendMessage(kept);
+		await act(async () => {
+			emitTabStatus({ status: "starting", cwd: "/beta" }, "t-dead", "pool/entry/view-A");
+		});
+		expect(messages().messages).toContain(kept);
+		await act(async () => {
+			emitTabStatus({ status: "starting", cwd: "/beta" }, "t-dead", "pool/entry/view-B");
+		});
+		expect(messages().messages).toEqual([]);
 	});
 
 	it("keeps a paired host's tab on screen through a re-attach and merges what it missed; a new omp starts it over", async () => {
