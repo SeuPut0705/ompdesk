@@ -247,6 +247,7 @@ describe("switchSessionNow F-OWN owner guard", () => {
 					type: "response",
 					command: "switch_session",
 					success: false,
+					error: "Session is already held by another execution",
 					code: "session_owned_elsewhere",
 					data: { ownerTabId: "retained", ownerWinId: null },
 				});
