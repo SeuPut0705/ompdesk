@@ -11,6 +11,14 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use super::link::{Command, Link};
 use crate::server::Fault;
 
+/// Transport metadata only. Resolving this pair never grants caller or tab authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionBinding {
+    pub core_generation: u64,
+    pub link_id: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct RemoteEvent {
     pub event: String,
