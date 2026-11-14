@@ -1,0 +1,65 @@
+{
+	"runs": [
+		{
+			"name": "native-report-two-callers-three-generations",
+			"config": "MC.cfg",
+			"expect": "pass",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "native-report-two-callers-four-generations",
+			"config": "MC_larger.cfg",
+			"expect": "pass",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "memory-queued-ack-is-unsafe",
+			"config": "MC_early_ack.cfg",
+			"expect": "invariant",
+			"property": "NoAckBeforeReceiverOwned",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "NeverNewReceiverOwned",
+			"config": "MC_sanity_NeverNewReceiverOwned.cfg",
+			"expect": "invariant",
+			"property": "NeverNewReceiverOwned",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "NeverJoined",
+			"config": "MC_sanity_NeverJoined.cfg",
+			"expect": "invariant",
+			"property": "NeverJoined",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "NeverUnknown",
+			"config": "MC_sanity_NeverUnknown.cfg",
+			"expect": "invariant",
+			"property": "NeverUnknown",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "NeverRetryQueued",
+			"config": "MC_sanity_NeverRetryQueued.cfg",
+			"expect": "invariant",
+			"property": "NeverRetryQueued",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "NeverUnadmitted",
+			"config": "MC_sanity_NeverUnadmitted.cfg",
+			"expect": "invariant",
+			"property": "NeverUnadmitted",
+			"timeoutSec": 7200
+		},
+		{
+			"name": "NeverUnknownLateEffect",
+			"config": "MC_sanity_NeverUnknownLateEffect.cfg",
+			"expect": "invariant",
+			"property": "NeverUnknownLateEffect",
+			"timeoutSec": 7200
+		}
+	]
+}

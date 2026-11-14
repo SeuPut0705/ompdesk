@@ -1,0 +1,34 @@
+{
+	"status": "SOURCE",
+	"checkId": "20261114-203851-d61b",
+	"command": "ompdesk check --light -- bun <session-scratch>/coalescer-parse.ts",
+	"observedResult": "passed",
+	"kind": "SANY parse/semantic and static mutation applicability only",
+	"sourceRevisionRead": "9f42f5ccb17088ccca997e66526c1f0674781d13",
+	"sourceTagRangesHashed": 15,
+	"matrixRows": 9,
+	"mutationAnchors": 13,
+	"parsedVariants": 14,
+	"frozenPropertiesSha256": "aa7a10211d2f5245621d32a7f1908647f25d2c25524eb69916600ad81880ee39",
+	"previousParseReceipts": [
+		{
+			"checkId": "20261114-200415-f97a",
+			"observedResult": "passed",
+			"mutationAnchors": 12,
+			"parsedVariants": 13,
+			"sourceFreezePendingAtThatTime": true
+		},
+		{
+			"checkId": "20261114-203600-6913",
+			"observedResult": "passed",
+			"mutationAnchors": 13,
+			"parsedVariants": 14,
+			"beforeFinalCodeTags": true
+		}
+	],
+	"TLC": false,
+	"mutationKills": false,
+	"nativeExecution": false,
+	"codeCorrespondenceAccepted": false,
+	"limits": "Cached SANY 1.8.0 -error-codes parsed the baseline and applied mutants. Each mutation changes one non-comment occurrence and preserves the frozen predicate bytes. Configured invariant names and source tag range bounds were checked statically. The source range hashes refer to the immutable revision, not the working checkout. No state search, invariant evaluation, mutation kill, runtime reproduction, refinement proof or hosted gate was performed."
+}

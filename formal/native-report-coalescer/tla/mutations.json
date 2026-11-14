@@ -1,0 +1,128 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": "1",
+		"timeoutSec": 7200
+	},
+	"properties": [
+		"TypeOK",
+		"NoAckBeforeReceiverOwned",
+		"NoSupersededEffects",
+		"NoConcurrentIdentityDeliver",
+		"NoKnownRetryEffects",
+		"NoLateReplacementMutation",
+		"NoUnadmittedWaiterOrphan",
+		"ConflictPreservesOriginal",
+		"UnknownRetainsResponsibility"
+	],
+	"waive": {
+		"TypeOK": "Structural domain check only; behavioral mutations target the eight frozen protocol obligations."
+	},
+	"mutations": [
+		{
+			"name": "ack-before-receiver-ownership",
+			"why": "Treat a Missing canonical lookup as success before source and receiver Disk ownership.",
+			"search": "    /\\ flights' = [flights EXCEPT ![g].phase = \"carry\"]",
+			"replace": "    /\\ flights' = [flights EXCEPT ![g].phase = \"return\", ![g].receipt = \"new\"]",
+			"breaks": "NoAckBeforeReceiverOwned",
+			"isolate": true
+		},
+		{
+			"name": "attempted-retry-called-unadmitted",
+			"why": "Forget or supersession of an attempted retry must not promise that no delivery happened.",
+			"search": "UnadmittedOutcome(g) == IF flights[g].ever THEN \"unknown\" ELSE \"unadmitted\"",
+			"replace": "UnadmittedOutcome(g) == \"unadmitted\"",
+			"breaks": "NoSupersededEffects",
+			"isolate": true
+		},
+		{
+			"name": "stale-timer-reclaims-superseded-mail",
+			"why": "A scheduled unstarted task ignores its exact active handle and completed latch, attempting a forgotten original.",
+			"search": "    /\\ g \\in scheduled\n    /\\ g \\in inFlight\n    /\\ flights[g].phase = \"claimed\"\n    /\\ flights[g].outcome = \"none\"",
+			"replace": "    /\\ g \\in scheduled\n    /\\ flights[g].phase \\in {\"claimed\", \"stopped\"}",
+			"breaks": "NoSupersededEffects",
+			"isolate": true
+		},
+		{
+			"name": "admit-duplicate-instead-of-join",
+			"why": "Remove the native identity join guard, allowing a second generation for an indexed identity.",
+			"search": "    /\\ Matching(k) = {}",
+			"replace": "    /\\ TRUE",
+			"breaks": "NoConcurrentIdentityDeliver",
+			"isolate": true
+		},
+		{
+			"name": "known-retry-materializes",
+			"why": "An existing receiver lookup is allowed to run carry and land again.",
+			"search": "    /\\ flights' = [flights EXCEPT ![g].phase = \"return\", ![g].receipt = \"existing\"]",
+			"replace": "    /\\ flights' = [flights EXCEPT ![g].phase = \"carry\", ![g].receipt = \"existing\"]",
+			"breaks": "NoKnownRetryEffects",
+			"isolate": true
+		},
+		{
+			"name": "late-return-clears-replacement-slot",
+			"why": "An old completion removes the pair slot without comparing its generation.",
+			"search": "    /\\ pending' = (IF pending = g THEN None ELSE pending)",
+			"replace": "    /\\ pending' = None",
+			"breaks": "NoLateReplacementMutation",
+			"isolate": true
+		},
+		{
+			"name": "late-return-completes-replacement-waiters",
+			"why": "An old result is applied to the currently pending replacement completion rather than its own handle.",
+			"search": "          /\\ requests' = Settle(g, result, g)",
+			"replace": "          /\\ requests' = Settle(IF pending = None THEN g ELSE pending, result, g)",
+			"breaks": "NoLateReplacementMutation",
+			"isolate": true
+		},
+		{
+			"name": "supersede-drops-waiters",
+			"why": "Removing the original pending mail without completing its caller strands a terminal unadmitted waiter.",
+			"search": "    ELSE Settle(pending, Effective(pending, UnadmittedOutcome(pending)), pending)",
+			"replace": "    ELSE requests",
+			"breaks": "NoUnadmittedWaiterOrphan",
+			"isolate": true
+		},
+		{
+			"name": "forget-keeps-unadmitted-waiter-waiting",
+			"why": "Forget marks a queued flight terminal but leaves its waiter waiting.",
+			"search": "                 THEN [requests[r] EXCEPT !.state = \"done\",\n                       !.result = Effective(requests[r].gen, outcome(requests[r].gen)),",
+			"replace": "                 THEN [requests[r] EXCEPT !.state = \"waiting\",\n                       !.result = Effective(requests[r].gen, outcome(requests[r].gen)),",
+			"breaks": "NoUnadmittedWaiterOrphan",
+			"isolate": true
+		},
+		{
+			"name": "conflict-overwrites-original-hash",
+			"why": "A conflicting retry replaces the original canonical payload instead of leaving it intact.",
+			"search": "    /\\ flights' = flights\n",
+			"replace": "    /\\ flights' = [flights EXCEPT ![g].hash = h]\n",
+			"breaks": "ConflictPreservesOriginal",
+			"isolate": true
+		},
+		{
+			"name": "active-forget-discards-running-handle",
+			"why": "Forget drops a handle while its detached Deliver can still complete.",
+			"search": "    /\\ inFlight' = {g \\in inFlight : flights[g].ever}\n",
+			"replace": "    /\\ inFlight' = {}\n",
+			"breaks": "UnknownRetainsResponsibility",
+			"isolate": true
+		},
+		{
+			"name": "late-result-overwrites-unknown-latch",
+			"why": "A once-completed OutcomeUnknown latch is replaced by a later Deliver outcome.",
+			"search": "Effective(g, result) == IF flights[g].outcome = \"none\" THEN result ELSE flights[g].outcome",
+			"replace": "Effective(g, result) == result",
+			"breaks": "UnknownRetainsResponsibility",
+			"isolate": true
+		},
+		{
+			"name": "forgotten-unstarted-task-clears-new-handle",
+			"why": "Drop of an old unstarted task removes a new same-identity active completion without generation and Arc equality.",
+			"search": "    /\\ flights' = [flights EXCEPT ![g].phase = \"stopped\"]\n    /\\ inFlight' = inFlight \\ {g}",
+			"replace": "    /\\ flights' = [flights EXCEPT ![g].phase = \"stopped\"]\n    /\\ inFlight' = {n \\in inFlight : flights[n].key # flights[g].key}",
+			"breaks": "UnknownRetainsResponsibility",
+			"isolate": true
+		}
+	]
+}
