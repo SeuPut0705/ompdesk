@@ -283,6 +283,9 @@ struct TestHost {
 }
 
 impl Host for TestHost {
+    fn lane_id(&self) -> &str {
+        "test-lane"
+    }
     fn current(&self, ask: Ask) -> bool {
         self.cmd.load(Ordering::SeqCst) == ask.cmd
     }
