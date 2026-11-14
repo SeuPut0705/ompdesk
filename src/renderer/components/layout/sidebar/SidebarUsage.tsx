@@ -13,17 +13,11 @@ import { accountGauges, gaugeColumn, gaugeColumns, shortWindowLabel } from "../.
 import { useModelStore } from "../../../stores/model";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useUiStore } from "../../../stores/ui";
-import { DisclosureButton, IconButton, MAX_USAGE_COLUMNS } from "../../common";
-import {
-	AccountBadges,
-	type AccountQuotaSource,
-	accountStanding,
-	QuotaCell,
-	quotaLimits,
-	shortAccountNames,
-} from "../../settings/providers/AccountQuota";
+import { DisclosureButton, IconButton, MAX_USAGE_COLUMNS, NEAR_FRACTION } from "../../common";
+import { type AccountQuotaSource, QuotaCell, quotaLimits } from "../../settings/providers/AccountQuota";
 import { ConnectedRow, ProviderGroupItem } from "../../settings/providers/ConnectedRow";
 import { type ProviderGroup, providerPlan, shortProviderName } from "../../settings/providers/provider-groups";
+import { bareEmail } from "../AccountLimit";
 import { type UsageAccountGroup, usageAccountGroups } from "./usage-groups";
 
 /** What a row says of a usage report: the account's quota, and its state while omp skips it after a limit. */
@@ -57,7 +51,22 @@ function groupOf(id: string, providers: readonly ProviderInfo[]): ProviderGroup 
 	};
 }
 
+function shortAccountNames(labels: readonly string[]): string[] {
+	return labels.map((label, index) => {
+		const stem = bareEmail(label).split("@")[0] || label;
+		return `${stem.slice(0, 4)}·${index + 1}`;
+	});
+}
+
+function accountStanding(account: AccountQuotaSource): "limited" | "low" | "ok" {
+	const gauges = accountGauges(quotaLimits(account));
+	if (account.state === "depleted" || gauges.some(gauge => gauge.fraction >= 1)) return "limited";
+	if (account.state === "reserve" || gauges.some(gauge => gauge.fraction >= NEAR_FRACTION)) return "low";
+	return "ok";
+}
+
 function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers: readonly ProviderInfo[] }) {
+	const t = useT();
 	const folded = useSidebarFolds(s => s.usageGroups[group.provider] === true);
 	const sources = group.accounts.map(({ report, inUse }) => sourceOf(report, inUse));
 	const labels = group.accounts.map(({ report }) => report.account?.trim() || report.provider);
@@ -90,11 +99,22 @@ function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers:
 			)}
 			{group.accounts.map(({ report, inUse }, index) => {
 				const source = sources[index] as AccountQuotaSource;
+				const standing = accountStanding(source);
+				const limited = standing === "limited";
 				return (
 					<ConnectedRow
 						account={names[index] ?? labels[index] ?? report.provider}
 						accountTitle={labels[index]}
-						badges={<AccountBadges account={source} compact />}
+						badges={
+							(source.inUse || limited) && (
+								<span
+									className={`omp-account-state ${limited ? "text-(--sc-warning)" : "text-(--sc-success)"}`}
+								>
+									{source.inUse && limited && <span aria-label={t("providers.accounts.inUse")}>● </span>}
+									{limited ? t("usage.limitedShort") : t("providers.accounts.inUse")}
+								</span>
+							)
+						}
 						compact
 						key={`${report.provider}:${report.credentialId ?? labels[index]}`}
 						quota={<QuotaCell account={source} columns={columns} compact now={now} tracks={0} />}
@@ -103,7 +123,7 @@ function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers:
 							"data-in-use": inUse || undefined,
 							"data-rail-account": `${report.provider}:${report.account ?? ""}`,
 							"data-usage-account": report.credentialId ?? labels[index],
-							"data-usage-standing": accountStanding(source),
+							"data-usage-standing": standing,
 						}}
 					/>
 				);

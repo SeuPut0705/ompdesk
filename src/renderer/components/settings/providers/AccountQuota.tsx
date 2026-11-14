@@ -51,22 +51,6 @@ export function accountNames(labels: readonly string[]): { address: string; suff
 	});
 }
 
-/** Short local identifiers; a stable row number distinguishes matching prefixes and duplicate sign-ins. */
-export function shortAccountNames(labels: readonly string[]): string[] {
-	return labels.map((label, index) => {
-		const stem = bareEmail(label).split("@")[0] || label;
-		return `${stem.slice(0, 4)}·${index + 1}`;
-	});
-}
-
-/** How the account stands: out of room (a gauge at its limit, or omp skipping it), running low, or fine. */
-export function accountStanding(account: AccountQuotaSource): "limited" | "low" | "ok" {
-	const gauges = accountGauges(quotaLimits(account));
-	if (account.state === "depleted" || gauges.some(gauge => gauge.fraction >= 1)) return "limited";
-	if (account.state === "reserve" || gauges.some(gauge => gauge.fraction >= NEAR_FRACTION)) return "low";
-	return "ok";
-}
-
 /**
  * The account's windows as shared gauges (share used, reset beneath each), each in its column of the provider's
  * set, on the track count the whole list shares; the tooltip lists every window and the read's age.
@@ -115,18 +99,9 @@ export function QuotaCell({
 }
 
 /** In use, and what no gauge of the row says: skipped after a limit, or low, with no window at or near its end. */
-export function AccountBadges({ account, compact = false }: { account: AccountQuotaSource; compact?: boolean }) {
+export function AccountBadges({ account }: { account: AccountQuotaSource }) {
 	const t = useT();
 	const gauges = accountGauges(quotaLimits(account));
-	if (compact) {
-		const limited = accountStanding(account) === "limited";
-		return account.inUse || limited ? (
-			<span className={`omp-account-state ${limited ? "text-(--sc-warning)" : "text-(--sc-success)"}`}>
-				{account.inUse && limited && <span aria-label={t("providers.accounts.inUse")}>● </span>}
-				{limited ? t("usage.limitedShort") : t("providers.accounts.inUse")}
-			</span>
-		) : null;
-	}
 	return (
 		<>
 			{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}
