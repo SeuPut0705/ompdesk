@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { execFile } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { promisify } from "node:util";
+import { afterEach, describe, expect, it } from "vitest";
 import { asksForMac, decide, type LaneRun, laneOf, parseArgs, refAllowed } from "./ci-run";
 
 const run = (id: number, workflow: string, branch: string, ...statuses: string[]): LaneRun => ({
@@ -86,5 +91,124 @@ describe("ci-run lane", () => {
 		expect(decide({ ...args, replace: true }, "mine", "mine", full)).toMatchObject({ go: true });
 		const held = laneOf([run(1, "ci", "a", "in_progress")], mine);
 		expect(decide(args, "mine", "mine", held)).toMatchObject({ go: true, note: expect.stringContaining("run 1") });
+	});
+
+	it("refuses a pending-only macOS request from another workflow even without a holder", () => {
+		const lane = laneOf([run(707, "e2e-nightly", "parity-owner", "pending")], { workflow: "ci", branch: "mine" });
+		const decision = decide({ workflow: "ci", inputs: { mac: "true" }, replace: false }, "mine", "mine", lane);
+		expect(decision).toMatchObject({ go: false, code: 3 });
+		expect(decision.go === false && decision.why).toContain("707 (e2e-nightly, parity-owner)");
+	});
+
+	it("permits replacing a pending-only request only when explicitly asked", () => {
+		const lane = laneOf([run(707, "e2e-nightly", "parity-owner", "pending")], { workflow: "ci", branch: "mine" });
+		expect(decide({ workflow: "ci", inputs: { mac: "true" }, replace: true }, "mine", "mine", lane)).toEqual({
+			go: true,
+		});
+	});
+});
+
+const dispatchDirs: string[] = [];
+afterEach(() => {
+	for (const dir of dispatchDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// PATH stand-ins are POSIX executables; the dispatch/parser code is shared with Windows.
+describe.skipIf(process.platform === "win32")("ci-run dispatch receipt consumer", () => {
+	const execute = promisify(execFile);
+	function fixture(pendingOnly = false) {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-dispatch-receipt-"));
+		dispatchDirs.push(dir);
+		fs.writeFileSync(
+			path.join(dir, "gh"),
+			`#!/bin/sh
+printf '%s\\n' "$*" >> "$DISPATCH_TRACE"
+for arg do
+  case "$arg" in
+    */actions/workflows/e2e-nightly.yml/runs?*)
+      if [ "$PENDING_ONLY" = yes ]; then echo '{"workflow_runs":[{"id":707,"status":"pending","head_branch":"parity-owner"}]}'; else echo '{"workflow_runs":[]}'; fi
+      exit 0 ;;
+    */actions/workflows/ci.yml/runs?*|*/actions/workflows/flake-probe.yml/runs?*)
+      echo '{"workflow_runs":[]}'; exit 0 ;;
+    */actions/runs/707/jobs?*)
+      echo '[{"status":"pending","labels":[]}]'; exit 0 ;;
+    */dispatches)
+      case "$DISPATCH_BODY" in
+        __receipt__) printf '{"workflow_run_id":%s,"html_url":"https://github.com/test/repo/actions/runs/%s"}\\n' "$OWN_RUN" "$OWN_RUN" ;;
+        __network__) echo 'connection reset after request was sent' >&2; exit 1 ;;
+        *) printf '%s' "$DISPATCH_BODY" ;;
+      esac
+      exit 0 ;;
+  esac
+done
+if [ "$1 $2" = 'variable get' ]; then echo concurrent-dispatch; exit 0; fi
+if [ "$1 $2" = 'run list' ]; then
+  echo '[{"databaseId":999999,"createdAt":"2099-01-01T00:00:00Z","headSha":"other","url":"https://github.com/test/repo/actions/runs/999999"}]'
+else
+  echo '{}'
+fi
+`,
+			{ mode: 0o755 },
+		);
+		return {
+			dir,
+			start: (
+				id: number,
+				body = "__receipt__",
+				argv = ["formal", "--ref", "concurrent-dispatch", "-f", "only=unit"],
+			) =>
+				execute("bun", [path.resolve("scripts/ci-run.ts"), ...argv], {
+					env: {
+						...process.env,
+						PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`,
+						OWN_RUN: String(id),
+						DISPATCH_TRACE: path.join(dir, `trace-${id}`),
+						DISPATCH_BODY: body,
+						PENDING_ONLY: pendingOnly ? "yes" : "no",
+					},
+				}),
+		};
+	}
+
+	it("keeps two concurrent dispatches on the same ref attached to their own returned run IDs", async () => {
+		const { start } = fixture();
+		const [first, second] = await Promise.all([start(101), start(202)]);
+		expect(first.stdout).toContain("watch it once: bun scripts/watch-run.ts 101");
+		expect(second.stdout).toContain("watch it once: bun scripts/watch-run.ts 202");
+		expect(first.stdout + second.stdout).not.toContain("watch it once: bun scripts/watch-run.ts 999999");
+	});
+
+	it.each([
+		["missing ID", "{}"],
+		["empty response", ""],
+		["malformed response", "{broken"],
+		["zero ID", '{"workflow_run_id":0}'],
+		["fractional ID", '{"workflow_run_id":3.5}'],
+		["unsafe integer ID", '{"workflow_run_id":9007199254740992}'],
+		["string ID", '{"workflow_run_id":"303"}'],
+		["lost response after sending", "__network__"],
+	])("retains %s without attributing a candidate or dispatching again", async (_reason, body) => {
+		const { start, dir } = fixture();
+		await expect(start(303, body)).rejects.toMatchObject({
+			code: 1,
+			stdout: expect.not.stringContaining("watch it once:"),
+			stderr: expect.stringContaining("unconfirmed"),
+		});
+		const trace = fs.readFileSync(path.join(dir, "trace-303"), "utf8").trim().split("\n");
+		expect(trace.filter(line => line.includes("/dispatches"))).toHaveLength(1);
+	});
+
+	it("refuses a pending-only lane with --wait and no holder without dispatching, cancelling or blind watching", async () => {
+		const { start, dir } = fixture(true);
+		await expect(
+			start(404, undefined, ["ci", "--ref", "concurrent-dispatch", "-f", "mac=true", "--wait"]),
+		).rejects.toMatchObject({
+			code: 3,
+			stderr: expect.stringContaining("707 (e2e-nightly, parity-owner)"),
+		});
+		const trace = fs.readFileSync(path.join(dir, "trace-404"), "utf8");
+		expect(trace).not.toContain("/dispatches");
+		expect(trace).not.toContain("/cancel");
+		expect(trace).not.toContain("run watch");
 	});
 });
