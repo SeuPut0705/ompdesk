@@ -63,12 +63,44 @@ fn no_bridge() -> Fault {
 pub type StockReply = oneshot::Sender<Result<(), Fault>>;
 pub type BridgeReply = oneshot::Sender<Result<Option<Box<RawValue>>, Fault>>;
 
+fn join_receipts(
+    exits: Vec<watch::Receiver<Option<Result<(), Fault>>>>,
+    reply: oneshot::Sender<Result<(), Fault>>,
+) {
+    tokio::spawn(async move {
+        for mut exit in exits {
+            let result = match exit.wait_for(Option::is_some).await {
+                Ok(receipt) => match &*receipt {
+                    Some(result) => result.clone(),
+                    None => Err(Fault::new(
+                        "sidecar_disconnected",
+                        "Child exit receipt was missing",
+                    )),
+                },
+                Err(_) => Err(Fault::new(
+                    "sidecar_disconnected",
+                    "Child exit receipt was lost",
+                )),
+            };
+            if let Err(error) = result {
+                let _ = reply.send(Err(error));
+                return;
+            }
+        }
+        let _ = reply.send(Ok(()));
+    });
+}
+
 /// What main sent that the lane applies in `seq` order.
 pub enum Command {
     Start,
     Restart {
         cwd: Option<String>,
         resume_session_path: Option<String>,
+    },
+    NativeRestart {
+        generation: u64,
+        reply: oneshot::Sender<Result<(), Fault>>,
     },
     Kill,
     Sleep,
@@ -115,7 +147,7 @@ impl Command {
             Command::Barrier(_, reply) | Command::WhenExited(reply) => {
                 let _ = reply.send(());
             }
-            Command::GuardedSend { reply, .. } => {
+            Command::GuardedSend { reply, .. } | Command::NativeRestart { reply, .. } => {
                 let _ = reply.send(Err(disconnected()));
             }
             _ => {}
@@ -855,6 +887,15 @@ impl Lane {
                 cwd,
                 resume_session_path,
             } => self.restart(cwd, resume_session_path),
+            Command::NativeRestart { generation, reply } => {
+                if !self.is_live(generation) {
+                    let _ = reply.send(Err(disconnected()));
+                    return;
+                }
+                let exits = self.receipts.clone();
+                self.restart(None, None);
+                join_receipts(exits, reply);
+            }
             Command::Kill => self.stop_child(None),
             Command::Sleep => self.sleep(),
             Command::Dispose { stdin_grace } => self.dispose(stdin_grace),
@@ -921,31 +962,7 @@ impl Lane {
                     let _ = reply.send(());
                 });
             }
-            Command::NativeWhenExited(reply) => {
-                let exits = self.receipts.clone();
-                tokio::spawn(async move {
-                    for mut exit in exits {
-                        let result = match exit.wait_for(Option::is_some).await {
-                            Ok(receipt) => match &*receipt {
-                                Some(result) => result.clone(),
-                                None => Err(Fault::new(
-                                    "sidecar_disconnected",
-                                    "Child exit receipt was missing",
-                                )),
-                            },
-                            Err(_) => Err(Fault::new(
-                                "sidecar_disconnected",
-                                "Child exit receipt was lost",
-                            )),
-                        };
-                        if let Err(error) = result {
-                            let _ = reply.send(Err(error));
-                            return;
-                        }
-                    }
-                    let _ = reply.send(Ok(()));
-                });
-            }
+            Command::NativeWhenExited(reply) => join_receipts(self.receipts.clone(), reply),
         }
     }
 

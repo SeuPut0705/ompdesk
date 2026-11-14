@@ -147,6 +147,15 @@ impl Service {
             true,
         );
     }
+    /// Cleanup capability for an already captured local run; never restarts a replacement generation.
+    pub fn restart_for_generation(
+        &self,
+        generation: u64,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
+        let (reply, answer) = oneshot::channel();
+        self.send(Command::NativeRestart { generation, reply }, false);
+        Box::pin(async move { answer.await.map_err(|_| disconnected())? })
+    }
     pub fn sleep(&self) {
         self.send(Command::Sleep, true);
     }
@@ -462,6 +471,7 @@ async fn pump(
             state.generation = event.generation;
             match event.name.as_str() {
                 "sidecar.nativeGeneration" => {
+                    service.fence.fetch_max(cmd, Ordering::SeqCst);
                     state.bridge = false;
                 }
                 "sidecar.status" => {
