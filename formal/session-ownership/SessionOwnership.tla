@@ -45,7 +45,7 @@ LocalTarget(t) == state[t] = "left" /\ kind[t] = "local" /\ session[t] \notin ke
 HostedTarget(t) == state[t] = "left" /\ kind[t] = "hosted" /\ ~HostedHeld(t)
 RetryEligible(t) == state[t] = "left"
 
-\* @code native/ompdesk/crates/core/src/session_ownership/mod.rs:99-155 acquire, takeover, fresh tag, journal
+\* @code native/ompdesk/crates/core/src/session_ownership/mod.rs:99-155 acquire, takeover, fresh tag policy; persistence excluded
 Open(o) ==
     /\ app = "up" /\ ~frozen /\ tab[o] \in {"closed", "restored"} /\ o \notin retired
     /\ ~\E other \in Owners : other # o /\ other[1] = o[1] /\ other[2] = o[2] /\ tab[other] # "closed"
@@ -78,7 +78,7 @@ Spawn(o) ==
                    used, inflight, allowed, saved, keep, swept, queue, grace,
                    exited, retries, retryUsed, failed, tookOver, retired>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:2056-2078 dispose and when_all_exited
+\* Assumption reference only, excluded from covers: native/ompdesk/crates/core/src/sidecar/lane.rs:2056-2078; Base joins the exact receipt.
 \* @code native/ompdesk/crates/core/src/session_ownership/mod.rs:190-201 closing
 \* @code native/ompdesk/crates/core/src/session_ownership/mod.rs:310-338 session_released, abstracted as a queue
 Dispose(o) ==
@@ -197,8 +197,8 @@ Down ==
     /\ UNCHANGED <<frozen, launches, state, session, kind, owner, used, alive,
                    allowed, keep, swept, retryUsed, failed, tookOver, retired>>
 
-\* @code native/ompdesk/crates/core/src/session_ownership/mod.rs:49-90 load persisted entries as left
-\* @code native/ompdesk/crates/core/src/session_ownership/journal.rs:11-39 read and validate journal
+\* @code native/ompdesk/crates/core/src/session_ownership/mod.rs:49-90 constructor maps supplied saved entries to Left; file IO excluded
+\* Assumption reference only, excluded from covers: native/ompdesk/crates/core/src/session_ownership/journal.rs:11-39; saved entries equal memory.
 Boot ==
     /\ app = "down" /\ launches < MaxLaunches
     /\ app' = "up" /\ frozen' = FALSE /\ launches' = launches + 1
