@@ -1510,3 +1510,163 @@ async fn immediate_delivery_rechecks_binding_after_spawn_before_its_first_poll()
         control.host.port().close();
     }
 }
+
+mod reused_port_shutdown {
+    use super::*;
+    use tokio::sync::{mpsc, oneshot};
+    use tokio::task::AbortHandle;
+
+    enum Order {
+        ShutdownBeforeReplacement,
+        ReplacementBeforeShutdown,
+    }
+
+    struct Fixture {
+        old_port: Arc<Port<HostState>>,
+        old_closed: bool,
+        replacement_port: Option<Arc<Port<HostState>>>,
+        old_runtime: Option<Arc<Runtime>>,
+        replacement_runtime: Option<Arc<Runtime>>,
+        probe: Option<AbortHandle>,
+        frames: mpsc::UnboundedSender<crate::wire::Frame>,
+        _receiver: mpsc::UnboundedReceiver<crate::wire::Frame>,
+    }
+
+    impl Fixture {
+        fn new(id: u64) -> Self {
+            let (frames, receiver) = mpsc::unbounded_channel();
+            let events = crate::server::test_events(&frames);
+            let old_port =
+                Port::open(&events, id, serde_json::from_value(state(vec![])).unwrap()).unwrap();
+            Self {
+                old_port,
+                old_closed: false,
+                replacement_port: None,
+                old_runtime: None,
+                replacement_runtime: None,
+                probe: None,
+                frames,
+                _receiver: receiver,
+            }
+        }
+
+        fn start(port: Arc<Port<HostState>>) -> Arc<Runtime> {
+            let id = port.id();
+            let control = AgentControl::new(
+                port,
+                Caps::default(),
+                &Files::default(),
+                Tuning::default(),
+                system_clock(),
+            );
+            start(
+                control,
+                id,
+                RuntimeConfig {
+                    sweep_ms: 0,
+                    ..RuntimeConfig::default()
+                },
+            )
+        }
+
+        fn close_old(&mut self) {
+            self.old_port.close();
+            self.old_closed = true;
+        }
+
+        fn open_replacement(&mut self) -> Arc<Runtime> {
+            let events = crate::server::test_events(&self.frames);
+            let port = Port::open(
+                &events,
+                self.old_port.id(),
+                serde_json::from_value(state(vec![])).unwrap(),
+            )
+            .unwrap();
+            self.replacement_port = Some(port.clone());
+            let runtime = Self::start(port);
+            self.replacement_runtime = Some(runtime.clone());
+            runtime
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            if let Some(probe) = &self.probe {
+                probe.abort();
+            }
+            if let Some(port) = &self.replacement_port {
+                port.close();
+            } else if !self.old_closed {
+                self.old_port.close();
+            }
+            let mut runtimes = super::super::lock(&super::super::RUNTIMES);
+            if runtimes.get(&self.old_port.id()).is_some_and(|current| {
+                self.old_runtime
+                    .as_ref()
+                    .is_some_and(|runtime| Arc::ptr_eq(current, runtime))
+                    || self
+                        .replacement_runtime
+                        .as_ref()
+                        .is_some_and(|runtime| Arc::ptr_eq(current, runtime))
+            }) {
+                runtimes.remove(&self.old_port.id());
+            }
+        }
+    }
+
+    async fn replacement_survives(id: u64, order: Order) {
+        let mut fixture = Fixture::new(id);
+        let old_runtime = Fixture::start(fixture.old_port.clone());
+        fixture.old_runtime = Some(old_runtime.clone());
+        let (sender, receiver) = oneshot::channel::<()>();
+        let probe = tokio::spawn(async move {
+            let _sender = sender;
+            std::future::pending::<()>().await;
+        });
+        fixture.probe = Some(probe.abort_handle());
+        old_runtime.rt().review_timers.insert("probe".into(), probe);
+
+        fixture.close_old();
+        // On the current-thread runtime, stop and registry removal finish before probe cancellation wakes this test.
+        let mut shutdown = Some(receiver);
+        if matches!(order, Order::ShutdownBeforeReplacement) {
+            assert!(shutdown.take().unwrap().await.is_err());
+        }
+
+        let replacement = fixture.open_replacement();
+        assert!(!Arc::ptr_eq(
+            &fixture.old_port,
+            fixture.replacement_port.as_ref().unwrap()
+        ));
+        assert!(Arc::ptr_eq(
+            &super::super::runtime_of(id).unwrap(),
+            &replacement
+        ));
+        if let Some(shutdown) = shutdown {
+            assert!(shutdown.await.is_err());
+        }
+        assert!(fixture.old_port.changes().is_closed());
+        assert!(
+            !fixture
+                .replacement_port
+                .as_ref()
+                .unwrap()
+                .changes()
+                .is_closed()
+        );
+        assert!(Arc::ptr_eq(
+            &super::super::runtime_of(id).unwrap(),
+            &replacement
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn replacement_after_old_shutdown_remains_findable() {
+        replacement_survives(871_291_001, Order::ShutdownBeforeReplacement).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn replacement_before_old_shutdown_remains_findable() {
+        replacement_survives(871_291_002, Order::ReplacementBeforeShutdown).await;
+    }
+}
