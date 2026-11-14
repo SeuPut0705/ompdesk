@@ -5492,7 +5492,7 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
 		const stock = host.stocks.get(kid)!;
 		const now = await service.run("boss0001", T.send, { session: kid, message: "Stop at B" });
-		expect(now.text).toContain("delivered as steer (it reads it between steps)");
+		expect(now.isError, now.text).toBe(false);
 		await stock.waitForRequest(request =>
 			request.entries.some(entry => entry.content.toString().includes("Stop at B")),
 		);
@@ -5531,7 +5531,7 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 		expect(report.text).toMatch(/end (this|your) turn/i);
 		// A message sent after it reported in this turn reaches it between its steps.
 		const next = await service.run("boss0001", T.send, { session: kid, message: "And D" });
-		expect(next.text).toContain("steer");
+		expect(next.isError, next.text).toBe(false);
 		await stock.waitForRequest(request => request.entries.some(entry => entry.content.toString().includes("And D")));
 		expect(stock.asides).toEqual(
 			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("And D") })]),
@@ -5549,8 +5549,11 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 		await stock.waitForRequest(request =>
 			request.entries.some(entry => entry.content.toString().includes("Also do C")),
 		);
+		expect((await stock.status()).receipts).toEqual([]);
 		stock.journalQueued();
+		expect((await stock.status()).receipts).toEqual([]);
 		await stock.observeProviderOutput([{ type: "text_delta", delta: "fixture output" }]);
+		expect((await stock.status()).receipts).toHaveLength(1);
 		const report = await service.run(kid, T.report, { kind: "done", text: "C done", dispatch: "d2" });
 		expect(report.text).toBe("Delivered.");
 	});
@@ -5712,7 +5715,6 @@ describe("situation matrix", () => {
 		"read · unknown": { tool: T.read, args: { session: "nothing-like-it" }, error: /ompdesk_sessions/ },
 
 		"send · local": { tool: T.send, args: { session: "loca1111", message: "go" }, ok: /Sent to/ },
-		"send · title": { tool: T.send, args: { session: "Busy builder", message: "go" }, ok: /delivered as steer/ },
 		"send · saved id of an open tab": { tool: T.send, args: { session: LOCAL_STOCK, message: "go" }, ok: /Sent to/ },
 		"send · paired device": { tool: T.send, args: { session: "remo2222", message: "go" }, ok: /Sent to/ },
 		"send · device reconnecting": { tool: T.send, args: { session: "blip5555", message: "go" }, ok: /Sent to/ },
@@ -5843,6 +5845,20 @@ describe("situation matrix", () => {
 			expect(outcome.isError, outcome.text).toBe(false);
 			expect(outcome.text).toMatch(cell.ok as RegExp);
 		}
+	});
+
+	it("send · title", async () => {
+		const host = world({ linkBlips: false });
+		host.nativeInbox();
+		const outcome = await control(host).run("boss0001", T.send, { session: "Busy builder", message: "go" });
+		expect(outcome.isError, outcome.text).toBe(false);
+		const stock = host.stocks.get("busy4444")!;
+		const request = await stock.waitForRequest();
+		expect(request.entries).toEqual([
+			expect.objectContaining({ kind: "prompt", intent: "immediate", content: expect.stringContaining("go") }),
+		]);
+		expect(stock.asides).toEqual([expect.objectContaining({ content: expect.stringContaining("go") })]);
+		expect([...host.stocks].filter(([id]) => id !== "busy4444").flatMap(([, other]) => other.admissions)).toEqual([]);
 	});
 
 	it("waits a bounded moment only: a device that stays away fails within 20 s and says what to do", async () => {
@@ -6684,7 +6700,8 @@ describe("one id per session: a message names its sender and reaches the session
 		await host.stocks
 			.get("15ca089d159bfde0")!
 			.waitForRequest(request => request.entries.some(entry => entry.kind === "prompt"));
-		expect(result.text).toContain(`Sent to "문의" (saved id ${ASK}, on SeuPut): accepted`);
+		expect(result.isError, result.text).toBe(false);
+		expect(result.text).toContain(`Sent to "문의" (saved id ${ASK}, on SeuPut)`);
 		expect(result.text).toContain(`waiting for the user's answer: "판단에 필요한 사실"`);
 		expect(result.text).not.toContain("untitled");
 		expect(result.text).not.toContain("idle");
@@ -6795,7 +6812,7 @@ describe("a message to a running session the sender did not open is read between
 		expect(stock.asides).toEqual(
 			expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining(answer.message) })]),
 		);
-		expect(result.text).toContain("delivered as steer");
+		expect(result.isError, result.text).toBe(false);
 		expect(result.text).not.toContain("queued as a follow-up");
 	});
 
