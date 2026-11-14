@@ -490,6 +490,7 @@ async fn the_decisions_answers_and_adoption_survive_a_restart_of_the_hub() {
             poller,
             snapshot,
             Some(dir.clone()),
+            Some(Arc::new(crate::checks::local_run::Unavailable)),
         )
     };
     let hub = open();
@@ -530,6 +531,7 @@ async fn the_owners_pause_refuses_every_start_and_survives_a_restart() {
             poller,
             snapshot,
             Some(dir.clone()),
+            Some(Arc::new(crate::checks::local_run::Unavailable)),
         )
     };
     let hub = open(snapshot());
@@ -877,8 +879,8 @@ async fn a_start_asks_placement_and_says_so_when_the_computer_it_picks_cannot_ru
         .await
         .unwrap();
     assert_eq!(reply.decision, StartDecision::Started, "{}", reply.reason);
-    // A private repository goes local first, but the hub cannot run a workflow on a computer yet: the run still
-    // starts, on GitHub, and the reply and the log say where policy wanted it and why it is not there.
+    // A private repository goes local first, but this repo names no command a computer runs (no `local`, no `check`
+    // script): the run starts on GitHub, and the reply and the log say where policy wanted it and why it is not there.
     assert_eq!(reply.placement, Some(Where::GithubHosted));
     assert_eq!(dispatches(&github).len(), 1);
     assert!(reply.reason.contains("local"), "{}", reply.reason);
@@ -1009,4 +1011,213 @@ async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from
         board.borrow().queue
     );
     clock::set_real();
+}
+
+/// A runner of checks placed on this computer that answers what the test set, after naming its run.
+struct FakeRunner {
+    asks: Mutex<Vec<LocalRunAsk>>,
+    answer: Result<crate::checks::sources::LocalRun, String>,
+}
+
+impl FakeRunner {
+    fn new(answer: Result<crate::checks::sources::LocalRun, String>) -> Arc<FakeRunner> {
+        Arc::new(FakeRunner {
+            asks: Mutex::default(),
+            answer,
+        })
+    }
+}
+
+impl crate::checks::local_run::LocalRunner for FakeRunner {
+    fn run<'a>(
+        &'a self,
+        ask: &'a LocalRunAsk,
+        started: Box<dyn FnOnce(&str) + Send + 'a>,
+        _scope: Scope,
+    ) -> Fut<'a, Result<crate::checks::sources::LocalRun, String>> {
+        Box::pin(async move {
+            locked(&self.asks).push(ask.clone());
+            if let Ok(run) = &self.answer {
+                started(&run.id);
+            }
+            self.answer.clone()
+        })
+    }
+}
+
+fn journal(state: &str, failed: &[&str]) -> crate::checks::sources::LocalRun {
+    crate::checks::sources::LocalRun {
+        id: "20261114-010203-ab12".into(),
+        device: "local".into(),
+        cwd: "/hub/checkouts/o_app".into(),
+        argv: vec!["npm".into(), "run".into(), "check".into()],
+        state: state.into(),
+        started: 1,
+        ended: Some(2),
+        head: Some(SHA.into()),
+        digest: "sha256:1".into(),
+        failed: failed.iter().map(|name| name.to_string()).collect(),
+        flaky: Vec::new(),
+        saved_ms: 0,
+        session_tag: None,
+    }
+}
+
+/// A private repository with a `check` script, and computers' pools as the test gives them.
+fn private_with_check(
+    pools: Vec<crate::checks::sources::LocalPool>,
+) -> (Arc<FakeGithub>, Arc<FakeLocal>) {
+    let github = github(CI);
+    github.with(|facts| {
+        facts.private = vec![REPO.into()];
+        facts.files.insert(
+            format!("{REPO}\n{SHA}\npackage.json"),
+            r#"{"scripts": {"check": "biome check ."}}"#.into(),
+        );
+    });
+    let local = Arc::new(FakeLocal::default());
+    local.with(|facts| facts.pools = pools);
+    (github, local)
+}
+
+async fn waited(hub: &Hub, id: &str) -> Answer {
+    hub.wait(
+        samples::session(),
+        WaitRequest {
+            run_id: id.into(),
+            until: Until::Result,
+            timeout_seconds: Some(10),
+        },
+        Scope::detached(),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_check_placed_on_this_computer_runs_through_ompdesk_check_and_its_journal_is_the_answer()
+{
+    use crate::checks::contract::Os;
+    // A wait runs on the hub's clock, which the tests that set it share.
+    let _serial = clock::TEST_CLOCK.lock().await;
+    let (github, local) = private_with_check(vec![free_pool("local", Os::Linux)]);
+    let runner = FakeRunner::new(Ok(journal("failed", &["src/a.test.ts › adds"])));
+    let hub = Hub::with_runner(github.clone(), local, runner.clone());
+    hub.poller.round().await;
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    let id = reply.run_id.clone().unwrap();
+    assert_eq!(reply.decision, StartDecision::Started, "{}", reply.reason);
+    assert_eq!(
+        reply.placement,
+        Some(Where::Device {
+            device_id: "local".into()
+        })
+    );
+    let answer = waited(&hub, &id).await;
+    assert_eq!(answer.verdict, AnswerVerdict::Red, "{:?}", answer.notes);
+    assert_eq!(answer.failed[0].test, "src/a.test.ts › adds");
+    assert_eq!(answer.said[0].code, NoteCode::RanOn);
+    // It ran here, not on GitHub, the commit and the repo's check script it was asked for.
+    assert!(dispatches(&github).is_empty());
+    assert_eq!(
+        locked(&runner.asks).clone(),
+        vec![LocalRunAsk {
+            repo: REPO.into(),
+            sha: SHA.into(),
+            argv: vec!["npm".into(), "run".into(), "check".into()],
+            release: false,
+        }]
+    );
+    let placed = placements(&hub);
+    assert_eq!(placed[0].why.code, WhyCode::PlacedOn, "{placed:?}");
+}
+
+#[tokio::test]
+async fn a_check_that_could_not_start_on_this_computer_runs_on_github_under_the_same_id() {
+    use crate::checks::contract::Os;
+    let (github, local) = private_with_check(vec![free_pool("local", Os::Linux)]);
+    let runner = FakeRunner::new(Err("fetching 0123 from o/app: no such commit".into()));
+    let hub = Hub::with_runner(github.clone(), local, runner);
+    hub.poller.round().await;
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    let id = reply.run_id.unwrap();
+    for _ in 0..100 {
+        if !dispatches(&github).is_empty() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(dispatches(&github).len(), 1);
+    let why: Vec<_> = placements(&hub)
+        .into_iter()
+        .map(|d| (d.run, d.why.code))
+        .collect();
+    assert_eq!(
+        why,
+        vec![
+            (id.clone(), WhyCode::PlacedOn),
+            (id, WhyCode::LocalUnavailable)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_check_placed_on_a_paired_computer_goes_to_main_and_its_answer_comes_back_as_the_hubs() {
+    use crate::checks::contract::Os;
+    let _serial = clock::TEST_CLOCK.lock().await;
+    let (github, local) = private_with_check(vec![free_pool("mac-mini", Os::Linux)]);
+    let hub = Hub::with_runner(github.clone(), local, FakeRunner::new(Err("unused".into())));
+    hub.poller.round().await;
+    let mut sent = hub.remote_runs();
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat"))
+        .await
+        .unwrap();
+    let id = reply.run_id.unwrap();
+    let run = sent.recv().await.unwrap();
+    assert_eq!(
+        (run.id.as_str(), run.device.as_str()),
+        (id.as_str(), "mac-mini")
+    );
+    assert_eq!(run.ask.argv, vec!["npm", "run", "check"]);
+    // That computer answers as itself; here the answer is the hub's run on the computer it was placed on.
+    let there = crate::checks::local_run::answer_of(
+        "20261114-010203-ab12",
+        &journal("passed", &[]),
+        &"local".to_owned(),
+        &run.ask.argv,
+        Os::Linux,
+        clock::now_ms(),
+    );
+    hub.remote_answer(id.clone(), Ok(there)).await.unwrap();
+    let answer = waited(&hub, &id).await;
+    assert_eq!(
+        (answer.run_id.as_str(), answer.verdict),
+        (id.as_str(), AnswerVerdict::Green)
+    );
+    assert_eq!(answer.said[0].device.as_deref(), Some("mac-mini"));
+    assert!(
+        answer.notes[0].contains("on mac-mini"),
+        "{:?}",
+        answer.notes
+    );
+    assert!(dispatches(&github).is_empty());
+
+    // A computer that could not run it (an older build, a link that went away): the check runs on GitHub.
+    let reply = hub
+        .start(samples::session(), start(Purpose::Branch, "feat2"))
+        .await
+        .unwrap();
+    let second = reply.run_id.unwrap();
+    assert_eq!(sent.recv().await.unwrap().id, second);
+    hub.remote_answer(second, Err("unsupported: an older OMPdesk".into()))
+        .await
+        .unwrap();
+    assert_eq!(dispatches(&github).len(), 1);
 }

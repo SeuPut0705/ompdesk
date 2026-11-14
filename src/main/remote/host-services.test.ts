@@ -11,6 +11,7 @@ import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origi
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { type AgentReviewItem, type AgentReviewResult, wrapAgentMessage } from "../../shared/agent-control";
 import type { LocalPool } from "../../shared/checks-contract";
+import { sampleAnswer } from "../../shared/checks-fixture";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -59,6 +60,7 @@ import { withRemovalClaim } from "../worktree-removals";
 import {
 	AUTOPILOT_NOTICE_EVENT,
 	CHECKS_LOCAL_POOL_METHOD,
+	CHECKS_RUN_LOCAL_METHOD,
 	decodeBinaryRead,
 	type KeptTab,
 	MemoryConclusionPullReply,
@@ -4031,6 +4033,29 @@ describe("LocalHostServices host.* calls", () => {
 		await expect(services.call(x.peer, CHECKS_LOCAL_POOL_METHOD, {}, x)).resolves.toEqual(pool);
 		const older = setup().services;
 		const refused = await older.call(x.peer, CHECKS_LOCAL_POOL_METHOD, {}, x).catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("unsupported");
+	});
+
+	it("runs a check a device's hub placed on this computer and answers its result, unsupported without a hub", async () => {
+		const ask = { repo: "o/app", sha: "0123456789abcdef", argv: ["npm", "run", "check"], release: false };
+		const ran: unknown[] = [];
+		const x = new FakeConnection(peer("device-x"));
+		const { services } = setup(60_000, {
+			checksRunLocal: async given => {
+				ran.push(given);
+				return sampleAnswer();
+			},
+		});
+		await expect(services.call(x.peer, CHECKS_RUN_LOCAL_METHOD, ask, x)).resolves.toEqual(sampleAnswer());
+		expect(ran).toEqual([ask]);
+		// A device's ask is read as the contract writes it: anything else runs nothing.
+		await expect(services.call(x.peer, CHECKS_RUN_LOCAL_METHOD, { ...ask, argv: "rm -rf /" }, x)).rejects.toThrow(
+			/Invalid checks.runLocal/,
+		);
+		expect(ran).toHaveLength(1);
+		const refused = await setup()
+			.services.call(x.peer, CHECKS_RUN_LOCAL_METHOD, ask, x)
+			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("unsupported");
 	});
 
