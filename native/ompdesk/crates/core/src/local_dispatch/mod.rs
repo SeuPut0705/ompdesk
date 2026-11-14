@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::pool::application::Sidecar;
 use crate::server::{Fault, Scope};
+use crate::sidecar::application::EffectFuture;
 
 pub mod archive;
 pub mod authoring;
@@ -170,17 +171,17 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
     }
 
     /// Capture before returning the future, not when an executor first polls it after another lifecycle command.
-    pub fn command(&self, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
+    pub fn command(&self, command: RpcCommand) -> EffectFuture<'_, Result<Value, Fault>> {
         self.command_for_generation(self.source.generation(), command)
     }
 
-    pub fn command_for_generation(&self, generation: u64, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
+    pub fn command_for_generation(&self, generation: u64, command: RpcCommand) -> EffectFuture<'_, Result<Value, Fault>> {
         let cwd = Arc::from(self.source.facts()["cwd"].as_str().unwrap_or_default());
         self.command_with_captured_cwd(generation, cwd, command, Scope::detached())
     }
 
     /// The caller supplies only the native selected cwd, never a page's command field or a late facts lookup.
-    pub fn command_with_captured_cwd(&self, generation: u64, cwd: Arc<str>, command: RpcCommand, scope: Scope) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
+    pub fn command_with_captured_cwd(&self, generation: u64, cwd: Arc<str>, command: RpcCommand, scope: Scope) -> EffectFuture<'_, Result<Value, Fault>> {
         let spawn = self.captured(generation);
         let session = spawn.session.clone().with_captured_cwd(cwd);
         Box::pin(self.execute(command, spawn, session, scope))

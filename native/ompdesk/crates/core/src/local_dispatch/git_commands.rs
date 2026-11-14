@@ -74,7 +74,7 @@ async fn remove_fresh(root: String, discarded: scm::Discarded, scope: Scope) -> 
     if fresh.is_empty() { return Ok(()); }
     tokio::task::spawn_blocking(move || {
         crate::disk::tree::live(&scope)?;
-        let real = crate::fs::disk::realpath(&root).map_err(|error| Fault::new("io", error.to_string()))?;
+        let real = crate::fs::disk::realpath(&root).map_err(|error| error.fault(crate::fs::error::Codes::None))?;
         for file in fresh {
             if !safe_path(&file) || file.starts_with("..") { continue; }
             crate::disk::tree::remove(&real.join(file), false, &scope)?;
