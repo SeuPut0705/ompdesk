@@ -74,20 +74,31 @@ pub enum Area {
 pub struct CommandTable(HashMap<&'static str, Area>);
 
 impl CommandTable {
+    fn duplicate(name: &str, area: &str) -> Fault {
+        Fault::new("duplicate_local_command", format!("Local RPC command \"{name}\" is defined twice ({area})"))
+    }
+
     pub fn new(areas: &[(&str, Area, &[&'static str])]) -> Result<Self, Fault> {
         let mut commands = HashMap::new();
         for (area, handler, names) in areas {
             for &name in *names {
                 if commands.insert(name, *handler).is_some() {
-                    return Err(Fault::new("duplicate_local_command", format!("Local RPC command \"{name}\" is defined twice ({area})")));
+                    return Err(Self::duplicate(name, area));
                 }
             }
         }
         Ok(Self(commands))
     }
 
+    pub fn reject_shadowing(&self, area: &str, handles: fn(&str) -> bool) -> Result<(), Fault> {
+        for &name in self.0.keys() {
+            if handles(name) { return Err(Self::duplicate(name, area)); }
+        }
+        Ok(())
+    }
+
     pub fn builtin() -> Result<Self, Fault> {
-        Self::new(&[
+        let table = Self::new(&[
             ("composer", Area::Composer, composer::COMMANDS),
             ("queue", Area::Queue, queue::COMMANDS),
             ("modes", Area::Modes, modes::COMMANDS),
@@ -103,7 +114,9 @@ impl CommandTable {
             ("github", Area::Github, github_commands::COMMANDS),
             ("cli", Area::Cli, cli_commands::COMMANDS),
             ("fingerprint", Area::Fingerprint, &["get_git_fingerprint"]),
-        ])
+        ])?;
+        table.reject_shadowing("manual", crate::worktree_lifecycle::manual::handles)?;
+        Ok(table)
     }
 }
 
@@ -214,5 +227,13 @@ mod tests {
         assert_eq!(error.message, "Local RPC command \"same\" is defined twice (second)");
         let table = CommandTable::builtin().unwrap();
         for stock in ["constructor", "get_messages", "btw", "btw_cancel", "get_btw_history"] { assert!(!table.0.contains_key(stock)); }
+    }
+
+    #[test]
+    fn a_local_handler_cannot_shadow_the_actual_manual_domain_prefix_branch() {
+        let table = CommandTable::new(&[("git", Area::Git, &["worktree_create"])]).unwrap();
+        let error = table.reject_shadowing("manual", crate::worktree_lifecycle::manual::handles).unwrap_err();
+        assert_eq!(error.code, "duplicate_local_command");
+        assert_eq!(error.message, "Local RPC command \"worktree_create\" is defined twice (manual)");
     }
 }
