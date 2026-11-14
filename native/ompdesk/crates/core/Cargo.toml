@@ -36,6 +36,8 @@ yaml-edit = { version = "=0.3.6", default-features = false }
 regress = { version = "=0.12.0", features = ["utf16"] }
 # Session dumps reuse the existing flate2 zlib-rs backend for ZIP compression.
 zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2"] }
+# Session pace replays the bridge's shell/check classifiers over stored journals.
+regex = "1"
 # Listings sort as the page's `Intl.Collator(locale, { numeric: true })` does: ICU's collation, same algorithm and data.
 icu_collator = "2"
 # The folder picker's filter lowercases as `toLocaleLowerCase()` does (Turkish, Azeri and Lithuanian rules included).
