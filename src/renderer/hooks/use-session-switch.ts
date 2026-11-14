@@ -118,7 +118,8 @@ export async function routeToSessionOwner(
 	kind?: SessionKind,
 ): Promise<boolean> {
 	const tabsStore = useTabsStore.getState();
-	if (owner.hosted) return (await tabsStore.openTab({ sessionPath, ...(kind ? { kind } : {}) })) !== null;
+	if (owner.hosted || owner.winId === null)
+		return (await tabsStore.openTab({ sessionPath, ...(kind ? { kind } : {}) })) !== null;
 	if (tabsStore.tabs.some(tab => tab.id === owner.tabId)) {
 		await tabsStore.switchTab(owner.tabId);
 		return true;
@@ -233,7 +234,10 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 				const kind = session.kind === "chat" ? "chat" : "agent";
 				if (data?.hosted === true)
 					return await routeToSessionOwner({ tabId: "", winId: 0, hosted: true }, session.path, kind);
-				if (typeof data?.ownerTabId === "string" && typeof data.ownerWinId === "number") {
+				if (
+					typeof data?.ownerTabId === "string" &&
+					(typeof data.ownerWinId === "number" || data.ownerWinId === null)
+				) {
 					return await routeToSessionOwner({ tabId: data.ownerTabId, winId: data.ownerWinId }, session.path);
 				}
 			}

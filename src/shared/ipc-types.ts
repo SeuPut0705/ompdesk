@@ -1816,11 +1816,11 @@ export interface IpcSavedFolder {
 	removedAt: number;
 }
 
-/** Owner of a session file: the tab (and its window) currently attached to it. */
+/** Execution holding a session file, with a visible window when one remains. */
 export interface IpcSessionOwner {
 	tabId: string;
-	/** Owner window's webContents.id. */
-	winId: number;
+	/** Visible window's webContents.id, or null while only the execution remains. */
+	winId: number | null;
 	/**
 	 * A paired device's tab on this computer runs the session (no window here owns it; `tabId` is that tab's
 	 * resume id, `winId` 0): opening it here (`tabs.spawn`) views that tab instead of switching onto the file.

@@ -360,7 +360,14 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
         }
         "attachViewer" => later(async move {
             Ok(Value::from(
-                ctx.attach_viewer(p.i("win")?, &p.s("tab")?).await?,
+                ctx.attach_viewer(
+                    p.i("win")?,
+                    &p.s("tab")?,
+                    p.0["sessionPath"]
+                        .as_str()
+                        .map(|path| (path, p.0["device"].as_str())),
+                )
+                .await?,
             ))
         }),
         "detachViewer" => later(async move {

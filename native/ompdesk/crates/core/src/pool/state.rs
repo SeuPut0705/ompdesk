@@ -168,6 +168,14 @@ impl Entry {
         (!self.owner_detached && self.win_id == win_id) || self.viewers.contains(&win_id)
     }
 
+    pub(super) fn visible_window(&self) -> Option<i64> {
+        if self.owner_detached {
+            self.viewers.first().copied()
+        } else {
+            Some(self.win_id)
+        }
+    }
+
     pub(super) fn view_identity(&self, win: i64) -> Option<String> {
         if !self.shown_in(win) {
             return None;

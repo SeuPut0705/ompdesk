@@ -1428,9 +1428,9 @@ export class SidecarPool {
 	 * open). The window gets the tab's light channel at once and its full channel while the tab is visible there; a
 	 * window with no tab yet makes it its active one. True when `win` shows the tab now, false when the tab is unknown.
 	 */
-	attachViewer(win: ClientWindow, tabId: string): boolean {
+	attachViewer(win: ClientWindow, tabId: string, sessionPath?: string, device?: string): boolean {
 		const id = this.#windowId(win);
-		const attached = this.#call<boolean>("attachViewer", { win: id, tab: tabId });
+		const attached = this.#call<boolean>("attachViewer", { win: id, tab: tabId, sessionPath, device });
 		const handle = this.#live(tabId);
 		if (attached && handle && (handle.ownerDetached || handle.winId !== id)) handle.viewers.add(id);
 		return attached;

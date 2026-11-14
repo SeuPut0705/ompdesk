@@ -655,7 +655,12 @@ impl Ctx {
     // ---- viewers ----------------------------------------------------------------------------------------------
 
     /// `attachViewer`: show another window's tab in `win` too. False when the tab is unknown.
-    pub(super) async fn attach_viewer(&self, win: i64, tab: &str) -> R<bool> {
+    pub(super) async fn attach_viewer(
+        &self,
+        win: i64,
+        tab: &str,
+        session: Option<(&str, Option<&str>)>,
+    ) -> R<bool> {
         enum Step {
             Unknown,
             Already,
@@ -666,6 +671,11 @@ impl Ctx {
                 return Step::Unknown;
             };
             if entry.leave_pending {
+                return Step::Unknown;
+            }
+            if session.is_some_and(|(path, device)| {
+                entry.session_file.as_deref() != Some(path) || entry.device.as_deref() != device
+            }) {
                 return Step::Unknown;
             }
             if entry.shown_in(win) {

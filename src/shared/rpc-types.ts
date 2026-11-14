@@ -628,7 +628,7 @@ export interface RpcResponseError {
 	/**
 	 * Optional structured details for machine-handled failures. Defined codes:
 	 * `session_owned_elsewhere` (F-OWN switch_session refusal) carries
-	 * `{ ownerTabId: string; ownerWinId: number }`.
+	 * `{ ownerTabId: string; ownerWinId: number | null }` (null means no visible window).
 	 */
 	data?: unknown;
 }

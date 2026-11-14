@@ -249,13 +249,7 @@ impl Ctx {
     pub(super) fn window_of_tab(&self, tab: &str) -> Value {
         self.with(|pool| {
             pool.entry(tab)
-                .and_then(|entry| {
-                    if entry.owner_detached {
-                        entry.viewers.first().copied()
-                    } else {
-                        Some(entry.win_id)
-                    }
-                })
+                .and_then(Entry::visible_window)
                 .map_or(Value::Null, Value::from)
         })
     }
@@ -337,14 +331,10 @@ impl Ctx {
 
     pub(super) fn session_owner(&self, path: &str, device: Option<&str>) -> Value {
         self.with(|pool| {
-            pool.owner_entry(device, path).map_or(Value::Null, |entry| {
-                let win = if entry.owner_detached {
-                    entry.viewers.first().copied().unwrap_or(entry.win_id)
-                } else {
-                    entry.win_id
-                };
-                json!({"tabId": entry.tab_id, "winId": win})
-            })
+            pool.owner_entry(device, path).map_or(
+                Value::Null,
+                |entry| json!({"tabId": entry.tab_id, "winId": entry.visible_window()}),
+            )
         })
     }
 
@@ -371,12 +361,12 @@ impl Ctx {
             let device = tab
                 .and_then(|tab| pool.entry(tab))
                 .and_then(|entry| entry.device.clone());
-            match pool.session_owners.get(&owner_key(device.as_deref(), path)) {
-                Some(owner) if Some(owner.tab_id.as_str()) != tab => {
-                    json!({"tabId": owner.tab_id, "winId": owner.win_id})
-                }
-                _ => Value::Null,
-            }
+            pool.owner_entry(device.as_deref(), path)
+                .filter(|entry| Some(entry.tab_id.as_str()) != tab)
+                .map_or(
+                    Value::Null,
+                    |entry| json!({"tabId": entry.tab_id, "winId": entry.visible_window()}),
+                )
         })
     }
 
@@ -1685,7 +1675,15 @@ impl Ctx {
             let mut tab_id: Option<String> = None;
             if let Some(owner) = owner {
                 let (_, web) = self.window_facts(win).await?;
-                if web && self.attach_viewer(win, &owner.tab_id).await? {
+                let unviewed = self.with(|pool| {
+                    pool.entry(&owner.tab_id)
+                        .is_some_and(|entry| entry.visible_window().is_none())
+                });
+                if (web || unviewed)
+                    && self
+                        .attach_viewer(win, &owner.tab_id, path.map(|path| (path, device)))
+                        .await?
+                {
                     tab_id = Some(owner.tab_id.clone());
                 }
             } else {

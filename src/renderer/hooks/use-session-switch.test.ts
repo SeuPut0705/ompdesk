@@ -236,6 +236,30 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
 	});
 
+	it.each(["lookup", "raced refusal"] as const)(
+		"reopens a windowless execution in this window after %s without replacing the current session",
+		async source => {
+			seedTabs();
+			if (source === "lookup") {
+				omp.tabs.getSessionOwner.mockResolvedValue({ tabId: "retained", winId: null });
+			} else {
+				omp.rpc.switchSession.mockResolvedValue({
+					type: "response",
+					command: "switch_session",
+					success: false,
+					code: "session_owned_elsewhere",
+					data: { ownerTabId: "retained", ownerWinId: null },
+				});
+			}
+			expect(await switchSessionNow(session("/sessions/x.jsonl"))).toBe(true);
+			expect(useTabsStore.getState().activeTabId).toBe("t-spawned");
+			expect(useTabsStore.getState().tabs.some(tab => tab.id === "t0")).toBe(true);
+			expect(omp.sessions.openInNewWindow).not.toHaveBeenCalled();
+			expect(omp.rpc.switchSession).toHaveBeenCalledTimes(source === "lookup" ? 0 : 1);
+			expect(useToastStore.getState().toasts).toEqual([]);
+		},
+	);
+
 	it("switches in place when no tab owns the session", async () => {
 		seedTabs();
 		omp.tabs.getSessionOwner.mockResolvedValue(null);

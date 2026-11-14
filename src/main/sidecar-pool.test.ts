@@ -584,6 +584,31 @@ describe("SidecarPool exact window-view leave", () => {
 		view.dispose();
 	});
 
+	it("restores a busy zero-window session as a view of its original execution", async () => {
+		const { pool, sidecars, sidecar, other } = await busyWithoutViews();
+		expect(
+			pool.restoreLayout(other.win, {
+				version: 1,
+				activeIndex: 0,
+				tabs: [{ cwd: "/a", kind: "agent", sessionPath: SESSION }],
+			}),
+		).toBe(1);
+		expect(pool.tabsForWindow(other.win).map(tab => tab.tabId)).toEqual(["busy-reopen"]);
+		expect(pool.sidecarForTab(other.win, "busy-reopen")).toBe(sidecar);
+		expect(sidecars).toEqual([sidecar]);
+		expect(sidecar.disposed).toBe(false);
+	});
+
+	it("does not attach a reopened view after the execution switches its saved file", async () => {
+		const { pool, sidecar, other } = await busyWithoutViews();
+		const owner = pool.sessionOwner(SESSION);
+		if (!owner) throw new Error("expected the retained execution");
+		pool.noteSessionFile(owner.tabId, "/sessions/replacement.jsonl");
+		expect(pool.attachViewer(other.win, owner.tabId, SESSION)).toBe(false);
+		expect(pool.tabsForWindow(other.win)).toEqual([]);
+		expect(sidecar.disposed).toBe(false);
+	});
+
 	it("directs a new-window saved-session focus to a surviving view instead of the detached owner", async () => {
 		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8621);

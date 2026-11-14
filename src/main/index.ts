@@ -744,7 +744,7 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
 	return null;
 }
 
-/** Spawn a window with its own sidecar (the pool's 1:1 owner). Null when the sidecar cannot be created.
+/** Spawn a window with its own sidecar, or a view of the execution already holding its session. Null on failure.
  *  With no target, start a fresh agent in the default workspace; explicit
  *  workspace/session requests retain their selected/fallback cwd and requested
  *  session kind. `device` runs the window's tab on that paired host, at its `cwd`. */
@@ -757,6 +757,15 @@ function spawnWindow(
 	// An approved quit has torn the services down (or is doing so): a window built now has nothing to run on, and
 	// restoring the layout on it would drop what a disposed `RemoteDevices` cannot open from the saved session.
 	if (quitApproved()) return null;
+	if (pendingSessionPath) {
+		const owner = sidecarPool.sessionOwner(pendingSessionPath, device);
+		if (owner) {
+			const win = windowManager.createWindow({ cwd: device ? resolveInitialCwd() : (cwd ?? resolveInitialCwd()) });
+			if (sidecarPool.attachViewer(win, owner.tabId, pendingSessionPath, device)) return win;
+			win.close();
+			return null;
+		}
+	}
 	if (device && cwd) {
 		const win = windowManager.createWindow({ cwd: resolveInitialCwd() });
 		const fresh = pendingSessionPath === undefined;

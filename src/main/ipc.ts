@@ -1682,7 +1682,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const device = deviceOf(payload?.device);
 		if (sessionPath) {
 			const owner = deps.sidecarPool.sessionOwner(sessionPath, device);
-			if (owner && deps.windowManager.focusWindowById(owner.winId)) return true;
+			if (owner?.winId != null && deps.windowManager.focusWindowById(owner.winId)) return true;
 		}
 		// The new window's sidecar must spawn with the target file's kind, or the
 		// boot-time switch_session hits the agent-side kind guard and the pool

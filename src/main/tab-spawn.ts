@@ -138,6 +138,10 @@ export async function spawnTabForWindow(
 		// F-OWN first: a live owner wins over every other consideration.
 		const owner = deps.sidecarPool.sessionOwner(sessionPath, device);
 		if (owner) {
+			if (owner.winId === null)
+				return deps.sidecarPool.attachViewer(win, owner.tabId, sessionPath, device)
+					? { tabId: owner.tabId, attached: true }
+					: null;
 			const callerId = win.webContents.id;
 			const shared =
 				owner.winId !== callerId &&
