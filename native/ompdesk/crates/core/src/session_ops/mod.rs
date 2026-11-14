@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 pub mod live;
+pub mod native;
 pub(crate) mod runtime;
 pub(crate) mod stored_rename;
 
