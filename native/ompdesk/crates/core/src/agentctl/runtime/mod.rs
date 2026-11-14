@@ -337,6 +337,9 @@ fn check_mail_target(state: &HostState, target: &ControlTab) -> R<()> {
     if !state.enabled {
         return fail("OMPdesk control tools are disabled.");
     }
+    if state.mail_blocked.contains(&target.tab_id) {
+        return fail("The resolved mail recipient is being deleted.");
+    }
     let Some(path) = target
         .session_path
         .as_deref()

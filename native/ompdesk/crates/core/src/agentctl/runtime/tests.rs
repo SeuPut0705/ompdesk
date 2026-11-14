@@ -730,12 +730,15 @@ async fn enqueue_revalidates_resolved_identity_visibility_and_control_before_kee
     disabled["enabled"] = json!(false);
     let mut deleted = state(vec![tab("boss", "/s/boss.jsonl")]);
     deleted["deleted"] = json!({ "byPath": [{ "path": "/s/boss.jsonl", "at": 7.0 }] });
+    let mut deleting = state(vec![tab("boss", "/s/boss.jsonl")]);
+    deleting["mailBlocked"] = json!(["boss"]);
     let states = [
         state(vec![tab("boss", "/s/changed.jsonl")]),
         state(vec![hidden]),
         state(vec![paired]),
         disabled,
         deleted,
+        deleting,
     ];
     for (index, state) in states.into_iter().enumerate() {
         let (control, runtime, told) = rig(7_440 + index as u64, state, with_outbox(), wake_main);
