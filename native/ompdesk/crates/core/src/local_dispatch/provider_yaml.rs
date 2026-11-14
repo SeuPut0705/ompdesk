@@ -65,19 +65,53 @@ fn scalar_value(scalar: &Scalar) -> R<Value> {
     Ok(match value.scalar_type() {
         ScalarType::Null => Value::Null,
         ScalarType::Boolean => Value::Bool(value.to_bool().ok_or_else(invalid_yaml)?),
-        ScalarType::Integer => {
-            if let Some(integer) = value.to_i64() { Value::from(integer) }
-            else { number(value.to_f64())? }
-        }
+        ScalarType::Integer => number(integer(&value))?,
         ScalarType::Float => number(value.to_f64())?,
         ScalarType::String | ScalarType::Timestamp | ScalarType::Regex => Value::String(scalar.as_string()),
-        ScalarType::Binary => return Err(invalid_yaml()),
     })
 }
 
 fn number(value: Option<f64>) -> R<Value> {
-    // JSON.stringify, the installed-stock boundary, writes non-finite YAML numbers as null.
-    value.map(|value| serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)).ok_or_else(invalid_yaml)
+    // doc.toJS() uses JavaScript numbers; use the existing native JS formatter before the stock JSON boundary.
+    // yaml-edit's Integer API is i64-only, but models.yml may hold a larger decimal, hex or octal literal.
+    let value = value.ok_or_else(invalid_yaml)?;
+    if !value.is_finite() { return Ok(Value::Null); }
+    serde_json::from_str(&crate::control::js::number(value)).map_err(|_| invalid_yaml())
+}
+
+fn integer(value: &ScalarValue) -> Option<f64> {
+    if let Some(value) = value.to_i64() { return Some(value as f64); }
+    let raw = value.value().trim_matches([' ', '\t']);
+    let (sign, raw) = if let Some(raw) = raw.strip_prefix('-') { (-1.0, raw) }
+        else { (1.0, raw.strip_prefix('+').unwrap_or(raw)) };
+    let (radix, width, digits) = if let Some(digits) = raw.strip_prefix("0x") { (16, 4, digits) }
+        else if let Some(digits) = raw.strip_prefix("0o") { (8, 3, digits) }
+        else { return raw.parse::<f64>().ok().map(|value| sign * value); };
+    let digits = digits.trim_start_matches('0');
+    if digits.is_empty() { return Some(sign * 0.0); }
+    let first = digits.chars().next()?.to_digit(radix)?;
+    let bits = (digits.len() - 1).checked_mul(width)?.checked_add((32 - first.leading_zeros()) as usize)?;
+    if bits > 1024 { return Some(sign * f64::INFINITY); }
+    let mut top = 0u64;
+    let mut kept = 0usize;
+    let mut started = false;
+    let mut sticky = false;
+    for digit in digits.chars() {
+        let digit = digit.to_digit(radix)?;
+        for shift in (0..width).rev() {
+            let bit = (digit >> shift) & 1;
+            if !started && bit == 0 { continue; }
+            started = true;
+            if kept < 54 {
+                top = (top << 1) | u64::from(bit);
+                kept += 1;
+            } else { sticky |= bit != 0; }
+        }
+    }
+    if bits <= 53 { return Some(sign * top as f64); }
+    let mut mantissa = top >> 1;
+    if top & 1 != 0 && (sticky || mantissa & 1 != 0) { mantissa += 1; }
+    Some(sign * mantissa as f64 * 2.0f64.powi((bits - 53) as i32))
 }
 
 fn node_value(node: &YamlNode, anchors: &AnchorRegistry, aliases: &mut usize) -> R<Value> {
@@ -189,6 +223,17 @@ mod tests {
         assert!(rendered.contains("untouched: # Leave this provider alone\n    api: openai-completions\n    baseUrl: https://legacy.invalid/v1"));
         assert!(rendered.contains("# Keep this endpoint comment"));
         assert_eq!(ModelsDocument::parse(&rendered).unwrap().raw, updated);
+    }
+
+    #[test]
+    fn numbers_use_the_stock_javascript_boundary_without_rewriting_untouched_literals() {
+        let original = "decimal: 9007199254740993\nhex: 0xffffffffffffffff\noctal: 0o400000000000000001\nfloat: 1.0\nproviders: {}\n";
+        let document = ModelsDocument::parse(original).unwrap();
+        let expected: Value = serde_json::from_str(r#"{"decimal":9007199254740992,"hex":18446744073709552000,"octal":9007199254740992,"float":1,"providers":{}}"#).unwrap();
+        assert_eq!(document.raw, expected);
+        assert_eq!(document.render(&expected).unwrap(), original);
+        let parsed = ModelsDocument::parse("huge: 0x100000000000000000000000000000000\n").unwrap();
+        assert_eq!(parsed.raw["huge"].as_f64(), Some(2.0f64.powi(128)));
     }
 
     #[test]
