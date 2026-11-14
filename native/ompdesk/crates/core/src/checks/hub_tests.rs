@@ -176,11 +176,21 @@ async fn a_run_github_started_on_another_commit_than_asked_is_never_reused_as_gr
     // A push landed between the hub's read of feat and GitHub resolving the dispatch's ref: GitHub ran SHA2.
     let at = clock::now_ms() + 1_000;
     github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA2, at, None))];
+        facts.jobs = vec![gh_job(701, 77, at, None)];
+    });
+    rounds(&hub, 2).await;
+    github.with(|facts| {
         facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA2, at, Some("success")))];
         facts.jobs = vec![gh_job(701, 77, at, Some("success"))];
     });
     rounds(&hub, 3).await;
     hub.settle();
+    let id = first.run_id.as_deref().unwrap();
+    let run = hub.snapshot.borrow().runs.iter().find(|run| run.id == id).cloned().unwrap();
+    let answer = hub.judge(id, &run).await;
+    assert_eq!(answer.verdict, AnswerVerdict::Unknown);
+    assert_eq!(answer.next, Next::Fix);
     // feat is still SHA at the hub's next read: nothing tested SHA, so a start of it runs.
     let again = hub
         .start(samples::session(), start(Purpose::Branch, "feat"))
@@ -1220,4 +1230,107 @@ async fn a_check_placed_on_a_paired_computer_goes_to_main_and_its_answer_comes_b
         .await
         .unwrap();
     assert_eq!(dispatches(&github).len(), 1);
+}
+
+include!("hub_local_tests.rs");
+
+#[tokio::test]
+async fn a_raw_success_with_a_release_flake_is_never_reused_as_green() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    clock::set_manual(1_794_000_000_000);
+    let github = github(CI);
+    let hub = hub(&github);
+    let first = hub
+        .start(samples::session(), start(Purpose::Release, "feat"))
+        .await
+        .unwrap()
+        .run_id
+        .unwrap();
+    let at = clock::now_ms() + 1_000;
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, None))];
+        facts.jobs = vec![gh_job(701, 77, at, None)];
+    });
+    rounds(&hub, 2).await;
+    let report = br#"<testsuite name="a.test.ts"><testcase classname="a.test.ts" name="t"><failure message="retry failed"/></testcase><testcase classname="a.test.ts" name="t"/></testsuite>"#;
+    let archive = crate::checks::results::zip::tests::archive(&[("report.xml", report, true)]);
+    github.with(|facts| {
+        facts.runs = vec![(REPO.into(), gh_run(77, "feat", SHA, at, Some("success")))];
+        facts.jobs = vec![gh_job(701, 77, at, Some("success"))];
+        facts.artifacts = vec![(77, crate::checks::sources::GithubArtifact {
+            id: 901,
+            name: "test-report-701".into(),
+            size_bytes: archive.len() as u64,
+            expired: false,
+            created_at: at,
+        })];
+        facts.archives.insert(901, archive);
+    });
+    rounds(&hub, 3).await;
+    hub.pass().await;
+    let answer = hub.answered(&first).expect("the release run was judged");
+    assert_eq!(answer.verdict, AnswerVerdict::Red);
+    assert!(answer.blocks_release.is_some());
+    let again = hub.start(samples::session(), start(Purpose::Release, "feat")).await.unwrap();
+    assert_ne!(again.decision, StartDecision::Reused);
+    clock::set_real();
+}
+
+fn linux_capacity(hub: &Hub, places: u32) {
+    locked(&hub.admission).set_pools(
+        BTreeMap::from([("github-linux".into(), admission::Limit { places, hosted: true })]),
+        40,
+        BTreeMap::new(),
+    );
+}
+
+#[tokio::test]
+async fn a_superseded_held_run_wakes_its_owner_without_a_status_or_wait_call() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    let github = github(CI);
+    let hub = hub(&github);
+    linux_capacity(&hub, 0);
+    let mut results = hub.results();
+    let first = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    assert_eq!(first.decision, StartDecision::Held);
+    let second = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    assert_eq!(second.decision, StartDecision::Held);
+    let result = results.try_recv().expect("superseded held owner must be woken");
+    assert_eq!(result.run_id, first.run_id.unwrap());
+    assert_eq!(result.answer.verdict, AnswerVerdict::Unknown);
+    assert!(results.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn a_definitely_refused_dispatch_wakes_its_held_owner_without_an_answer_query() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    let github = github(CI);
+    let hub = hub(&github);
+    linux_capacity(&hub, 0);
+    let mut results = hub.results();
+    let first = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    assert_eq!(first.decision, StartDecision::Held);
+    github.with(|facts| facts.down = Some(SourceError::new("rejected", "GitHub refused HTTP 422")));
+    linux_capacity(&hub, 1);
+    hub.pump().await;
+    let result = results.try_recv().expect("dispatch refusal must wake its owner");
+    assert_eq!(result.run_id, first.run_id.unwrap());
+    assert_eq!(result.answer.verdict, AnswerVerdict::Unknown);
+    assert!(results.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn an_unconfirmed_dispatch_never_returns_its_place_to_another_start() {
+    let _serial = clock::TEST_CLOCK.lock().await;
+    let github = github(CI);
+    let hub = hub(&github);
+    linux_capacity(&hub, 0);
+    let first = hub.start(samples::session(), start(Purpose::Branch, "feat")).await.unwrap();
+    assert_eq!(first.decision, StartDecision::Held);
+    github.with(|facts| facts.down = Some(SourceError::new("offline", "connection lost after request")));
+    linux_capacity(&hub, 1);
+    hub.pump().await;
+    github.with(|facts| facts.down = None);
+    let second = hub.start(samples::session(), start(Purpose::Branch, "feat2")).await.unwrap();
+    assert_eq!(second.decision, StartDecision::Held);
 }

@@ -326,4 +326,13 @@ pub(crate) mod tests {
         assert_eq!(claims.of_local(&run("j3", Some("tag-of-no-session"))), None);
         assert_eq!(claims.of_local(&run("j4", None)), None);
     }
+
+    #[test]
+    fn a_foreign_dispatch_in_the_same_poll_window_never_takes_a_hub_claim() {
+        let mut claims = Claims::default();
+        claims.expect(expected("ours", session("a"), T0));
+        let person = dispatched(90, "ci.yml", "omp/agent/checks-poller", T0 - 1);
+        assert_eq!(claims.of_github(REPO, &person, T0 + 1_000), None);
+        assert!(!claims.claimed(REPO, person.id));
+    }
 }

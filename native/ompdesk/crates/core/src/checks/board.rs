@@ -194,4 +194,24 @@ mod tests {
         // A run whose workflow the hub does not know is not shown as a gate.
         assert!(gates(&runs, &answers, |_| None).is_empty());
     }
+
+    #[test]
+    fn an_unknown_answer_never_shows_a_previously_green_run_as_a_green_gate() {
+        let runs = vec![run(
+            "r",
+            Lane::Release,
+            Some("release ci.yml"),
+            vec![job(JobState::Passed, 1)],
+            Some(RunVerdict::Green),
+        )];
+        let mut unknown = samples::answer();
+        unknown.verdict = crate::checks::contract::AnswerVerdict::Unknown;
+        unknown.blocks_release = None;
+        let answers = vec![RunResult {
+            run_id: "r".into(),
+            origin: Origin::Person,
+            answer: unknown,
+        }];
+        assert_eq!(gates(&runs, &answers, ci)[0].state, GateVerdict::Waiting);
+    }
 }
