@@ -3,6 +3,7 @@
 use std::sync::atomic::AtomicUsize;
 
 use super::*;
+use crate::application::launch_ingress::LaunchIngress;
 use crate::application::memory_host::MemoryHost;
 use crate::application::readiness::FirstTab;
 use crate::application::runtime_log::{RuntimeLogContext, Writer};
@@ -19,11 +20,18 @@ use crate::sidecar::native::{self, DirectSpawn, Held};
 use crate::stock::native::Service as Stock;
 use tokio::sync::mpsc;
 
+// These are two test entry APIs, not a production feature switch.
+enum Delivery {
+    Application,
+    Ingress,
+}
+
 struct Rig {
     callers: Arc<Callers>,
     owner: Owner,
     source: Arc<NativeSidecar>,
     held: Held,
+    ingress: Option<Arc<LaunchIngress<LaunchHost>>>,
     events: mpsc::UnboundedReceiver<LaneEvent>,
     stock: Arc<Stock>,
     sessions: Arc<SessionIndex>,
@@ -45,7 +53,7 @@ struct Rig {
 }
 
 impl Rig {
-    async fn new(name: &str) -> (Self, Config) {
+    async fn new(name: &str, delivery: Delivery) -> (Self, Config) {
         let fixture = Fixture::new(name);
         let tools = HostTools::bundled().unwrap();
         let home = fixture.dir.join("home");
@@ -133,12 +141,20 @@ impl Rig {
         let unwritten = sessions_root.join("not-written.jsonl");
         let (record, recorded) = mpsc::unbounded_channel();
         let sink = Arc::new(native::tests::Recorder { events: record, flushes: AtomicUsize::new(0) });
+        let ingress = match delivery {
+            Delivery::Application => None,
+            Delivery::Ingress => Some(LaunchIngress::new(sink.clone())),
+        };
+        let source_sink: Arc<dyn native::Sink> = match &ingress {
+            Some(ingress) => ingress.clone(),
+            None => sink,
+        };
         let (source, held) = NativeSidecar::new(native::Config {
             tab, seq: 0, cwd: fixture.dir.to_string_lossy().into_owned(), fresh: false,
             event_filter: Vec::new(), bridge: false, ledger_file: None, start_slow_ms: None,
             entry_id_timeout_ms: None, tuning: None,
             session_path: Some(unwritten.to_string_lossy().into_owned()), is_new: Some(false),
-        }, events, sink, Arc::new(DirectSpawn)).unwrap();
+        }, events, source_sink, Arc::new(DirectSpawn)).unwrap();
         let browsers = BrowserState::new(Arc::clone(&machine), browsers::Places {
             platform: "other".into(), home: home.to_string_lossy().into_owned(),
             app_dirs: Vec::new(), program_dirs: Vec::new(), local_app_data: String::new(),
@@ -158,7 +174,7 @@ impl Rig {
             session_owned_text: "The session is owned by another omp process.".into(), device_reply_language: Some("English".into()),
         };
         (Self {
-            callers, owner, source, held, events: recorded, stock, sessions, memory, hub, ownership,
+            callers, owner, source, held, ingress, events: recorded, stock, sessions, memory, hub, ownership,
             process_file, scratch_file, unwritten, child_log, launch_env, omp, env, base_tools: tools.base,
             _transport: transport, _frames: frames, _mcp_fixture: mcp_fixture, fixture,
         }, config)
@@ -176,10 +192,12 @@ impl Rig {
         self.ownership.freeze();
         self.ownership.closing(&self.owner);
         self.callers.retire_execution(&self.owner);
+        let ingress = self.ingress.as_ref().map(|ingress| ingress.close());
         let exited = self.source.when_exited();
         self.source.dispose(Duration::ZERO);
         let exit = exited.await;
         let held = self.held.await;
+        let ingress = match ingress { Some(joined) => Some(joined.await), None => None };
         self.sessions.stop();
         self.memory.close().await;
         let hub = self.hub.shutdown().await;
@@ -190,12 +208,13 @@ impl Rig {
         held.unwrap();
         hub.unwrap();
         stock.unwrap();
+        if let Some(ingress) = ingress { ingress.unwrap(); }
     }
 }
 
-async fn run<F>(name: &str, scenario: F)
+async fn run<F>(name: &str, delivery: Delivery, scenario: F)
 where F: for<'a> FnOnce(&'a mut Rig, Config) -> EffectFuture<'a, ()> + Send + 'static {
-    let (rig, config) = Rig::new(name).await;
+    let (rig, config) = Rig::new(name, delivery).await;
     let rig = Arc::new(tokio::sync::Mutex::new(rig));
     let task_rig = Arc::clone(&rig);
     let result = tokio::spawn(async move { scenario(&mut *task_rig.lock().await, config).await }).await;
@@ -205,12 +224,13 @@ where F: for<'a> FnOnce(&'a mut Rig, Config) -> EffectFuture<'a, ()> + Send + 's
 
 #[tokio::test]
 async fn actual_launch_host_mounts_canonical_tools_and_keeps_unwritten_paths_on_the_original_execution() {
-    run("launch-concrete-original", |rig, config| Box::pin(async move {
+    run("launch-concrete-original", Delivery::Ingress, |rig, config| Box::pin(async move {
         let formal = config.builtin_dir.join("formal").to_string_lossy().into_owned();
         let host = LaunchHost::new(config).unwrap();
         let app = Arc::new(Application::new(Arc::clone(&host)));
+        rig.ingress.as_ref().unwrap().bind(&app).unwrap();
         rig.source.start();
-        native::tests::ready_application(Arc::clone(&app), &mut rig.events).await;
+        native::tests::ready_with(&mut rig.events, |_| None).await;
         rig.source.barrier().await.unwrap();
         assert_eq!(rig.source.facts()["processAlive"], true);
         assert!(!rig.unwritten.exists(), "an unwritten file must remain absent; opening it is not a stock mutation");
@@ -241,7 +261,7 @@ async fn actual_launch_host_mounts_canonical_tools_and_keeps_unwritten_paths_on_
         std::fs::create_dir_all(&next_cwd).unwrap();
         let next_path = rig.unwritten.with_file_name("second-not-written.jsonl");
         rig.source.restart(Some(next_cwd.to_string_lossy().into_owned()), Some(next_path.to_string_lossy().into_owned()));
-        native::tests::ready_application(Arc::clone(&app), &mut rig.events).await;
+        native::tests::ready_with(&mut rig.events, |_| None).await;
         rig.source.barrier().await.unwrap();
         let next = rig.tags();
         assert_eq!(next["tags"][0]["tag"], tag);
@@ -267,7 +287,7 @@ async fn event(events: &mut mpsc::UnboundedReceiver<LaneEvent>, name: &str) -> L
 
 #[tokio::test]
 async fn retiring_the_original_owner_refuses_a_real_pending_launch_answer_and_process_identity() {
-    run("launch-concrete-retired", |rig, config| Box::pin(async move {
+    run("launch-concrete-retired", Delivery::Application, |rig, config| Box::pin(async move {
         let host = LaunchHost::new(config).unwrap();
         let app = Arc::new(Application::new(Arc::clone(&host)));
         rig.source.start();
@@ -312,7 +332,7 @@ async fn retiring_the_original_owner_refuses_a_real_pending_launch_answer_and_pr
 
 #[tokio::test]
 async fn a_retired_execution_cannot_construct_a_new_host_over_its_retained_source() {
-    run("launch-concrete-new-retired", |rig, config| Box::pin(async move {
+    run("launch-concrete-new-retired", Delivery::Application, |rig, config| Box::pin(async move {
         assert!(rig.callers.retire_execution(&rig.owner));
         let error = LaunchHost::new(config).err().expect("retired execution admission must fail");
         assert_eq!(error.code, "caller_closed");
