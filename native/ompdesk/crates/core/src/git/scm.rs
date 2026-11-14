@@ -285,6 +285,12 @@ pub struct Staged {
     staged: bool,
 }
 
+impl Staged {
+    pub(crate) fn is_staged(&self) -> bool {
+        self.staged
+    }
+}
+
 /// Whether anything is staged: the commit message omp writes (main) reads the staged changes.
 pub async fn staged(git: &Git, root: &str) -> Result<Staged, Fault> {
     let quiet = git.raw(root, &["diff", "--cached", "--quiet"]).await?;
