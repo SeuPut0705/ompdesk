@@ -45,7 +45,7 @@ Original stuttering steps map to stuttering steps. In each dash cell the origina
 
 `src/main/session-index.ts:329-338,441-444` deletes storage before notifying the shared list. `src/main/session-list-share.ts:46-60` increments the shared generation on invalidation. Its `34-43,77-89` ranges capture a wanted generation, await a shared read, and publish the sample. The model keeps the sample, wanted generation, and notification distinct.
 
-`src/renderer/stores/session-list.ts:169-209` captures and checks a feed generation; `237-251` invalidates pending reads when the last holder releases the feed. The model's `connection` and `readConn` comparison abstracts release and rebuild invalidation. It is not a literal renderer connection-number comparison and does not prove all in-place reconnects. The acknowledgement maps to `259-286`, and the snapshot timer maps to `115-121`.
+`src/renderer/stores/session-list.ts:107-127` seeds the feed and defines its snapshot save and generation state. `171-183,202-204` captures and checks a read generation; `236-251` invalidates pending reads when the last holder releases the feed. The model's `connection` and `readConn` comparison abstracts release and rebuild invalidation. It is not a literal renderer connection-number comparison and does not prove all in-place reconnects. Feed removal maps to `259-268`, and acknowledgement removes both scopes' snapshots at `271-285`. Delta application, announced-version handling, retries, and rename behavior outside these boundaries are not covered.
 
 `src/main/remote/host-services.ts:1878-1885` checks the tombstone and in-flight delete count before opening. The existing-view path checks and publishes at `1929-1951,2127-2160`. The lookup and final check are at `1967-2004`, with sidecar creation and publication at `2127-2160`.
 
@@ -68,3 +68,12 @@ Under the state map, the original predicates equal these projected predicates, w
 | `RestoredDeletedAbsent` | restore | `restored` to `detail.restored`, `restoredRow` to `detail.restoredRow`; `tombstone` unchanged. |
 
 Induction over one original trace uses the same initial state and the same original action at each position for all three maps. Each delete event has the same parameter, order, `dpc`, file, tombstone, count, and acknowledgement in all three projected traces. Stutters preserve positions for erased events. Arbitrarily combining separately generated projection histories does not establish this relationship. If the stated initial, step, and predicate obligations hold and each corresponding projection satisfies its assigned invariant, an original violating finite prefix would project to a violating prefix. This implication is conditional on those obligations and on completed safety checks. It is not a liveness or implementation proof.
+
+## Conditional replacement obligations
+
+Completed safety of all three baselines, together with the stated forward state/action/stutter map and predicate equalities, could discharge the five-property bounded safety obligation attempted by the original matrix baseline. It would not turn that timed-out execution into a PASS. Promotion requires an explicit review of the completed evidence; no old gate is retired here.
+
+A projected mutation counterexample is not automatically an original-model mutation counterexample. Replacing the original seven mutation obligations additionally requires exact mutated correspondence and a way to lift the counterexample into an original trace. Original-to-projection forward simulation alone is insufficient for that claim. Direct mutation counterparts are feed generation, final count and tombstone checks, successful count reset, joint connection/generation checks, wanted source generation, and restore filtering. Their old failed gate remains open until this extra argument and actual detection evidence are accepted.
+
+All original reachability and late-reply diagnostic scenarios remain unchanged. New sanity negatives establish only their named projection observations. They do not replace the removed late observers or silently broaden reconnect ordering, filesystem durability, stock storage behavior, exit confirmation, authorization receipts, liveness, or native SessionOps composition. The same original delete-spine history must underlie all projected traces; arbitrary independent histories are never combined.
+

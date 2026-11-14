@@ -1,0 +1,57 @@
+{
+  "runs": [
+    {
+      "name": "safety-list-two-scopes-two-opens-two-deletes",
+      "config": "MC_list.cfg",
+      "expect": "pass",
+      "timeoutSec": 7200
+    },
+    {
+      "name": "safety-open-two-scopes-two-opens-two-deletes",
+      "config": "MC_open.cfg",
+      "expect": "pass",
+      "timeoutSec": 7200
+    },
+    {
+      "name": "safety-restore-two-scopes-two-opens-two-deletes",
+      "config": "MC_restore.cfg",
+      "expect": "pass",
+      "timeoutSec": 7200
+    },
+    {
+      "name": "open-without-final-recheck",
+      "config": "MC_open_bug.cfg",
+      "expect": "invariant",
+      "property": "NoOpenDuringDelete",
+      "timeoutSec": 7200
+    },
+    {
+      "name": "delete-overlap-reachable",
+      "config": "MC_sanity_overlap.cfg",
+      "expect": "invariant",
+      "property": "NeverOverlap",
+      "timeoutSec": 7200
+    },
+    {
+      "name": "delete-failure-reachable",
+      "config": "MC_sanity_failure.cfg",
+      "expect": "invariant",
+      "property": "NeverFailed",
+      "timeoutSec": 7200
+    },
+    {
+      "name": "storage-tombstone-gap-reachable",
+      "config": "MC_sanity_gap.cfg",
+      "expect": "invariant",
+      "property": "NeverStorageGap",
+      "timeoutSec": 7200
+    },
+    {
+      "name": "acknowledged-rebuilt-read-reachable",
+      "config": "MC_sanity_reconnect.cfg",
+      "expect": "invariant",
+      "property": "NeverRebuilt",
+      "timeoutSec": 7200
+    }
+  ]
+}

@@ -164,4 +164,9 @@ NoOpenDuringDelete == ~detail.badOpen
 FenceCount == fence = Cardinality(Active)
 ReconnectReadAbsent == (acknowledged /\ detail.rebuilt) => ~detail.rebuiltRow
 RestoredDeletedAbsent == (tombstone /\ detail.restored) => ~detail.restoredRow
+
+NeverOverlap == ~(fence = 2)
+NeverFailed == ~(\E d \in Deletes : dpc[d] = "failed")
+NeverStorageGap == ~(~file /\ ~tombstone /\ fence > 0)
+NeverRebuilt == ~(acknowledged /\ detail.rebuilt)
 =============================================================================
