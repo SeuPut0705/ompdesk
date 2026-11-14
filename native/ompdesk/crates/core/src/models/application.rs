@@ -13,7 +13,13 @@ use crate::machine::Runtime;
 
 #[derive(Clone, Default)]
 pub struct SetupRunner {
-    live: Arc<Mutex<Option<Live>>>,
+    live: Arc<Mutex<State>>,
+}
+
+#[derive(Default)]
+struct State {
+    closed: bool,
+    current: Option<Live>,
 }
 
 struct Live {
@@ -32,7 +38,7 @@ fn failure(message: String, code: Option<&str>) -> Value {
 
 impl SetupRunner {
     pub fn status(&self) -> Value {
-        match locked(&self.live).as_ref() {
+        match locked(&self.live).current.as_ref() {
             None => json!({"running":false}),
             Some(live) => {
                 let mut result = json!({"running":true,"startedAt":live.started_at});
@@ -45,17 +51,27 @@ impl SetupRunner {
     }
 
     pub fn running(&self) -> bool {
-        locked(&self.live).is_some()
+        locked(&self.live).current.is_some()
     }
 
     pub fn abort(&self) -> bool {
         let state = locked(&self.live);
-        let Some(live) = state.as_ref() else {
+        let Some(live) = state.current.as_ref() else {
             return false;
         };
         *locked(&live.control.asked) = Some(Asked::Cancelled);
         live.control.stop.notify_one();
         true
+    }
+
+    /// Owner teardown is irreversible; ordinary Stop remains reusable through `abort`.
+    pub fn close(&self) {
+        let mut state = locked(&self.live);
+        state.closed = true;
+        if let Some(live) = state.current.as_ref() {
+            *locked(&live.control.asked) = Some(Asked::Cancelled);
+            live.control.stop.notify_one();
+        }
     }
 
     pub async fn run(&self, runtime: Runtime, input: Value, cwd: String) -> Value {
@@ -70,9 +86,12 @@ impl SetupRunner {
         cwd: String,
         budget: Duration,
     ) -> Value {
-        let (request, control) = {
+        let (request, control, mut research) = {
             let mut state = locked(&self.live);
-            if state.is_some() {
+            if state.closed {
+                return failure("Model research cancelled".into(), Some("cancelled"));
+            }
+            if state.current.is_some() {
                 return failure(
                     "Model research is already running".into(),
                     Some("model_setup_running"),
@@ -83,32 +102,32 @@ impl SetupRunner {
                 Err(error) => return failure(error.message, Some(&error.code)),
             };
             let control = Arc::new(Control::default());
-            *state = Some(Live {
+            state.current = Some(Live {
                 control: Arc::clone(&control),
                 started_at: crate::clock::now_ms(),
                 activity: None,
             });
-            (request, control)
-        };
-        runtime.env.insert("PI_NOTIFICATIONS".into(), "off".into());
-        runtime
-            .env
-            .insert("OTEL_SDK_DISABLED".into(), "true".into());
-        let research = Research::start(RunParams {
-            run: String::new(),
-            bin: runtime.bin.to_string_lossy().into_owned(),
-            env: runtime.env,
-            cwd,
-            research_model: request.research_model.clone(),
-            prompt: prompt::build(&request),
-            timeout_ms: budget.as_millis().min(u128::from(u64::MAX)) as u64,
-        });
-        let mut research = match research {
-            Ok(research) => research,
-            Err(error) => {
-                locked(&self.live).take();
-                return failure(error.message, None);
-            }
+            runtime.env.insert("PI_NOTIFICATIONS".into(), "off".into());
+            runtime
+                .env
+                .insert("OTEL_SDK_DISABLED".into(), "true".into());
+            // The admission lock also covers spawn, so close wins before spawn or cancels the admitted child.
+            let research = match Research::start(RunParams {
+                run: String::new(),
+                bin: runtime.bin.to_string_lossy().into_owned(),
+                env: runtime.env,
+                cwd,
+                research_model: request.research_model.clone(),
+                prompt: prompt::build(&request),
+                timeout_ms: budget.as_millis().min(u128::from(u64::MAX)) as u64,
+            }) {
+                Ok(research) => research,
+                Err(error) => {
+                    state.current.take();
+                    return failure(error.message, None);
+                }
+            };
+            (request, control, research)
         };
         let (send, receive) = oneshot::channel();
         let live = Arc::clone(&self.live);
@@ -116,14 +135,14 @@ impl SetupRunner {
         tokio::spawn(async move {
             let ended = research
                 .until_ended(&task_control, budget, |activity| {
-                    if let Some(live) = locked(&live).as_mut() {
+                    if let Some(live) = locked(&live).current.as_mut() {
                         live.activity = Some(activity.clone());
                     }
                 })
                 .await;
             // Keep the caller's reservation until the real child has exited; cancellation never starts a second one beside it.
             research.leave().await;
-            locked(&live).take();
+            locked(&live).current.take();
             let _ = send.send(ended);
         });
         let guard = CancelOnDrop(control);
@@ -232,6 +251,45 @@ mod tests {
         assert_eq!(result["cancelled"], true);
         assert!(!runner.running());
         assert!(!runner.abort());
+    }
+
+    #[tokio::test]
+    async fn owner_close_cancels_and_joins_but_a_fresh_owner_can_run() {
+        let fixture = Fixture::new("research-owner-close");
+        let runtime = fixture.runtime("IFS= read -r filter; IFS= read -r prompt; cat >/dev/null");
+        let cwd = fixture.dir.to_string_lossy().into_owned();
+        let runner = SetupRunner::default();
+        let result = start_then(runner.run(runtime, request(), cwd.clone()), || {
+            runner.close()
+        })
+        .await;
+        assert_eq!(result["cancelled"], true);
+        assert!(!runner.running());
+        let runtime = fixture.runtime("printf started > stale-child");
+        let result = runner.clone().run(runtime, request(), cwd.clone()).await;
+        assert_eq!(result["code"], "cancelled");
+        assert!(!fixture.dir.join("stale-child").exists());
+        let successful = concat!(
+            "IFS= read -r filter; IFS= read -r prompt\n",
+            "printf '%s\\n' '{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"assignments\\\":[{\\\"role\\\":\\\"default\\\",\\\"model\\\":\\\"p/m\\\",\\\"reason\\\":\\\"Good\\\"}]}\"}}'\n",
+            "printf '%s\\n' '{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}'\n",
+            "cat >/dev/null\n",
+        );
+        let runtime = fixture.runtime(successful);
+        let fresh = SetupRunner::default();
+        assert_eq!(
+            fresh.run(runtime.clone(), request(), cwd.clone()).await["success"],
+            true
+        );
+        // A reusable Stop does not revoke the next admission.
+        let active = fixture.runtime("IFS= read -r filter; IFS= read -r prompt; cat >/dev/null");
+        let result = start_then(fresh.run(active, request(), cwd.clone()), || {
+            assert!(fresh.abort());
+        })
+        .await;
+        assert_eq!(result["cancelled"], true);
+        let runtime = fixture.runtime(successful);
+        assert_eq!(fresh.run(runtime, request(), cwd).await["success"], true);
     }
 
     #[tokio::test(start_paused = true)]

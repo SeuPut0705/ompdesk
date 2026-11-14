@@ -195,20 +195,35 @@ impl Control {
 
 #[derive(Clone, Default)]
 pub struct BenchmarkRunner {
-    live: Arc<Mutex<Option<Arc<Control>>>>,
+    live: Arc<Mutex<State>>,
+}
+
+#[derive(Default)]
+struct State {
+    closed: bool,
+    current: Option<Arc<Control>>,
 }
 
 impl BenchmarkRunner {
     pub fn running(&self) -> bool {
-        locked(&self.live).is_some()
+        locked(&self.live).current.is_some()
     }
     pub fn abort(&self) -> bool {
         let live = locked(&self.live);
-        let Some(control) = live.as_ref() else {
+        let Some(control) = live.current.as_ref() else {
             return false;
         };
         control.stop("Benchmark cancelled");
         true
+    }
+
+    /// Owner teardown is irreversible; ordinary Stop remains reusable through `abort`.
+    pub fn close(&self) {
+        let mut live = locked(&self.live);
+        live.closed = true;
+        if let Some(control) = live.current.as_ref() {
+            control.stop("Benchmark cancelled");
+        }
     }
 
     pub async fn run(&self, runtime: Runtime, cwd: &str, options: &Value) -> Value {
@@ -223,9 +238,12 @@ impl BenchmarkRunner {
         options: &Value,
         budget: Duration,
     ) -> Value {
-        let (args, control) = {
+        let (control, mut child) = {
             let mut live = locked(&self.live);
-            if live.is_some() {
+            if live.closed {
+                return json!({"success":false,"error":"Benchmark cancelled","code":"cancelled"});
+            }
+            if live.current.is_some() {
                 return json!({"success":false,"error":"A benchmark is already running","code":"benchmark_running"});
             }
             let args = match args(options) {
@@ -235,42 +253,43 @@ impl BenchmarkRunner {
                 }
             };
             let control = Arc::new(Control::default());
-            *live = Some(Arc::clone(&control));
-            (args, control)
-        };
-        runtime
-            .env
-            .insert("OTEL_SDK_DISABLED".into(), "true".into());
-        let runner = Runner {
-            bin: runtime.bin.to_string_lossy().into_owned(),
-            args,
-            env: runtime.env,
-            timeout_ms: TIMEOUT_MS,
-            max_bytes: MAX_OUTPUT,
-        };
-        let mut command = Command::new(&runner.bin);
-        command
-            .args(&runner.args)
-            .current_dir(cwd)
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        runner.environment(&mut command, &[]);
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000);
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => {
-                locked(&self.live).take();
-                return json!({"success":false,"error":format!("spawn {} {}",runner.bin,uv_code(&error))});
-            }
+            live.current = Some(Arc::clone(&control));
+            runtime
+                .env
+                .insert("OTEL_SDK_DISABLED".into(), "true".into());
+            let runner = Runner {
+                bin: runtime.bin.to_string_lossy().into_owned(),
+                args,
+                env: runtime.env,
+                timeout_ms: TIMEOUT_MS,
+                max_bytes: MAX_OUTPUT,
+            };
+            let mut command = Command::new(&runner.bin);
+            command
+                .args(&runner.args)
+                .current_dir(cwd)
+                .env_clear()
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            runner.environment(&mut command, &[]);
+            #[cfg(windows)]
+            command.creation_flags(0x0800_0000);
+            // Spawn and irreversible close share the admission lock.
+            let child = match command.spawn() {
+                Ok(child) => child,
+                Err(error) => {
+                    live.current.take();
+                    return json!({"success":false,"error":format!("spawn {} {}",runner.bin,uv_code(&error))});
+                }
+            };
+            (control, child)
         };
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             let _ = child.start_kill();
             let _ = child.wait().await;
-            locked(&self.live).take();
+            locked(&self.live).current.take();
             return json!({"success":false,"error":"The benchmark process's pipes were not open"});
         };
         let live = Arc::clone(&self.live);
@@ -322,7 +341,7 @@ impl BenchmarkRunner {
             if !kept_stderr.is_empty() {
                 result["stderr"] = Value::String(kept_stderr.to_owned());
             }
-            locked(&live).take();
+            locked(&live).current.take();
             let _ = send.send(result);
         });
         let guard = CancelOnDrop(control);
@@ -430,6 +449,31 @@ mod tests {
         let result = runner.run(runtime, &cwd, &options).await;
         assert_eq!(result["error"], "Benchmark output exceeded 8 MiB");
         assert!(!runner.running());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn owner_close_cancels_and_joins_but_a_fresh_owner_can_run() {
+        use crate::models::test_rig::{Fixture, start_then};
+        let fixture = Fixture::new("benchmark-owner-close");
+        let cwd = fixture.dir.to_string_lossy();
+        let options = json!({"models":["p/m"],"profile":"chat","runs":1,"parallel":1});
+        let runner = BenchmarkRunner::default();
+        let runtime = fixture.runtime("exec sleep 300");
+        let result = start_then(runner.run(runtime, &cwd, &options), || runner.close()).await;
+        assert_eq!(result["error"], "Benchmark cancelled");
+        assert!(!runner.running());
+        let runtime = fixture.runtime("printf started > stale-child");
+        let result = runner.clone().run(runtime, &cwd, &options).await;
+        assert_eq!(result["code"], "cancelled");
+        assert!(!fixture.dir.join("stale-child").exists());
+        let runtime = fixture.runtime("printf '{\"runs\":1,\"models\":[],\"failures\":0}'");
+        assert_eq!(
+            BenchmarkRunner::default()
+                .run(runtime, &cwd, &options)
+                .await["success"],
+            true
+        );
     }
 
     #[cfg(unix)]

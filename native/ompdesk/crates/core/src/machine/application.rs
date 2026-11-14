@@ -174,10 +174,10 @@ impl<H: Host> Application<H> {
 
     pub fn close_owner(&self, owner: &H::Owner) {
         if let Some(runner) = lock(&self.benchmarks).remove(owner) {
-            runner.abort();
+            runner.close();
         }
         if let Some(runner) = lock(&self.setups).remove(owner) {
-            runner.abort();
+            runner.close();
         }
     }
 
@@ -199,14 +199,14 @@ impl<H: Host> Application<H> {
                         json!({"success":false,"error":"No active workspace","code":"no_workspace"}),
                     );
                 };
-                let runtime = match self.runtime.runtime().await {
-                    Ok(runtime) => runtime,
-                    Err(error) => return Ok(json!({"success":false,"error":error.message})),
-                };
                 let runner = lock(&self.benchmarks)
                     .entry(owner.clone())
                     .or_default()
                     .clone();
+                let runtime = match self.runtime.runtime().await {
+                    Ok(runtime) => runtime,
+                    Err(error) => return Ok(json!({"success":false,"error":error.message})),
+                };
                 let result = runner.run(runtime, &cwd.to_string_lossy(), &options).await;
                 // Entries stay until the owner closes: removing one while a concurrent call reuses it could allow two children.
                 Ok(result)
@@ -217,11 +217,11 @@ impl<H: Host> Application<H> {
                     .is_some_and(BenchmarkRunner::abort),
             )),
             Command::ModelSetup(request) => {
+                let runner = lock(&self.setups).entry(owner).or_default().clone();
                 let runtime = match self.runtime.runtime().await {
                     Ok(runtime) => runtime,
                     Err(error) => return Ok(json!({"success":false,"error":error.message})),
                 };
-                let runner = lock(&self.setups).entry(owner).or_default().clone();
                 let cwd = std::env::temp_dir().to_string_lossy().into_owned();
                 Ok(runner.run(runtime, request, cwd).await)
             }
