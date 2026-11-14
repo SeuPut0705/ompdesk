@@ -34,8 +34,8 @@ const IN_PROGRESS: [&str; 6] = [
 /// makes it again, or none.
 #[derive(Serialize)]
 pub struct Verdict {
-    path: String,
-    regenerable: Option<Regenerable>,
+    pub(crate) path: String,
+    pub(crate) regenerable: Option<Regenerable>,
 }
 
 /// `WorktreeFiles`.
@@ -43,13 +43,13 @@ pub struct Verdict {
 #[serde(rename_all = "camelCase")]
 pub struct Files {
     /// Ignored entries.
-    ignored: Vec<Verdict>,
+    pub(crate) ignored: Vec<Verdict>,
     /// Untracked entries git does not ignore, collapsed to a directory where git collapses them.
     untracked: Vec<Verdict>,
     /// Every untracked file, one per file (what a commit of the worktree would add).
-    untracked_files: Vec<String>,
+    pub(crate) untracked_files: Vec<String>,
     /// Tracked paths with changes (modified, added, deleted, renamed).
-    changed: Vec<String>,
+    pub(crate) changed: Vec<String>,
     /// Every tracked path (`git ls-files`).
     tracked: Vec<String>,
     /// `git status` as printed: equal before and after means nothing moved in between.

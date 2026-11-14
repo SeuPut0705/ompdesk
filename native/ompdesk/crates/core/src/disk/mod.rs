@@ -9,9 +9,9 @@
 //! each worker holds the request's scope).
 
 mod cache;
-mod facts;
-mod regenerable;
-mod saved;
+pub(crate) mod facts;
+pub(crate) mod regenerable;
+pub(crate) mod saved;
 pub(crate) mod saves;
 mod scratch;
 mod sizes;

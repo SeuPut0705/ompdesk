@@ -70,16 +70,16 @@ pub(super) fn inside(root: &str, child: &str) -> bool {
 
 #[derive(Serialize, Deserialize)]
 pub struct Candidate {
-    path: String,
-    branch: Option<String>,
+    pub(crate) path: String,
+    pub(crate) branch: Option<String>,
 }
 
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Candidates {
-    candidates: Vec<Candidate>,
+    pub(crate) candidates: Vec<Candidate>,
     /// OMPdesk's worktrees an open session uses.
-    in_use: Vec<String>,
+    pub(crate) in_use: Vec<String>,
 }
 
 /// OMPdesk's linked worktrees of the repository at `primary`, unread (one `git worktree list`): not locked, a real
@@ -202,15 +202,15 @@ fn classify(facts: &Facts) -> Verdict {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Orphan {
-    path: String,
-    branch: Option<String>,
-    repo: String,
-    state: State,
+    pub(crate) path: String,
+    pub(crate) branch: Option<String>,
+    pub(crate) repo: String,
+    pub(crate) state: State,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     squashed: bool,
-    commits_ahead: u64,
-    dirty_files: usize,
-    modified_at: u64,
+    pub(crate) commits_ahead: u64,
+    pub(crate) dirty_files: usize,
+    pub(crate) modified_at: u64,
 }
 
 async fn inspect_one(git: &Git, primary: &str, candidate: &Candidate) -> Result<Orphan, Fault> {

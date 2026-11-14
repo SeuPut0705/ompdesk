@@ -756,12 +756,12 @@ pub fn settle(worktree: &str, archive_dir: &str, scope: &Scope) -> Result<bool, 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Checkout {
-    path: String,
-    repo: String,
-    branch: Option<String>,
-    head: String,
-    saved_branch: Option<String>,
-    staged: Option<String>,
+    pub(crate) path: String,
+    pub(crate) repo: String,
+    pub(crate) branch: Option<String>,
+    pub(crate) head: String,
+    pub(crate) saved_branch: Option<String>,
+    pub(crate) staged: Option<String>,
 }
 
 /// `git worktree add` at the old path, on its branch when the branch still points where it did and no other worktree

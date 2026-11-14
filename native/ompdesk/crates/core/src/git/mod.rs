@@ -16,17 +16,17 @@ pub mod branches;
 mod checkout;
 pub(crate) mod freshness;
 mod origin;
-mod orphans;
+pub(crate) mod orphans;
 pub(crate) mod parse;
 pub(crate) mod read;
 pub(crate) mod run;
 pub mod repo_lock;
 mod scm;
 pub mod session_lifecycle;
-mod seed;
+pub(crate) mod seed;
 pub(crate) mod triggers;
 mod unlanded;
-mod worktree;
+pub(crate) mod worktree;
 
 use serde::Deserialize;
 

@@ -60,6 +60,10 @@ impl Cancellation {
     pub fn cancel(&self) {
         self.0.send_replace(true);
     }
+
+    pub fn cancelled(&self) -> bool {
+        *self.0.borrow()
+    }
 }
 
 impl Scope {
@@ -644,5 +648,18 @@ mod tests {
         client_write.shutdown().await.unwrap();
         drop(client_write);
         server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_retained_cancel_predicate_does_not_hold_the_request_exit_receipt() {
+        let (scope, gone) = Scope::watched();
+        let cancellation = scope.cancellation();
+        let predicate = move || !cancellation.cancelled();
+        let cancel = scope.cancellation();
+        drop(scope);
+        gone.wait().await;
+        assert!(predicate());
+        cancel.cancel();
+        assert!(!predicate());
     }
 }

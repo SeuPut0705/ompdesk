@@ -317,17 +317,17 @@ fn pretend_cloner(mut clones: u32) -> Cloner {
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Skipped {
-    path: String,
-    reason: String,
+    pub(crate) path: String,
+    pub(crate) reason: String,
 }
 
 /// `WorktreeSeedReport`: `cloned` only when every file was a clone.
 #[derive(Serialize, Debug)]
 pub struct Report {
-    copied: u32,
-    bytes: u64,
-    cloned: bool,
-    skipped: Vec<Skipped>,
+    pub(crate) copied: u32,
+    pub(crate) bytes: u64,
+    pub(crate) cloned: bool,
+    pub(crate) skipped: Vec<Skipped>,
 }
 
 /// One seed under way.
@@ -713,8 +713,8 @@ impl Seed<'_> {
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Hook {
-    script: String,
-    log_path: String,
+    pub(crate) script: String,
+    pub(crate) log_path: String,
 }
 
 /// The repository's script `script` (`.ompdesk/worktree-setup`, relative) for the worktree at `worktree`: its own
