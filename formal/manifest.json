@@ -262,7 +262,7 @@
 				"src/main/checks/client.ts",
 				"src/main/checks/result-delivery.ts"
 			],
-			"syncCommit": null
+			"syncCommit": "e87d85e5b2cc1435a715c6b0a9dc92cdfb74529d"
 		}
 	]
 }
