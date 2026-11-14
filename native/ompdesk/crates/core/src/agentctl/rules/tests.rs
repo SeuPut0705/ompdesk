@@ -923,9 +923,18 @@ async fn native_reports_obey_stale_dispatch_and_coalesce_without_overwriting_a_p
     stale.dispatch = Some("d1".into());
     assert_eq!(mailbox.post(stale).await.unwrap(), Posted::Stale);
     assert!(log.lock().unwrap().is_empty());
-    let first = native_report("stable", "original progress", MailKind::Progress);
-    assert_eq!(mailbox.post(first.clone()).await.unwrap(), Posted::Queued);
-    assert_eq!(mailbox.post(first).await.unwrap(), Posted::Queued);
+    let mut first = Box::pin(mailbox.post(native_report(
+        "stable",
+        "original progress",
+        MailKind::Progress,
+    )));
+    assert_pending(first.as_mut()).await;
+    let mut duplicate = Box::pin(mailbox.post(native_report(
+        "stable",
+        "original progress",
+        MailKind::Progress,
+    )));
+    assert_pending(duplicate.as_mut()).await;
     let conflict = native_report("stable", "changed instructions", MailKind::Progress);
     assert!(mailbox.post(conflict).await.is_err());
     assert_eq!(
@@ -935,7 +944,8 @@ async fn native_reports_obey_stale_dispatch_and_coalesce_without_overwriting_a_p
     assert!(log.lock().unwrap().is_empty());
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
-    tokio::task::yield_now().await;
+    assert_eq!(first.await.unwrap(), Posted::Delivered);
+    assert_eq!(duplicate.await.unwrap(), Posted::Delivered);
     assert_eq!(*log.lock().unwrap(), ["stable:0"]);
 }
 
@@ -951,4 +961,174 @@ async fn a_native_delivery_uses_the_receiver_existing_result_after_mailbox_resta
             .unwrap(),
         Posted::Duplicate,
     );
+}
+
+async fn assert_pending<F: Future>(mut future: std::pin::Pin<&mut F>) {
+    let pending =
+        std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx).is_pending()))
+            .await;
+    assert!(
+        pending,
+        "native progress answered before its receiver acceptance completed"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn native_progress_joins_the_claimed_delivery_and_cannot_ack_while_acceptance_is_held() {
+    use super::mail::DeliveryReceipt;
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let entered = Arc::new(Mutex::new(Some(entered_tx)));
+    let release = Arc::new(Mutex::new(Some(release_rx)));
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    let mailbox = Mailbox::new(Arc::new(move |_: Mail| {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let release = release.lock().unwrap().take();
+        if let Some(entered) = entered.lock().unwrap().take() {
+            entered.send(()).unwrap();
+        }
+        Box::pin(async move {
+            release
+                .expect("same identity was delivered twice")
+                .await
+                .unwrap()
+        })
+    }));
+    let mut first = Box::pin(mailbox.post(native_report("one", "original", MailKind::Progress)));
+    assert_pending(first.as_mut()).await;
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+    entered_rx.await.unwrap();
+    assert_pending(first.as_mut()).await;
+    let mut joined = Box::pin(mailbox.post(native_report("one", "original", MailKind::Progress)));
+    assert_pending(joined.as_mut()).await;
+    assert!(
+        mailbox
+            .post(native_report("one", "conflicting body", MailKind::Progress))
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    release_tx.send(Ok(DeliveryReceipt::New)).unwrap();
+    assert_eq!(first.await.unwrap(), Posted::Delivered);
+    assert_eq!(joined.await.unwrap(), Posted::Delivered);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn unclaimed_native_progress_replacement_and_forget_report_no_receiver_acceptance() {
+    for replacement in ["progress", "done", "forget"] {
+        let log: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mailbox = mailbox_with(log.clone());
+        let mut original =
+            Box::pin(mailbox.post(native_report("old", "original", MailKind::Progress)));
+        assert_pending(original.as_mut()).await;
+        match replacement {
+            "progress" => {
+                let mut newer =
+                    Box::pin(mailbox.post(native_report("new", "newest", MailKind::Progress)));
+                assert_pending(newer.as_mut()).await;
+                assert!(original.await.is_err());
+                assert!(log.lock().unwrap().is_empty());
+                tokio::task::yield_now().await;
+                tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+                assert_eq!(newer.await.unwrap(), Posted::Delivered);
+                assert_eq!(*log.lock().unwrap(), ["new:1"]);
+            }
+            "done" => {
+                assert_eq!(
+                    mailbox
+                        .post(native_report("done", "finished", MailKind::Done))
+                        .await
+                        .unwrap(),
+                    Posted::Delivered
+                );
+                assert!(original.await.is_err());
+                assert_eq!(*log.lock().unwrap(), ["done:0"]);
+            }
+            "forget" => {
+                mailbox.forget("child");
+                assert!(original.await.is_err());
+                tokio::task::yield_now().await;
+                tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+                assert!(log.lock().unwrap().is_empty());
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn native_progress_retry_exhaustion_finishes_the_waiter_with_the_delivery_error() {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    let mailbox = Mailbox::new(Arc::new(move |_: Mail| {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async { Err("receiver journal save failed".into()) })
+    }));
+    let mut post = Box::pin(mailbox.post(native_report("one", "save it", MailKind::Progress)));
+    assert_pending(post.as_mut()).await;
+    for _ in 0..=super::mail::MAIL_PROGRESS_RETRIES {
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        post.await
+            .unwrap_err()
+            .contains("receiver journal save failed")
+    );
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        (super::mail::MAIL_PROGRESS_RETRIES + 1) as usize
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn active_forget_keeps_the_actual_delivery_and_late_completion_cannot_erase_new_progress() {
+    use super::mail::DeliveryReceipt;
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let entered = Arc::new(Mutex::new(Some(entered_tx)));
+    let release = Arc::new(Mutex::new(Some(release_rx)));
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    let mailbox = Mailbox::new(Arc::new(move |_: Mail| {
+        let index = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let release = if index == 0 {
+            release.lock().unwrap().take()
+        } else {
+            None
+        };
+        if let Some(entered) = entered.lock().unwrap().take() {
+            entered.send(()).unwrap();
+        }
+        Box::pin(async move {
+            if let Some(release) = release {
+                release.await.unwrap()
+            } else {
+                Ok(DeliveryReceipt::New)
+            }
+        })
+    }));
+    let mut old = Box::pin(mailbox.post(native_report("old", "original", MailKind::Progress)));
+    assert_pending(old.as_mut()).await;
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+    entered_rx.await.unwrap();
+    mailbox.forget("child");
+    assert!(old.await.is_err());
+    let retry = mailbox
+        .post(native_report("old", "original", MailKind::Progress))
+        .await;
+    assert!(retry.is_err());
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let mut newer = Box::pin(mailbox.post(native_report("new", "newest", MailKind::Progress)));
+    assert_pending(newer.as_mut()).await;
+    release_tx.send(Ok(DeliveryReceipt::New)).unwrap();
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(super::mail::MAIL_COALESCE_MS)).await;
+    assert_eq!(newer.await.unwrap(), Posted::Delivered);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
 }

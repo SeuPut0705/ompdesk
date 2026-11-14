@@ -818,3 +818,53 @@ async fn two_revisions_of_a_plan_with_the_same_title_and_files_are_two_steps_wit
     assert_ne!(keys[0].1, keys[1].1, "the notes differ");
     assert!(keys[0].0.as_str().unwrap().ends_with("|plan:3"));
 }
+
+#[tokio::test]
+async fn a_report_retry_or_conflict_does_not_land_or_restore_source_bytes_after_receiver_disk_acceptance()
+ {
+    let dir = temp("report-lookup-before-landing");
+    let (control, asked, mut deliveries, _fixture) = native_rig(
+        9_419,
+        native_state(vec![tab("a"), tab("b")]),
+        Caps::default(),
+        &files_in(&dir),
+        Tuning::default(),
+        omp,
+    );
+    let args = json!({
+        "id": "stable-file-report", "kind": "note", "text": "original report",
+        "attachments": [{ "path": "/w/doc.pdf" }],
+    });
+    let first = control.run("b", "ompdesk_report", args.clone(), None).await;
+    assert!(!first.is_error, "{}", first.text);
+    let delivery = delivered(&mut deliveries).await;
+    let entry = &delivery["request"]["entries"][0];
+    let receiver_path = entry["details"]["attachments"][0]["path"].as_str().unwrap();
+    assert_eq!(std::fs::read(receiver_path).unwrap(), PDF);
+    let sha = crate::agentctl::journal::attachments::sha256_hex(PDF);
+    let source_blob = dir.join("agent-attachments").join(&sha);
+    std::fs::remove_file(&source_blob).unwrap();
+    std::fs::create_dir(&source_blob).unwrap();
+    control
+        .host
+        .landed
+        .set(None, &sha, "/expired/source-landing", 0.0);
+    let landed_before_retry = asked_with(&asked, "land").len();
+    let receiver = serde_json::from_value(delivery["request"]["receiver"].clone()).unwrap();
+    let ledger = &control.receiving_inbox.as_ref().unwrap().ledger;
+    let original_pending = ledger.pending(&receiver).unwrap().1;
+    let repeated = control.run("b", "ompdesk_report", args.clone(), None).await;
+    assert!(!repeated.is_error, "{}", repeated.text);
+    assert_eq!(asked_with(&asked, "land").len(), landed_before_retry);
+    assert!(source_blob.is_dir());
+    assert_eq!(std::fs::read(receiver_path).unwrap(), PDF);
+    let mut changed = args;
+    changed["text"] = json!("conflicting logical report");
+    let conflict = control.run("b", "ompdesk_report", changed, None).await;
+    assert!(conflict.is_error, "{}", conflict.text);
+    assert_eq!(asked_with(&asked, "land").len(), landed_before_retry);
+    assert!(source_blob.is_dir());
+    assert_eq!(ledger.pending(&receiver).unwrap().1, original_pending);
+    assert_eq!(std::fs::read(receiver_path).unwrap(), PDF);
+    control.host.port().close();
+}
