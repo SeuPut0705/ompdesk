@@ -697,6 +697,7 @@
   },
   "bridge": {
    "arm": "modes.autopilot_arm",
+   "approval": "modes.autopilot_approval",
    "status": "modes.autopilot_status",
    "configure": "modes.autopilot_configure",
    "note": "modes.autopilot_note",

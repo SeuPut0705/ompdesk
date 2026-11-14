@@ -26,11 +26,11 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
+use super::host::Backend;
 use crate::fs::disk;
 use crate::fs::error::Codes;
 use crate::git::read::blocking;
 use crate::git::run::Git;
-use crate::ports::Port;
 use crate::run::Opts;
 use crate::server::{Fault, Scope};
 
@@ -302,19 +302,19 @@ impl Outcome {
 
 /// What main answers `prepareWorktree` with (`WorktreeSetupReport` is all this side reads).
 #[derive(Deserialize)]
-struct Prepared {
+pub struct Prepared {
     #[serde(default)]
-    setup: Option<Setup>,
+    pub setup: Option<Setup>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Setup {
-    ok: bool,
-    exit_code: Option<i32>,
-    timed_out: bool,
-    script: String,
-    output_tail: String,
+pub struct Setup {
+    pub ok: bool,
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+    pub script: String,
+    pub output_tail: String,
 }
 
 /// The shell and environment the check runs in, and the supervisor that holds it (`landShell`).
@@ -525,7 +525,7 @@ fn finish(output: &[u8], error: Option<&str>, code: Option<i32>, timed_out: bool
 /// The git calls and the hook around the run; `None` is a check that failed before it ran.
 async fn prepare(
     git: &Git,
-    port: &Port<()>,
+    port: &Backend,
     input: &Input,
     scratch: &Scratch,
 ) -> Result<Result<(String, String), Outcome>, Fault> {
@@ -548,13 +548,7 @@ async fn prepare(
     if added.code != 0 {
         return Ok(Err(Outcome::failed(tail_units(&added.stderr, OUTPUT_TAIL))));
     }
-    let prepared: Prepared = port
-        .ask(
-            "prepareWorktree",
-            &serde_json::json!({"primary": input.primary, "tree": tree}),
-        )
-        .await
-        .map_err(Fault::from)?;
+    let prepared = port.prepare_worktree(&input.primary, &tree).await?;
     if let Some(setup) = prepared.setup.filter(|setup| !setup.ok) {
         return Ok(Err(Outcome {
             ok: false,
@@ -585,7 +579,7 @@ async fn prepare(
 /// that could not run is a failed one with the reason in its tail.
 pub async fn check_candidate(
     git: &Git,
-    port: &Port<()>,
+    port: &Backend,
     input: &Input,
     stop_grace: Duration,
     scope: &Scope,
@@ -607,10 +601,7 @@ pub async fn check_candidate(
             Ok(prepared) => prepared,
             Err(failed) => return Ok::<Outcome, Fault>(failed),
         };
-        let shell: Shell = port
-            .ask("landShell", &serde_json::json!({"command": command}))
-            .await
-            .map_err(Fault::from)?;
+        let shell = port.land_shell(command).await?;
         let timeout = Duration::from_millis(input.timeout_ms.unwrap_or(LAND_CHECK_TIMEOUT_MS));
         Ok(run_command(
             &shell,

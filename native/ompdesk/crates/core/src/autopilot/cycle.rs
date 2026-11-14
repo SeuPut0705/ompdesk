@@ -186,7 +186,14 @@ impl Coordinator {
         let Some(run) = locked(&self.runs).remove(tab) else {
             return;
         };
-        self.port.tell("mirror", &json!({"tab": tab, "gone": true}));
+        run.steps.close();
+        run.ship.close();
+        let stopped = run.clone();
+        self.track(async move {
+            stopped.steps.idle().await;
+            stopped.ship.idle().await;
+        });
+        self.port.mirror(json!({"tab": tab, "gone": true}));
         let (polling, wake, children) = {
             let mut state = run.lock();
             (
@@ -210,9 +217,7 @@ impl Coordinator {
             self.touch_child(&child, None);
             let (this, port) = (self.clone(), self.port.clone());
             self.track(async move {
-                let _ = port
-                    .ask::<Value, _>("release", &json!({"tab": child}))
-                    .await;
+                let _ = port.release(&child).await;
                 drop(this);
             });
         }
@@ -251,12 +256,7 @@ impl Coordinator {
 
     async fn probe_repo(&self, root: &str) -> RepoProbe {
         if self.probe_override {
-            return match self
-                .port
-                .ask::<String, _>("probeRepo", &json!({"root": root}))
-                .await
-                .as_deref()
-            {
+            return match self.port.probe_repo(root).await.as_deref() {
                 Ok("present") => RepoProbe::Present,
                 Ok("gone") => RepoProbe::Gone,
                 _ => RepoProbe::Unknown,
@@ -799,13 +799,7 @@ impl Coordinator {
             .and_then(|state| state.get("model"))
             .and_then(|model| text(model, "provider"))
             .map(str::to_owned);
-        let reset_at: i64 = self
-            .port
-            .ask(
-                "quotaWait",
-                &json!({"reports": reports, "provider": provider, "now": now}),
-            )
-            .await?;
+        let reset_at = self.port.quota_wait(reports, provider, now).await?;
         run.lock().quota_retries = 0;
         self.set_state(
             run,
@@ -906,11 +900,8 @@ impl Coordinator {
             if !self.facts(&child).await.is_some_and(|facts| facts.busy) {
                 return;
             }
-            self.port.tell("noteStopped", &json!({"tab": child}));
-            self.port.tell(
-                "turnStop",
-                &json!({"command": "abort", "tab": child, "by": "autopilot", "surface": "run-stopped", "caller": tab}),
-            );
+            self.port.note_stopped(&child);
+            self.port.turn_stop(&child, "run-stopped", Some(tab));
             let _ = self.stock(&child, json!({"type": "abort"})).await;
         });
         futures_join(stops).await;
@@ -948,10 +939,7 @@ impl Coordinator {
             .map(|child| child.tab.clone())
             .collect();
         let clears = children.into_iter().map(|child| async move {
-            let _ = self
-                .port
-                .ask::<Value, _>("clearQueue", &json!({"tab": child}))
-                .await;
+            let _ = self.port.clear_queue(&child).await;
         });
         futures_join(clears).await;
         // No turn in flight: no `agent_end` will bring `autopilot_settled`.
@@ -1171,16 +1159,16 @@ impl Coordinator {
         }
         // The process came up with the run `running` in its journal (a relaunch, or its omp restarted): stock paused the goal
         // at startup. The run goes on after any restart; with a launch marker, after TurnResume's restore.
-        let continuation: String = self.port.ask("relaunch", &json!({"tab": tab})).await?;
-        match continuation.as_str() {
-            "after_restore" => {
+        let continuation = self.port.relaunch(tab).await?;
+        match continuation {
+            super::host::Relaunch::AfterRestore => {
                 locked(&self.awaiting_resume).insert(tab.to_owned());
             }
-            "now" => {
+            super::host::Relaunch::Now => {
                 locked(&self.continued_on_ready).insert(tab.to_owned());
                 self.continue_or_pause(&run).await;
             }
-            _ => self.app_closed(&run).await?,
+            super::host::Relaunch::Disabled => self.app_closed(&run).await?,
         }
         Ok(())
     }
@@ -1441,15 +1429,13 @@ impl Coordinator {
         {
             self.log(&format!("disarm: {}", error.message));
         }
-        self.port
-            .tell("runLog", &json!({"message": "ended", "details": details}));
+        self.port.run_log("ended", Value::Object(details));
         let title = self.text("autopilot.ended.title", json!({})).await;
         self.notify(run, "completion", title, line);
         let root = run.lock().root.clone();
         locked(&self.runs).remove(&run.tab);
-        self.port
-            .tell("mirror", &json!({"tab": run.tab, "gone": true}));
-        self.port.tell("runEnded", &json!({"root": root}));
+        self.port.mirror(json!({"tab": run.tab, "gone": true}));
+        self.port.run_ended(&root);
         Ok(())
     }
 
@@ -1556,20 +1542,14 @@ impl Coordinator {
                 .and_then(Value::as_f64)
                 .unwrap_or(0.0);
             if self.facts(&child.tab).await.is_some_and(|facts| facts.busy) {
-                self.port.tell("noteStopped", &json!({"tab": child.tab}));
-                self.port.tell(
-                    "turnStop",
-                    &json!({"command": "abort", "tab": child.tab, "by": "autopilot", "surface": "run-ended"}),
-                );
+                self.port.note_stopped(&child.tab);
+                self.port.turn_stop(&child.tab, "run-ended", None);
                 let _ = self.stock(&child.tab, json!({"type": "abort"})).await;
             }
             if locked(&self.child_runs).remove(&child.tab).is_some() {
                 self.touch_child(&child.tab, None);
             }
-            let _ = self
-                .port
-                .ask::<Value, _>("release", &json!({"tab": child.tab}))
-                .await;
+            let _ = self.port.release(&child.tab).await;
             self.remove_child_worktree(run, child).await;
         }
         if !children.is_empty() && (tokens > 0.0 || usd > 0.0) && cycle > 0 {
@@ -1689,10 +1669,7 @@ impl Coordinator {
 
     async fn check_release(self: &Arc<Self>, run: &Arc<Run>, version: &str, url: &str) -> R<()> {
         let root = run.lock().root.clone();
-        let info: Option<Value> = self
-            .port
-            .ask("ghRun", &json!({"cwd": root, "url": url}))
-            .await?;
+        let info = self.port.gh_run(root, url).await?;
         let Some(info) = info.filter(|info| text(info, "status") == Some("completed")) else {
             return Ok(());
         };
@@ -1771,9 +1748,13 @@ impl Coordinator {
     /// Stops, ends and release outcomes: what a person away from the screen must know. Where it goes (this computer's banner
     /// under its own notifications switch, the paired device that started or shows the run, phones) is main's.
     pub fn notify(&self, run: &Run, kind: &str, title: String, body: String) {
-        self.port.tell(
-            "notify",
-            &json!({"tab": run.tab, "notice": {"kind": kind, "title": title, "body": body}}),
+        self.port.notify(
+            &run.tab,
+            super::host::Notice {
+                kind: kind.to_owned(),
+                title,
+                body,
+            },
         );
     }
 
@@ -1781,8 +1762,7 @@ impl Coordinator {
     /// doing or a state the screen already shows.
     async fn report_stop(self: &Arc<Self>, run: &Arc<Run>, reason: &str, detail: Option<&str>) {
         let (line, details) = self.summary(run, reason, detail).await;
-        self.port
-            .tell("runLog", &json!({"message": "paused", "details": details}));
+        self.port.run_log("paused", Value::Object(details));
         if SILENT_REASONS.contains(&reason) {
             return;
         }
