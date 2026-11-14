@@ -6369,3 +6369,162 @@ describe("a message to a saved session whose holder this app cannot see", () => 
 		expect(result.text).toContain("nothing was done");
 	});
 });
+
+describe("closing one exact relay view", () => {
+	const handle = {
+		viewHost: "host-b",
+		window: "window-b",
+		tabId: "view-b",
+		session: "11111111-aaaa",
+		incarnation: "incarnation-b",
+	};
+	const facts = (tab: Partial<ControlTab> = {}) => ({
+		handle,
+		tab: {
+			tabId: handle.tabId,
+			title: "Shared completed session",
+			cwd: "/repo",
+			status: "ready" as const,
+			busy: false,
+			asks: [],
+			hidden: false,
+			sessionPath: "/s/shared.jsonl",
+			...tab,
+		},
+		enabled: true,
+		manageEnabled: true,
+		fullEnabled: true,
+	});
+	async function authorize(service: unknown, caller: string, view: unknown, localViewHost = "host-a") {
+		if (
+			typeof service !== "object" ||
+			service === null ||
+			!("authorizeView" in service) ||
+			typeof service.authorizeView !== "function"
+		)
+			throw new Error("View authorization is not available");
+		await service.authorizeView(caller, view, localViewHost);
+	}
+
+	it("lists actual app view handles, not saved summaries posing as views", async () => {
+		const host = new FakeHost({ tabId: "source-a" });
+		const other = { ...handle, viewHost: "host-c", tabId: "view-c", incarnation: "incarnation-c" };
+		Object.assign(host, { listViews: async () => [facts(), { ...facts(), handle: other }] });
+		const result = await control(host).run("source-a", T.list, { scope: "app" });
+		expect(result.isError, result.text).toBe(false);
+		expect(result.text).toContain(JSON.stringify(handle));
+		expect(result.text).toContain(JSON.stringify(other));
+	});
+
+	it.each([true, false])("authorizes from the original source caller's person turn (%s)", async personTurn => {
+		const host = new FakeHost({ tabId: "source-a", personTurn });
+		host.full = true;
+		const service = control(host);
+		const remaining = new Set(["view-b", "view-c"]);
+		const closeView = vi.fn(async (caller: string, requested: typeof handle) => {
+			expect(caller).toBe("source-a");
+			expect(requested).toEqual(handle);
+			await authorize(service, caller, facts({ looked: true, userTouched: true }));
+			remaining.delete(requested.tabId);
+		});
+		Object.assign(host, { closeView });
+		const result = await service.run("source-a", T.stop, { session: handle.session, close: true, view: handle });
+		expect(result.isError, result.text).toBe(!personTurn);
+		if (personTurn) {
+			expect(result.text).toMatch(/Closed view/);
+			expect([...remaining]).toEqual(["view-c"]);
+		} else {
+			expect(result.text).toMatch(/not started by the user's own message/);
+			expect(result.text).not.toMatch(/Closed view/);
+			expect([...remaining]).toEqual(["view-b", "view-c"]);
+		}
+		expect(closeView).toHaveBeenCalledTimes(1);
+		expect(host.sent.filter(entry => entry.command.type === "agent_control_turn").map(entry => entry.tabId)).toEqual([
+			"source-a",
+		]);
+		expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
+		expect(host.spawned).toEqual([]);
+		expect(host.deleted).toEqual([]);
+		expect(host.deletedStored).toEqual([]);
+		expect(host.views).toEqual([]);
+		expect(host.tabsById.has("source-a")).toBe(true);
+	});
+
+	it("does not report a rejected receiver close as a closed view", async () => {
+		const host = new FakeHost({ tabId: "source-a" });
+		const closeView = vi.fn(async () => {
+			throw new Error("View incarnation changed");
+		});
+		Object.assign(host, { closeView });
+		const result = await control(host).run("source-a", T.stop, {
+			session: handle.session,
+			close: true,
+			view: handle,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("View incarnation changed");
+		expect(result.text).not.toMatch(/Closed view/);
+		expect(closeView).toHaveBeenCalledTimes(1);
+		expect(host.spawned).toEqual([]);
+		expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
+		expect(host.deletedStored).toEqual([]);
+	});
+
+	it.each([
+		{ close: false },
+		{ close: true, delete: true },
+		{ close: true, device: "host-b" },
+		{ close: true, session: "different-session" },
+	])("refuses invalid exact-view requests before contacting a receiver (%j)", async args => {
+		const host = new FakeHost({ tabId: "source-a" });
+		const closeView = vi.fn(async () => {});
+		Object.assign(host, { closeView });
+		const result = await control(host).run("source-a", T.stop, { session: handle.session, view: handle, ...args });
+		expect(result.isError).toBe(true);
+		expect(closeView).not.toHaveBeenCalled();
+	});
+
+	it("refuses an exact-view close when its host has no close port", async () => {
+		const result = await control(new FakeHost({ tabId: "source-a" })).run("source-a", T.stop, {
+			session: handle.session,
+			close: true,
+			view: handle,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.text).toMatch(/not available|unavailable/i);
+	});
+
+	it.each([
+		{ tab: { hidden: true }, error: /hidden/i },
+		{ tab: { busy: true }, error: /busy|running/i },
+		{ tab: { asks: [select("Continue?", ["Yes", "No"])] }, error: /waiting/i },
+		{ tab: { webEdits: "dirty" as const }, error: /unsaved|edits/i },
+	])("refuses unsafe authenticated receiver facts without aborting (%j)", async ({ tab, error }) => {
+		const host = new FakeHost({ tabId: "source-a", personTurn: true });
+		host.full = true;
+		const service = control(host);
+		await expect(authorize(service, "source-a", facts(tab))).rejects.toThrow(error);
+		expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
+		expect(host.spawned).toEqual([]);
+		expect(host.deleted).toEqual([]);
+	});
+
+	it("refuses disabled receivers and callers no longer present", async () => {
+		const host = new FakeHost({ tabId: "source-a", personTurn: true });
+		const service = control(host);
+		await expect(authorize(service, "source-a", { ...facts(), enabled: false })).rejects.toThrow(/turned off/i);
+		host.tabsById.delete("source-a");
+		await expect(authorize(service, "source-a", facts())).rejects.toThrow(/gone|caller/i);
+	});
+
+	it("requires an explicit view for a saved session known to be open elsewhere", async () => {
+		const host = new FakeHost({ tabId: "source-a" });
+		host.storedRows = [storedRow({ elsewhere: { holder: "host-b", work: "idle" } })];
+		const result = await control(host).run("source-a", T.stop, { session: handle.session, close: true });
+		expect(result.isError).toBe(true);
+		expect(result.text).toMatch(/view/i);
+		expect(result.text).not.toMatch(/not open/i);
+		expect(host.spawned).toEqual([]);
+		expect(host.deletedStored).toEqual([]);
+	});
+});

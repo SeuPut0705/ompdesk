@@ -234,6 +234,66 @@ describe("session list snapshot", () => {
 		).toEqual(["/b"]);
 	});
 
+	it("keeps a deleted savedId absent from a late read, snapshots and a reconnecting host-list consumer", async () => {
+		vi.useFakeTimers();
+		const savedId = "/P";
+		const device = "dev-host";
+		const ns = `device:${device}`;
+		const beforeDelete = [row(savedId), row("/kept")];
+		const afterDelete = [row("/kept")];
+		const staleRead = Promise.withResolvers<SessionInfo[]>();
+		const freshRead = Promise.withResolvers<SessionInfo[]>();
+		const list = vi.fn(() => freshRead.promise).mockImplementationOnce(() => staleRead.promise);
+		const remove = vi.fn(async () => {});
+		install(list, remove);
+		snapshots().write("sessions", ns, "global", beforeDelete);
+		snapshots().write("sessions", ns, "local", beforeDelete);
+		const feed = sessionListFeed("global", device);
+		let release = feed.retain();
+		let unsubscribe = () => {};
+		try {
+			expect(feed.store.getState().sessions.map(s => s.path)).toContain(savedId);
+			await feed.deleteSession(savedId);
+			expect(remove).toHaveBeenCalledWith(savedId, device);
+			expect(feed.store.getState().sessions.map(s => s.path)).not.toContain(savedId);
+			const observed: string[] = [];
+			unsubscribe = feed.store.subscribe(state => observed.push(...state.sessions.map(s => s.path)));
+
+			staleRead.resolve(beforeDelete);
+			await vi.runAllTimersAsync();
+			expect.soft(observed).not.toContain(savedId);
+			expect.soft(feed.store.getState().sessions.map(s => s.path)).toEqual(["/kept"]);
+			for (const scope of ["global", "local"] as const)
+				expect
+					.soft(
+						snapshots()
+							.read<SessionInfo[]>("sessions", ns, scope)
+							?.value.map(s => s.path),
+					)
+					.toEqual(["/kept"]);
+
+			release();
+			release = () => {};
+			resetSessionListFeeds();
+			resetSnapshotsForTest();
+			const reconnected = sessionListFeed("global", device);
+			expect.soft(reconnected.store.getState().sessions.map(s => s.path)).toEqual(["/kept"]);
+			release = reconnected.retain();
+			freshRead.resolve(afterDelete);
+			await vi.runAllTimersAsync();
+			expect(reconnected.store.getState().sessions.map(s => s.path)).toEqual(["/kept"]);
+			expect(
+				snapshots()
+					.read<SessionInfo[]>("sessions", ns, "global")
+					?.value.map(s => s.path),
+			).toEqual(["/kept"]);
+		} finally {
+			unsubscribe();
+			release();
+			vi.useRealTimers();
+		}
+	});
+
 	it("a session deleted on another device leaves the local list's copy once the global list is read (a phone reload)", async () => {
 		snapshots().write("sessions", "local", "local", [row("/gone"), row("/b")]);
 		install(async () => [row("/a"), row("/b")]);

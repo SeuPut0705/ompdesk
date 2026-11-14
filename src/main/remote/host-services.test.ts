@@ -69,6 +69,7 @@ import {
 	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
 	SESSIONS_DELETED_EVENT,
+	SESSIONS_DELETED_METHOD,
 	SIGN_IN_CALLBACK_METHOD,
 	SUMMARIES_EVENT,
 	type TabEventMessage,
@@ -399,6 +400,45 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 	});
 	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine, recordedCwd };
 }
+
+describe("delete during a pending open", () => {
+	it("refuses the tombstoned saved session after its workspace lookup resumes", async () => {
+		const { services, sidecars, recordedCwd, deleteSession } = setup();
+		const sessionPath = join(workDir, "pending-delete.jsonl");
+		writeFileSync(sessionPath, "");
+		deleteSession.mockImplementation(async path => {
+			rmSync(path);
+		});
+		const lookup = Promise.withResolvers<string | null>();
+		const entered = Promise.withResolvers<void>();
+		recordedCwd.mockImplementation(async () => {
+			entered.resolve();
+			return lookup.promise;
+		});
+		const first = new FakeConnection(peer("device-pending"));
+		const opening = services
+			.call(first.peer, "tab.open", { rtab: "pending", cwd: workDir, kind: "agent", sessionPath }, first)
+			.catch((error: unknown) => error);
+		await entered.promise;
+		await services.call(first.peer, "sessions.delete", { sessionPath }, first);
+		expect(existsSync(sessionPath)).toBe(false);
+		lookup.resolve(workDir);
+		expect(ipcErrorCode(await opening)).toBe("session_deleted");
+		expect(sidecars).toEqual([]);
+		expect(services.viewSession(sessionPath)).toBeNull();
+		expect(services.resumeFacts()).toEqual([]);
+		services.disconnected(first.peer, first);
+		const reconnected = new FakeConnection(first.peer);
+		expect(await services.call(first.peer, SESSIONS_DELETED_METHOD, { paths: [sessionPath] }, reconnected)).toEqual({
+			paths: [sessionPath],
+		});
+		const reopen = await services
+			.call(first.peer, "tab.open", { rtab: "reopened", cwd: workDir, kind: "agent", sessionPath }, reconnected)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(reopen)).toBe("session_deleted");
+		expect(sidecars).toEqual([]);
+	});
+});
 
 describe("LocalHostServices", () => {
 	it("scopes rtabs per peer: one device can never reach another device's tab", async () => {
@@ -3440,7 +3480,7 @@ describe("LocalHostServices: a device opening a session another device's tab run
 		const refused = await services
 			.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, stale)
 			.catch((error: unknown) => error);
-		expect(ipcErrorCode(refused)).toBe("stale_tab");
+		expect(ipcErrorCode(refused)).toBe("unknown_tab");
 		expect(sidecar.disposed).toBe(false);
 		const unknown = await services
 			.call(b.peer, "tab.leave", { rtab: "missing", sessionPath: SESSION }, b)
@@ -3474,7 +3514,7 @@ describe("LocalHostServices: a device opening a session another device's tab run
 		const switched = await services
 			.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: "/s/old.jsonl" }, b)
 			.catch((error: unknown) => error);
-		expect(ipcErrorCode(switched)).toBe("stale_tab");
+		expect(ipcErrorCode(switched)).toBe("invalid_session_path");
 		sidecar.emit("events", [{ type: "agent_start" }]);
 		await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b);
 		const busy = await services
