@@ -1,6 +1,6 @@
 # Session operations source checkpoint
 
-Status: source checkpoint, not final adapter proof. Core exports this module; NativeApp has not registered or enabled it beside Electron. Base observed the unchanged capture-cancellation regressions fail; the post-capture correction has not run.
+Status: source checkpoint, not final adapter proof. Core exports this module; NativeApp has not registered or enabled it beside Electron. Base observed the unchanged capture-cancellation regressions fail; the post-capture correction and scoped-claim migration have not run.
 
 ## Ownership
 
@@ -16,21 +16,22 @@ Main AUTHORITY-v2 assigns canonical SessionAuthority state, tombstones, retained
 - Exact captured services input `5a95ec411f28826e663b9bd67bd70a799e0e7752`, locally cherry-picked as `fa7accd9e`, 28 bounded native service files only. Base labelled this source unverified.
 - Exact generation service input `9385106d1ad2c740735ca4b99525e1edad469e53` and canonical two-helper projection `deb9b27ef6c5557c5c247e37c6b5f2df6ca6bb97`.
 - Exact retained-save/quota inputs `610a60b0c4dcdb93bce06b62e88ed0e60f924193` then `01e405f0359830a7c368d38ffc3d8bbee2c166b2`; dependency input `1f4c6b79e656dcd383eb7e0f8fad2c87afd817bb`.
-- Exact scoped-authority input `664d13f741e02eb786dc1ac57473d3b2b70c5bfd`. Its new source tests have not run; coordinator migration is separate from the post-capture correction.
+- Exact scoped-authority input `664d13f741e02eb786dc1ac57473d3b2b70c5bfd`, now directly used by the coordinator; its new source tests have not run.
+- Exact joined-stock input `3e11af33c123781074f33bf12a7f4d1fe7c2c966`. Mutation adapters must use request_joined so cancellation does not drop the canonical claim before the actual worker receipt.
 
 The direct stock service and canonical SessionAuthority are present as exact source units. Coordinator Config receives Base's actual shared authority Arc. The 938 source captures generation-bound targets and joins Result-bearing Released receipts even if post-release notifications fail. Actual hosted mutation/notice wiring remains pending.
 
 ## Ordering implementation
 
-`Coordinator` takes the actual admitted app-contract Owner and primitive Host effects. `Activity` and `RuntimeState` distinguish a compacting holder, an unready live process, and a dormant tab. Delete retains Base's guard before capturing holders. Busy/compacting preflight closes nothing. Every successful or partially failed release contributes immutable exit receipts that are joined before storage. Storage or exit errors propagate. Only successful storage records the canonical in-memory tombstone. Index invalidation and deletion notices are both attempted after commit, and their failures remain failures.
+`Coordinator` passes the actual admitted app-contract Owner explicitly to capture and stored effects. There is no mutable current/last-owner side channel. `Activity` and `RuntimeState` distinguish a compacting holder, an unready live process, and a dormant tab. Delete awaits Base's scoped claim before capturing holders. The actual request Scope retains that claim until supervised cleanup drains. Busy/compacting preflight closes nothing. Cancellation after capture starts no mutation; cancellation between releases starts no further release but still joins every receipt already captured. Storage or exit errors propagate. Only successful storage records the canonical in-memory tombstone. Index invalidation and deletion notices are both attempted after commit, and their failures remain failures.
 
-Stop dispatches all captured abort effects and retains every idle waiter. Rename prefers the live hosted owner, refuses an unready owner, otherwise runs stock against the saved file and updates dormant holders. Move refuses any captured holder. Native stored rename uses the existing supervised Exec and installed omp RPC, never handwritten stock journal rules. It refuses a missing file and retries only stock's model-restore failure with `--model @default`.
+Stop dispatches all captured abort effects and retains every idle waiter. Rename and move await Base's shared stored claim before capturing holders, preventing a concurrent open from bypassing their preconditions. Rename prefers the live hosted owner, refuses an unready owner, otherwise passes ReadyStoredClaim into its stored effect for temporary-holder admission and updates dormant holders. Move refuses any captured holder. Native stored rename uses the existing supervised Exec and installed omp RPC, never handwritten stock journal rules. It refuses a missing file and retries only stock's model-restore failure with `--model @default`.
 
 ## Required actual adapter input
 
-The actual SessionAuthority and canonical guard are consumed directly. Base must still supply the shared stored-mutation admission lease. Pool primitives capture immutable runtime/incarnation handles and atomically recheck busy/compaction when releasing saved-file holders. A partial release error must preserve and join the receipts of anything already released, including errors after release but before notification finishes. Saved-file delete must not be confused with closing only one protected view.
+Base's scoped deletion and stored-mutation claims are consumed directly; no substitute mutex or count belongs here. The 938 pool source preserves and joins receipts after notification errors. Saved-file delete must not be confused with closing only one protected view.
 
-The concrete NativeHost still needs the corrected partial-release primitive, current Owner/scope checks, authenticated local/remote target resolution, hosted notice tickets, direct index invalidation and direct stock storage wiring. The stored-rename helper and closed-only move must use the same admission authority so an open cannot race their preconditions. No substitute mutex or count belongs here.
+The concrete NativeHost still needs current Owner/scope checks, authenticated local/remote target resolution, hosted holder/notice tickets, direct index invalidation and direct stock storage wiring. Base confirmed those facades remain unfinished. No empty hosted result, Node fallback or placeholder successful Host is supplied here. The stored-rename helper and closed-only move must bind the admitted claim to actual supervised storage/child work before adapter acceptance.
 
 Base owns core module exports, Cargo/global files and NativeApp registration. Final native graph intake must instantiate the shared authority once and remove or route every obsolete TS authority consumer in that same wave. No dual writes or simultaneously authoritative TS/native stores are permitted.
 

@@ -9,7 +9,7 @@ pub(crate) mod stored_rename;
 
 use ompdesk_app_contract::Owner;
 
-use crate::application::session_authority::{Persistence, SessionAuthority};
+use crate::application::session_authority::{AdmissionRefusal, Persistence, ReadyStoredClaim, SessionAuthority};
 use crate::fs::order::js_trim;
 use crate::server::{Fault, Scope};
 
@@ -88,16 +88,20 @@ pub trait Host: Send + Sync + 'static {
     type Notices: Send + 'static;
 
     fn authorize(&self, owner: &Owner, target: Target) -> Result<Target, Fault>;
-    fn capture(&self, target: &Target) -> Effect<Captured<Self::Runtime, Self::Notices>>;
+    fn capture(&self, owner: &Owner, target: &Target) -> Effect<Captured<Self::Runtime, Self::Notices>>;
     /// Rechecks the captured holder's incarnation and busy/compaction under its pool's atomic release operation.
     fn release(&self, holder: &Holder<Self::Runtime>) -> Effect<Release>;
     /// Starts the native abort operation now and resolves only when that captured run is idle or fails.
     fn stop(&self, holder: &Holder<Self::Runtime>) -> Effect<()>;
     fn rename_live(&self, holder: &Holder<Self::Runtime>, name: &str) -> Effect<()>;
-    fn rename_stored(&self, target: &Target, name: &str, scope: Scope) -> Effect<()>;
+    fn rename_stored(
+        &self, owner: &Owner, target: &Target, name: &str, claim: ReadyStoredClaim, scope: Scope,
+    ) -> Effect<()>;
     fn note_name(&self, holder: &Holder<Self::Runtime>, name: &str) -> Effect<()>;
-    fn delete_stored(&self, target: &Target, scope: Scope) -> Effect<()>;
-    fn move_stored(&self, target: &Target, cwd: PathBuf, scope: Scope) -> Effect<String>;
+    fn delete_stored(&self, owner: &Owner, target: &Target, scope: Scope) -> Effect<()>;
+    fn move_stored(
+        &self, owner: &Owner, target: &Target, cwd: PathBuf, claim: ReadyStoredClaim, scope: Scope,
+    ) -> Effect<String>;
     fn invalidate(&self, target: &Target) -> Effect<()>;
     fn notify_deleted(&self, target: &Target, notices: Self::Notices) -> Effect<()>;
 }
@@ -136,16 +140,21 @@ impl<H: Host> Coordinator<H> {
             return Err(Fault::cancelled().into());
         }
         match mutation {
-            Mutation::Delete => self.delete(target, scope).await,
-            Mutation::Stop => self.stop(target).await,
-            Mutation::Rename(name) => self.rename(target, &name, scope).await,
-            Mutation::Move(cwd) => self.move_session(target, cwd, scope).await,
+            Mutation::Delete => self.delete(owner, target, scope).await,
+            Mutation::Stop => self.stop(owner, target, scope).await,
+            Mutation::Rename(name) => self.rename(owner, target, &name, scope).await,
+            Mutation::Move(cwd) => self.move_session(owner, target, cwd, scope).await,
         }
     }
 
-    async fn delete(&self, target: Target, scope: Scope) -> Result<Output, Error> {
-        let guard = self.authority.begin_delete(Path::new(&target.path), target.device.as_deref());
-        let captured = self.host.capture(&target).await?;
+    async fn delete(&self, owner: &Owner, target: Target, scope: Scope) -> Result<Output, Error> {
+        let guard = self.authority
+            .begin_delete_scoped(Path::new(&target.path), target.device.as_deref(), &scope)
+            .ready().await;
+        if scope.cancelled() {
+            return Err(Fault::cancelled().into());
+        }
+        let captured = self.host.capture(owner, &target).await?;
         if scope.cancelled() {
             return Err(Fault::cancelled().into());
         }
@@ -155,6 +164,10 @@ impl<H: Host> Coordinator<H> {
         let mut exits = Vec::new();
         let mut failure = None;
         for holder in &captured.holders {
+            if scope.cancelled() {
+                failure = Some(Fault::cancelled());
+                break;
+            }
             match self.host.release(holder).await {
                 Ok(released) => {
                     exits.extend(released.exits);
@@ -180,7 +193,7 @@ impl<H: Host> Coordinator<H> {
         if scope.cancelled() {
             return Err(Fault::cancelled().into());
         }
-        self.host.delete_stored(&target, scope).await?;
+        self.host.delete_stored(owner, &target, scope.clone()).await?;
         match guard.commit((self.now_ms)()) {
             Persistence::MemoryOnly | Persistence::Durable => {}
             Persistence::Queued(error) | Persistence::Failed(error) => {
@@ -196,8 +209,11 @@ impl<H: Host> Coordinator<H> {
         Ok(Output::Done)
     }
 
-    async fn stop(&self, target: Target) -> Result<Output, Error> {
-        let captured = self.host.capture(&target).await?;
+    async fn stop(&self, owner: &Owner, target: Target, scope: Scope) -> Result<Output, Error> {
+        let captured = self.host.capture(owner, &target).await?;
+        if scope.cancelled() {
+            return Err(Fault::cancelled().into());
+        }
         let mut stopping = Vec::new();
         for holder in &captured.holders {
             if holder.activity != Activity::Idle {
@@ -216,7 +232,7 @@ impl<H: Host> Coordinator<H> {
         }
     }
 
-    async fn rename(&self, target: Target, name: &str, scope: Scope) -> Result<Output, Error> {
+    async fn rename(&self, owner: &Owner, target: Target, name: &str, scope: Scope) -> Result<Output, Error> {
         let name = js_trim(name);
         if name.is_empty() {
             return Err(Error::Rejected {
@@ -224,7 +240,13 @@ impl<H: Host> Coordinator<H> {
                 message: "Session name cannot be empty",
             });
         }
-        let captured = self.host.capture(&target).await?;
+        let claim = self.authority
+            .claim_stored(Path::new(&target.path), target.device.as_deref(), &scope)
+            .ready().await.map_err(admission_error)?;
+        if scope.cancelled() {
+            return Err(Fault::cancelled().into());
+        }
+        let captured = self.host.capture(owner, &target).await?;
         if scope.cancelled() {
             return Err(Fault::cancelled().into());
         }
@@ -241,7 +263,7 @@ impl<H: Host> Coordinator<H> {
             }
             self.host.rename_live(holder, name).await?;
         } else {
-            self.host.rename_stored(&target, name, scope).await?;
+            self.host.rename_stored(owner, &target, name, claim, scope.clone()).await?;
             for holder in &captured.holders {
                 if let Err(error) = self.host.note_name(holder, name).await {
                     notification_failure.get_or_insert(error);
@@ -256,15 +278,26 @@ impl<H: Host> Coordinator<H> {
         Ok(Output::Done)
     }
 
-    async fn move_session(&self, target: Target, cwd: PathBuf, scope: Scope) -> Result<Output, Error> {
-        let captured = self.host.capture(&target).await?;
+    async fn move_session(
+        &self, owner: &Owner, target: Target, cwd: PathBuf, scope: Scope,
+    ) -> Result<Output, Error> {
+        let claim = self.authority
+            .claim_stored(Path::new(&target.path), target.device.as_deref(), &scope)
+            .ready().await.map_err(admission_error)?;
+        if scope.cancelled() {
+            return Err(Fault::cancelled().into());
+        }
+        let captured = self.host.capture(owner, &target).await?;
+        if scope.cancelled() {
+            return Err(Fault::cancelled().into());
+        }
         if !captured.holders.is_empty() {
             return Err(Error::Rejected {
                 code: "session_open_in_tab",
                 message: "Session is open in a tab",
             });
         }
-        let moved = self.host.move_stored(&target, cwd, scope).await?;
+        let moved = self.host.move_stored(owner, &target, cwd, claim, scope.clone()).await?;
         self.host.invalidate(&target).await?;
         Ok(Output::Moved(moved))
     }
@@ -274,6 +307,19 @@ fn running() -> Error {
     Error::Rejected {
         code: "session_running",
         message: "Session is currently running",
+    }
+}
+
+fn admission_error(refusal: AdmissionRefusal) -> Error {
+    match refusal {
+        AdmissionRefusal::Deleted => Error::Rejected {
+            code: "session_deleted",
+            message: "Session has been deleted",
+        },
+        AdmissionRefusal::Deleting | AdmissionRefusal::Mutating => Error::Rejected {
+            code: "session_busy",
+            message: "Session is being changed",
+        },
     }
 }
 
