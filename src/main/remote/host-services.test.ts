@@ -3395,6 +3395,98 @@ describe("LocalHostServices: a device opening a session another device's tab run
 		expect(ipcErrorCode(gone)).toBe("unknown_tab");
 	});
 
+	it("leaves the original B view without ending A execution or C's remaining view", async () => {
+		vi.useFakeTimers();
+		const { services, sidecar, sidecars, x: b, y: c, deleteSession, local } = await held();
+		expect(local.closed).toEqual([]);
+		expect(await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b)).toBeNull();
+		expect(sidecar.disposed).toBe(false);
+		expect(c.tabEvents().map(event => event.name)).not.toContain("viewEnded");
+		const bEvents = b.tabEvents().length;
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		expect(c.tabEvents().at(-1)).toMatchObject({ rtab: "u1", name: "events", arg: [{ type: "agent_start" }] });
+		expect(b.tabEvents()).toHaveLength(bEvents);
+		await vi.advanceTimersByTimeAsync(120_000);
+		expect(sidecar.disposed).toBe(false);
+
+		const call = { id: "after-leave", toolName: "gui_open_url", arguments: { url: "https://example.test" } };
+		sidecar.emit("hostToolCall", call);
+		expect(c.tabEvents().at(-1)).toEqual({ rtab: "u1", name: "hostToolCall", arg: call });
+		expect(b.tabEvents()).toHaveLength(bEvents);
+		const result = { type: "host_tool_result", id: call.id, result: { opened: true } };
+		await services.call(c.peer, "tab.sideChannel", { rtab: "u1", frame: result }, c);
+		expect(sidecar.sideFrames).toContainEqual(result);
+
+		sidecar.emit("extensionUi", ask);
+		const answer = { type: "extension_ui_response", id: ask.id, confirmed: true };
+		await services.call(c.peer, "tab.sideChannel", { rtab: "u1", frame: answer }, c);
+		expect(sidecar.sideFrames).toContainEqual(answer);
+		sidecar.emit("events", [{ type: "agent_end" }]);
+		await services.call(c.peer, "tab.command", { rtab: "u1", command: { type: "prompt", message: "continue" } }, c);
+		expect(sidecar.commands.at(-1)).toEqual({ type: "prompt", message: "continue" });
+		expect(sidecars).toHaveLength(1);
+		expect(deleteSession).not.toHaveBeenCalled();
+
+		await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c);
+		expect(sidecar.disposed).toBe(true);
+		expect(services.resumeFacts()).toEqual([]);
+		expect(deleteSession).not.toHaveBeenCalled();
+		expect(sidecars).toHaveLength(1);
+	});
+
+	it("refuses a stale or unknown leave and never resurrects a left owner rtab", async () => {
+		const { services, sidecar, sidecars, x: b, y: c, deleteSession } = await held();
+		const stale = new FakeConnection(b.peer);
+		const refused = await services
+			.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, stale)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("stale_tab");
+		expect(sidecar.disposed).toBe(false);
+		const unknown = await services
+			.call(b.peer, "tab.leave", { rtab: "missing", sessionPath: SESSION }, b)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(unknown)).toBe("unknown_tab");
+		await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b);
+		const reopened = await services
+			.call(b.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: SESSION }, b)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(reopened)).toBe("unknown_tab");
+		const gone = await services
+			.call(b.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, b)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(gone)).toBe("unknown_tab");
+		expect(
+			await services.call(b.peer, "tab.open", { rtab: "t2", cwd: workDir, sessionPath: SESSION }, b),
+		).toMatchObject({
+			attached: true,
+			viewing: true,
+		});
+		await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c);
+		expect(sidecar.disposed).toBe(false);
+		await services.call(b.peer, "tab.leave", { rtab: "t2", sessionPath: SESSION }, b);
+		expect(sidecar.disposed).toBe(true);
+		expect(sidecars).toHaveLength(1);
+		expect(deleteSession).not.toHaveBeenCalled();
+	});
+
+	it("refuses a switched session and refuses the last leave while execution is busy", async () => {
+		const { services, sidecar, x: b, y: c } = await held();
+		const switched = await services
+			.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: "/s/old.jsonl" }, b)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(switched)).toBe("stale_tab");
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b);
+		const busy = await services
+			.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(busy)).toBe("session_running");
+		expect(sidecar.disposed).toBe(false);
+		sidecar.emit("events", [{ type: "agent_end" }]);
+		await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c);
+		expect(sidecar.disposed).toBe(true);
+	});
+
 	it("the same connection asking again under another rtab is refused, naming its own tab", async () => {
 		const { services, y } = await held();
 		const refused = await services
