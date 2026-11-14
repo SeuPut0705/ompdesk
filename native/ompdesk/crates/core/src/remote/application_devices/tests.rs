@@ -230,6 +230,61 @@ async fn a_known_offline_host_keeps_a_tab_waiting_without_accepting_a_user_answe
             .code,
         "remote_offline"
     );
+    let (first, first_remote, _keep_first) = crate::remote::requests::tests::pair().await;
+    let (next, next_remote, _keep_next) = crate::remote::requests::tests::pair().await;
+    lock(&service.state).links.get_mut("host").unwrap().requests = Some(first.clone());
+    let captured = service
+        .capture_host_connection("host", first.link_id().unwrap())
+        .unwrap();
+    assert!(captured.same_connection(&first));
+    assert!(
+        service
+            .capture_host_connection("another host", first.link_id().unwrap())
+            .is_err()
+    );
+    let (sent, mut received) = mpsc::unbounded_channel();
+    service
+        .admit_host_connection("host", &captured, || {
+            sent.send("first").unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(received.recv().await, Some("first"));
+    lock(&service.state).links.get_mut("host").unwrap().requests = Some(next.clone());
+    assert!(
+        service
+            .admit_host_connection("host", &captured, || {
+                sent.send("stale").unwrap();
+                Ok(())
+            })
+            .is_err()
+    );
+    assert!(received.try_recv().is_err());
+    let current = service
+        .capture_host_connection("host", next.link_id().unwrap())
+        .unwrap();
+    service
+        .admit_host_connection("host", &current, || {
+            sent.send("next").unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(received.recv().await, Some("next"));
+    let mut changes = current.changes();
+    current.disconnect_for_test();
+    changes.wait_for(|online| !*online).await.unwrap();
+    assert!(
+        service
+            .admit_host_connection("host", &current, || {
+                sent.send("disconnected").unwrap();
+                Ok(())
+            })
+            .is_err()
+    );
+    assert!(received.try_recv().is_err());
+    first.disconnect_for_test();
+    first_remote.disconnect_for_test();
+    next_remote.disconnect_for_test();
     service.release_tab("host", "tab", &tab, true);
     assert!(lock(&service.state).links["host"].tabs.is_empty());
     service.dispose().await.unwrap();

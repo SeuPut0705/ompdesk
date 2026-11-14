@@ -371,6 +371,47 @@ impl<H: Host> Service<H> {
             .map(|(id, _)| id.clone())
             .collect()
     }
+
+    /// Root has checked its core generation before resolving this transport metadata.
+    pub fn capture_host_connection(
+        &self,
+        device: &str,
+        link_id: u64,
+    ) -> Result<RemoteRequests, Fault> {
+        let state = lock(&self.state);
+        let connection = state
+            .links
+            .get(device)
+            .and_then(|link| link.requests.as_ref())
+            .filter(|connection| {
+                !state.disposed && connection.link_id() == Some(link_id) && connection.is_online()
+            })
+            .ok_or_else(|| Fault::new("remote_offline", "The host connection has changed"))?;
+        Ok(connection.clone())
+    }
+
+    /// A synchronous native effect admission; do not await or reenter this service/connection.
+    pub fn admit_host_connection<T>(
+        &self,
+        device: &str,
+        captured: &RemoteRequests,
+        effect: impl FnOnce() -> Result<T, Fault>,
+    ) -> Result<T, Fault> {
+        let state = lock(&self.state);
+        if state.disposed
+            || !state
+                .links
+                .get(device)
+                .and_then(|link| link.requests.as_ref())
+                .is_some_and(|current| current.same_connection(captured))
+        {
+            return Err(Fault::new(
+                "remote_offline",
+                "The host connection has changed",
+            ));
+        }
+        captured.admit_online(effect)
+    }
     pub fn wake(&self, trigger: &str) {
         self.devices.wake_hosts(trigger);
     }
