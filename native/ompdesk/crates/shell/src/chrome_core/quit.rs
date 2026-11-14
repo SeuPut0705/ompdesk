@@ -330,6 +330,84 @@ impl Reason {
     }
 }
 
+/// The native quit's next effect. The runtime executes it outside the coordinator lock.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ShutdownAction {
+    None,
+    Finalize(u64),
+    Commit { generation: u64, reason: Reason },
+    Exit,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+enum ShutdownPhase {
+    #[default]
+    Running,
+    Finalizing(u64),
+    Settling(u64),
+    Exited,
+}
+
+/// The ordering formerly kept in `chrome-quit.ts`'s before-quit/will-quit listeners. A generation belongs to one
+/// outstanding callback, so an update can supersede a slow normal finalizer without running teardown twice.
+#[derive(Debug, Default, Clone)]
+pub struct Shutdown {
+    phase: ShutdownPhase,
+    next: u64,
+}
+
+impl Shutdown {
+    pub const fn new() -> Self {
+        Self {
+            phase: ShutdownPhase::Running,
+            next: 0,
+        }
+    }
+
+    /// Approval already happened. An update skips the worktree finalizer while windows and saved tabs still exist.
+    pub fn begin(&mut self, reason: Reason) -> ShutdownAction {
+        match (self.phase, reason) {
+            (ShutdownPhase::Running, Reason::Quit) => {
+                self.next += 1;
+                self.phase = ShutdownPhase::Finalizing(self.next);
+                ShutdownAction::Finalize(self.next)
+            }
+            (ShutdownPhase::Running | ShutdownPhase::Finalizing(_), Reason::Update) => {
+                self.next += 1;
+                self.phase = ShutdownPhase::Settling(self.next);
+                ShutdownAction::Commit {
+                    generation: self.next,
+                    reason,
+                }
+            }
+            _ => ShutdownAction::None,
+        }
+    }
+
+    /// A failed finalizer still finishes that phase, as the old promise's `finally` did.
+    pub fn finalized(&mut self, generation: u64) -> ShutdownAction {
+        if matches!(self.phase, ShutdownPhase::Finalizing(active) if active == generation) {
+            self.phase = ShutdownPhase::Settling(generation);
+            ShutdownAction::Commit {
+                generation,
+                reason: Reason::Quit,
+            }
+        } else {
+            ShutdownAction::None
+        }
+    }
+
+    /// All omp exits and the schedules' save settled, successfully or not. A repeated or superseded answer does nothing.
+    pub fn settled(&mut self, generation: u64) -> ShutdownAction {
+        if matches!(self.phase, ShutdownPhase::Settling(active) if active == generation) {
+            self.phase = ShutdownPhase::Exited;
+            ShutdownAction::Exit
+        } else {
+            ShutdownAction::None
+        }
+    }
+}
+
 /// The force-exit countdown behind a committed quit or update install. The caller owns the clock: `arm` says when a
 /// timer must call `expire`, and a timer that was disarmed meanwhile finds nothing to do.
 #[derive(Debug, Default)]
@@ -400,6 +478,73 @@ mod tests {
     use super::*;
     use crate::chrome_core::captured::{of, steps};
     use crate::labels::fill;
+
+    #[test]
+    fn native_quit_finalizes_then_commits_then_waits_for_stops_once() {
+        let mut shutdown = Shutdown::new();
+        assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::Finalize(1));
+        assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::None);
+        assert_eq!(shutdown.settled(1), ShutdownAction::None);
+        assert_eq!(
+            shutdown.finalized(1),
+            ShutdownAction::Commit {
+                generation: 1,
+                reason: Reason::Quit
+            }
+        );
+        assert_eq!(shutdown.finalized(1), ShutdownAction::None);
+        assert_eq!(shutdown.begin(Reason::Update), ShutdownAction::None);
+        assert_eq!(shutdown.settled(1), ShutdownAction::Exit);
+        assert_eq!(shutdown.settled(1), ShutdownAction::None);
+        assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::None);
+    }
+
+    #[test]
+    fn native_update_skips_and_supersedes_the_normal_finalizer() {
+        for started_normal in [false, true] {
+            let mut shutdown = Shutdown::new();
+            if started_normal {
+                assert_eq!(shutdown.begin(Reason::Quit), ShutdownAction::Finalize(1));
+            }
+            let generation = if started_normal { 2 } else { 1 };
+            assert_eq!(
+                shutdown.begin(Reason::Update),
+                ShutdownAction::Commit {
+                    generation,
+                    reason: Reason::Update
+                }
+            );
+            assert_eq!(shutdown.finalized(1), ShutdownAction::None);
+            if started_normal {
+                assert_eq!(shutdown.settled(1), ShutdownAction::None);
+            }
+            assert_eq!(shutdown.settled(generation), ShutdownAction::Exit);
+        }
+    }
+
+    #[test]
+    fn native_shutdown_event_orders_never_commit_or_exit_twice() {
+        fn visit(state: Shutdown, commits: usize, exits: usize, depth: usize) {
+            if depth == 0 {
+                return;
+            }
+            for event in 0..8 {
+                let mut next = state.clone();
+                let action = match event {
+                    0 => next.begin(Reason::Quit),
+                    1 => next.begin(Reason::Update),
+                    2..=4 => next.finalized(event - 1),
+                    _ => next.settled(event - 4),
+                };
+                let commits =
+                    commits + usize::from(matches!(action, ShutdownAction::Commit { .. }));
+                let exits = exits + usize::from(action == ShutdownAction::Exit);
+                assert!(commits <= 1 && exits <= 1 && exits <= commits);
+                visit(next, commits, exits, depth - 1);
+            }
+        }
+        visit(Shutdown::new(), 0, 0, 5);
+    }
 
     #[test]
     fn aggregates_the_core_inventory_as_assess_quit_risk_did() {

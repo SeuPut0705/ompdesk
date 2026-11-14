@@ -245,10 +245,15 @@ pub fn request(_ctx: Ctx, call: Call) -> Option<Call> {
     None
 }
 
+/// The committed native quit, like the old `will-quit`, ends this launch's crash-loop candidate.
+pub(super) fn mark_stable() {
+    with_state(|gpu, disk, _| gpu.mark_stable(disk));
+}
+
 pub fn event(_ctx: Ctx, name: &str, data: &Value) -> bool {
     match name {
         // `will-quit`: a clean quit ends no crash loop.
-        "chrome.stable" => with_state(|gpu, disk, _| gpu.mark_stable(disk)),
+        "chrome.stable" => mark_stable(),
         // Test seam (`OMP_GUI_TEST_GPU_GONE=1`): the exit of a GPU process, as the watcher would report it, since a
         // real GPU crash cannot be made on demand. `upMs` replaces the launch's age.
         "chrome.testGpuGone" if std::env::var_os(TEST_SEAM_ENV).is_some() => {

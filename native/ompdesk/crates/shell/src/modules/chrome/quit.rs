@@ -10,7 +10,7 @@ use cef::ImplWindow;
 use serde_json::{Value, json};
 use shell_core::chrome_core::quit::{
     ActivateAction, BackgroundWork, Confirmation, QUIT_EXIT_TIMEOUT_MS, QuitFacts, QuitRisk,
-    Reason, Watchdog, activate_action, confirm_quit as quit_plan,
+    Reason, Shutdown, ShutdownAction, Watchdog, activate_action, confirm_quit as quit_plan,
     confirm_update_restart as update_plan, needs_background_work, watchdog_report,
 };
 
@@ -36,6 +36,97 @@ static APPROVED: AtomicBool = AtomicBool::new(false);
 /// One native confirmation at a time: a second ⌘Q (or restart click) while one is open must not queue a second modal.
 static ASKING: AtomicBool = AtomicBool::new(false);
 static WATCHDOG: Mutex<Watchdog> = Mutex::new(Watchdog::new());
+
+pub type QuitCompletion = Box<dyn FnOnce(Result<(), String>) + Send>;
+
+/// The common native runtime supplies service operations, not another quit policy. Regular hooks run on CEF's UI
+/// thread. Async hooks must return without waiting and invoke their completion exactly once from any thread.
+pub struct NativeQuitHooks {
+    pub finalize: fn(QuitCompletion),
+    pub teardown: fn() -> Result<(), String>,
+    /// The old will-quit observers, including the staged update swap, run before waiting for all stops.
+    pub before_exit: fn() -> Result<(), String>,
+    pub settled: fn(QuitCompletion),
+    pub forced_exit: fn(QuitCompletion),
+    /// The common lifecycle closes windows and exits after every required stop has settled.
+    pub exit: fn(),
+}
+
+static NATIVE_HOOKS: OnceLock<NativeQuitHooks> = OnceLock::new();
+static NATIVE_SHUTDOWN: Mutex<Shutdown> = Mutex::new(Shutdown::new());
+
+/// Selects the native runtime before any quit can begin. The existing Node lifecycle remains only the frozen
+/// integration input until base removes it; once installed, native quit never emits an instruction to quit Node.
+pub fn install_native_hooks(hooks: NativeQuitHooks) -> Result<(), &'static str> {
+    NATIVE_HOOKS
+        .set(hooks)
+        .map_err(|_| "native quit hooks already installed")
+}
+
+/// An already-approved native quit. Call on the UI thread. In particular an update calls this before its installer
+/// closes windows: teardown is synchronous and retains the saved tabs. Normal quits finish the worktree finalizer first.
+pub fn begin_native(reason: Reason) -> Result<(), &'static str> {
+    if !ui::on_ui_thread() {
+        return Err("native quit must begin on the UI thread");
+    }
+    let hooks = NATIVE_HOOKS
+        .get()
+        .ok_or("native quit hooks not installed")?;
+    let ctx = CTX.get().copied().ok_or("chrome quit is not ready")?;
+    APPROVED.store(true, Ordering::SeqCst);
+    let action = NATIVE_SHUTDOWN.lock().unwrap().begin(reason);
+    drive_native(ctx, hooks, action);
+    Ok(())
+}
+
+/// An updater asks before it calls `begin_native(Update)`; missing facts refuse the restart.
+pub fn confirm_native_update(then: impl FnOnce(bool) + Send + 'static) {
+    match CTX.get() {
+        Some(ctx) => confirm_update_restart(*ctx, then),
+        None => then(false),
+    }
+}
+
+fn note_hook(step: &str, result: Result<(), String>) {
+    if let Err(error) = result {
+        log("quit.hook_failed", json!({ "step": step, "error": error }));
+    }
+}
+
+fn drive_native(ctx: Ctx, hooks: &'static NativeQuitHooks, action: ShutdownAction) {
+    match action {
+        ShutdownAction::None => {}
+        ShutdownAction::Finalize(generation) => (hooks.finalize)(Box::new(move |result| {
+            ui::run(move || {
+                note_hook("finalize", result);
+                let next = NATIVE_SHUTDOWN.lock().unwrap().finalized(generation);
+                drive_native(ctx, hooks, next);
+            });
+        })),
+        ShutdownAction::Commit { generation, reason } => {
+            // A synchronous teardown can itself hang: the watchdog must already be independent of this UI thread.
+            arm(ctx, reason);
+            let phase = match reason {
+                Reason::Quit => shell_core::chrome_core::hang::MainPhase::Quit,
+                Reason::Update => shell_core::chrome_core::hang::MainPhase::Update,
+            };
+            super::hang::mark_step(phase, "before-quit: teardown");
+            note_hook("teardown", (hooks.teardown)());
+            super::hang::mark_step(phase, "teardown done: waiting for service exits");
+            super::hang::stop();
+            super::gpu::mark_stable();
+            note_hook("before_exit", (hooks.before_exit)());
+            (hooks.settled)(Box::new(move |result| {
+                ui::run(move || {
+                    note_hook("settled", result);
+                    let next = NATIVE_SHUTDOWN.lock().unwrap().settled(generation);
+                    drive_native(ctx, hooks, next);
+                });
+            }));
+        }
+        ShutdownAction::Exit => (hooks.exit)(),
+    }
+}
 
 /// A quit is approved (windows close instead of hiding; nothing spawns a window).
 pub fn approved() -> bool {
@@ -87,7 +178,15 @@ pub fn activate() {
 
 fn approve(ctx: Ctx) {
     APPROVED.store(true, Ordering::SeqCst);
-    ctx.emit("approved", json!({ "run": true }));
+    if NATIVE_HOOKS.get().is_some() {
+        ui::run(|| {
+            if let Err(error) = begin_native(Reason::Quit) {
+                log("quit.native_failed", json!({ "error": error }));
+            }
+        });
+    } else {
+        ctx.emit("approved", json!({ "run": true }));
+    }
 }
 
 fn quit_then(ctx: Ctx, then: impl FnOnce(bool) + Send + 'static) {
@@ -263,17 +362,25 @@ fn arm(ctx: Ctx, reason: Reason) {
 
 fn force_exit(ctx: Ctx, reason: Reason, timeout: u64) {
     ctx.runtime_log(watchdog_report(reason, timeout), None);
-    // `app.exit` skips `will-quit`, so whatever hangs off it (the relaunch swap) runs in Node's hooks first. A wedged
-    // Node never answers: the shell exits on its own after the wait.
+    // A blocked UI thread cannot hold the watchdog. Its forced-exit hooks get the same bounded chance as Node had.
     let (tx, rx) = std::sync::mpsc::channel();
-    ctx.ask(
-        "forcedExit",
-        json!({ "reason": reason.as_str(), "timeoutMs": timeout }),
-        None,
-        move |_, _| {
-            let _ = tx.send(());
-        },
-    );
+    if let Some(hooks) = NATIVE_HOOKS.get() {
+        ui::post(move || {
+            (hooks.forced_exit)(Box::new(move |result| {
+                note_hook("forced_exit", result);
+                let _ = tx.send(());
+            }));
+        });
+    } else {
+        ctx.ask(
+            "forcedExit",
+            json!({ "reason": reason.as_str(), "timeoutMs": timeout }),
+            None,
+            move |_, _| {
+                let _ = tx.send(());
+            },
+        );
+    }
     let _ = rx.recv_timeout(FORCED_EXIT_ASK);
     lifecycle::force_exit(0, FORCED_EXIT_GRACE);
 }
