@@ -13,8 +13,8 @@ mod tools;
 pub use command::{CommandShell, ShellContext};
 
 pub use paths::{
-    Platform, find_git_bash, find_on_path, is_compiled_omp, manifest_bun_minimum, omp_environment,
-    omp_path, update_environment,
+    Platform, bun_install, find_git_bash, find_on_path, is_compiled_omp, manifest_bun_minimum,
+    omp_environment, omp_path, update_environment,
 };
 pub use rea::{REA_NODE_REQUIREMENT, ReaState, rea_node_supported};
 pub use runtime::{Failure, MIN_OMP_VERSION, Resolution, Runtime, is_newer, parse_version};
@@ -103,9 +103,20 @@ impl Service {
         shell::merge(&inherited, login, &self.config.home, self.config.platform)
     }
 
-    /// Pref proxy wins over inherited proxies; the existing native PAC engine is consulted only otherwise.
     pub async fn environment(&self) -> Result<Environment, Fault> {
         let mut env = self.shell_environment().await;
+        let proxy = self.proxy_for(&env).await?;
+        env.extend(proxy);
+        paths::drop_git_selectors(&mut env);
+        Ok(env)
+    }
+
+    pub async fn proxy_environment(&self) -> Result<Environment, Fault> {
+        self.proxy_for(&self.shell_environment().await).await
+    }
+
+    /// Pref proxy wins over inherited proxies; the existing native PAC engine is consulted only otherwise.
+    async fn proxy_for(&self, env: &Environment) -> Result<Environment, Fault> {
         let configured = self
             .proxy
             .configured()
@@ -136,6 +147,7 @@ impl Service {
                 .ok()
                 .and_then(|pac| shell::pac_url(&pac))
         };
+        let mut overlay = Environment::new();
         if let Some(proxy) = proxy {
             for name in [
                 "PI_PROXY",
@@ -146,11 +158,10 @@ impl Service {
                 "http_proxy",
                 "all_proxy",
             ] {
-                env.insert(name.to_owned(), proxy.clone());
+                overlay.insert(name.to_owned(), proxy.clone());
             }
         }
-        paths::drop_git_selectors(&mut env);
-        Ok(env)
+        Ok(overlay)
     }
 
     /// Successful resolution is shared, including a lookup already in progress. Failures are retried next time.

@@ -181,3 +181,75 @@ fn windows_environment_and_paths_keep_node_lookup_semantics() {
         "C:\\Bin;D:\\Other;e:\\tools"
     );
 }
+
+#[tokio::test]
+async fn proxy_overlay_never_reintroduces_a_parent_sessions_environment() {
+    let fixture = Fixture::new("proxy-overlay");
+    let shell = fixture.script(
+        "shell",
+        "printf '%s\\n' '__OMP_ENV_BEGIN__' '__OMP_ENV_END__'",
+    );
+    let env = Environment::from([
+        ("SHELL".into(), shell.to_string_lossy().into_owned()),
+        ("HOME".into(), fixture.dir.to_string_lossy().into_owned()),
+        ("OMP_GUI_BRIDGE".into(), "parent-sample".into()),
+        ("OMP_GUI_SESSION_TAG".into(), "parent-tag".into()),
+        ("API_TOKEN".into(), "sample".into()),
+        ("GIT_DIR".into(), "/unrelated-repository".into()),
+    ]);
+    let service = Service::new(
+        config(&fixture, env),
+        Arc::new(Network {
+            calls: AtomicUsize::new(0),
+            configured: Some("localhost:8123".into()),
+        }),
+    );
+    let overlay = service.proxy_environment().await.unwrap();
+    let expected: Environment = [
+        "PI_PROXY",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+    ]
+    .into_iter()
+    .map(|name| (name.into(), "http://localhost:8123".into()))
+    .collect();
+    assert_eq!(overlay, expected);
+    let environment = service.environment().await.unwrap();
+    assert_eq!(environment["API_TOKEN"], "sample");
+    assert_eq!(environment["HTTPS_PROXY"], "http://localhost:8123");
+    assert!(!environment.contains_key("GIT_DIR"));
+}
+
+#[tokio::test]
+async fn an_inherited_proxy_needs_no_overlay_or_system_probe() {
+    let fixture = Fixture::new("proxy-overlay-inherited");
+    let shell = fixture.script(
+        "shell",
+        "printf '%s\\n' '__OMP_ENV_BEGIN__' '__OMP_ENV_END__'",
+    );
+    let network = Arc::new(Network {
+        calls: AtomicUsize::new(0),
+        configured: None,
+    });
+    let service = Service::new(
+        config(
+            &fixture,
+            Environment::from([
+                ("SHELL".into(), shell.to_string_lossy().into_owned()),
+                ("HOME".into(), fixture.dir.to_string_lossy().into_owned()),
+                ("HTTPS_PROXY".into(), "http://inherited.invalid:8124".into()),
+            ]),
+        ),
+        network.clone(),
+    );
+    assert!(service.proxy_environment().await.unwrap().is_empty());
+    assert_eq!(
+        service.environment().await.unwrap()["HTTPS_PROXY"],
+        "http://inherited.invalid:8124"
+    );
+    assert_eq!(network.calls.load(Ordering::SeqCst), 0);
+}
