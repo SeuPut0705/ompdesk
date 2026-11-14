@@ -265,6 +265,7 @@ pub trait Host: Send + Sync + 'static {
     fn environment(&self) -> Boxed<'_, Result<Environment, String>>;
     fn refresh_path(&self) -> Boxed<'_, Result<(), String>>;
     fn before_omp_update(&self) -> Boxed<'_, Result<(), String>>;
+    fn git_aslr_log(&self, entry: super::git_aslr::Log);
     fn omp_ready(&self);
     fn before_optional(&self) -> Boxed<'_, ()>;
 }

@@ -1,3 +1,7 @@
+mod operations;
+
+pub use operations::{ToolOutcome, ToolRequest, parse_update_check};
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -59,6 +63,7 @@ struct Shared {
     state: Mutex<State>,
     active: Mutex<Option<Scope>>,
     disposed: AtomicBool,
+    external_running: AtomicBool,
     shutdown: watch::Sender<bool>,
     output_emitted: AtomicU64,
     on_state: StateSink,
@@ -132,10 +137,17 @@ enum Operation {
     Optional(Vec<Item>, bool),
     Detect,
     Update(String),
+    Latest,
+    Managed(Item),
+    Tool(ToolRequest),
+    GitAslr(crate::setup::git_aslr::Action),
 }
 enum Answer {
     Done,
     Update(UpdateOutcome),
+    Version(String),
+    Tool(ToolOutcome),
+    GitAslr(Result<usize, String>),
 }
 struct Queued {
     operation: Operation,
@@ -182,6 +194,7 @@ impl SetupService {
             state: Mutex::new(state),
             active: Mutex::new(None),
             disposed: AtomicBool::new(false),
+            external_running: AtomicBool::new(false),
             shutdown: watch::channel(false).0,
             output_emitted: AtomicU64::new(0),
             on_state,
@@ -294,13 +307,34 @@ impl SetupService {
         Box::pin(async move {
             match work.await? {
                 Answer::Update(outcome) => Ok(outcome),
-                Answer::Done => Err("Unexpected setup update answer".to_owned()),
+                _ => Err("Unexpected setup update answer".to_owned()),
             }
         })
     }
 
+    pub fn latest_omp(&self) -> Boxed<'static, Result<String, String>> {
+        let work = self.enqueue(Operation::Latest);
+        Box::pin(async move { match work.await? { Answer::Version(version) => Ok(version), _ => Err("Unexpected setup version answer".to_owned()) } })
+    }
+
+    pub fn latest_managed(&self, item: Item) -> Boxed<'static, Result<String, String>> {
+        let work = self.enqueue(Operation::Managed(item));
+        Box::pin(async move { match work.await? { Answer::Version(version) => Ok(version), _ => Err("Unexpected managed version answer".to_owned()) } })
+    }
+
+    pub fn run_tool_update(&self, request: ToolRequest) -> Boxed<'static, ToolOutcome> {
+        if self.shared.disposed.load(Ordering::Acquire) { return Box::pin(async { ToolOutcome::Skipped }); }
+        let work = self.enqueue(Operation::Tool(request));
+        Box::pin(async move { match work.await { Ok(Answer::Tool(outcome)) => outcome, Err(detail) => ToolOutcome::Failed { detail: Some(detail) }, _ => ToolOutcome::Failed { detail: Some("Unexpected tool update answer".to_owned()) } } })
+    }
+
+    pub fn git_aslr(&self, action: crate::setup::git_aslr::Action) -> Boxed<'static, Result<usize, String>> {
+        let work = self.enqueue(Operation::GitAslr(action));
+        Box::pin(async move { match work.await? { Answer::GitAslr(result) => result, _ => Err("Unexpected Git ASLR answer".to_owned()) } })
+    }
+
     pub fn cancel(&self) -> bool {
-        if !lock(&self.shared.state)
+        if !self.shared.external_running.load(Ordering::Acquire) && !lock(&self.shared.state)
             .items
             .iter()
             .any(|item| item.phase == Phase::Running)
@@ -360,21 +394,38 @@ impl Data {
                     .send(Err("Machine setup is disposed".to_owned()));
                 continue;
             }
+            let update = matches!(&queued.operation, Operation::Update(_));
+            let tool = matches!(&queued.operation, Operation::Tool(_));
+            let aslr = matches!(&queued.operation, Operation::GitAslr(_));
+            let lookup = matches!(&queued.operation, Operation::Latest | Operation::Managed(_));
             let scope = Scope::detached();
             *lock(&self.shared.active) = Some(scope.clone());
-            let answer = {
+            let mut stalled = false;
+            let mut answer = {
                 let mut work = Box::pin(self.perform(queued.operation, &scope));
-                tokio::select! { answer = &mut work => answer, () = tokio::time::sleep(STEP_MAX) => { scope.cancel(); work.await } }
+                tokio::select! { answer = &mut work => answer, () = tokio::time::sleep(STEP_MAX) => { stalled = true; scope.cancel(); work.await } }
             };
+            if stalled { answer = Err("machine setup step was stopped after 30 minutes".to_owned()); }
+            else if scope.cancelled() {
+                answer = if update { Ok(Answer::Update(UpdateOutcome::Failed(Failure::new("cancelled", None)))) }
+                    else if tool { Ok(Answer::Tool(ToolOutcome::Cancelled)) }
+                    else if aslr { Ok(Answer::GitAslr(Err("cancelled".to_owned()))) }
+                    else if lookup { Err("cancelled".to_owned()) }
+                    else { Ok(Answer::Done) };
+            }
             *lock(&self.shared.active) = None;
             let _ = queued.done.send(answer);
         }
     }
 
     async fn perform(&mut self, operation: Operation, scope: &Scope) -> Result<Answer, String> {
-        self.detect(scope).await?;
+        if matches!(&operation, Operation::Required(_) | Operation::Optional(..) | Operation::Detect | Operation::Update(_) | Operation::GitAslr(_)) { self.detect(scope).await?; }
         match operation {
             Operation::Detect => Ok(Answer::Done),
+            Operation::Latest => self.latest_omp(scope).await.map(Answer::Version),
+            Operation::Managed(item) => self.latest_managed(item, scope).await.map(Answer::Version),
+            Operation::Tool(request) => Ok(Answer::Tool(self.tool_update(request, scope).await)),
+            Operation::GitAslr(action) => Ok(Answer::GitAslr(self.git_aslr(action, scope).await)),
             Operation::Required(manual) => {
                 if (manual || self.config.automatic) && self.config.platform != Platform::Other {
                     self.required(manual, true, scope).await?;
@@ -423,9 +474,16 @@ impl Data {
     }
 
     async fn detect(&mut self, scope: &Scope) -> Result<(), String> {
-        let detection = tokio::select! { biased; () = scope.on_cancel() => return Err("cancelled".to_owned()), detection = self.host.detect() => detection? };
+        let mut detection = tokio::select! { biased; () = scope.on_cancel() => return Err("cancelled".to_owned()), detection = self.host.detect() => detection? };
         if self.shared.cancelled(scope) {
             return Err("cancelled".to_owned());
+        }
+        if let Some(Presence::Present { path: Some(root), extra, .. }) = detection.presence.get_mut(&Item::Git) {
+            if extra.get("gitAslrOverride").and_then(Value::as_bool) == Some(true) {
+                if let Some(dir) = self.config.state_path.parent() {
+                    if !crate::setup::git_aslr::Record::read(&dir.join("git-aslr.json")).images(root).is_empty() { extra.insert("gitAslrUndoable".to_owned(), Value::Bool(true)); }
+                }
+            }
         }
         for id in Item::ALL {
             let presence = detection
