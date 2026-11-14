@@ -29,8 +29,49 @@ struct Patterns {
 }
 
 fn regex(pattern: &str, insensitive: bool) -> Regex {
-    Regex::with_flags(pattern, if insensitive { "i" } else { "" })
-        .expect("canonical diagnostics regex must compile")
+    if !insensitive {
+        return Regex::new(pattern).expect("canonical diagnostics regex must compile");
+    }
+    // regress 0.12's non-u fold_code_point uses uppercase without ECMAScript Canonicalize's
+    // non-ASCII-to-ASCII exclusion (e.g. U+017F -> S). These canonical patterns are ASCII:
+    // spell their ASCII case pairs explicitly, leaving Unicode input and UTF-16 offsets intact.
+    assert!(pattern.is_ascii(), "canonical case-insensitive pattern must be ASCII");
+    let mut explicit = String::with_capacity(pattern.len() * 4);
+    let mut chars = pattern.chars().peekable();
+    let mut class = false;
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => {
+                explicit.push(ch);
+                explicit.push(chars.next().expect("canonical escape is complete"));
+            }
+            '[' => { class = true; explicit.push(ch); }
+            ']' => { class = false; explicit.push(ch); }
+            ch if ch.is_ascii_alphabetic() => {
+                let opposite = if ch.is_ascii_lowercase() { ch.to_ascii_uppercase() } else { ch.to_ascii_lowercase() };
+                if class {
+                    explicit.push(ch);
+                    let mut rest = chars.clone();
+                    if rest.next() == Some('-') && rest.peek().is_some_and(char::is_ascii_alphabetic) {
+                        let end = rest.next().expect("canonical range endpoint");
+                        assert_eq!(ch.is_ascii_lowercase(), end.is_ascii_lowercase(), "canonical ASCII range has one case");
+                        chars = rest;
+                        explicit.push('-');
+                        explicit.push(end);
+                        explicit.push(opposite);
+                        explicit.push('-');
+                        explicit.push(if end.is_ascii_lowercase() { end.to_ascii_uppercase() } else { end.to_ascii_lowercase() });
+                    } else {
+                        explicit.push(opposite);
+                    }
+                } else {
+                    explicit.extend(['[', ch, opposite, ']']);
+                }
+            }
+            _ => explicit.push(ch),
+        }
+    }
+    Regex::new(&explicit).expect("canonical diagnostics regex must compile")
 }
 
 static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
