@@ -2,6 +2,7 @@
 //! runs, the Windows lid backend over `powercfg`, and the `omp-media://` answers. `captured.json` holds what the
 //! TypeScript did before it was deleted; the tests replay it.
 
+pub mod awake;
 pub mod lid;
 pub mod lid_runtime;
 pub mod media;

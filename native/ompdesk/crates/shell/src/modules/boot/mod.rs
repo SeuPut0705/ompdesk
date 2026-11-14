@@ -4,11 +4,11 @@
 mod lid;
 pub mod media;
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
+use shell_core::boot_core::awake::{Awake, Platform};
 use shell_core::boot_core::text::{self, Lang};
 use shell_core::desk_state::ThemeSource;
 use shell_core::labels;
@@ -44,7 +44,7 @@ enum State {
 }
 
 static STATE: Mutex<State> = Mutex::new(State::New);
-static BLOCKERS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+static BLOCKERS: Mutex<Awake> = Mutex::new(Awake::new());
 
 /// Once on the UI thread, after Base sets native paths/facts and before app pages are made.
 pub fn start(config: Config, hooks: Hooks) -> Result<(), String> {
@@ -95,7 +95,7 @@ pub fn stop() {
     media::stop();
     lid::stop();
     crate::shortcut::unregister_all();
-    let ids = std::mem::take(&mut *BLOCKERS.lock().unwrap());
+    let ids = BLOCKERS.lock().unwrap().take_cleanup();
     for id in ids {
         if let Err(error) = crate::power::release(&id.to_string())
             && let State::Running(runtime) = &previous
@@ -181,25 +181,35 @@ pub fn set_language(stored: Option<&str>) {
     );
 }
 
+struct PowerPlatform;
+
+impl Platform for PowerPlatform {
+    fn idle(&mut self, key: &str, held: bool) -> Result<(), String> {
+        if held {
+            crate::power::hold(key.to_string())
+        } else {
+            crate::power::release(key)
+        }
+    }
+
+    fn lid(&mut self, key: &str, held: bool) {
+        lid::blocker(key, held);
+    }
+}
+
 /// UI thread. The same ids aggregate local and hosted work; repeated starts/stops are idempotent.
 pub fn awake_start(id: u64) -> Result<(), String> {
     if hooks().is_none() {
         return Err("boot is not running".into());
     }
-    BLOCKERS.lock().unwrap().insert(id);
-    crate::power::hold(id.to_string())?;
-    lid::blocker(&id.to_string(), true);
-    Ok(())
+    BLOCKERS.lock().unwrap().set(id, true, &mut PowerPlatform)
 }
 
 pub fn awake_stop(id: u64) -> Result<(), String> {
     if hooks().is_none() {
         return Err("boot is not running".into());
     }
-    crate::power::release(&id.to_string())?;
-    BLOCKERS.lock().unwrap().remove(&id);
-    lid::blocker(&id.to_string(), false);
-    Ok(())
+    BLOCKERS.lock().unwrap().set(id, false, &mut PowerPlatform)
 }
 
 pub fn awake_state(answer: impl FnOnce(bool, bool) + Send + 'static) {
