@@ -22,6 +22,33 @@ pub mod prepare;
 mod privacy;
 pub mod saved;
 
+enum Command {
+    Create,
+    Remove,
+    ListOrphans,
+    RemoveOrphan,
+    ListSaved,
+    RestoreSaved,
+}
+
+impl Command {
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "worktree_create" => Some(Self::Create),
+            "worktree_remove" => Some(Self::Remove),
+            "get_orphan_worktrees" => Some(Self::ListOrphans),
+            "remove_orphan_worktree" => Some(Self::RemoveOrphan),
+            "get_saved_worktrees" => Some(Self::ListSaved),
+            "restore_saved_worktree" => Some(Self::RestoreSaved),
+            _ => None,
+        }
+    }
+}
+
+pub fn handles(name: &str) -> bool {
+    Command::parse(name).is_some()
+}
+
 pub struct Config {
     pub git: Runner,
     pub preparation: prepare::Config,
@@ -50,8 +77,11 @@ impl<H: Host> Service<H> {
         command: &RpcCommand,
     ) -> CommandResult {
         let params = &command.params;
-        let result = match command.kind.as_str() {
-            "worktree_create" => {
+        let Some(kind) = Command::parse(&command.kind) else {
+            return Ok(None);
+        };
+        let result = match kind {
+            Command::Create => {
                 checkout::create(
                     session,
                     self.config.git.clone(),
@@ -61,13 +91,13 @@ impl<H: Host> Service<H> {
                 )
                 .await?
             }
-            "worktree_remove" => {
+            Command::Remove => {
                 checkout::remove(session, self.config.git.clone(), scope, params).await?
             }
-            "get_orphan_worktrees" => {
+            Command::ListOrphans => {
                 orphans::list(&self.pool, owner, session, self.config.git.clone(), scope).await?
             }
-            "remove_orphan_worktree" => {
+            Command::RemoveOrphan => {
                 orphans::remove(
                     Arc::clone(&self.pool),
                     owner.clone(),
@@ -80,7 +110,7 @@ impl<H: Host> Service<H> {
                 )
                 .await?
             }
-            "get_saved_worktrees" => {
+            Command::ListSaved => {
                 saved::list_for_repo(
                     &self.config.saved,
                     self.config.git.clone(),
@@ -89,7 +119,7 @@ impl<H: Host> Service<H> {
                 )
                 .await?
             }
-            "restore_saved_worktree" => {
+            Command::RestoreSaved => {
                 saved::restore(
                     &self.config.saved,
                     self.config.git.clone(),
@@ -100,7 +130,6 @@ impl<H: Host> Service<H> {
                 )
                 .await?
             }
-            _ => return Ok(None),
         };
         Ok(Some(result))
     }
