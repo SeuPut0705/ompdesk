@@ -1,4 +1,4 @@
-import { PRODUCT_REPO } from "../../shared/feedback";
+import { PRODUCT_REPO } from "../../shared/product-repo";
 import { memoryKo } from "./memory";
 export const ko: Record<string, string> = {
 	"mcp.rea.title": "REA — 리버스 엔지니어링 (내장)",
@@ -5503,10 +5503,8 @@ export const ko: Record<string, string> = {
 	"updates.auth.source.gh": "GitHub CLI(gh) 로그인을 사용 중이에요",
 	"updates.auth.source.stored": "저장한 토큰을 사용 중이에요",
 	"updates.auth.source.none": "토큰 없이 업데이트하는 중이에요",
-	"updates.auth.missing":
-		`GitHub가 로그인한 계정에만 릴리스를 보여 줘요. gh로 로그인하거나 ${PRODUCT_REPO}에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.`,
-	"updates.auth.denied":
-		`이 GitHub 계정으로는 ${PRODUCT_REPO}를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.`,
+	"updates.auth.missing": `GitHub가 로그인한 계정에만 릴리스를 보여 줘요. gh로 로그인하거나 ${PRODUCT_REPO}에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.`,
+	"updates.auth.denied": `이 GitHub 계정으로는 ${PRODUCT_REPO}를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.`,
 	"updates.auth.invalid":
 		"GitHub가 토큰을 거부했어요(만료 또는 취소됨). 설정 › 일반에서 GitHub를 다시 연결하거나 새 토큰을 붙여 넣으세요.",
 	"updates.auth.network":

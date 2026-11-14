@@ -7,7 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FEEDBACK_REPO } from "../../src/shared/feedback";
+import { PRODUCT_REPO_URL } from "../../src/shared/product-repo";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const READMES = ["README.md", "README.ko.md"];
@@ -15,8 +15,8 @@ const MAX_README_LINES = 140;
 const MEDIA_BUDGET_MB = 3;
 const HERO_BUDGET_MB = 6;
 const DOWNLOADS = [
-	`${FEEDBACK_REPO}/releases/latest/download/ompdesk-mac-arm64.dmg`,
-	`${FEEDBACK_REPO}/releases/latest/download/ompdesk-windows-setup.exe`,
+	`${PRODUCT_REPO_URL}/releases/latest/download/ompdesk-mac-arm64.dmg`,
+	`${PRODUCT_REPO_URL}/releases/latest/download/ompdesk-windows-setup.exe`,
 ];
 
 /** GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens. */

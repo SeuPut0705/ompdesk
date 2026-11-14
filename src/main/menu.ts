@@ -2,9 +2,9 @@
  * Native application menu for ompdesk.
  */
 import { app, Menu, type MenuItemConstructorOptions, shell } from "electron";
-import { FEEDBACK_REPO } from "../shared/feedback";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_EVENTS, type MenuAction } from "../shared/ipc-types";
+import { PRODUCT_REPO_URL } from "../shared/product-repo";
 import { editRoleItems } from "./editable-context-menu";
 import { editLabels, getMainLanguage, mainT } from "./i18n";
 import type { SpawnWindow, WindowManager } from "./window";
@@ -311,7 +311,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 				},
 				{
 					label: mainT("menu.documentation", language),
-					click: () => void shell.openExternal(FEEDBACK_REPO),
+					click: () => void shell.openExternal(PRODUCT_REPO_URL),
 				},
 			],
 		},

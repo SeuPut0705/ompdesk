@@ -9,10 +9,7 @@
  */
 
 import type { RuntimeErrorReport } from "./ipc-types";
-
-/** OMPdesk's own repository (`owner/name`): issues, the About page's star. */
-export const PRODUCT_REPO = "seuput-inc/ompdesk";
-export const FEEDBACK_REPO = `https://github.com/${PRODUCT_REPO}`;
+import { PRODUCT_REPO_URL } from "./product-repo";
 
 export type FeedbackKind = "bug" | "feature" | "question";
 
@@ -119,7 +116,7 @@ export function buildIssueBody(input: FeedbackInput): string {
 }
 
 export function buildIssueUrl(input: FeedbackInput): string {
-	const url = new URL(`${FEEDBACK_REPO}/issues/new`);
+	const url = new URL(`${PRODUCT_REPO_URL}/issues/new`);
 	const description = input.description.trim();
 	url.searchParams.set("title", `${KIND_TITLE[input.kind]}${input.title.trim()}`.trim());
 	url.searchParams.set("labels", `gui,${KIND_LABELS[input.kind]}`);

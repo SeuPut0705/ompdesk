@@ -1,4 +1,4 @@
-import { PRODUCT_REPO } from "../../shared/feedback";
+import { PRODUCT_REPO } from "../../shared/product-repo";
 import { memoryEn } from "./memory";
 export const en: Record<string, string> = {
 	"mcp.rea.title": "REA — reverse engineering (built in)",
@@ -5510,10 +5510,8 @@ export const en: Record<string, string> = {
 	"updates.auth.source.gh": "Using your GitHub CLI (gh) login",
 	"updates.auth.source.stored": "Using the saved token",
 	"updates.auth.source.none": "No token, updating without one",
-	"updates.auth.missing":
-		`GitHub only shows the releases to a signed-in account. Sign in with gh or paste a GitHub token with access to ${PRODUCT_REPO}.`,
-	"updates.auth.denied":
-		`This GitHub account can't see ${PRODUCT_REPO}. Accept the repository invite, or use a token from an account that has access.`,
+	"updates.auth.missing": `GitHub only shows the releases to a signed-in account. Sign in with gh or paste a GitHub token with access to ${PRODUCT_REPO}.`,
+	"updates.auth.denied": `This GitHub account can't see ${PRODUCT_REPO}. Accept the repository invite, or use a token from an account that has access.`,
 	"updates.auth.invalid":
 		"GitHub rejected the token (expired or revoked). Connect GitHub again in Settings › General, or paste a new token.",
 	"updates.auth.network":
