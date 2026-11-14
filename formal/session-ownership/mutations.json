@@ -1,0 +1,16 @@
+{
+  "checker": {"kind": "tlc", "config": "MC.cfg", "deadlock": false, "timeoutSec": 1800},
+  "properties": ["TypeOK", "OnlyGoneTagsEnd", "OpenTabsKeepTheirProcesses", "NoLeakAtRest", "NoForgottenTag", "NoLateAdmission", "PendingCloseProtected", "HostedGraceProtected"],
+  "waive": {"TypeOK": "Shape check only. The behavior properties cover the protocol failures."},
+  "mutations": [
+    {"name": "end-after-freeze", "why": "The release starts the end despite the freeze latch after the exit receipt.", "search": "/\\ app = \"up\" /\\ ~frozen /\\ state[t] = \"closing\" /\\ t \\in exited", "replace": "/\\ app = \"up\" /\\ state[t] = \"closing\" /\\ t \\in exited", "breaks": "OnlyGoneTagsEnd", "isolate": true},
+    {"name": "retry-overtaken-by-takeover", "why": "The old timer ends a tag now held by a reopened tab.", "search": "RetryEligible(t) == state[t] = \"left\"", "replace": "RetryEligible(t) == state[t] # \"free\"", "breaks": "OpenTabsKeepTheirProcesses", "isolate": true},
+    {"name": "released-restored-tag-leaks", "why": "Closing a restored tab fails to queue its left tags.", "search": "queue' = queue \\cup left", "replace": "queue' = queue", "breaks": "NoLeakAtRest", "isolate": true},
+    {"name": "failed-end-forgets-tag", "why": "An unanswered end drops its tag even though processes may still run.", "search": "IF result = \"empty\" THEN \"free\" ELSE \"left\"", "replace": "IF result \\in {\"empty\", \"error\"} THEN \"free\" ELSE \"left\"", "breaks": "NoForgottenTag", "isolate": true},
+    {"name": "admit-after-close", "why": "Acquisition ignores the owner's close tombstone.", "search": "tab[o] \\in {\"closed\", \"restored\"} /\\ o \\notin retired", "replace": "tab[o] \\in {\"closed\", \"restored\"}", "breaks": "NoLateAdmission", "isolate": true},
+    {"name": "end-before-exit-receipt", "why": "The release starts procs.end without waiting for the captured exit receipt.", "search": "state[t] = \"closing\" /\\ t \\in exited", "replace": "state[t] = \"closing\"", "breaks": "PendingCloseProtected", "isolate": true},
+    {"name": "hosted-grace-ignored", "why": "The immediate sweep queues hosted leftovers before their reconnect grace expires.", "search": "queue' = queue \\cup {t \\in Tags : LocalTarget(t)}", "replace": "queue' = queue \\cup {t \\in Tags : LocalTarget(t) \\/ (state[t] = \"left\" /\\ kind[t] = \"hosted\")}", "breaks": "HostedGraceProtected", "isolate": true},
+    {"name": "restored-layout-ignored", "why": "The immediate sweep queues a restored local session's leftover tag.", "search": "LocalTarget(t) == state[t] = \"left\" /\\ kind[t] = \"local\" /\\ session[t] \\notin keep", "replace": "LocalTarget(t) == state[t] = \"left\" /\\ kind[t] = \"local\"", "breaks": "OpenTabsKeepTheirProcesses", "isolate": true},
+    {"name": "hosted-reconnect-ignored", "why": "The grace callback queues a hosted tag even when its device holds the session.", "search": "HostedTarget(t) == state[t] = \"left\" /\\ kind[t] = \"hosted\" /\\ ~HostedHeld(t)", "replace": "HostedTarget(t) == state[t] = \"left\" /\\ kind[t] = \"hosted\"", "breaks": "OpenTabsKeepTheirProcesses", "isolate": true}
+  ]
+}

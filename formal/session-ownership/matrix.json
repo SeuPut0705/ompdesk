@@ -1,0 +1,12 @@
+{
+  "runs": [
+    {"name": "native-ownership-safety", "config": "MC.cfg", "expect": "pass", "deadlock": false, "timeoutSec": 1800},
+    {"name": "more-tags-and-launches", "config": "MC.cfg", "constants": {"Tags": "{t1, t2, t3, t4}", "MaxLaunches": "3"}, "expect": "pass", "deadlock": false, "tier": "deep", "timeoutSec": 3600},
+    {"name": "end-reachable", "config": "MC_NeverEnds.cfg", "expect": "invariant", "property": "NeverEnds", "deadlock": false},
+    {"name": "takeover-reachable", "config": "MC_NeverTakesOver.cfg", "expect": "invariant", "property": "NeverTakesOver", "deadlock": false},
+    {"name": "pending-close-reachable", "config": "MC_NeverClosing.cfg", "expect": "invariant", "property": "NeverClosing", "deadlock": false},
+    {"name": "hosted-grace-reachable", "config": "MC_NeverHostedGrace.cfg", "expect": "invariant", "property": "NeverHostedGrace", "deadlock": false},
+    {"name": "retry-overtaken-reachable", "config": "MC_NeverRetryOvertaken.cfg", "expect": "invariant", "property": "NeverRetryOvertaken", "deadlock": false},
+    {"name": "hosted-close-after-grace-releases-leftover", "config": "MC_HostedCloseAfterGrace.cfg", "expect": "invariant", "property": "NeverHostedReleasedAfterGrace", "deadlock": false}
+  ]
+}
