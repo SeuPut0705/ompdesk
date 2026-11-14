@@ -1,7 +1,4 @@
-#![cfg(windows)]
-
 use std::io::{Read, Write};
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -122,29 +119,40 @@ impl Drop for Fixture {
     }
 }
 
-struct ProcessWitness(OwnedHandle);
-
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut std::ffi::c_void;
-    fn WaitForSingleObject(process: *mut std::ffi::c_void, milliseconds: u32) -> u32;
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessWitness {
+    pid: u32,
+    started_ms: Option<u64>,
 }
 
-impl ProcessWitness {
-    fn running(pid: u32) -> Self {
-        // SAFETY: OpenProcess checks the id and returns a new non-inherited synchronization handle.
-        let handle = unsafe { OpenProcess(0x0010_0000, 0, pid) };
-        assert!(!handle.is_null());
-        // SAFETY: a non-null OpenProcess result is newly owned.
-        let process = Self(unsafe { OwnedHandle::from_raw_handle(handle) });
-        assert_eq!(process.status(), 258);
-        process
-    }
-
-    fn status(&self) -> u32 {
-        // SAFETY: the handle stays owned; zero waits only inspect the same process object, avoiding pid reuse.
-        unsafe { WaitForSingleObject(self.0.as_raw_handle(), 0) }
-    }
+async fn processes() -> Vec<ProcessWitness> {
+    use ompdesk_core::server::{Registry, serve};
+    use tokio::io::AsyncWriteExt;
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (input, output) = tokio::io::split(server);
+    let mut registry = Registry::default();
+    ompdesk_core::procs::register(&mut registry);
+    let serving = tokio::spawn(serve(input, output, registry));
+    let (input, mut output) = tokio::io::split(client);
+    let mut input = BufReader::new(input);
+    let mut line = String::new();
+    input.read_line(&mut line).await.unwrap();
+    output
+        .write_all(
+            b"{\"id\":1,\"method\":\"procs.list\",\"params\":{\"env\":\"OMPDESK_SETUP_WINDOWS_PROBE\",\"timeoutMs\":30000}}\n",
+        )
+        .await
+        .unwrap();
+    line.clear();
+    input.read_line(&mut line).await.unwrap();
+    let answer: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert!(answer.get("error").is_none(), "{answer}");
+    let rows = serde_json::from_value(answer["result"].clone()).unwrap();
+    drop(output);
+    drop(input);
+    serving.await.unwrap().unwrap();
+    rows
 }
 
 async fn ready(listener: &TcpListener) -> Vec<(ProcessWitness, TcpStream)> {
@@ -154,15 +162,27 @@ async fn ready(listener: &TcpListener) -> Vec<(ProcessWitness, TcpStream)> {
         let mut stream = BufReader::new(stream);
         let mut pid = String::new();
         stream.read_line(&mut pid).await.unwrap();
-        let pid = pid.trim().parse().unwrap();
-        children.push((ProcessWitness::running(pid), stream.into_inner()));
+        let pid: u32 = pid.trim().parse().unwrap();
+        let process = processes()
+            .await
+            .into_iter()
+            .find(|row| row.pid == pid)
+            .expect("ready fixture process is visible to the native process scanner");
+        assert!(process.started_ms.is_some());
+        children.push((process, stream.into_inner()));
     }
     children
 }
 
-fn ended(children: &[(ProcessWitness, TcpStream)]) {
+async fn ended(children: &[(ProcessWitness, TcpStream)]) {
+    let rows = processes().await;
     for (process, _) in children {
-        assert_eq!(process.status(), 0, "supervised process still runs");
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.pid == process.pid && row.started_ms == process.started_ms),
+            "supervised process still runs"
+        );
     }
 }
 
@@ -212,7 +232,7 @@ async fn isolated_cancel_joins_parent_and_descendant_before_returning() {
     let outcome = tokio::time::timeout(LIMIT, work).await.unwrap().unwrap();
     let children = children.unwrap();
     assert_eq!(outcome, RunOutcome::Cancelled);
-    ended(&children);
+    ended(&children).await;
     fixture.empty();
 }
 
@@ -293,7 +313,7 @@ async fn dropped_capture_joins_tree_before_scope_and_input_are_released() {
     let _ = work.await;
     tokio::time::timeout(LIMIT, gone.wait()).await.unwrap();
     let children = children.unwrap();
-    ended(&children);
+    ended(&children).await;
     fixture.empty();
 }
 
@@ -338,6 +358,6 @@ async fn capture_timeout_joins_tree_and_cleans_input() {
     let captured = tokio::time::timeout(LIMIT, work).await.unwrap().unwrap();
     assert!(captured.timed_out);
     assert!(matches!(captured.outcome, RunOutcome::Failed { .. }));
-    ended(&children.unwrap());
+    ended(&children.unwrap()).await;
     fixture.empty();
 }
