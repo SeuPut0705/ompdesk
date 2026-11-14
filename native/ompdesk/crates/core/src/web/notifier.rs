@@ -84,6 +84,13 @@ struct Settle {
     order: u64,
 }
 
+struct Candidate<'a> {
+    kind: Kind,
+    tab: &'a str,
+    title: &'a str,
+    body: &'a str,
+}
+
 #[derive(Default)]
 pub struct Notifier {
     batcher: Batcher,
@@ -142,7 +149,17 @@ impl Notifier {
                 } else {
                     text
                 };
-                self.feed(Kind::Ask, &tab, &title, &body, Some(&request), now, context)
+                self.feed(
+                    Candidate {
+                        kind: Kind::Ask,
+                        tab: &tab,
+                        title: &title,
+                        body: &body,
+                    },
+                    Some(&request),
+                    now,
+                    context,
+                )
             }
             Activity::AskClosed { request } => self.close_ask(&request, context),
             Activity::Released { tab } => {
@@ -170,7 +187,17 @@ impl Notifier {
         now: i64,
         context: &dyn Context,
     ) -> Vec<Delivery> {
-        self.feed(kind, tab, title, body, None, now, context)
+        self.feed(
+            Candidate {
+                kind,
+                tab,
+                title,
+                body,
+            },
+            None,
+            now,
+            context,
+        )
     }
 
     pub fn next_due(&self) -> Option<i64> {
@@ -242,7 +269,17 @@ impl Notifier {
                     },
                 )
             };
-            deliveries.extend(self.feed(kind, &tab, &facts.title, &body, None, at, context));
+            deliveries.extend(self.feed(
+                Candidate {
+                    kind,
+                    tab: &tab,
+                    title: &facts.title,
+                    body: &body,
+                },
+                None,
+                at,
+                context,
+            ));
         }
         for shown in self.batcher.advance(now, context) {
             if let Some(delivery) = self.show(shown, context) {
@@ -271,14 +308,17 @@ impl Notifier {
 
     fn feed(
         &mut self,
-        kind: Kind,
-        tab: &str,
-        title: &str,
-        body: &str,
+        candidate: Candidate<'_>,
         request: Option<&str>,
         now: i64,
         context: &dyn Context,
     ) -> Vec<Delivery> {
+        let Candidate {
+            kind,
+            tab,
+            title,
+            body,
+        } = candidate;
         let mut deliveries = Vec::new();
         for device in context.devices() {
             let settings = device.push.as_ref().cloned().unwrap_or_default();

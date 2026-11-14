@@ -3,8 +3,8 @@
 //! NativeApp graph supplies authenticated callers and canonical pool, file/model and shell effects.
 
 pub mod actions;
-pub mod archive;
 pub mod application;
+pub mod archive;
 pub mod assets;
 pub mod auth;
 pub mod blobs;

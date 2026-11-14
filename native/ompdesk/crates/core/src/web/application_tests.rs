@@ -195,9 +195,11 @@ impl Harness {
         extra: &str,
     ) -> (u16, String, Vec<u8>) {
         request(
-            self.port,
-            &self.headers(cookie),
-            self.app.serve_secret(),
+            Endpoint {
+                port: self.port,
+                headers: &self.headers(cookie),
+                prefix: self.app.serve_secret(),
+            },
             method,
             path,
             content_type,
@@ -282,16 +284,25 @@ impl Harness {
     }
 }
 
-async fn request(
+struct Endpoint<'a> {
     port: u16,
-    headers: &str,
-    prefix: &str,
+    headers: &'a str,
+    prefix: &'a str,
+}
+
+async fn request(
+    endpoint: Endpoint<'_>,
     method: &str,
     path: &str,
     content_type: &str,
     body: &[u8],
     extra: &str,
 ) -> (u16, String, Vec<u8>) {
+    let Endpoint {
+        port,
+        headers,
+        prefix,
+    } = endpoint;
     let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     let head = format!(
         "{method} /{prefix}{path} HTTP/1.1\r\n{headers}content-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n{extra}\r\n",
@@ -463,9 +474,11 @@ async fn a_block_added_while_approval_waits_cannot_enroll_after_the_revoke() {
     let prefix = h.app.serve_secret().to_owned();
     let pairing = tokio::spawn(async move {
         request(
-            port,
-            &headers,
-            &prefix,
+            Endpoint {
+                port,
+                headers: &headers,
+                prefix: &prefix,
+            },
             "POST",
             "/api/pair",
             "application/json",
