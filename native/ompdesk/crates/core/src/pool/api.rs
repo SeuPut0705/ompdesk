@@ -249,7 +249,13 @@ impl Ctx {
     pub(super) fn window_of_tab(&self, tab: &str) -> Value {
         self.with(|pool| {
             pool.entry(tab)
-                .and_then(|entry| if entry.owner_detached { entry.viewers.first().copied() } else { Some(entry.win_id) })
+                .and_then(|entry| {
+                    if entry.owner_detached {
+                        entry.viewers.first().copied()
+                    } else {
+                        Some(entry.win_id)
+                    }
+                })
                 .map_or(Value::Null, Value::from)
         })
     }
@@ -1511,7 +1517,10 @@ impl Ctx {
                 .and_then(|owner| pool.entry(&owner.tab_id))
                 .filter(|entry| !entry.hosted_view && entry.device.is_none());
             if entry.is_some_and(|entry| entry.leave_pending) {
-                return Err(fault("session_running", "This session's last view is leaving"));
+                return Err(fault(
+                    "session_running",
+                    "This session's last view is leaving",
+                ));
             }
             Ok(opt(entry.map(|entry| entry.tab_id.clone())))
         })

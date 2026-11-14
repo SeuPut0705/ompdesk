@@ -263,7 +263,9 @@ mod tests {
     #[test]
     fn preserves_a_detached_owner_without_changing_older_markers() {
         let markers = derive_markers(
-            &[fact(json!({"running": true, "peer": "device-b", "ownerDetached": true}))],
+            &[fact(
+                json!({"running": true, "peer": "device-b", "ownerDetached": true}),
+            )],
             &[],
             500.0,
             &HashSet::new(),
@@ -275,7 +277,10 @@ mod tests {
         assert!(restored.owner_detached);
         assert_eq!(launch_action(&restored), Action::Restore);
         let mut older = serde_json::to_value(&restored).expect("marker json");
-        older.as_object_mut().expect("object").remove("ownerDetached");
+        older
+            .as_object_mut()
+            .expect("object")
+            .remove("ownerDetached");
         let restored: MarkerData = serde_json::from_value(older).expect("older marker");
         assert!(!restored.owner_detached);
     }

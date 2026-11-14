@@ -12,7 +12,6 @@ use crate::agentctl::rules::mail::{MailKind, delivery_for};
 use crate::agentctl::rules::tab_close::{
     TabCloseFacts, TabCloseStep, needs_person_turn, tab_close_step,
 };
-use crate::agentctl::service::{AgentControl, ViewAuthorizationReceipt};
 use crate::agentctl::service::fail::{R, fail};
 use crate::agentctl::service::host::Deadline;
 use crate::agentctl::service::js::{number, one_line};
@@ -25,6 +24,7 @@ use crate::agentctl::service::types::{
     WorktreeRemoval,
 };
 use crate::agentctl::service::util::join;
+use crate::agentctl::service::{AgentControl, ViewAuthorizationReceipt};
 
 /// How a close of one tab ended (`TabClose`): `Kept`: the tab is still open; `Dirty`: not touched, its paired page's
 /// unsaved Files edits in it are the person's.
@@ -353,7 +353,10 @@ impl AgentControl {
             return fail("You cannot close your own session with this tool.");
         }
         // A remote view carries no source-local opener record, so it never inherits local ownership.
-        let own = local && self.opened_by(&state, caller_tab_id, &tabs).contains(&target.tab_id);
+        let own = local
+            && self
+                .opened_by(&state, caller_tab_id, &tabs)
+                .contains(&target.tab_id);
         let flags = StopFlags {
             close: true,
             delete: false,
@@ -376,24 +379,32 @@ impl AgentControl {
             )
             .await?
         {
-            return fail("The user declined the view close. Do not ask again unless they tell you to.");
+            return fail(
+                "The user declined the view close. Do not ask again unless they tell you to.",
+            );
         }
         let state = self.host.state();
         if !state.enabled
             || (state.full_enabled, state.manage_enabled) != source_grants
             || !state.tabs.iter().any(matches_caller)
         {
-            return fail("The original caller's tab or run changed, or its control tools are turned off.");
+            return fail(
+                "The original caller's tab or run changed, or its control tools are turned off.",
+            );
         }
         if self.person_turn_answer(&caller).await? != initial_person {
-            return fail("The original caller's turn provenance changed during view authorization.");
+            return fail(
+                "The original caller's turn provenance changed during view authorization.",
+            );
         }
         let state = self.host.state();
         if !state.enabled
             || (state.full_enabled, state.manage_enabled) != source_grants
             || !state.tabs.iter().any(matches_caller)
         {
-            return fail("The original caller's tab or run changed, or its control tools are turned off.");
+            return fail(
+                "The original caller's tab or run changed, or its control tools are turned off.",
+            );
         }
         let mut bytes = [0u8; 32];
         crate::sys::random(&mut bytes).map_err(|error| {
@@ -439,7 +450,10 @@ impl AgentControl {
             state.enabled
                 && state.full_enabled == grant.full
                 && state.manage_enabled == grant.manage
-                && state.tabs.iter().any(|tab| same_caller_run(&grant.caller, tab))
+                && state
+                    .tabs
+                    .iter()
+                    .any(|tab| same_caller_run(&grant.caller, tab))
         };
         if !valid_source(&self.host.state()) {
             return fail("The original caller or its control grants changed.");
@@ -448,7 +462,9 @@ impl AgentControl {
             return fail("The original caller's turn provenance changed.");
         }
         if !receipt_live(grant.expires, Instant::now()) || !valid_source(&self.host.state()) {
-            return fail("View authorization expired or the original caller or its grants changed.");
+            return fail(
+                "View authorization expired or the original caller or its grants changed.",
+            );
         }
         Ok(())
     }
@@ -799,7 +815,9 @@ impl AgentControl {
         );
         if args.delete != Some(true) {
             if row.elsewhere.is_some() {
-                return fail("This saved session is open elsewhere. Use an exact view handle from ompdesk_sessions scope app with close:true and view to close only that view.");
+                return fail(
+                    "This saved session is open elsewhere. Use an exact view handle from ompdesk_sessions scope app with close:true and view to close only that view.",
+                );
             }
             return Ok(format!(
                 "{name} is not open in any tab: nothing to stop or close."
@@ -863,7 +881,10 @@ mod view_authorization_tests {
     fn view_receipt_expires_at_its_thirty_second_deadline() {
         let issued = Instant::now();
         let expires = issued + VIEW_AUTHORIZATION_TTL;
-        assert!(receipt_live(expires, issued + Duration::from_millis(29_999)));
+        assert!(receipt_live(
+            expires,
+            issued + Duration::from_millis(29_999)
+        ));
         assert!(!receipt_live(expires, issued + Duration::from_secs(30)));
         assert!(!receipt_live(expires, issued + Duration::from_secs(31)));
     }

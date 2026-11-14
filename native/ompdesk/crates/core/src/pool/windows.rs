@@ -549,14 +549,16 @@ impl Ctx {
             if entry.leave_pending
                 || entry.view_identity(win).as_deref() != Some(identity)
                 || entry.session_file.as_deref() != Some(session_path)
-                || pool.request_owners.values().any(|owner| *owner == entry.seq)
+                || pool
+                    .request_owners
+                    .values()
+                    .any(|owner| *owner == entry.seq)
             {
                 return Value::Null;
             }
-            let last = entry.viewers.len()
-                + usize::from(!entry.owner_detached)
-                + entry.device_views.len()
-                == 1;
+            let last =
+                entry.viewers.len() + usize::from(!entry.owner_detached) + entry.device_views.len()
+                    == 1;
             if last && entry.busy() {
                 return Value::Null;
             }
@@ -595,7 +597,11 @@ impl Ctx {
         }
         self.not_when_closed(
             win,
-            if owner { Closer::Entry(seq) } else { Closer::Viewer(seq, win) },
+            if owner {
+                Closer::Entry(seq)
+            } else {
+                Closer::Viewer(seq, win)
+            },
         );
         if owner {
             self.push(&json!({"k": "ownerDetached", "tab": tab}));
@@ -603,11 +609,13 @@ impl Ctx {
         self.unwire_full(tab, win);
         self.leave_window_view(tab, win).await?;
         self.forget_drafts(tab, win).await?;
-        self.forget_subagent_level(tab, super::state::LevelKey::Window(win)).await?;
+        self.forget_subagent_level(tab, super::state::LevelKey::Window(win))
+            .await?;
         self.push(&json!({"k": "viewTargetChanged", "tab": tab}));
         self.on_running_change().await?;
         self.send_tab_lists(tab).await?;
-        self.send_tab_list(win, Some(&[tab.to_string()]), None).await?;
+        self.send_tab_list(win, Some(&[tab.to_string()]), None)
+            .await?;
         self.notify_window_tabs_changed(win).await?;
         self.with(|pool| {
             if let Some(entry) = pool.entry_mut(tab).filter(|entry| entry.seq == seq) {
@@ -632,7 +640,10 @@ impl Ctx {
                             && !entry.awaiting_connection
                             && entry.scheduled_retry.is_none()
                             && !entry.resuming
-                            && !pool.request_owners.values().any(|owner| *owner == entry.seq)))
+                            && !pool
+                                .request_owners
+                                .values()
+                                .any(|owner| *owner == entry.seq)))
             })
         });
         if unused {

@@ -51,8 +51,8 @@ use self::host::{Caps, Deadline, Host, HostState};
 use self::text::{call_intent, mutates, saved_id_of_path, stored_title};
 use self::tuning::Tuning;
 use self::types::{
-    AgentMessage, ClosedChild, ControlTab, CostSplit, OpenOne, ReleasedSession, StoredSession,
-    SessionViewHandle, Target, Tool, ToolOutcome,
+    AgentMessage, ClosedChild, ControlTab, CostSplit, OpenOne, ReleasedSession, SessionViewHandle,
+    StoredSession, Target, Tool, ToolOutcome,
 };
 use self::util::{Flight, OrderedMap};
 use crate::agentctl::journal::attachments::AttachmentStore;

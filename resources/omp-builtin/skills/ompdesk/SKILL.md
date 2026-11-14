@@ -16,7 +16,7 @@ Each OMPdesk session is a tab in one of the user's windows, on this computer or 
 - `ompdesk_session_read` — `session` (open or saved), `limit`, `before`: transcript pages, newest first.
 - `ompdesk_session_answer` — `session`, `request`, `choice` / `approve` / `text` / `answers`, `attachments` (reach it first as a note, then the answer).
 - `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`. `ompdesk_report` (as a child, or to a session working in the same checkout) — `kind` (`progress`, `done`, `blocked`, `question`, `review`, `note`), `text`, `files`, `checks`, `to`, `dispatch`, `id`, `attachments`.
-- `ompdesk_session_stop` — `session`, `close`, `delete`, `device` (where a saved id is).
+- `ompdesk_session_stop` — `session`, `close`, `delete`, `device` (where a saved id is), `view` (the exact visible handle from the app roster; closes only that view, retaining the saved session and other viewers).
 - `ompdesk_compare` — `sessions`, `criteria`: evidence and a ranked verdict; `ompdesk_merge`: skill://ompdesk/references/worktrees-review.md
 - `ompdesk_schedule` — `action`, `device`, `target`, `on`: runs on a timer, once or on an event (GitHub, webhook, files, git, sessions) on this computer or a paired one, or your own routines and follow-ups (`self`): skill://ompdesk/references/schedules.md.
 - `ompdesk_autopilot` — `action` (`start`, `status`, `stop`), `folder`, `device`, `ship`, `branch`, `session`, `now`: endless repo improvement, not bounded tasks: skill://ompdesk/references/autopilot.md

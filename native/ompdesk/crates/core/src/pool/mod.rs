@@ -345,7 +345,9 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
                     token(&p)?,
                     p.i("win")?,
                     &p.s("tab")?,
-                    p.i("seq")?.try_into().map_err(|_| Fault::new("bad_params", "Invalid sequence"))?,
+                    p.i("seq")?
+                        .try_into()
+                        .map_err(|_| Fault::new("bad_params", "Invalid sequence"))?,
                     p.b("owner"),
                     p.b("last"),
                     p.b("remote"),
@@ -353,9 +355,9 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
                 .await,
             )
         }),
-        "continuationSettled" => later(async move {
-            done(ctx.release_hidden_if_unused(&p.s("tab")?, true).await)
-        }),
+        "continuationSettled" => {
+            later(async move { done(ctx.release_hidden_if_unused(&p.s("tab")?, true).await) })
+        }
         "attachViewer" => later(async move {
             Ok(Value::from(
                 ctx.attach_viewer(p.i("win")?, &p.s("tab")?).await?,
