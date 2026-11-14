@@ -471,10 +471,11 @@ impl<H: Host> Application<H> {
         }
         loop {
             let ended = self.ended.notified();
-            if {
+            let finished = {
                 let inner = locked(&self.inner);
                 inner.runs.is_empty() && inner.source_tasks == 0
-            } {
+            };
+            if finished {
                 break;
             }
             ended.await;

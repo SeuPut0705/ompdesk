@@ -3,15 +3,17 @@ use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::{mpsc, watch};
 
+type Publication = (Option<Value>, Vec<String>);
+
 #[derive(Clone)]
 struct Capture {
     current: Arc<AtomicBool>,
     quiet: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
-    events: mpsc::UnboundedSender<(Option<Value>, Vec<String>)>,
+    events: mpsc::UnboundedSender<Publication>,
 }
 impl Capture {
-    fn new() -> (Self, mpsc::UnboundedReceiver<(Option<Value>, Vec<String>)>) {
+    fn new() -> (Self, mpsc::UnboundedReceiver<Publication>) {
         let (events, rx) = mpsc::unbounded_channel();
         (
             Self {
@@ -247,9 +249,12 @@ async fn git_run_completion_rebases_own_commits_before_external_changes_can_fire
     .unwrap();
     assert!(events.recv().await.unwrap().1.is_empty());
     sink.running.store(true, Ordering::SeqCst);
-    git.text(cwd, &["commit", "--allow-empty", "-qm", "own routine output"])
-        .await
-        .unwrap();
+    git.text(
+        cwd,
+        &["commit", "--allow-empty", "-qm", "own routine output"],
+    )
+    .await
+    .unwrap();
     let own = git
         .text(cwd, &["rev-parse", "HEAD"])
         .await
