@@ -260,9 +260,9 @@ fn check_target<H: Host>(
             .is_some_and(|entry| entry.seq == target.incarnation && entry.tab_id == target.tab)
     });
     if !current
-        || !app
-            .sidecar(&target.tab)
-            .is_some_and(|sidecar| Arc::ptr_eq(&sidecar, &target.sidecar))
+        || !app.sidecar(&target.tab).is_some_and(|sidecar| {
+            Arc::ptr_eq(&sidecar, &target.sidecar) && sidecar.generation() == target.generation
+        })
     {
         return Err(Fault::new("tab_stale", "The session's sidecar has changed"));
     }
@@ -980,6 +980,30 @@ impl<H: Host> Service<H> {
                 app.host
                     .command_for_generation(target.sidecar, target.generation, command);
             Outcome::Later(Box::pin(command))
+        })
+    }
+
+    pub fn note_name_for_session(
+        &self,
+        owner: &Owner,
+        target: &SessionTarget<H::Sidecar>,
+        title: &str,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
+        let owner = owner.clone();
+        let target = target.clone();
+        let title = title.to_owned();
+        let app = Arc::clone(&self.app);
+        self.execute_typed(move |ctx| {
+            Box::pin(async move {
+                check_target(&ctx, &app, &owner, &target)?;
+                let wins = ctx
+                    .note_session_name_start(&target.tab, &title)
+                    .ok_or_else(|| {
+                        Fault::new("tab_stale", "The captured session is no longer open")
+                    })?;
+                ctx.note_session_name_finish(&target.tab, &title, wins)
+                    .await
+            })
         })
     }
 
