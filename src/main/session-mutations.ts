@@ -31,6 +31,13 @@ export interface DeviceSessionTabs {
 	closeSessionTabs(sessionPath: string): Promise<() => void>;
 }
 
+const deleting = new Map<string, number>();
+
+/** A transient refusal for opens; unlike a tombstone, a failed delete releases it. */
+export function sessionDeleteInProgress(sessionPath: string, device?: string): boolean {
+	return deleting.has(JSON.stringify([device ?? null, sessionPath]));
+}
+
 /**
  * `deviceTabs`: this computer's own delete of its own session. The paired devices' tabs on it here close first,
  * idle ones only, as another window's tab would; nothing closes while this computer's own tab runs it. The devices
@@ -43,18 +50,26 @@ export async function deleteSession(
 	deleteStored: () => Promise<unknown>,
 	deviceTabs?: DeviceSessionTabs,
 ): Promise<void> {
-	let tellDevices: (() => void) | undefined;
-	if (deviceTabs) {
-		if (tabs.sessionRunning(sessionPath, device)) throw codedError("session_running", "Session is currently running");
-		tellDevices = await deviceTabs.closeSessionTabs(sessionPath);
+	const key = JSON.stringify([device ?? null, sessionPath]);
+	deleting.set(key, (deleting.get(key) ?? 0) + 1);
+	try {
+		let tellDevices: (() => void) | undefined;
+		if (deviceTabs) {
+			if (tabs.sessionRunning(sessionPath, device))
+				throw codedError("session_running", "Session is currently running");
+			tellDevices = await deviceTabs.closeSessionTabs(sessionPath);
+		}
+		if (!(await tabs.closeSessionTab(sessionPath, device)))
+			throw codedError("session_running", "Session is currently running");
+		await deleteStored();
+		deletedSessions().add(sessionPath, device);
+		for (const listener of deletedListeners) listener(sessionPath, device);
+		tellDevices?.();
+	} finally {
+		const remaining = (deleting.get(key) ?? 1) - 1;
+		if (remaining === 0) deleting.delete(key);
+		else deleting.set(key, remaining);
 	}
-	if (!(await tabs.closeSessionTab(sessionPath, device)))
-		throw codedError("session_running", "Session is currently running");
-	await deleteStored();
-	// Gone for good: no layout, marker, device or index may bring it back (deleted-sessions.ts).
-	deletedSessions().add(sessionPath, device);
-	for (const listener of deletedListeners) listener(sessionPath, device);
-	tellDevices?.();
 }
 
 type SessionDeletedListener = (sessionPath: string, device: string | undefined) => void;

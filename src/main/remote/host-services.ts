@@ -93,7 +93,7 @@ import { noteOmpExit } from "../omp-exits";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
 import { SessionListShare } from "../session-list-share";
-import { deleteSession, moveSession, recordSessionDelete, renameSession } from "../session-mutations";
+import { deleteSession, moveSession, recordSessionDelete, renameSession, sessionDeleteInProgress } from "../session-mutations";
 import type { SessionSummaries, SummaryFacts, SummarySource } from "../session-summaries";
 import type { SidecarSessionIdentity } from "../sidecar";
 import { type SidecarPool, STOP_SESSION_WAIT_MS } from "../sidecar-pool";
@@ -1729,7 +1729,14 @@ export class LocalHostServices implements HostServices {
 		tab.graceTimer.unref?.();
 	}
 
+	#checkOpenSession(sessionPath: string | undefined): void {
+		if (!sessionPath) return;
+		if (deletedSessions().has(sessionPath)) throw codedError("session_deleted", "Session was deleted");
+		if (sessionDeleteInProgress(sessionPath)) throw codedError("session_running", "Session is being deleted");
+	}
+
 	async #open(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): Promise<TabOpenResult> {
+		this.#checkOpenSession(params.sessionPath);
 		const key = this.#key(peer.deviceId, params.rtab);
 		const held = this.#tabs.get(key);
 		const existing = held ?? this.#adopt(peer, params, conn);
@@ -1770,8 +1777,6 @@ export class LocalHostServices implements HostServices {
 			}
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
 		}
-		// A session deleted on this computer is never reopened for a device whose layout still names it.
-		if (deletedSessions().has(params.sessionPath)) throw codedError("session_deleted", "Session was deleted");
 		// A window of this computer runs the session, or another device's tab here does: the device views that omp,
 		// never a second one on the file.
 		const windowView = params.sessionPath
@@ -1784,6 +1789,12 @@ export class LocalHostServices implements HostServices {
 		const runner = params.sessionPath && !windowView ? this.#runner(params.sessionPath) : undefined;
 		const view = windowView ?? (runner ? this.#viewTab(runner, peer) : null);
 		if (view && params.sessionPath) {
+			try {
+				this.#checkOpenSession(params.sessionPath);
+			} catch (error) {
+				view.dispose();
+				throw error;
+			}
 			const tab = this.#createTab(peer, params.rtab, view.cwd, view.kind, false, params.sessionPath, conn, {
 				sidecar: view,
 				of: runner ?? "window",
@@ -1805,15 +1816,18 @@ export class LocalHostServices implements HostServices {
 		try {
 			kind =
 				params.kind ?? (params.sessionPath ? await this.#deps.sessionIndex.kindFor(params.sessionPath) : "agent");
+			this.#checkOpenSession(params.sessionPath);
 			// A stored agent session runs in the folder its file records here, never in the folder the device guessed
 			// (tab-spawn.ts does the same for this computer's own windows); a folder that is gone is refused.
 			const recorded =
 				params.sessionPath && kind === "agent"
 					? await this.#deps.sessionIndex.recordedCwd(params.sessionPath)
 					: null;
+			this.#checkOpenSession(params.sessionPath);
 			cwd = recorded
 				? await directory(recorded).catch(async () => {
 						const saved = await savedWorktreesForSpawn.find(recorded).catch(() => null);
+						this.#checkOpenSession(params.sessionPath);
 						throw codedError(
 							"session_folder_missing",
 							saved
@@ -1822,11 +1836,13 @@ export class LocalHostServices implements HostServices {
 						);
 					})
 				: await directory(params.cwd);
+			this.#checkOpenSession(params.sessionPath);
 		} finally {
 			const left = (this.#opening.get(key) ?? 1) - 1;
 			if (left > 0) this.#opening.set(key, left);
 			else this.#opening.delete(key);
 		}
+		this.#checkOpenSession(params.sessionPath);
 		if (this.#closedWhileOpening.delete(key)) throw codedError("unknown_tab", "The device closed this tab");
 		// A concurrent open for the same rtab, or for the same session under another rtab, may have
 		// finished while this one awaited: take that tab (or its refusal) instead of a second omp.
