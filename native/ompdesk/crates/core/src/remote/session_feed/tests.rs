@@ -147,3 +147,20 @@ async fn a_newer_announced_version_requires_one_more_read_and_disconnect_fences_
     device.disconnect_for_test();
     host.disconnect_for_test();
 }
+
+#[test]
+fn version_ordering_preserves_captured_javascript_number_semantics() {
+    for (a, b, expected) in [
+        ("e.0", "e.1", true),
+        ("e.", "e.1", true),
+        ("e.0x10", "e.17", true),
+        ("e.Infinity", "e.1", false),
+        ("e.1", "e.Infinity", true),
+        ("e.1x", "e.2", false),
+        ("e.1 ", "e.2", true),
+        ("other.1", "e.2", false),
+        ("e", "e.2", false),
+    ] {
+        assert_eq!(older_version(a, b), expected, "{a} < {b}");
+    }
+}

@@ -70,13 +70,8 @@ pub fn older_version(a: &str, b: &str) -> bool {
     let mut a = a.split('.');
     let mut b = b.split('.');
     a.next() == b.next()
-        && match (
-            a.next().and_then(|n| n.parse::<f64>().ok()),
-            b.next().and_then(|n| n.parse::<f64>().ok()),
-        ) {
-            (Some(a), Some(b)) => a < b,
-            _ => false,
-        }
+        && a.next().map(crate::ssh::js_to_number).unwrap_or(f64::NAN)
+            < b.next().map(crate::ssh::js_to_number).unwrap_or(f64::NAN)
 }
 fn apply(rows: &[Row], set: Vec<Row>, remove: &[String]) -> Vec<Row> {
     let mut rows: HashMap<_, _> = rows
