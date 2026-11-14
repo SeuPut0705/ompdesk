@@ -22,6 +22,7 @@ mod util;
 
 use facts::{Fact, MarkerData};
 use machine::{Env, Inst};
+pub use text::{is_limit_wording, quota_wait_until};
 
 pub const RESUME_KIND: Kind = Kind {
     name: "resume",
