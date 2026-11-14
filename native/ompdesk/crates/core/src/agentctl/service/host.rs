@@ -73,6 +73,8 @@ pub struct HostState {
     pub closed_children: Vec<ClosedChild>,
     /// `tabs(caller)`: every open tab of this app once, in the pool's order, without `here`.
     pub tabs: Vec<ControlTab>,
+    /// Authenticated hosted executions eligible for system mail, never visible-window roster entries.
+    pub mail_targets: Vec<ControlTab>,
     /// Each open tab's window (any stable key): `here` and the caller's-window-first order come from the caller's.
     pub window_of: HashMap<String, String>,
     /// `outsideCaller(id)`: the stand-in tab of each process calling over the control socket, never listed in `tabs`.
