@@ -83,7 +83,7 @@ pub struct HostState {
     pub mail_targets: Vec<ControlTab>,
     /// Current tab identities blocked by main's in-progress deletion fence, before a tombstone exists.
     pub mail_blocked: HashSet<String>,
-    pub inbox_routes: Vec<InboxRoute>,
+    pub(crate) inbox_routes: Vec<InboxRoute>,
     /// Each open tab's window (any stable key): `here` and the caller's-window-first order come from the caller's.
     pub window_of: HashMap<String, String>,
     /// `outsideCaller(id)`: the stand-in tab of each process calling over the control socket, never listed in `tabs`.
@@ -459,7 +459,7 @@ impl Host {
 
     /// `mail` with what the report carries: its pictures go inline (read from the attachment store), its files are
     /// named in the text. The entry kept names them, so a redelivery brings them again.
-    pub async fn mail_attached(
+    pub(crate) async fn mail_attached(
         &self,
         tab_id: &str,
         content: &str,
