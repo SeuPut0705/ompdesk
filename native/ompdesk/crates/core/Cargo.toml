@@ -31,7 +31,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sy
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value", "float_roundtrip", "preserve_order"] }
 # The same parser native/memory uses; memory application policy reads disabledExtensions without a second YAML stack.
-serde-saphyr = { version = "1.3", default-features = false, features = ["deserialize"] }
+serde-saphyr = { version = "1.3", default-features = false, features = ["deserialize", "serialize"] }
 # Listings sort as the page's `Intl.Collator(locale, { numeric: true })` does: ICU's collation, same algorithm and data.
 icu_collator = "2"
 # The folder picker's filter lowercases as `toLocaleLowerCase()` does (Turkish, Azeri and Lithuanian rules included).
