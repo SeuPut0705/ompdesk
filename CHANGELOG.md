@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.130.1] - 2026-11-15
+
+삭제 중인 세션이 다시 열리거나, 늦게 도착한 목록 응답으로 삭제한 행이 돌아오는 문제를 고쳤어요.
+
+### 고친 것
+- 세션 삭제가 성공하면 이전 목록 읽기와 캐시 버전을 무효화해요. 삭제 전에 시작한 읽기가 나중에 끝나도 세션 행이나 스냅샷에 다시 넣지 않아요.
+- 세션 삭제를 기다리는 동안 연결된 기기의 열기 요청을 거절해요. 삭제가 실패하면 대기 상태를 풀고 삭제 기록을 남기지 않아요.
+- Chutes 공급자에 브랜드 아이콘을 표시해요.
+- 새 omp 설정의 한국어 이름과 설명을 추가했어요. 전역에서만 바꿀 수 있는 목록 설정은 프로젝트 설정에서 전역 값으로 승격하지 못하게 했어요.
+
+<!-- en -->
+
+This fixes session opens during deletion and deleted rows returning through late list replies.
+
+### Fixed
+- Successful deletion invalidates earlier list reads and cache versions. A read started before deletion cannot put the row back into the list or its snapshot.
+- Paired-host open requests are refused while deletion is pending. Failed deletion releases the pending state without recording a tombstone.
+- Chutes now shows its brand icon.
+- New omp settings have Korean labels and descriptions. Global-only list settings are no longer editable through project settings.
+
 ## [0.130.0] - 2026-11-14
 
 여러 계정의 사용 한도를 한눈에 보고, OpenRouter 모델 목록을 접어 탐색할 수 있어요.
