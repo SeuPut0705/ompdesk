@@ -137,6 +137,32 @@ impl Host {
         }
     }
 
+    /// Native custody uses the same authenticated landing as the file presentation, while it is still fresh.
+    /// A missing source blob is left for the receiver's exact existing-ownership check, never fabricated.
+    pub(crate) async fn stored_upload(
+        &self,
+        tab_id: &str,
+        device: Option<&str>,
+        reference: &AttachmentRef,
+    ) -> R<Option<String>> {
+        if let Some((path, _)) = self.landed.get(device, &reference.sha256, (self.clock)()) {
+            return Ok(Some(path));
+        }
+        let Some(bytes) = self.attachments.get(&reference.sha256).await else {
+            return Ok(None);
+        };
+        if bytes.len() as u64 != reference.size {
+            return fail("Source attachment size differs from its hash reference");
+        }
+        let path = match self.land(tab_id, &reference.name, &bytes).await {
+            Landing::Landed(path) => path,
+            Landing::Failed { error, .. } => return fail(error),
+        };
+        self.landed
+            .set(device, &reference.sha256, &path, (self.clock)());
+        Ok(Some(path))
+    }
+
     /// A stored message delivered again after its files' upload lifetime: each file whose path may be gone is landed
     /// again from the store. Returns the files as they stand, the path changes, and whether any file moved.
     pub(super) async fn rehome(

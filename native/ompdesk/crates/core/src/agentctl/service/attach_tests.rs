@@ -981,8 +981,17 @@ async fn an_attached_report_shares_its_held_receiver_result(kind: &str, port: u6
         .host
         .landed
         .set(None, &sha, "/expired/source-landing", 0.0);
-    let landed_before_join = asked_with(&asked, "land").len();
-    assert_eq!(landed_before_join, 1);
+    let first_lands = asked_with(&asked, "land");
+    assert_eq!(
+        first_lands,
+        vec![json!({ "tabId": "a", "name": "doc.pdf", "dataBase64": b64(PDF) })]
+    );
+    assert_eq!(original_files[0].file.sha256, sha);
+    assert_eq!(original_files[0].file.size, PDF.len() as u64);
+    assert_eq!(transfer.uploads.len(), 1);
+    assert_eq!(transfer.uploads[0].sha256, sha);
+    assert_eq!(transfer.uploads[0].path, original_files[0].path);
+    let landed_before_join = first_lands.len();
 
     snapshot["tabs"][1]["busySince"] = json!(2.0);
     crate::ports::apply_state(control.host.port(), 1, &snapshot.to_string()).unwrap();
@@ -996,9 +1005,7 @@ async fn an_attached_report_shares_its_held_receiver_result(kind: &str, port: u6
                 result.text
             )
         }
-        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(2.0)) => {
-            Poll::Ready(())
-        }
+        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(2.0)) => Poll::Ready(()),
         Poll::Pending => Poll::Pending,
     })
     .await;
@@ -1099,9 +1106,7 @@ async fn attached_progress_joins_before_selection_without_preparing_either_waite
     tokio::pin!(first);
     poll_fn(|cx| match first.as_mut().poll(cx) {
         Poll::Ready(result) => panic!("progress completed before selection: {}", result.text),
-        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(1.0)) => {
-            Poll::Ready(())
-        }
+        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(1.0)) => Poll::Ready(()),
         Poll::Pending => Poll::Pending,
     })
     .await;
@@ -1111,9 +1116,7 @@ async fn attached_progress_joins_before_selection_without_preparing_either_waite
     tokio::pin!(repeated);
     poll_fn(|cx| match repeated.as_mut().poll(cx) {
         Poll::Ready(result) => panic!("pending progress retry completed early: {}", result.text),
-        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(2.0)) => {
-            Poll::Ready(())
-        }
+        Poll::Pending if control.mem().mailed_in.get("b\na") == Some(&Some(2.0)) => Poll::Ready(()),
         Poll::Pending => Poll::Pending,
     })
     .await;
@@ -1136,7 +1139,19 @@ async fn attached_progress_joins_before_selection_without_preparing_either_waite
     let original = &transfer.entries[0];
     let key = original.entry.key();
     assert_eq!(key.kind, InboxKind::Report);
-    assert_eq!(asked_with(&asked, "land").len(), 1);
+    assert_eq!(
+        asked_with(&asked, "land"),
+        vec![json!({ "tabId": "a", "name": "doc.pdf", "dataBase64": b64(PDF) })]
+    );
+    let original_file = &original.attachments.as_ref().unwrap().files[0].file;
+    assert_eq!(original_file.sha256, sha);
+    assert_eq!(original_file.size, PDF.len() as u64);
+    assert_eq!(transfer.uploads.len(), 1);
+    assert_eq!(transfer.uploads[0].sha256, sha);
+    assert_eq!(
+        transfer.uploads[0].path,
+        original.attachments.as_ref().unwrap().files[0].path
+    );
     assert_eq!(
         std::fs::read(dir.join("agent-attachments").join(&sha)).unwrap(),
         PDF

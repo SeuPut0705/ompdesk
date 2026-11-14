@@ -15,7 +15,6 @@ use crate::agentctl::journal::attachments::{AttachmentRef, LandedFile};
 use crate::agentctl::journal::mail_outbox::OutboxMail;
 use crate::agentctl::journal::send_outbox::OutboxSend;
 use crate::agentctl::rules::mail::{DeliveryReceipt, Mail, delivery_for, mail_details};
-use crate::agentctl::service::attach::Landing;
 use crate::agentctl::service::fail::{Fail, R};
 use crate::agentctl::service::host::HostState;
 use crate::agentctl::service::types::ControlTab;
@@ -593,28 +592,17 @@ impl Runtime {
                 if !landed.insert(reference.sha256.clone()) {
                     continue;
                 }
-                let Some(bytes) = store.get(&reference.sha256).await else {
-                    // After a received Disk ACK a failed source cleanup may replay an old row without its GC'd blob.
-                    // Only the receiver's exact existing ledger ownership can accept this hash without a new upload.
-                    continue;
-                };
                 self.host().fresh().await?;
                 self.source_target(tab_id, Some(&target))?;
-                if bytes.len() as u64 != reference.size {
-                    return Err(Fail::other(
-                        "Source attachment size differs from its hash reference",
-                    ));
+                let path = self.host().stored_upload(tab_id, device, reference).await?;
+                self.host().fresh().await?;
+                self.source_target(tab_id, Some(&target))?;
+                if let Some(path) = path {
+                    uploads.push(NativeInboxUpload {
+                        sha256: reference.sha256.clone(),
+                        path,
+                    });
                 }
-                let path = match self.host().land(tab_id, &reference.name, &bytes).await {
-                    Landing::Landed(path) => path,
-                    Landing::Failed { error, .. } => return Err(Fail::other(error)),
-                };
-                self.host().fresh().await?;
-                self.source_target(tab_id, Some(&target))?;
-                uploads.push(NativeInboxUpload {
-                    sha256: reference.sha256.clone(),
-                    path,
-                });
             }
         }
         let expected: HashSet<NativeInboxKey> =
