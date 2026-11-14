@@ -317,6 +317,18 @@ impl<H: Host> HostServices<H> {
             config,
         })
     }
+    /// Native counterpart of resumeFacts: views hold no execution tag; disconnected runners remain held.
+    pub fn holds_session(&self, path: &str) -> Result<bool, Fault> {
+        let state = lock(&self.state);
+        for tab in state.tabs.values() {
+            let snapshot = self.host.snapshot(&tab.target)?;
+            if !snapshot.viewing && snapshot.session_path.as_deref() == Some(path) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Capture hosted runners and their notice routes before asynchronous work.
     pub async fn capture_session(&self, path: &str) -> Result<SessionCapture<H::Target>, Fault> {
         use crate::session_ops::Holder;
@@ -1583,4 +1595,4 @@ fn host_method(method: &str) -> Option<(RequestKind, &'static str)> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
