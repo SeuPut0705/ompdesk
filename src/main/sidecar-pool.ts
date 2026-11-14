@@ -1431,14 +1431,31 @@ export class SidecarPool {
 		try {
 			const current = await beforeCommit();
 			if (!stillClosable() || !current() || this.viewIdentity(win, tabId) !== expectedIdentity) return false;
+			const generation = this.#hub.generation;
+			const epoch = this.#viewEpoch;
 			const sidecar = this.#live(tabId)?.sidecar;
 			prepared = sidecar instanceof RemoteSidecar ? sidecar.prepareViewLeave(expectedSessionPath) : undefined;
-			committed = this.#call("commitExactWindowView", {
-				win: this.#windowId(win),
-				tab: tabId,
-				identity: expectedIdentity.slice(expectedIdentity.indexOf("/") + 1),
-				sessionPath: expectedSessionPath,
-			});
+			if (!this.#open || generation === 0 || this.#hub.generation !== generation || this.#viewEpoch !== epoch) {
+				prepared?.cancel();
+				return false;
+			}
+			this.#summaryRead = null;
+			try {
+				committed = this.#hub.call(this.#id, "commitExactWindowView", {
+					win: this.#windowId(win),
+					tab: tabId,
+					identity: expectedIdentity.slice(expectedIdentity.indexOf("/") + 1),
+					sessionPath: expectedSessionPath,
+					now: Date.now(),
+					wt: this.onWindowTabsChanged !== null,
+				});
+			} catch (cause) {
+				const details = { code: "view_commit_unconfirmed", commitOutcome: "unknown" };
+				throw Object.assign(
+					new Error(`The view close outcome is unknown: ${JSON.stringify(details)}`, { cause }),
+					details,
+				);
+			}
 		} catch (error) {
 			prepared?.cancel();
 			throw error;
@@ -1463,13 +1480,19 @@ export class SidecarPool {
 					: cleanupResult.status === "rejected"
 						? cleanupResult.reason
 						: undefined;
-			throw Object.assign(new Error("The local view closed, but its cleanup was not confirmed", { cause }), {
+			const details = {
 				code: "remote_leave_unconfirmed",
 				localViewClosed: true,
 				cleanupUnconfirmed: true,
 				retryAvailable: false,
 				...(prepared && committed.last ? { target: prepared.target } : {}),
-			});
+			};
+			throw Object.assign(
+				new Error(`The local view closed, but its cleanup was not confirmed: ${JSON.stringify(details)}`, {
+					cause,
+				}),
+				details,
+			);
 		}
 		return true;
 	}
