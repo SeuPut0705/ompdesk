@@ -127,3 +127,36 @@ fn shutdown_refuses_new_work_but_keeps_retirement_metadata_until_reaped() {
     assert!(callers.finish_execution_retirement(&owner));
     assert!(callers.execution_facts(&owner).is_none());
 }
+
+#[test]
+fn shutdown_refuses_frozen_effects_but_retains_captured_cleanup() {
+    let callers = Callers::new(1);
+    let creator = page(&callers, 1);
+    let reservation = callers.reserve_execution(&creator.owner, "tab", 1).unwrap();
+    let owner = callers.execution_owner("tab").unwrap();
+    callers.finish_execution_reservation(reservation, true);
+    let effects = std::cell::Cell::new(0);
+    callers
+        .admit_tab_effect(&owner, "tab", || {
+            effects.set(effects.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+    callers.stop();
+    assert!(
+        callers
+            .admit_tab_effect(&owner, "tab", || {
+                effects.set(effects.get() + 1);
+                Ok(())
+            })
+            .is_err()
+    );
+    assert_eq!(effects.get(), 1);
+    assert!(
+        callers
+            .admit_execution(&owner, "tab", None, || Ok(()))
+            .is_ok()
+    );
+    assert!(callers.retire_execution(&owner));
+    assert!(callers.finish_execution_retirement(&owner));
+}
