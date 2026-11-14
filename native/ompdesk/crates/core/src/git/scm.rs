@@ -132,6 +132,12 @@ pub struct Discarded {
     fresh: Vec<String>,
 }
 
+impl Discarded {
+    pub(crate) fn into_fresh(self) -> Vec<String> {
+        self.fresh
+    }
+}
+
 /// Back to HEAD in index and worktree; untracked or newly added paths leave the index and are answered for removal.
 pub async fn discard(git: &Git, root: &str, paths: &[String]) -> Result<Discarded, Fault> {
     let mut args: Vec<String> = [
