@@ -3,13 +3,22 @@
 # kill, paths, file events) that only that OS compiles and runs. Formatting does not depend on the OS, so it runs on
 # Linux alone. clippy and the tests each run even when the step before them failed, so one red step never hides another.
 name: Check OMPdesk's Rust
-description: cargo fmt (Linux), clippy with warnings denied and the workspace's tests, in native/ompdesk.
+description: cargo fmt (Linux), clippy with warnings denied and the workspace's tests, including Bun-backed child fixtures.
 
 runs:
   using: composite
   steps:
     - id: toolchain
       uses: ./.github/actions/native-toolchain
+
+    - id: bun
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      with:
+        bun-version: 1.4.4
+
+    - name: Child fixture runtime
+      shell: bash
+      run: bun --version
 
     - name: cargo fmt
       if: runner.os == 'Linux'
@@ -24,7 +33,7 @@ runs:
       run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
     - name: cargo test
-      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' && steps.bun.outcome == 'success' }}
       shell: bash
       working-directory: native/ompdesk
       run: cargo test --locked --workspace
