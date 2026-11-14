@@ -444,12 +444,12 @@ struct NativeCompletion {
 }
 
 impl NativeCompletion {
-    fn finish(&self, result: Result<Posted, String>) {
+    fn finish(&self, result: impl FnOnce() -> Result<Posted, String>) {
         self.result.send_if_modified(|current| {
             if current.is_some() {
                 return false;
             }
-            *current = Some(result);
+            *current = Some(result());
             true
         });
     }
@@ -502,9 +502,11 @@ impl Drop for ActiveGuard {
     fn drop(&mut self) {
         if let Some(progress) = &self.progress {
             remove_active(&mut self.inner.tables(), progress, self.generation);
-            progress.finish(Err(unknown_outcome(
-                "the selected delivery task ended before a conclusive result",
-            )));
+            progress.finish(|| {
+                Err(unknown_outcome(
+                    "the selected delivery task ended before a conclusive result",
+                ))
+            });
         }
     }
 }
@@ -541,7 +543,7 @@ fn native_identity(mail: &Mail) -> Result<Option<(String, String)>, String> {
 
 fn supersede(waiting: Waiting) {
     if let Some(progress) = waiting.native {
-        progress.finish(Err(superseded_error(waiting.attempted)));
+        progress.finish(|| Err(superseded_error(waiting.attempted)));
     }
 }
 
@@ -646,10 +648,12 @@ async fn deliver_claimed(inner: Arc<Inner>, key: String, mut next: Waiting, atte
         Ok(receipt) => {
             tables.seen.insert(next.mail.id);
             if let Some(progress) = &next.native {
-                progress.finish(Ok(match receipt {
-                    DeliveryReceipt::New => Posted::Delivered,
-                    DeliveryReceipt::Existing => Posted::Duplicate,
-                }));
+                progress.finish(|| {
+                    Ok(match receipt {
+                        DeliveryReceipt::New => Posted::Delivered,
+                        DeliveryReceipt::Existing => Posted::Duplicate,
+                    })
+                });
             }
         }
         Err(error) => {
@@ -657,7 +661,7 @@ async fn deliver_claimed(inner: Arc<Inner>, key: String, mut next: Waiting, atte
                 if let Some(progress) = &next.native
                     && !progress.finished()
                 {
-                    progress.finish(Err(unknown_outcome(&error)));
+                    progress.finish(|| Err(unknown_outcome(&error)));
                 }
                 return;
             };
@@ -670,7 +674,7 @@ async fn deliver_claimed(inner: Arc<Inner>, key: String, mut next: Waiting, atte
                 if let Some(progress) = &next.native
                     && !progress.finished()
                 {
-                    progress.finish(Err(unknown_outcome(&error)));
+                    progress.finish(|| Err(unknown_outcome(&error)));
                 }
                 return;
             }
@@ -939,7 +943,7 @@ impl Mailbox {
                 return true;
             }
             if let Some(progress) = &pending.native {
-                progress.finish(Err(superseded_error(pending.attempted)));
+                progress.finish(|| Err(superseded_error(pending.attempted)));
             }
             false
         });
@@ -949,7 +953,7 @@ impl Mailbox {
             }
             active
                 .completion
-                .finish(Err(superseded_error(active.attempted)));
+                .finish(|| Err(superseded_error(active.attempted)));
             active.attempted
         });
     }
