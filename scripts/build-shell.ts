@@ -312,7 +312,7 @@ async function withSubst<T>(run: (cwd: string) => Promise<T>): Promise<T> {
 	}
 }
 
-function cargoEnv(): NodeJS.ProcessEnv {
+export function shellCargoEnv(_cargo: string): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...process.env };
 	delete env.INCLUDE;
 	delete env.LIB;
@@ -374,7 +374,7 @@ export async function cargoInShell(args: string[], options: { quiet?: boolean } 
 	dropIncompleteExtraction();
 	const server = serveArchive(pin, key, archive);
 	try {
-		const env = cargoEnv();
+		const env = shellCargoEnv(cargo);
 		env.CEF_DOWNLOAD_URL = `http://127.0.0.1:${server.port}`;
 		await withSubst(async cwd => {
 			if (process.platform === "win32") {
