@@ -5,7 +5,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { findEmbedded7z } from "./build-setups";
 import { TEST_GUID, TEST_SHORTCUT } from "./constants";
 import { diffOwner, type OwnerSnapshot, REAL_GUID } from "./guard";
@@ -29,6 +29,28 @@ describe("the test identity", () => {
 		expect(TEST_GUID).not.toBe(REAL_GUID);
 		expect(REAL_GUID).toBe("e6f1f351-4346-5a64-a104-9a02672ef1bc");
 		expect(TEST_SHORTCUT).not.toBe("OMPdesk");
+	});
+});
+
+describe("the released Electron selection", () => {
+	it("keeps both released update paths and rejects an unrecognised source", async () => {
+		// Import after changing the environment: this exercises the module-load selection, which a static import caches.
+		try {
+			for (const tag of ["v0.127.0", "v0.128.0"]) {
+				vi.stubEnv("OMP_MOVE_RELEASED_TAG", tag);
+				vi.resetModules();
+				const released = await import("./constants");
+				expect(released.RELEASED_TAG).toBe(tag);
+				expect(released.RELEASED_VERSION).toBe(tag.slice(1));
+				expect(released.TEST_GUID).toBe(TEST_GUID);
+			}
+			vi.stubEnv("OMP_MOVE_RELEASED_TAG", "v0.129.0");
+			vi.resetModules();
+			await expect(import("./constants")).rejects.toThrow("OMP_MOVE_RELEASED_TAG must be v0.127.0 or v0.128.0");
+		} finally {
+			vi.unstubAllEnvs();
+			vi.resetModules();
+		}
 	});
 });
 

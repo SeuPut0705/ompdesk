@@ -19,9 +19,11 @@ export const LOCAL = process.env.LOCALAPPDATA ?? "";
 export const TEST_DIR = join(LOCAL, "Programs", "OMPdesk-movetest");
 export const TEST_UNINSTALL_KEY = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${TEST_GUID}`;
 export const TEST_INSTALL_KEY = `HKCU\\Software\\${TEST_GUID}`;
-/** The released app the move starts from, and the version the new setup is offered as. */
-export const RELEASED_TAG = "v0.127.0";
-export const RELEASED_VERSION = "0.127.0";
+/** Select either released Electron app, without changing the test identity or accepting an arbitrary build. */
+export const RELEASED_TAG = process.env.OMP_MOVE_RELEASED_TAG ?? "v0.127.0";
+if (!["v0.127.0", "v0.128.0"].includes(RELEASED_TAG))
+	throw new Error("OMP_MOVE_RELEASED_TAG must be v0.127.0 or v0.128.0");
+export const RELEASED_VERSION = RELEASED_TAG.slice(1);
 export const OFFERED_VERSION = "0.200.0";
 export const REPO = "SeuPut0705/ompdesk";
 

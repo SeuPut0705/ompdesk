@@ -3,9 +3,9 @@
  * identity (`nsis.guid`, `nsis.shortcutName`: constants.ts), so neither can touch the person's install, uninstall
  * entry or shortcuts:
  *
- *   old   the RELEASED v0.127.0 app files (the setup that release published, its app payload unpacked, SHA-256 checked
- *         against GitHub's digest) wrapped in a setup of the same one-click shape: the install the updater under test
- *         runs in, with an uninstaller of its own. Built `--prepackaged`, from the released release's installer.nsh.
+ *   old   the released v0.127.0 or v0.128.0 app files (OMP_MOVE_RELEASED_TAG, default v0.127.0): the published setup's
+ *         payload, SHA-256 checked against GitHub's digest, wrapped under the test identity with its own uninstaller.
+ *         Built `--prepackaged`, from that tag's installer.nsh. Use a separate --work directory for each release.
  *   new   the shell build of this checkout (electron-builder.win.yml: the same package a release makes) offered as
  *         0.200.0, with scripts/shell-move/move-test.nsh included (its seams: the setup's environment is logged, an
  *         unpack can be made incomplete on purpose, and the app is started through a launcher that carries the test

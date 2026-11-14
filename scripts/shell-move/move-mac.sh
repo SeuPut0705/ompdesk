@@ -20,16 +20,18 @@
 #     `swap result … rolled back`; no dialog.
 #  S2 a failed move: the apps folder is made read-only before the countdown ends; the swap fails (copy failed), Electron is
 #     untouched, and the next launch of the released app logs `swap result outcome rolled back`.
-#  MOVE_FROM_APP=<an Electron .app>: the app that updates is that one (a stand-in "release 1" built from the branch with the
-#     start-checked SWAP_SCRIPT, shell-batch-checks.yml `move-mac-release1`) instead of the released v0.127.0. Its swap
-#     script keeps `<app>.previous` until the new app writes app-started.json for the offered version: S1 then says `started`,
-#     and S4 (the new shell does not start) has the SCRIPT restore `.previous` (`start failed; previous app restored`) and
-#     reopen the old app, which logs `swap result … rolled back`; the launcher only notes that the swap restores.
+# OMP_MOVE_RELEASED_TAG=v0.128.0 selects the real release 1 DMG instead of v0.127.0. Its start-checked SWAP_SCRIPT keeps
+# `<app>.previous` until the new app writes app-started.json for the offered version: S1 then says `started`, and S4
+# (the new shell does not start) has the script restore `.previous` (`start failed; previous app restored`) and reopen
+# the old app, which logs `swap result … rolled back`; the launcher only notes that the swap restores.
 # Evidence lines start with "EVIDENCE:". Exit 1 on any failed check.
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
 . "$HERE/mac-common.sh"
 PORT=19230; FEEDPORT=18444; HTTPPORT=18445
-cleanup() { for v in OMP_GUI_TEST_USER_DATA_DIR OMP_GUI_TEST_SHELL_FAIL_START OMPDESK_LAUNCHER_RELEASE_URL OMPDESK_LAUNCHER_START_WAIT_S; do launchctl unsetenv $v; done; chmod -R u+w "$W" 2>/dev/null; kill $WATCH $FEED 2>/dev/null; }
+SOURCE_TAG=${OMP_MOVE_RELEASED_TAG:-v0.127.0}
+case "$SOURCE_TAG" in v0.127.0|v0.128.0) ;; *) echo "unsupported released tag: $SOURCE_TAG"; exit 1 ;; esac
+LAST_ELECTRON_TAG=$(jq -r .tag "$REPO/native/ompdesk/crates/shell/last-electron.json")
+cleanup() { for v in OMP_GUI_TEST_USER_DATA_DIR OMP_GUI_TEST_SHELL_FAIL_START OMPDESK_LAUNCHER_RELEASE_URL OMPDESK_LAUNCHER_START_WAIT_S; do launchctl unsetenv $v; done; chmod -R u+w "$W" 2>/dev/null; kill "${WATCH:-}" "${FEED:-}" 2>/dev/null; }
 trap cleanup EXIT
 
 step "control: a prompt-free keychain read"
@@ -40,23 +42,25 @@ step "the new shell bundle and its DMG (scripts/package-mac.ts, signed with the 
 DMG=$(ls "$REPO"/dist/ompdesk-0.200.0-arm64.dmg 2>/dev/null | head -1); test -f "$DMG"; check $? "dist/ompdesk-0.200.0-arm64.dmg exists ($(stat -f %z "$DMG" 2>/dev/null) bytes)"
 cp "$DMG" "$W/new.dmg"
 
-step "the released app v0.127.0, re-signed (release-form designated requirement)"
-if [ -n "${MOVE_FROM_APP:-}" ]; then
-  ditto "$MOVE_FROM_APP" rel.app
-else
-  curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.127.0/ompdesk-mac-arm64.dmg
-  mkdir mnt && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint mnt rel.dmg >/dev/null && ditto mnt/OMPdesk.app rel.app && hdiutil detach mnt >/dev/null
-fi
+# The released app is downloaded as shipped; the only change is the throwaway certificate.
+download_app() {
+  local tag=$1 destination=$2 mount="$W/mnt-$1"
+  curl -fsSL -o "$W/$tag.dmg" "https://github.com/SeuPut0705/ompdesk/releases/download/$tag/ompdesk-mac-arm64.dmg" || return 1
+  mkdir -p "$mount"
+  hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mount" "$W/$tag.dmg" >/dev/null || return 1
+  ditto "$mount/OMPdesk.app" "$destination"; local copied=$?
+  hdiutil detach "$mount" >/dev/null || return 1
+  return "$copied"
+}
+step "the released app $SOURCE_TAG, re-signed (release-form designated requirement)"
+download_app "$SOURCE_TAG" "$W/rel.app" || exit 1
 OLD_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' rel.app/Contents/Info.plist)
-evidence "the app that updates: ${MOVE_FROM_APP:-the released v0.127.0} ($OLD_VERSION)"
+[ "$OLD_VERSION" = "${SOURCE_TAG#v}" ] || exit 1
+evidence "the app that updates: the real $SOURCE_TAG DMG ($OLD_VERSION)"
 bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
-# `open -n` is how the swap script relaunches (v0.127.0's SWAP_SCRIPT: `open -n "$dest" --args …`, no direct exec). On the runner the
-# shell bundle was not started by it (spctl said `rejected`), so before any scenario the same `open -n` is run, with no rule of any
-# kind, on the released Electron re-signed the same way and on the shell bundle, and what the system says is printed: if Electron
-# opens and the shell does not, the difference is ours (the check fails); only if neither opens is it the hosted runner's policy,
-# and only then the remaining scenarios run under an spctl rule (which a person's Mac does not need).
-SPCTL_RULE=0
+# Compare the actual user relaunch (`open -n` from the released swap script), with no Gatekeeper rule: the re-signed
+# Electron and the shell must both start, without quarantine. A rejected `spctl --assess` alone does not prove launch refusal.
 open_probe() {
   local app=$1 label=$2 ud
   ud=$W/probe-$label
@@ -80,23 +84,25 @@ ditto rel.app "$W/probe-apps/electron.app"; ditto "$REPO/dist/mac-arm64/OMPdesk.
 open_probe "$W/probe-apps/electron.app" electron; ELECTRON_OPENS=$?
 open_probe "$W/probe-apps/shell.app" shell; SHELL_OPENS=$?
 restore
-if [ $SHELL_OPENS != 0 ] && [ $ELECTRON_OPENS = 0 ]; then
-  check 1 "the shell bundle opens through \`open -n\` as the re-signed Electron does (Electron opened, the shell did not: ours)"
-elif [ $SHELL_OPENS != 0 ]; then
-  evidence "neither the re-signed Electron nor the shell bundle opens through \`open -n\` on this runner: the hosted runner's Gatekeeper policy, not the bundle; the scenarios run under an spctl rule for the throwaway certificate"
-  sudo spctl --add --label omp-move "$W/rel.app" "$REPO/dist/mac-arm64/OMPdesk.app" 2>&1 | head -3; sudo spctl --enable --label omp-move 2>&1 | head -2
-  SPCTL_RULE=1
-else
-  check 0 "the shell bundle opens through \`open -n\` without any spctl rule (as the re-signed Electron does)"
-fi
+check "$ELECTRON_OPENS" "the re-signed released Electron opens through \`open -n\` without any spctl rule"
+check "$SHELL_OPENS" "the shell bundle opens through \`open -n\` without any spctl rule"
 evidence "the released SWAP_SCRIPT relaunches with open -n: $(grep -a -o 'open -n "$dest"[^;]*' rel.app/Contents/Resources/app.asar 2>/dev/null | head -1 | cut -c1-80)"
-# The last Electron release the launcher puts back: the re-signed v0.127.0 itself (release 1 stands in when it exists).
-# The DMG holds the app at its root (`-srcfolder` copies a folder's CONTENTS, so the app sits in a folder of its own).
-mkdir "$W/dmgsrc" && ditto rel.app "$W/dmgsrc/OMPdesk.app"
+# The launcher's baked tag selects the last Electron release, also when the user skips release 1 and starts at v0.127.0.
+if [ "$SOURCE_TAG" = "$LAST_ELECTRON_TAG" ]; then
+  ditto rel.app "$W/rollback.app"
+else
+  download_app "$LAST_ELECTRON_TAG" "$W/rollback.app" || exit 1
+  bash "$HERE/resign-mac.sh" "$W/rollback.app" "$KC0" "$ID" | tail -1
+fi
+ROLLBACK_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$W/rollback.app/Contents/Info.plist")
+[ "$ROLLBACK_VERSION" = "${LAST_ELECTRON_TAG#v}" ] || exit 1
+# `-srcfolder` copies contents; its source folder must hold the app, not be the app.
+mkdir "$W/dmgsrc" && ditto "$W/rollback.app" "$W/dmgsrc/OMPdesk.app"
 hdiutil create -volname OMPdesk -srcfolder "$W/dmgsrc" -fs HFS+ -ov -format UDZO "$W/rollback.dmg" 2>&1 | tail -3 | sed 's/^/EVIDENCE: hdiutil: /'
-test -s "$W/rollback.dmg"; check $? "the stand-in last Electron release (rel.app in a DMG: $(stat -f %z "$W/rollback.dmg" 2>/dev/null) bytes)"
-start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag "v$OLD_VERSION" --http-port $HTTPPORT
-curl -s "http://127.0.0.1:$HTTPPORT/repos/SeuPut0705/ompdesk/releases/tags/v$OLD_VERSION" | grep -q ompdesk-update; check $? "the stand-in serves the last Electron release's tag route on :$HTTPPORT"
+test -s "$W/rollback.dmg"; check $? "the re-signed last Electron release $LAST_ELECTRON_TAG is in a DMG ($(stat -f %z "$W/rollback.dmg" 2>/dev/null) bytes)"
+test -s "$W/rollback.dmg" || exit 1
+start_feed $FEEDPORT "$W/new.dmg" --rollback-dmg "$W/rollback.dmg" --rollback-tag "$LAST_ELECTRON_TAG" --http-port $HTTPPORT
+curl -s "http://127.0.0.1:$HTTPPORT/repos/SeuPut0705/ompdesk/releases/tags/$LAST_ELECTRON_TAG" | grep -q ompdesk-update; check $? "the stand-in serves the last Electron release's tag route on :$HTTPPORT"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:$FEEDPORT" --ignore-certificate-errors)
 update_lines() { jq -r 'select(.source=="app-update") | "\(.message) \(.details.event // "") \(.details.outcome // "") \(.details.mode // "") \(.details.reason // "")"' "$1/logs/gui-runtime.jsonl" 2>/dev/null; }
 has_line() { update_lines "$1" | grep -q "^$2"; }
@@ -128,8 +134,8 @@ relaunch_diag() {
   crash_diag "$APPS/OMPdesk.app" "$W/$name-direct.out" "$UD"
 }
 
-# scenario <name> <0 success | 1 read-only apps folder | 2 the new shell does not start (the launcher restores) | 3 the same,
-# the old app's own swap script restores (MOVE_FROM_APP)>
+# scenario <name> <0 success | 1 read-only apps folder | 2 shell start failure, launcher restores | 3 shell start failure,
+# the v0.128.0 swap script restores .previous>
 scenario() {
   local name=$1 fail=$2
   use_keychain "$name"
@@ -168,7 +174,7 @@ scenario() {
     evidence "S3 launcher traffic: $(grep -c . "$W/feed.log") feed lines; http: $(grep http "$W/feed.log" | cut -c1-110 | tr '\n' '|')"
     sleep 5
     evidence "S3 restored bundle: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist"), shell binary present: $(ls "$APPS/OMPdesk.app/Contents/MacOS" | tr '\n' ' ')"
-    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = $OLD_VERSION ] && [ ! -e "$APPS/OMPdesk.app/Contents/MacOS/ompdesk-shell" ]; check $? "S3: the Electron app is back in place (the old version, no shell binary)"
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPS/OMPdesk.app/Contents/Info.plist")" = "$ROLLBACK_VERSION" ] && [ ! -e "$APPS/OMPdesk.app/Contents/MacOS/ompdesk-shell" ]; check $? "S3: the last Electron release is back in place ($ROLLBACK_VERSION, no shell binary)"
     codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S3: the restored app verifies"
     wait_for "has_line $UD 'swap result'" 120; update_lines "$UD" | sed 's/^/EVIDENCE: S3 update log: /'
     update_lines "$UD" | grep -Eq '^swap result (rolled back|changed)'; check $? "S3: the restored Electron logged swap result (rolled back/changed)"
@@ -205,8 +211,8 @@ scenario() {
     wait_for "has_line $UD 'swap result'" 60; update_lines "$UD" | grep -q '^swap result installed'; check $? "S1: swap result outcome installed"
     codesign --verify --deep --strict "$APPS/OMPdesk.app"; check $? "S1: the installed app verifies"
     [ "$(xattr -lr "$APPS/OMPdesk.app" 2>/dev/null | grep -c com.apple.quarantine)" = 0 ]; check $? "S1: the moved bundle and everything in it carries no com.apple.quarantine (the swap's xattr -dr covers it)"
-    evidence "S1 spctl: $(spctl --assess -vv --type execute "$APPS/OMPdesk.app" 2>&1 | tr '\n' ' ') (spctl rule in use: $SPCTL_RULE)"
-    if [ -n "${MOVE_FROM_APP:-}" ]; then
+    evidence "S1 spctl: $(spctl --assess -vv --type execute "$APPS/OMPdesk.app" 2>&1 | tr '\n' ' ') (no spctl rule)"
+    if [ "$SOURCE_TAG" = v0.128.0 ]; then
       wait_for "grep -q '^started' $UD/updates/swap.log" 180; check $? "S1: the start-checked script saw app-started.json for the new version (swap.log started)"
       evidence "S1 app-started.json: $(cat "$UD/app-started.json" 2>&1 | cut -c1-120)"
       ls "$APPS" | grep -q 'previous'; [ $? != 0 ]; check $? "S1: .previous is gone once the new app proved it started"
@@ -231,7 +237,7 @@ scenario() {
   restore
 }
 scenario s1 0
-if [ -n "${MOVE_FROM_APP:-}" ]; then
+if [ "$SOURCE_TAG" = v0.128.0 ]; then
   scenario s4 3
 else
   scenario s3 2

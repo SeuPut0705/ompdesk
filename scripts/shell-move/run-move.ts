@@ -1,15 +1,16 @@
 /**
- * The dry run of the update from the released Electron app (v0.127.0) to the CEF shell, on this PC, never touching the
+ * The dry run of the update from either released Electron app (v0.127.0 or v0.128.0) to the CEF shell, never touching the
  * person's install (native-rust › S):
  *
  *   bun scripts/shell-move/run-move.ts [--label success] [--fail-at swap|start|start-twice] [--work <dir>] [--keep] [--stand-in <project>]
+ *   OMP_MOVE_RELEASED_TAG=v0.128.0 bun scripts/shell-move/run-move.ts --work <separate release-1 work dir>
  *
  * `--stand-in <project>` packs a project of the same shape (package.json, out/, a staged shell) in place of this
  * checkout, without the package check: the harness's own dry test while the real shell is not built yet.
  *
  * 1. `build-setups.ts` makes two real electron-builder NSIS setups under a TEST identity (an `nsis.guid` shaped like
  *    electron-builder's, shortcut `OMPdesk-movetest`, folder `%LOCALAPPDATA%\Programs\OMPdesk-movetest`): the released
- *    v0.127.0 app files in a setup of the same shape (the old install), and this checkout's shell build offered as
+ *    Electron files selected by OMP_MOVE_RELEASED_TAG (default v0.127.0) in a setup of the same shape, and this checkout's shell build offered as
  *    v0.200.0. Neither can touch the person's install: other GUID, other folder, other shortcuts; the setup's own
  *    process search is path-prefixed on the install folder (checked first: `setupCanFindProcesses`), and the folder is
  *    also pinned through the registry (`HKCU\Software\<test guid>\InstallLocation`) before the old setup runs.
@@ -31,9 +32,9 @@
  *    `app-started.json` of the new version, ends what the new app started, puts the old folder and uninstall entry
  *    back, starts the old app (logging `start-failed`, exit 2, no dialog) and that app logs `swap result … rolled back`.
  *    The success run checks the other side: the marker names the new version and the backup of the old folder is gone.
- * 7. `--fail-at start-twice`: `start`, then the old app runs again with its updater and offers the same version once
- *    more: the setup finds `update-start-failed.json` naming that version (the first failure wrote it), does not swap
- *    (`start-failed-before: skipped` in the setup's log, exit 2), and the old app is started again at once, no window.
+ * 7. `--fail-at start-twice`: `start`, then the old app runs again with its updater and offers the same version once more.
+ *    v0.127.0 reaches NSIS, which reads update-start-failed.json and skips the swap (`start-failed-before: skipped`, exit 2).
+ *    v0.128.0's own updater withdraws the repeat before running any setup. Both stay on Electron with no window.
  *
  * What protects the person's data: the old Electron runs with `OMP_GUI_TEST_USER_DATA_DIR=<temp profile>`,
  * `OMP_GUI_HEADLESS=1` (no `omp://` registration, no focus) and a temp HOME, APPDATA and LOCALAPPDATA (its updater's
@@ -59,6 +60,7 @@ import {
 	assertTestIdentity,
 	LOCAL,
 	OFFERED_VERSION,
+	RELEASED_TAG,
 	RELEASED_VERSION,
 	TEST_DIR,
 	TEST_INSTALL_KEY,
@@ -81,7 +83,7 @@ const failAt = values["fail-at"];
 if (failAt !== undefined && !["swap", "start", "start-twice"].includes(failAt))
 	throw new Error("--fail-at takes `swap`, `start` or `start-twice`");
 const label = values.label ?? (failAt ? `fail-${failAt}` : "success");
-const work = resolve(values.work ?? join(tmpdir(), "ompdesk-shell-move"));
+const work = resolve(values.work ?? join(tmpdir(), "ompdesk-shell-move", RELEASED_TAG));
 const out = join(work, "runs", label);
 const profile = join(out, "profile");
 const home = join(out, "home");
@@ -89,7 +91,12 @@ const feedPort = 18000 + (process.pid % 1000);
 const debugPort = feedPort + 1;
 const setupLog = join(out, "setup-env.log");
 const t0 = Date.now();
-const evidence: Record<string, unknown> = { label, failAt: failAt ?? null, steps: [] as unknown[] };
+const evidence: Record<string, unknown> = {
+	label,
+	releasedTag: RELEASED_TAG,
+	failAt: failAt ?? null,
+	steps: [] as unknown[],
+};
 const failures: string[] = [];
 
 function note(step: string, data?: unknown): void {
@@ -567,8 +574,8 @@ async function verifyRolledBack(reason: "swap" | "start", final: boolean): Promi
 }
 
 /**
- * The second round of a start that failed: the old app (this time started by the harness, with the feed's switches) offers
- * the same version again, and the setup, finding the first failure's record, leaves the old app where it is.
+ * The second round after a failed start: v0.127.0 reaches NSIS, which skips the swap; v0.128.0's updater holds the failed
+ * version before starting any installer. Neither released updater is patched by the harness.
  */
 async function verifyNotTriedAgain(entry: string): Promise<void> {
 	const failedFile = join(profile, "update-start-failed.json");
@@ -586,6 +593,8 @@ async function verifyNotTriedAgain(entry: string): Promise<void> {
 	const helpersBefore = updateLines().filter(
 		line => line.message === "swap" && line.details?.event === "helper",
 	).length;
+	const beforeRound = updateLines().length;
+	const updaterHolds = RELEASED_TAG === "v0.128.0";
 	const started = Date.now();
 	const second = Bun.spawn([join(TEST_DIR, "OMPdesk.exe"), `--user-data-dir=${profile}`, ...switches(feedPort)], {
 		env: testEnv(),
@@ -597,32 +606,64 @@ async function verifyNotTriedAgain(entry: string): Promise<void> {
 	for (let waited = 0; waited < 600 && !skipped; waited += 2) {
 		await sleep(2000);
 		await noWindows();
-		skipped = setupLogText().includes("start-failed-before: skipped");
+		skipped = updaterHolds
+			? updateLines()
+					.slice(beforeRound)
+					.some(
+						line =>
+							line.message === "scheduler" &&
+							line.details?.event === "withdrawn" &&
+							line.details?.reason === "start failed before",
+					)
+			: setupLogText().includes("start-failed-before: skipped");
+	}
+	if (skipped && updaterHolds) {
+		// Past the released updater's 60 s countdown: a withdrawn install must stay withdrawn, with no setup or window.
+		for (let waited = 0; waited < 75; waited += 5) {
+			await sleep(5000);
+			await noWindows();
+		}
 	}
 	const seconds = Math.round((Date.now() - started) / 1000);
 	evidence.secondRoundSeconds = seconds;
 	const text = setupLogText();
-	expect(
-		skipped,
-		"the second setup skipped the swap (`start-failed-before: skipped` in %TEMP%\\ompdesk-setup.log)",
-		text.trim(),
-	);
-	expect(
-		updateLines().filter(line => line.message === "swap" && line.details?.event === "helper").length > helpersBefore,
-		"the old app's updater started that setup (a second `swap helper`)",
-	);
+	if (updaterHolds) {
+		expect(
+			skipped,
+			"v0.128.0's updater withdrew the repeat (`scheduler withdrawn`, reason `start failed before`)",
+			updateLines().slice(beforeRound),
+		);
+		expect(
+			updateLines().filter(line => line.message === "swap" && line.details?.event === "helper").length ===
+				helpersBefore &&
+				text === "" &&
+				second.exitCode === null,
+			"the released updater stayed running past the countdown and started no second setup",
+		);
+	} else {
+		expect(
+			skipped,
+			"the second setup skipped the swap (`start-failed-before: skipped` in %TEMP%\\ompdesk-setup.log)",
+			text.trim(),
+		);
+		expect(
+			updateLines().filter(line => line.message === "swap" && line.details?.event === "helper").length >
+				helpersBefore,
+			"the old app's updater started that setup (a second `swap helper`)",
+		);
+	}
 	expect(
 		!text.includes("putting the old app back") && !text.includes("start-failed: no app-started.json"),
 		"it did not swap anything (no backup, no restore)",
 		text.trim(),
 	);
-	// The old app the setup started again.
+	// v0.127.0 was restarted by the skipped setup; v0.128.0 never exited.
 	let running = false;
 	for (let waited = 0; waited < 60 && !running; waited += 2) {
 		await sleep(2000);
 		running = (await processesUnder(TEST_DIR)).some(process_ => process_.name.toLowerCase() === "ompdesk");
 	}
-	expect(running, "the Electron app is running (started again by the skipped setup)");
+	expect(running, "the Electron app is running after the repeat was held");
 	expect(
 		regValue(await regValues(TEST_UNINSTALL_KEY), "DisplayVersion") === RELEASED_VERSION &&
 			existsSync(join(TEST_DIR, "resources", "app.asar")) &&
