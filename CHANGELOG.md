@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.130.0] - 2026-11-14
+
+여러 계정의 사용 한도를 한눈에 보고, OpenRouter 모델 목록을 접어 탐색할 수 있어요.
+
+### 바뀐 것
+- 사이드바의 계정별 한도와 리셋 시간을 압축된 행으로 모았어요. 긴 계정명은 줄이고 전체 식별자는 접근 가능한 이름과 툴팁에 남겨요. 사용 중·제한 상태는 짧게 표시하고 순위와 문장형 설명은 없앴어요. 한도 수치와 계정 선택 기능은 그대로예요.
+- 채팅 모델 선택창의 OpenRouter 목록은 처음에 접혀 있어요. 검색하면 일치하는 모델이 나타나고, 펼친 목록은 models.dev에 기록된 출시일의 최신순으로 보여요. 출시일을 모르는 모델은 뒤에 두며 현재 모델과 최근 사용 모델도 계속 고를 수 있어요.
+- 대화와 할 일의 복사 서식은 복사할 때 불러와요. 첫 화면에서 복사 기능의 서식을 미리 불러오지 않아요.
+- 공식 저장소·업데이트·문제 신고 링크를 `seuput-inc/ompdesk`로 맞췄어요. 이전 업데이트 주소도 계속 작동해요.
+
+### 개발 검사
+- 검사 실행은 GitHub가 반환한 정확한 실행 ID로 추적해요. macOS 실행 자리가 비어 있어도 다른 세션의 대기 요청을 덮어쓰지 않아요.
+
+<!-- en -->
+
+Account limits fit in compact rows, and the OpenRouter model list can stay folded.
+
+### Changed
+- The sidebar groups each account's limits and reset times into compact rows. Long account names are shortened, with the full identifier in the accessible name and tooltip. Short marks replace rank and explanatory sentences. Limit figures and account selection remain available.
+- OpenRouter starts folded in the chat model picker. Search reveals matching models, and the expanded list sorts by the release date recorded in models.dev, newest first. Models without a known release date stay last. Current and recent models remain available.
+- Transcript and todo copy formatting loads when you copy instead of with the first screen.
+- Repository, update, and issue links now use `seuput-inc/ompdesk`. Previous update addresses still work.
+
+### Development checks
+- Check dispatches track the exact run ID returned by GitHub. A free macOS lane no longer permits replacing another session's pending request.
+
 ## [0.129.0] - 2026-11-14
 
 좁은 사이드바에서 사용 한도가 세션 목록을 밀어내고 차단 안내가 잘리던 회귀를 고쳤어요.
