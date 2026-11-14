@@ -1,6 +1,6 @@
 # Session operations source checkpoint
 
-Status: UNCOMPILED. This module is not exported by core/lib.rs, registered with NativeApp or enabled beside Electron. It is not the final adapter proof or a Node-removal completion claim.
+Status: source checkpoint, not final adapter proof. Core exports this module; NativeApp has not registered or enabled it beside Electron. Base observed the unchanged capture-cancellation regressions fail; the post-capture correction has not run.
 
 ## Ownership
 
@@ -14,8 +14,11 @@ Main AUTHORITY-v2 assigns canonical SessionAuthority state, tombstones, retained
 - Exact native stock service input `3bf8e72469cb1a6d63296d19196cd4f67f286941`, locally cherry-picked as `091fb61dc`, three stock files only.
 - Exact canonical SessionAuthority input `75307aa0dc9f1cbe9f9ac80fa9edd0d6ec84dbcb`, locally cherry-picked as `f9140dd36`, four application/export files only.
 - Exact captured services input `5a95ec411f28826e663b9bd67bd70a799e0e7752`, locally cherry-picked as `fa7accd9e`, 28 bounded native service files only. Base labelled this source unverified.
+- Exact generation service input `9385106d1ad2c740735ca4b99525e1edad469e53` and canonical two-helper projection `deb9b27ef6c5557c5c247e37c6b5f2df6ca6bb97`.
+- Exact retained-save/quota inputs `610a60b0c4dcdb93bce06b62e88ed0e60f924193` then `01e405f0359830a7c368d38ffc3d8bbee2c166b2`; dependency input `1f4c6b79e656dcd383eb7e0f8fad2c87afd817bb`.
+- Exact scoped-authority input `664d13f741e02eb786dc1ac57473d3b2b70c5bfd`. Its new source tests have not run; coordinator migration is separate from the post-capture correction.
 
-The direct stock service and canonical SessionAuthority are present as exact source units. Coordinator Config receives Base's actual shared authority Arc and directly holds its DeletionGuard through storage, commit and notices. The 5a95 source now has Result-bearing Released receipts and generation-bound SessionTarget. Its close_session_tab still has fallible notification awaits between release and receipt join; an unreproduced source integration risk was reported to Base. The tiny correction and actual hosted-mutation facade remain pending.
+The direct stock service and canonical SessionAuthority are present as exact source units. Coordinator Config receives Base's actual shared authority Arc. The 938 source captures generation-bound targets and joins Result-bearing Released receipts even if post-release notifications fail. Actual hosted mutation/notice wiring remains pending.
 
 ## Ordering implementation
 
@@ -37,11 +40,11 @@ Base owns core module exports, Cargo/global files and NativeApp registration. Fi
 
 Base must route a remote tab.command to the machine running the omp before constructing this local capability. A nonlocal execution host is rejected before any filesystem call. Local directory validation reuses fs::disk::stat; there is no client-side stat of a remote path or invented remote stat callback.
 
-The canonical Session and CommandError helper blobs are not yet a self-contained consumed input. Dispatcher revision dc34640cb10aed71099cdce4597eadfe9f9b51ab was read as a source reference only; its delta changes unrelated diagnostics and was not cherry-picked. Main/Base must package the canonical helper source plus minimal module registration, or compile the actual domains in one fixed cohort. The upcoming Session generation wrapper must use the actual Lane dequeue gates, not the old check-then-send helper.
+The canonical Session and CommandError helpers are now consumed through deb9. Session::from_captured takes the generation selected in the same pool hub step; its stock/bridge operations reach the generation checks at actual Lane dequeue through 938. NativeApp must supply this captured capability, not construct Session::new after an await.
 
 ## Verification limits
 
-No Rust compile, unit test, formatter, SANY parse, TLC matrix, mutation run or actual stock/child integration run has been executed for this checkpoint. Main explicitly requested source preservation before Base's actual hook is available and prohibited mid-flight checks. Normal branch publication hooks are not a Rust proof.
+Base ran the unchanged Coordinator plus cancellation source 5222/export e27 and actual 938/deb9 in official check `20261114-115906-4756`, using its existing warm target and explicit cargo/rustc/rustdoc 1.95. Both targeted tests failed: cancellation during capture still released one holder and renamed one live session, each expected zero. Base reported that a concurrent root-manifest edit made the checker result nonreusable; this is observed test output, not a reusable green result. The post-capture correction is untested. This worktree has run no Rust check, formatter, SANY parse, TLC matrix, mutation or actual stock/child integration. Main assigned the next warm proof to Base and prohibited duplicate/cold-target runs.
 
 The final Rust proof must prepend the installed 1.95 bin directory to PATH and set RUSTC and RUSTDOC explicitly. Record the actual cargo, rustc, rustdoc and Clippy driver paths and versions; a `rustup run 1.95` label is not provenance when Homebrew binaries remain selected. Do not install or mutate a toolchain.
 

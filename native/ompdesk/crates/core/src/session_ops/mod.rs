@@ -146,6 +146,9 @@ impl<H: Host> Coordinator<H> {
     async fn delete(&self, target: Target, scope: Scope) -> Result<Output, Error> {
         let guard = self.authority.begin_delete(Path::new(&target.path), target.device.as_deref());
         let captured = self.host.capture(&target).await?;
+        if scope.cancelled() {
+            return Err(Fault::cancelled().into());
+        }
         if captured.holders.iter().any(|holder| holder.activity != Activity::Idle) {
             return Err(running());
         }
@@ -222,6 +225,9 @@ impl<H: Host> Coordinator<H> {
             });
         }
         let captured = self.host.capture(&target).await?;
+        if scope.cancelled() {
+            return Err(Fault::cancelled().into());
+        }
         let live = captured.holders.iter()
             .filter(|holder| holder.state != RuntimeState::Dormant)
             .min_by_key(|holder| !holder.hosted);
