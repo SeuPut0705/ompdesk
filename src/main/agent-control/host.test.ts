@@ -133,7 +133,13 @@ function setup(
 	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
 	const deps: AgentControlHostDeps = {
 		pool: {
-			tabsForWindow: target => (target === win2 ? otherTabs : target === webWin ? webTabs : tabs),
+			tabsForWindow: target => {
+				const own = target === win2 ? otherTabs : target === webWin ? webTabs : target === win ? tabs : [];
+				const viewed = [...tabs, ...otherTabs, ...webTabs].filter(tab =>
+					options.viewers?.[tab.tabId]?.includes(target),
+				);
+				return [...own, ...viewed];
+			},
 			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),
 			pendingPlan: () => null,
 			observeTabs: observer => {
@@ -172,6 +178,7 @@ function setup(
 				return tabId ? { tabId, winId: win.webContents.id } : null;
 			},
 			whenTabExited: async () => {},
+			viewIdentity: (target, tabId) => `${target.webContents.id}:${tabId}:surface`,
 		},
 		sessions: options.sessions,
 		remote: options.remote,
@@ -2006,5 +2013,58 @@ describe("a session's own wake-up", () => {
 		await expect(rig.runtime.wakeSession(wakeable(file), "run-7")).rejects.toThrow("The window is closing");
 		const kept = await fs.readFile(outbox, "utf8").catch(() => "");
 		expect(kept).not.toContain("wake-run-7");
+	});
+});
+
+describe("actual window view roster", () => {
+	it("lists both owner and viewer surfaces with their own window and Files-edit facts", () => {
+		const viewer = window(-4);
+		const rig = setup({
+			tabs: [{ tabId: "shared", sessionPath: "/sessions/time_saved-id.jsonl", active: true }],
+			viewers: { shared: [viewer] },
+		});
+		rig.deps.fileEdits.edits = (winId, tabId) => (winId === -4 && tabId === "shared" ? "dirty" : "clean");
+		const surfaces = rig.runtime.viewSurfaces("this-host");
+		expect(surfaces.map(surface => surface.facts.handle)).toEqual([
+			{ viewHost: "this-host", window: "1", tabId: "shared", session: "saved-id", incarnation: "1:shared:surface" },
+			{
+				viewHost: "this-host",
+				window: "-4",
+				tabId: "shared",
+				session: "saved-id",
+				incarnation: "-4:shared:surface",
+			},
+		]);
+		expect(surfaces[1]?.win).toBe(viewer);
+		expect(surfaces[1]?.facts.tab.webEdits).toBe("dirty");
+	});
+
+	it("does not invent a view from a stored summary or an unnamed start tab", () => {
+		const rig = setup({
+			tabs: [{ tabId: "placeholder", placeholder: true }],
+			sessions: { list: async () => [], search: async () => [], read: async () => [] },
+		});
+		expect(rig.runtime.viewSurfaces("this-host")).toEqual([]);
+	});
+
+	it("does not carry a source surface's authority into a later turn or process", async () => {
+		const rig = setup({ tabs: [{ tabId: "main0001", sessionPath: "/sessions/time_source.jsonl" }] });
+		let lifetime = "original";
+		rig.deps.pool.viewIdentity = () => lifetime;
+		const surface = rig.runtime.viewSurfaces("A")[0];
+		if (!surface) throw new Error("missing source surface");
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		vi.spyOn(rig.runtime.control, "authorizeView").mockImplementation(async () => {
+			entered.resolve();
+			await release.promise;
+		});
+		const authorize = rig.runtime.viewAuthorizer("main0001", "A");
+		const pending = authorize(surface.facts);
+		const rejected = expect(pending).rejects.toThrow("changed");
+		await entered.promise;
+		lifetime = "different-turn-or-process";
+		release.resolve();
+		await rejected;
 	});
 });

@@ -56,6 +56,9 @@ impl Ctx {
             }
             let entry = pool.by_seq_mut(seq)?;
             entry.session_file = Some(file.to_string());
+            if changed {
+                entry.session_generation += 1;
+            }
             Some((
                 changed,
                 entry.tracking.run.running || entry.awaiting_connection,

@@ -918,6 +918,51 @@ describe("RemoteSidecar", () => {
 		expect(unopened.deferredCloses).toEqual([]);
 	});
 
+	it("awaits the host's leave acknowledgement and never closes that execution on later disposal", async () => {
+		const { link, sidecar, deferredCloses, disposed } = setup();
+		sidecar.start();
+		await settle();
+		const acknowledgement = Promise.withResolvers<null>();
+		link.handlers["tab.leave"] = () => acknowledgement.promise;
+		let left = false;
+		const leaving = sidecar.leaveView("/s/held.jsonl").then(() => {
+			left = true;
+		});
+		await settle();
+		expect(link.sent.at(-1)).toMatchObject({
+			method: "tab.leave",
+			params: { rtab: "tab-1", sessionPath: "/s/held.jsonl" },
+		});
+		expect(left).toBe(false);
+		acknowledgement.resolve(null);
+		await leaving;
+		expect(left).toBe(true);
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+		link.state = "online";
+		sidecar.linkStateChanged("online");
+		sidecar.dispose();
+		await settle();
+		expect(link.methods().filter(method => method === "tab.open")).toHaveLength(1);
+		expect(link.methods()).not.toContain("tab.close");
+		expect(deferredCloses).toEqual([]);
+		expect(disposed).toEqual([1]);
+	});
+
+	it("keeps a rejected leave attached and does not turn it into a deferred destructive close", async () => {
+		const { link, sidecar, deferredCloses } = setup();
+		sidecar.start();
+		await settle();
+		link.handlers["tab.leave"] = () => {
+			throw codedError("unknown_tab", "This is another view");
+		};
+		await expect(sidecar.leaveView("/s/held.jsonl")).rejects.toMatchObject({ code: "unknown_tab" });
+		expect(link.methods()).not.toContain("tab.close");
+		expect(deferredCloses).toEqual([]);
+		await sidecar.rpcClient?.command({ type: "get_state" });
+		expect(link.methods().at(-1)).toBe("tab.command");
+	});
+
 	it("leaves its host tab running when the app quits with its work to continue, and closes it otherwise", async () => {
 		let quitting = true;
 		const online = setup({ keepOnHost: () => quitting });

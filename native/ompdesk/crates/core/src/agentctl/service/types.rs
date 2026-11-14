@@ -240,6 +240,28 @@ impl ControlTab {
     }
 }
 
+/// One visible view, addressed independently from the execution and saved session it shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionViewHandle {
+    pub view_host: String,
+    pub window: String,
+    pub tab_id: String,
+    pub session: String,
+    pub incarnation: String,
+}
+
+/// Current facts supplied by the authenticated receiver during main's close challenge.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewCloseFacts {
+    pub handle: SessionViewHandle,
+    pub tab: ControlTab,
+    pub enabled: bool,
+    pub manage_enabled: bool,
+    pub full_enabled: bool,
+}
+
 /// What the tab holding a saved session elsewhere does with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -1226,6 +1248,8 @@ pub struct StopArgs {
     pub delete: Option<bool>,
     #[serde(default)]
     pub device: Option<String>,
+    #[serde(default)]
+    pub view: Option<SessionViewHandle>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]

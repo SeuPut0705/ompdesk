@@ -647,7 +647,7 @@ export interface TabsStore {
 	removePane: (tabId: string) => Promise<void>;
 	setSplitRatio: (ratio: number, path?: readonly ("first" | "second")[]) => void;
 	/** Close a tab (keeps ≥1). Closing the active tab activates its neighbor first. */
-	closeTab: (id: string) => Promise<void>;
+	closeTab: (id: string, closeRequest?: string) => Promise<void>;
 	/**
 	 * `sessionPath` is being deleted: `tabId`, the tab showing it, closes as `closeTab` closes it (the
 	 * window's last tab gives way to the empty start tab first), and the closed-tab history forgets the
@@ -683,6 +683,15 @@ export interface TabsStore {
 	/** Move a tab to a 0-based strip position (tab overview drag); main keeps the order for ⌘1…⌘9 and the saved layout. */
 	moveTab: (id: string, toIndex: number) => Promise<void>;
 	reset: () => void;
+}
+
+async function prepareLastTabClose(get: () => TabsStore, id: string): Promise<boolean> {
+	closedTabIds.add(id);
+	if (get().tabs.length === 1 && (await get().openTab({ work: true, placeholder: true })) === null) {
+		closedTabIds.delete(id);
+		return false;
+	}
+	return true;
 }
 
 const restored = ghostTabs();
@@ -1138,17 +1147,35 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}, 250);
 	},
 
-	closeTab: async id => {
-		const state = get();
-		if (state.tabs.length <= 1) return;
-		const index = state.tabs.findIndex(tab => tab.id === id);
-		if (index === -1 || state.tabs[index]?.ghost) return;
+	closeTab: async (id, closeRequest) => {
+		let state = get();
+		let index = state.tabs.findIndex(tab => tab.id === id);
+		if ((!closeRequest && state.tabs.length <= 1) || index === -1 || state.tabs[index]?.ghost) {
+			if (closeRequest) await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
+			return;
+		}
 		// Unsaved Files edits belong to this tab: closing it would drop them, so the editor's discard confirm asks first
 		// and the side panel closes the tab once the user agrees.
 		const ui = useUiStore.getState();
 		if (ui.fileEditDirty && ui.fileEditTabId === id) {
+			if (closeRequest) {
+				await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
+				return;
+			}
 			ui.holdTabClose(id);
 			return;
+		}
+		if (closeRequest && state.tabs.length === 1) {
+			if (!(await prepareLastTabClose(get, id))) {
+				await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
+				return;
+			}
+			state = get();
+			index = state.tabs.findIndex(tab => tab.id === id);
+			if (index < 0) {
+				await window.omp.tabs.close(id, closeRequest, true).catch(() => false);
+				return;
+			}
 		}
 		if (state.split && splitTabIds(state.split).includes(id)) {
 			await get().removePane(id);
@@ -1183,7 +1210,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		let failure: unknown = null;
 		let refused = false;
 		try {
-			refused = !(await window.omp.tabs.close(id));
+			refused = !(await (closeRequest ? window.omp.tabs.close(id, closeRequest) : window.omp.tabs.close(id)));
 			if (refused) failure = new Error(`Tab ${id} was not released`);
 		} catch (error) {
 			failure = error;
@@ -1216,14 +1243,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	closeDeletedSession: async (sessionPath, tabId) => {
 		const tab = tabId ? get().tabs.find(entry => entry.id === tabId) : undefined;
 		if (tab) {
-			// Leaving already: the start tab opened next must not read it as company and give way at once.
-			closedTabIds.add(tab.id);
-			// The window keeps a tab: its last one gives way to the empty start tab, which is no session
-			// until its first message.
-			if (get().tabs.length === 1 && (await get().openTab({ work: true, placeholder: true })) === null) {
-				closedTabIds.delete(tab.id);
-				return false;
-			}
+			if (!(await prepareLastTabClose(get, tab.id))) return false;
 			await get().closeTab(tab.id);
 			if (get().tabs.some(entry => entry.id === tab.id)) {
 				closedTabIds.delete(tab.id);
@@ -1388,15 +1408,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		toast({ variant: "info", message: translate("tabs.openElsewhere", { device }) });
 	},
 
-	applyAgentView: async ({ tabId, how, auto }) => {
+	applyAgentView: async ({ tabId, how, auto, closeRequest }) => {
 		// Main announces a tab it just spawned (TAB_LIST_CHANGED) and then asks to show it; the list may not
 		// have been applied yet, so an unknown tab is reconciled first. Still unknown afterwards: nothing to show.
 		if (!get().tabs.some(tab => tab.id === tabId)) await get().reconcileTabs();
 		const known = get().tabs.some(tab => tab.id === tabId);
-		if (!known || isTabClosed(tabId)) return;
+		if (!known || isTabClosed(tabId)) {
+			if (how === "close" && closeRequest) await window.omp.tabs.close(tabId, closeRequest, true).catch(() => false);
+			return;
+		}
 		if (how === "close") {
 			if (auto && autoCloseHeld(tabId, visibleTabIds(get()))) return;
-			await get().closeTab(tabId);
+			await get().closeTab(tabId, closeRequest);
 			return;
 		}
 		useUiStore.getState().closeDestination();

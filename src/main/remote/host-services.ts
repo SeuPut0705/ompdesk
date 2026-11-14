@@ -25,6 +25,10 @@
  * second one. The first answer to an ask, from the device or such a window,
  * wins; the device's close, delete or revoke ends the views first, and a tab a
  * window shows outlives the device's grace period.
+ * `tab.leave` instead removes only that device's view. A detached source keeps
+ * its run and resume identity until its last view leaves; an attached view
+ * answers future host calls. Its marker revives the execution, never the
+ * originating view that already left.
  *
  * Host-level calls: session listing/search/kind/delete/rename against this
  * machine's session index, the workspace fs reads (same confinement and caps
@@ -93,7 +97,13 @@ import { noteOmpExit } from "../omp-exits";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
 import { SessionListShare } from "../session-list-share";
-import { deleteSession, moveSession, recordSessionDelete, renameSession, sessionDeleteInProgress } from "../session-mutations";
+import {
+	deleteSession,
+	moveSession,
+	recordSessionDelete,
+	renameSession,
+	sessionDeleteInProgress,
+} from "../session-mutations";
 import type { SessionSummaries, SummaryFacts, SummarySource } from "../session-summaries";
 import type { SidecarSessionIdentity } from "../sidecar";
 import { type SidecarPool, STOP_SESSION_WAIT_MS } from "../sidecar-pool";
@@ -210,6 +220,7 @@ import { PreviewRelayTunnels } from "./preview-relay-tunnels";
 import type { TabHolder } from "./protocol";
 import { commandUsesModel } from "./quota-commands";
 import { readJson } from "./secure-file";
+import type { HostedViewControl } from "./view-control";
 import { FrameTooLargeError } from "./wire";
 
 /** How long a disconnected device's tabs keep running, waiting for it to come back. */
@@ -291,7 +302,7 @@ export interface HostServicesDeps {
 		| "notePrompted"
 		| "beginMove"
 	> &
-		Partial<Pick<SidecarPool, "targetAnswer" | "guardPlan" | "pendingPlan">> & {
+		Partial<Pick<SidecarPool, "targetAnswer" | "guardPlan" | "pendingPlan" | "setDeviceViewAttached">> & {
 			/** Counts the tabs a device runs here among those waiting on one provider (model-wait-count.ts). */
 			modelWait?: Pick<ModelWaitTracker, "observe" | "forget" | "snapshot">;
 		};
@@ -325,6 +336,7 @@ interface PendingHostCall {
 	name: "hostToolCall" | "hostUriRequest";
 	request: { id: string };
 	delivered: boolean;
+	executor?: HostedTabView;
 }
 
 /** `run`, `lastRun`, `stopped` and `retry` follow the sidecar's events (`trackRunEvent`), like a local tab's. */
@@ -341,6 +353,8 @@ interface HostTab extends RunTracking {
 	omp: string;
 	/** The connection events go to; null while the device is away (grace period). */
 	conn: HostConnection | null;
+	/** The originating view left; only the remaining views own this execution's lifetime. */
+	ownerDetached?: true;
 	/** Resumed by the first `tab.start`. */
 	resumeSessionPath: string | undefined;
 	/** Session file the sidecar last reported (live-owner checks for delete/rename). */
@@ -457,6 +471,7 @@ const SessionPath = z.string().endsWith(".jsonl");
 const Scope = z.enum(["local", "global"]);
 
 const RtabParams = z.object({ rtab: Rtab });
+const LeaveParams = z.object({ rtab: Rtab, sessionPath: SessionPath });
 const OpenParams = z.object({
 	rtab: Rtab,
 	cwd: AbsolutePath.optional(),
@@ -575,6 +590,7 @@ export class LocalHostServices implements HostServices {
 	readonly #deps: HostServicesDeps;
 	readonly #graceMs: number;
 	readonly #tabs = new Map<string, HostTab>();
+	readonly #leftTabs = new Set<string>();
 	/** Moves a device's command has on its way, by `resumeId` (turn-resume.ts `trackMove`). */
 	readonly #moves = new MovesInFlight();
 	/** Files a device sends in parts (`host.files.uploadPart`), by device and upload id, until the last part lands. */
@@ -673,6 +689,7 @@ export class LocalHostServices implements HostServices {
 	#resume: Pick<TurnResume, "sync" | "cancelWait" | "relaunchContinuation"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
 	#agentReview: HostedAgentReview | null = null;
+	#viewControl: HostedViewControl | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
 	#runCharges: Map<string, RunCharge> | null = null;
 	/** Saves `#runCharges`: a charge changes on a turn's event, so a full disk must never throw into it. */
@@ -735,6 +752,11 @@ export class LocalHostServices implements HostServices {
 	/** This computer's control tools for a device viewing a window's session (see {@link HostedAgentReview}). */
 	attachAgentReview(review: HostedAgentReview): void {
 		this.#agentReview = review;
+	}
+
+	attachViewControl(port: HostedViewControl): void {
+		this.#viewControl = port;
+		for (const conn of this.#conns) port.connected?.(conn.peer.deviceId, conn);
 	}
 
 	/**
@@ -864,6 +886,7 @@ export class LocalHostServices implements HostServices {
 				awaitingUi: tab.asks.size > 0,
 				awaitingConnection: tab.awaitingConnection === true,
 			};
+			if (tab.ownerDetached) fact.ownerDetached = true;
 			if (tab.sessionFile) fact.sessionFile = tab.sessionFile;
 			if (tab.touched) fact.touched = tab.touched;
 			if (tab.prompted) fact.prompted = tab.prompted;
@@ -873,6 +896,21 @@ export class LocalHostServices implements HostServices {
 			if (tab.retry) fact.retry = tab.retry;
 			return [fact];
 		});
+	}
+
+	/** A revived hidden execution found no work to continue and has no view waiting for it. */
+	continuationSettled(resumeId: string): void {
+		const tab = this.#byResumeId(resumeId);
+		if (
+			!tab?.ownerDetached ||
+			tab.views.size > 0 ||
+			runBusy(tab.run) ||
+			tab.asks.size > 0 ||
+			tab.awaitingConnection ||
+			tab.scheduledRetry
+		)
+			return;
+		this.#closeTab(this.#key(tab.peerId, tab.rtab));
 	}
 
 	/** Hold or release the tab's turn for this computer's connection; the device shows the wait. */
@@ -1079,11 +1117,10 @@ export class LocalHostServices implements HostServices {
 			// The device owns this tab and sets its omp's level itself; a window's view leaving sends nothing, so the
 			// device's stream never drops under it.
 			subagentLevel: level => level,
-			leave: left => {
-				tab.views.delete(left);
-			},
+			leave: left => this.#viewLeft(tab, left),
 		});
 		tab.views.add(view);
+		queueMicrotask(() => this.#routeDetachedCalls(tab));
 		return view;
 	}
 
@@ -1137,27 +1174,49 @@ export class LocalHostServices implements HostServices {
 	 * device like a dropped connection's (grace period). The device's `tab.open` re-attaches it.
 	 * Null when the marker's id is not a tab of `peer`'s.
 	 */
-	reviveTab(peer: PeerInfo, marker: Pick<ResumeMarker, "tab" | "cwd" | "kind" | "sessionPath">): string | null {
+	reviveTab(
+		peer: PeerInfo,
+		marker: Pick<ResumeMarker, "tab" | "cwd" | "kind" | "sessionPath" | "ownerDetached">,
+	): string | null {
 		const prefix = resumeId(peer.deviceId, "");
 		const rtab = marker.tab.startsWith(prefix) ? marker.tab.slice(prefix.length) : "";
 		if (!Rtab.safeParse(rtab).success) return null;
 		const existing = this.#tabs.get(this.#key(peer.deviceId, rtab));
 		if (existing) return existing.resumeId;
 		const tab = this.#createTab(peer, rtab, marker.cwd, marker.kind, false, marker.sessionPath, null);
-		this.#startGrace(tab);
+		if (marker.ownerDetached) {
+			tab.ownerDetached = true;
+			this.#leftTabs.add(this.#key(peer.deviceId, rtab));
+		} else this.#startGrace(tab);
 		return tab.resumeId;
 	}
 
-	async call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown> {
-		if (!this.#conns.has(conn)) {
+	connected(peer: PeerInfo, conn: HostConnection): void {
+		const added = !this.#conns.has(conn);
+		if (added) {
 			const counts = this.#deps.localTabs.modelWait?.snapshot.local;
 			if (counts && Object.keys(counts).length > 0) emitSafely(conn, MODEL_WAIT_EVENT, { counts });
 		}
 		this.#conns.add(conn);
 		this.#connOf.set(peer.deviceId, conn);
+		if (added) this.#viewControl?.connected?.(peer.deviceId, conn);
+	}
+
+	async call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown> {
+		this.connected(peer, conn);
 		switch (method) {
 			case "tab.open":
 				return this.#open(peer, parse(OpenParams, method, params), conn);
+			case "views.list":
+			case "views.close":
+			case "views.authorize":
+				if (!this.#viewControl) throw codedError("unsupported", "View control is unavailable");
+				return this.#viewControl.call(peer.deviceId, method, params, conn);
+			case "tab.leave": {
+				const { rtab, sessionPath } = parse(LeaveParams, method, params);
+				this.#leave(peer, rtab, sessionPath, conn);
+				return null;
+			}
 			case "tab.start":
 				this.#start(this.#tab(peer, parse(RtabParams, method, params).rtab));
 				return null;
@@ -1176,7 +1235,7 @@ export class LocalHostServices implements HostServices {
 			case "tab.close": {
 				const key = this.#key(peer.deviceId, parse(RtabParams, method, params).rtab);
 				if (!this.#tabs.has(key) && this.#opening.has(key)) this.#closedWhileOpening.add(key);
-				this.#closeTab(key);
+				if (!this.#leftTabs.has(key)) this.#closeTab(key);
 				return null;
 			}
 			case "tab.command":
@@ -1505,13 +1564,17 @@ export class LocalHostServices implements HostServices {
 	disconnected(peer: PeerInfo, conn: HostConnection): void {
 		this.#conns.delete(conn);
 		if (this.#connOf.get(peer.deviceId) === conn) this.#connOf.delete(peer.deviceId);
+		this.#viewControl?.disconnected?.(peer.deviceId, conn);
 		// Nobody is left to read the result.
 		void this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
 		void this.#deps.machine.abortModelSetup(benchCaller(peer.deviceId));
 		// The agent's tunnel ended with the link: its relay stops too, as the device's own Take over would.
 		for (const key of this.#relays.dropConnection(conn)) this.#stopRelay(key);
-		for (const tab of this.#tabs.values())
-			if (tab.peerId === peer.deviceId && tab.conn === conn) this.#startGrace(tab);
+		for (const tab of this.#tabs.values()) {
+			if (tab.peerId !== peer.deviceId || tab.conn !== conn) continue;
+			this.#startGrace(tab);
+			if (typeof tab.viewing === "object") this.#routeDetachedCalls(tab.viewing, tab.sidecar);
+		}
 	}
 
 	/**
@@ -1693,8 +1756,71 @@ export class LocalHostServices implements HostServices {
 
 	#tab(peer: PeerInfo, rtab: string): HostTab {
 		const tab = this.#tabs.get(this.#key(peer.deviceId, rtab));
-		if (!tab) throw codedError("unknown_tab", "Unknown tab");
+		if (!tab || tab.ownerDetached) throw codedError("unknown_tab", "Unknown tab");
 		return tab;
+	}
+
+	#leave(peer: PeerInfo, rtab: string, sessionPath: string, conn: HostConnection): void {
+		const tab = this.#tab(peer, rtab);
+		if (tab.conn !== conn) throw codedError("unknown_tab", "This connection no longer owns that view");
+		if (tab.sessionFile !== sessionPath)
+			throw codedError("invalid_session_path", "The view no longer shows that session");
+		const source = typeof tab.viewing === "object" ? tab.viewing : tab;
+		const remaining = tab.viewing ? source.views.size - 1 + (source.ownerDetached ? 0 : 1) : source.views.size;
+		if (tab.viewing !== "window" && remaining === 0 && runBusy(source.run))
+			throw codedError("session_running", "This session is still running");
+		const key = this.#key(peer.deviceId, rtab);
+		this.#leftTabs.add(key);
+		if (tab.viewing || tab.views.size === 0) {
+			this.#closeTab(key);
+			return;
+		}
+		tab.ownerDetached = true;
+		tab.conn = null;
+		clearTimeout(tab.graceTimer);
+		tab.graceTimer = undefined;
+		tab.linkEvents?.sender.dispose();
+		tab.linkEvents = undefined;
+		this.#stopRelay(key);
+		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
+		this.#routeDetachedCalls(tab);
+		this.#resume?.sync();
+		this.workChanged();
+		this.listingChanged();
+	}
+
+	#viewLeft(tab: HostTab, view: HostedTabView): void {
+		tab.views.delete(view);
+		if (this.#tabs.get(this.#key(tab.peerId, tab.rtab)) !== tab) return;
+		if (tab.ownerDetached && tab.views.size === 0) this.#closeTab(this.#key(tab.peerId, tab.rtab));
+		else this.#routeDetachedCalls(tab, view);
+	}
+
+	#routeDetachedCalls(tab: HostTab, departed?: SidecarLike): void {
+		if (!tab.ownerDetached) return;
+		for (const call of tab.hostCalls.values()) {
+			if (call.executor && call.executor !== departed) continue;
+			call.executor = undefined;
+			this.#routeHostCall(tab, call);
+		}
+	}
+
+	#routeHostCall(tab: HostTab, call: PendingHostCall): void {
+		for (const view of tab.views) {
+			let disconnected = false;
+			for (const candidate of this.#tabs.values()) {
+				if (candidate.sidecar !== view) continue;
+				disconnected = candidate.conn === null;
+				break;
+			}
+			if (disconnected) continue;
+			const request =
+				call.delivered && call.name === "hostToolCall" ? { ...call.request, resent: true } : call.request;
+			call.executor = view;
+			call.delivered = true;
+			view.emit(call.name, request);
+			return;
+		}
 	}
 
 	#byResumeId(id: string): HostTab | undefined {
@@ -1719,6 +1845,8 @@ export class LocalHostServices implements HostServices {
 	 */
 	#startGrace(tab: HostTab): void {
 		tab.conn = null;
+		if (tab.viewing === "window" && tab.sidecar instanceof HostedTabView)
+			this.#deps.localTabs.setDeviceViewAttached?.(tab.sidecar, false);
 		clearTimeout(tab.graceTimer);
 		tab.graceTimer = setTimeout(() => {
 			// A view's wait is the tab's it shows, which holds it there: the view has nothing to keep.
@@ -1738,12 +1866,15 @@ export class LocalHostServices implements HostServices {
 	async #open(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): Promise<TabOpenResult> {
 		this.#checkOpenSession(params.sessionPath);
 		const key = this.#key(peer.deviceId, params.rtab);
+		if (this.#leftTabs.has(key)) throw codedError("unknown_tab", "The device left this view");
 		const held = this.#tabs.get(key);
 		const existing = held ?? this.#adopt(peer, params, conn);
 		if (existing) {
 			clearTimeout(existing.graceTimer);
 			existing.graceTimer = undefined;
 			existing.conn = conn;
+			if (existing.viewing === "window" && existing.sidecar instanceof HostedTabView)
+				this.#deps.localTabs.setDeviceViewAttached?.(existing.sidecar, true);
 			// Re-attach: the device missed every event while it was away, so it
 			// gets the live status first. A never-started tab is not attached:
 			// the device still has to `tab.start` it.
@@ -1775,6 +1906,7 @@ export class LocalHostServices implements HostServices {
 				call.delivered = true;
 				this.#emit(existing, call.name, request);
 			}
+			if (typeof existing.viewing === "object") this.#routeDetachedCalls(existing.viewing);
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
 		}
 		// A window of this computer runs the session, or another device's tab here does: the device views that omp,
@@ -1807,6 +1939,7 @@ export class LocalHostServices implements HostServices {
 			// The wait and scheduled retry of the tab it shows, if any, follow from the view's snapshot (next microtask).
 			this.#emit(tab, "awaitingConnection", false);
 			this.#emit(tab, "scheduledRetry", null);
+			if (runner) this.#routeDetachedCalls(runner);
 			return { cwd: view.cwd, kind: view.kind, attached: true, viewing: true };
 		}
 		if (!params.cwd) throw codedError("no_workspace", "No workspace");
@@ -1869,7 +2002,7 @@ export class LocalHostServices implements HostServices {
 	#adopt(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): HostTab | undefined {
 		if (!params.sessionPath) return undefined;
 		const tab = [...this.#tabs.values()].find(
-			entry => entry.sessionFile === params.sessionPath && entry.peerId === peer.deviceId,
+			entry => entry.sessionFile === params.sessionPath && entry.peerId === peer.deviceId && !entry.ownerDetached,
 		);
 		if (!tab) return undefined;
 		if (tab.conn === conn) throw heldBy(tab);
@@ -1892,7 +2025,8 @@ export class LocalHostServices implements HostServices {
 	#keptTabs(peer: PeerInfo): KeptTab[] {
 		const kept: KeptTab[] = [];
 		for (const tab of this.#tabs.values()) {
-			if (tab.peerId !== peer.deviceId || tab.conn !== null || tab.viewing || !tab.sessionFile) continue;
+			if (tab.peerId !== peer.deviceId || tab.conn !== null || tab.ownerDetached || tab.viewing || !tab.sessionFile)
+				continue;
 			// Read as running: the turn goes on here, and every device version knows that state.
 			const continuing = this.#resume?.relaunchContinuation(tab.resumeId) === "after_restore";
 			const state = keptState(tab) ?? (continuing ? "running" : null);
@@ -1947,9 +2081,7 @@ export class LocalHostServices implements HostServices {
 			}),
 			// The holder sets its omp's level; a viewer leaving sends nothing, so the holder's stream never drops.
 			subagentLevel: level => level,
-			leave: left => {
-				tab.views.delete(left);
-			},
+			leave: left => this.#viewLeft(tab, left),
 		});
 		tab.views.add(view);
 		return view;
@@ -2132,6 +2264,8 @@ export class LocalHostServices implements HostServices {
 				this.#scheduleExtensionApply(tab);
 			}
 			if (busy !== was || news) this.#resume?.sync();
+			if (was && !busy && sidecar.status === "ready" && tab.ownerDetached && tab.views.size === 0)
+				this.#closeTab(this.#key(tab.peerId, tab.rtab));
 		};
 		// "Running" only means something on a live connection: a restart or crash ends the run,
 		// and the asks it had open: the next process never heard of them. Windows ending the session
@@ -2197,8 +2331,10 @@ export class LocalHostServices implements HostServices {
 			if (
 				(frame.type === "host_tool_cancel" || frame.type === "host_uri_cancel") &&
 				typeof frame.targetId === "string"
-			)
+			) {
+				tab.hostCalls.get(frame.targetId)?.executor?.emit("frame", frame);
 				tab.hostCalls.delete(frame.targetId);
+			}
 		});
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			if (payload.status !== "ready") tab.hostCalls.clear();
@@ -2337,6 +2473,13 @@ export class LocalHostServices implements HostServices {
 	}
 
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {
+		if (tab.ownerDetached && (name === "hostToolCall" || name === "hostUriRequest")) {
+			if (typeof arg === "object" && arg !== null && "id" in arg && typeof arg.id === "string") {
+				const call = tab.hostCalls.get(arg.id);
+				if (call) this.#routeHostCall(tab, call);
+			}
+			return;
+		}
 		const { conn } = tab;
 		if (!conn) return;
 		if (name === "commandsUpdate" && !this.#newCommands(tab, conn, arg)) return;

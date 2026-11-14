@@ -201,6 +201,8 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	/** The offline status was emitted and nothing from the host has replaced it yet. */
 	#offlineShown = false;
 	#disposed = false;
+	#leftView = false;
+	#leftSessionPath: string | null = null;
 	/** `tab.open` was sent at some point: the host may hold this tab, whatever the link says now. */
 	#openedOnce = false;
 	/** Replies to the host's tool and URI calls that found the link down. */
@@ -273,7 +275,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	/** Null until started, like a SidecarManager before its first spawn. */
 	get rpcClient(): Pick<RpcClient, "command"> | null {
-		return this.#status === "asleep" ? null : this.#client;
+		return this.#status === "asleep" || this.#leftView ? null : this.#client;
 	}
 
 	get processAlive(): boolean {
@@ -286,14 +288,14 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	}
 
 	start(): void {
-		if (this.#disposed) return;
+		if (this.#disposed || this.#leftView) return;
 		this.#wanted = true;
 		this.#setStatus("starting", {});
 		void this.#bringUp(null);
 	}
 
 	restart(cwd?: string, resumeSessionPath?: string): void {
-		if (this.#disposed) return;
+		if (this.#disposed || this.#leftView) return;
 		if (cwd) this.#cwd = cwd;
 		// Never brought up (the pool starts a restored tab this way): like a SidecarManager before its
 		// first spawn, this is a start on that session. `tab.open` carries it; a host still running the
@@ -318,6 +320,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	 * open. Replies to the host's own calls wait for the next link instead.
 	 */
 	sendSideChannel(frame: object): Promise<void> | undefined {
+		if (this.#leftView) throw codedError("unknown_tab", "The device left this view");
 		if (this.#disposed) return;
 		if (this.#link.state === "online" && this.#opened) return this.#deliver(frame);
 		if (!isReplayable(frame)) throw codedError("remote_offline", OFFLINE_TEXT);
@@ -364,9 +367,29 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	/** The host's own account-rotation setting applies to the omp it runs; this machine's is not sent. */
 	syncAccountRotation(): void {}
 
+	/** Leave this exact host view without ending the execution another viewer retains. */
+	async leaveView(sessionPath: string): Promise<void> {
+		if (this.#leftView) {
+			if (this.#leftSessionPath === sessionPath) return;
+			throw codedError("invalid_session_path", "This view left a different session");
+		}
+		if (this.#disposed || !this.#opened) throw codedError("unknown_tab", "This view is no longer attached");
+		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
+		await this.#opened;
+		await this.#link.request("tab.leave", { rtab: this.#rtab, sessionPath });
+		this.#leftView = true;
+		this.#leftSessionPath = sessionPath;
+		this.#processAlive = false;
+		this.#wanted = false;
+		this.#opened = null;
+		this.#queuedReplies = [];
+		this.#endSignInRelay();
+		this.#setStatus("exited", {}, true);
+	}
+
 	dispose(): void {
 		if (this.#disposed) return;
-		if (this.#openedOnce && !this.#keepOnHost()) this.#closeOnHost();
+		if (this.#openedOnce && !this.#leftView && !this.#keepOnHost()) this.#closeOnHost();
 		this.#endSignInRelay();
 		this.#disposed = true;
 		this.#settle(null);
@@ -379,7 +402,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	/** A `tab.event` from the host for this tab, already parsed at the link boundary. */
 	handleEvent(message: TabEventMessage): void {
-		if (this.#disposed) return;
+		if (this.#disposed || this.#leftView) return;
 		switch (message.name) {
 			case "status": {
 				const parsed = TabStatusArg.safeParse(message.arg);
@@ -516,7 +539,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	 * the tab goes on over the new one, as after a dropped link, instead of staying on the closed one for good.
 	 */
 	relink(link: RemoteLink): void {
-		if (this.#disposed) return;
+		if (this.#disposed || this.#leftView) return;
 		this.#link = link;
 		this.#opened = null;
 		this.linkStateChanged(link.state);
@@ -524,7 +547,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	/** The link to the host changed state. */
 	linkStateChanged(state: RemoteLinkState): void {
-		if (this.#disposed) return;
+		if (this.#disposed || this.#leftView) return;
 		if (state === "online") {
 			if (this.#wanted && !this.#opened) {
 				// The host may still run the omp this tab showed: the page keeps it until the host's status says.
@@ -699,6 +722,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	}
 
 	#open(): Promise<TabOpenResult> {
+		if (this.#leftView) return Promise.reject(codedError("unknown_tab", "The device left this view"));
 		if (this.#opened) return this.#opened;
 		this.#openedOnce = true;
 		const opening = this.#link

@@ -923,6 +923,13 @@ impl AgentControl {
             }
             Tool::Stop => {
                 let args: types::StopArgs = typed(args(tool)?, tool)?;
+                if let Some(view) = &args.view {
+                    self.host.close_view(caller_tab_id, view).await?;
+                    return Ok(format!(
+                        "Closed view {} on {} (its execution, saved session and other views stay).",
+                        view.tab_id, view.view_host
+                    ));
+                }
                 let device = match &args.device {
                     None => None,
                     Some(wanted) => Some(self.device(wanted)?),
@@ -1168,6 +1175,19 @@ async fn call_method(call: Call) -> Result<Reply, Fault> {
                 )
                 .await,
         ),
+        "authorizeView" => {
+            let view: types::ViewCloseFacts =
+                args_of(args.get("view").cloned().unwrap_or(Value::Null), method)?;
+            reply(
+                control
+                    .authorize_view(
+                        &text_arg(&args, "callerTabId", method)?,
+                        &view,
+                        &text_arg(&args, "localViewHost", method)?,
+                    )
+                    .await,
+            )
+        }
         "personTyped" => {
             // The note this may send reaches main before the call answers (main does not wait on it).
             if let Some(told) = control.person_typed(&text_arg(&args, "tabId", method)?) {

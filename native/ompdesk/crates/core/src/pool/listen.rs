@@ -90,7 +90,10 @@ impl Ctx {
                 if !from_link && status == "starting" {
                     entry.ui_state = None;
                 }
-                if from_link {
+                if from_link && status == "exited" {
+                    entry.tracking.run = RunState::default();
+                    entry.run_across_link = false;
+                } else if from_link {
                     if entry.busy() {
                         entry.run_across_link = true;
                     }
@@ -479,6 +482,7 @@ impl Ctx {
         self.announce_run(tab).await?;
         self.schedule_omp_restart(tab);
         self.schedule_extension_apply(tab);
+        self.release_hidden_if_unused(tab, true).await?;
         Ok(())
     }
 
@@ -520,6 +524,7 @@ impl Ctx {
                 }
                 match event["type"].as_str() {
                     Some("agent_start") => {
+                        entry.run_revision += 1;
                         entry.placeholder = false;
                         entry.unstarted = false;
                     }
@@ -627,6 +632,7 @@ impl Ctx {
                 json!({"tabId": tab, "payload": hidden}),
             );
         }
+        self.release_hidden_if_unused(tab, true).await?;
         Ok(())
     }
 

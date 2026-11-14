@@ -29,6 +29,7 @@
  *           A session the user hid from agents refuses all, whatever the switches.
  *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
+import { z } from "zod";
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type {
 	AgentAppEvent,
@@ -53,6 +54,7 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import type { SessionSummary } from "../../shared/session-summary";
+import type { SessionViewHandle } from "../../shared/session-view";
 import type { FamilyEdits } from "../../shared/turn-edits";
 import { CorePort } from "../core/ports";
 import { CoreError, core } from "../core/process";
@@ -126,6 +128,84 @@ export interface ControlTab {
 	 * (`tabCloseStep` decides what a close does with it).
 	 */
 	webEdits?: FileEdits;
+}
+
+/** Facts read by the authenticated view host, never supplied by a control-tool caller. */
+export interface ViewCloseFacts {
+	handle: SessionViewHandle;
+	tab: ControlTab;
+	enabled: boolean;
+	manageEnabled: boolean;
+	fullEnabled: boolean;
+}
+
+const viewKey = z.string().min(1).max(200);
+const viewText = z.string().max(65_536);
+const viewAskBase = { type: z.literal("extension_ui_request"), id: viewKey, timeout: z.number().optional() };
+const viewAsk = z.discriminatedUnion("method", [
+	z.object({ ...viewAskBase, method: z.literal("select"), title: viewText, options: z.array(viewText).max(512) }),
+	z.object({ ...viewAskBase, method: z.literal("confirm"), title: viewText, message: viewText }),
+	z.object({
+		...viewAskBase,
+		method: z.literal("ask"),
+		questions: z
+			.array(
+				z.object({
+					id: viewKey,
+					question: viewText,
+					options: z.array(z.object({ label: viewText })).max(512),
+					multi: z.boolean().optional(),
+				}),
+			)
+			.max(128),
+	}),
+	z.object({ ...viewAskBase, method: z.literal("input"), title: viewText }),
+	z.object({ ...viewAskBase, method: z.literal("editor"), title: viewText }),
+]);
+const viewCloseFactsSchema = z
+	.object({
+		handle: z
+			.object({
+				viewHost: viewKey,
+				window: viewKey,
+				tabId: viewKey,
+				session: viewKey,
+				incarnation: viewKey,
+			})
+			.strict(),
+		tab: z.object({
+			tabId: viewKey,
+			title: viewText,
+			cwd: z.string().max(4096),
+			device: viewKey.optional(),
+			deviceName: viewText.optional(),
+			sessionPath: z.string().min(1).max(4096),
+			status: z.enum(["asleep", "starting", "ready", "running", "exited", "error", "restarting", "waiting"]),
+			busy: z.boolean(),
+			resuming: z.boolean().optional(),
+			asks: z.array(z.object({ id: viewKey, request: viewAsk })).max(128),
+			plan: z
+				.object({
+					title: viewText,
+					planFilePath: z.string().max(4096),
+					generation: z.number().optional(),
+				})
+				.optional(),
+			hidden: z.boolean(),
+			looked: z.boolean().optional(),
+			userTouched: z.boolean().optional(),
+			drafting: z.boolean().optional(),
+			webEdits: z.enum(["clean", "dirty", "unreported"]).optional(),
+		}),
+		enabled: z.boolean(),
+		manageEnabled: z.boolean(),
+		fullEnabled: z.boolean(),
+	})
+	.strict();
+
+/** Validate receiver wire facts and project only the fields the view-close policy consumes. */
+export function parseViewCloseFacts(value: unknown): ViewCloseFacts {
+	return viewCloseFactsSchema.parse(value);
 }
 
 /** A saved session (stock's session index on this computer or a paired device), open in a tab or not. */
@@ -350,6 +430,10 @@ export interface AgentControlHost {
 	reviewChanged?(parentTabId: string): void;
 	/** Every open tab of this app once, in the pool's order, with the window it is in (a tab of any window). */
 	tabs(): HostTab[];
+	/** Actual local and paired visible views, not execution or saved-session summaries. */
+	listViews?(): Promise<ViewCloseFacts[]>;
+	/** Close only this exact view, after authorizing its host's current facts against the original caller. */
+	closeView?(callerTabId: string, handle: SessionViewHandle): Promise<void>;
 	/**
 	 * Processes outside OMPdesk calling over the control socket (src/main/control-socket), by id: each has no tab, so it
 	 * is this stand-in, never listed among `tabs`.
@@ -805,6 +889,11 @@ export class AgentControl {
 		});
 	}
 
+	/** Trusted main-only challenge callback. It authorizes, but never releases a view or changes a session. */
+	authorizeView(callerTabId: string, view: ViewCloseFacts, localViewHost: string): Promise<void> {
+		return this.#call("authorizeView", { callerTabId, view, localViewHost });
+	}
+
 	/**
 	 * The open session `session` names for `callerTabId`, by the tools' own name rules, refused when hidden from
 	 * agents (the control socket's waits). Rejects with the tools' own message.
@@ -1075,6 +1164,13 @@ export class AgentControl {
 				}),
 			release: ({ callerTabId, tabId }: { callerTabId: string; tabId: string }) =>
 				coded(() => host.release(callerTabId, tabId)),
+			listViews: () => coded(async () => (await host.listViews?.()) ?? []),
+			closeView: ({ callerTabId, handle }: { callerTabId: string; handle: SessionViewHandle }) =>
+				coded(async () => {
+					if (!host.closeView) throw new Error("Exact view closing is not available here.");
+					await host.closeView(callerTabId, handle);
+					return null;
+				}),
 			exited: ({ tabId }: { tabId: string }) => coded(async () => (await host.exited(tabId)) ?? null),
 			markAnswered: ({ tabId, byTitle }: { tabId: string; byTitle: string }) =>
 				coded(async () => (await host.markAnswered(tabId, byTitle)) ?? null),

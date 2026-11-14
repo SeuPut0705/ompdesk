@@ -93,6 +93,7 @@ import type { WindowTabFact } from "./quit-guard";
 import { AGENT_REVIEW_EVENT } from "./remote/app-protocol";
 import { HostedTabView } from "./remote/hosted-view";
 import type { TabHolder } from "./remote/protocol";
+import { RemoteSidecar } from "./remote/remote-sidecar";
 import type { SessionSummaries, SummaryFacts, SummarySource } from "./session-summaries";
 import type { SettleWatch } from "./settle-watch";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -101,7 +102,7 @@ import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
 import { MAX_FORMER_TAB_IDS, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
-import { MovesInFlight, type ResumeFact } from "./turn-resume";
+import { MovesInFlight, type ResumeFact, type ResumeMarker } from "./turn-resume";
 import { recordTurnStop, type TurnStopBy } from "./turn-stop-log";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
@@ -237,8 +238,10 @@ interface FullWiring {
 /** What main holds of a tab: the handles. Everything the pool knows about the tab is in the core. */
 interface TabHandle {
 	sidecar: SidecarLike;
-	/** The owner window (immutable: it spawned the tab). */
-	win: ClientWindow;
+	winId: number;
+	ownerDetached: boolean;
+	hostCalls: Map<string, { request: HostToolCallRequest; view: number | null; delivered: boolean }>;
+	disconnectedViews: Set<number>;
 	/** Paired host deviceId the tab runs on (immutable, set at acquire). */
 	device: string | undefined;
 	/** The core released the tab: it is not in the pool any more, its sidecar is still being let go of. */
@@ -405,6 +408,9 @@ export class SidecarPool {
 	/** The paired devices' views by the id the core knows them by. */
 	readonly #viewIds = new WeakMap<HostedTabView, number>();
 	#nextView = 0;
+	readonly #viewSources = new WeakMap<HostedTabView, string>();
+	readonly #viewLeaveGuards = new Map<number, () => boolean>();
+	#viewEpoch = 0;
 	/** The one retry object per `auto_retry_start` the resume rules compare by identity: tab → the object handed out. */
 	readonly #retries = new Map<string, { id: number; retry: { errorMessage: string } }>();
 	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
@@ -487,6 +493,7 @@ export class SidecarPool {
 
 	#openInstance(): void {
 		this.#open = true;
+		this.#viewEpoch++;
 		try {
 			this.#hub.open(
 				this.#id,
@@ -537,7 +544,8 @@ export class SidecarPool {
 			.filter(([, handle]) => !handle.gone)
 			.map(([tab, handle]) => ({
 				tab,
-				win: this.#windowId(handle.win),
+				win: handle.winId,
+				ownerDetached: handle.ownerDetached,
 				device: handle.device ?? null,
 				hosted: handle.sidecar instanceof HostedTabView,
 				kind: handle.sidecar.kind,
@@ -608,6 +616,14 @@ export class SidecarPool {
 				if (handle) handle.gone = true;
 				return;
 			}
+			case "ownerDetached": {
+				const handle = this.#handles.get(item.tab as string);
+				if (handle) handle.ownerDetached = true;
+				return;
+			}
+			case "viewTargetChanged":
+				this.#rerouteHostCalls(item.tab as string);
+				return;
 			case "listenClosed": {
 				const id = item.win as number;
 				this.#windows.get(id)?.once("closed", () => this.#windowClosed(id));
@@ -698,6 +714,15 @@ export class SidecarPool {
 		this.#summaryRead = null;
 		const tab = item.tab as string;
 		switch (q) {
+			case "viewLeaveAllowed":
+				return this.#viewLeaveGuards.get(item.guard as number)?.() === true;
+			case "leaveSourceView": {
+				const handle = this.#live(tab);
+				if (!handle || this.#viewLeaveGuards.get(item.guard as number)?.() !== true) return false;
+				if (handle.sidecar instanceof RemoteSidecar)
+					return handle.sidecar.leaveView(item.sessionPath as string).then(() => true);
+				return true;
+			}
 			case "blocked": {
 				const sessionPath = (item.sessionPath as string | null) ?? undefined;
 				// A session the user deleted never comes back as a tab, whoever asks (a layout, a marker, a reopen);
@@ -709,7 +734,7 @@ export class SidecarPool {
 			}
 			case "spawn": {
 				const win = this.#windows.get(item.win as number);
-				if (!win) throw new Error("The window of the new tab is unknown");
+				if (!win && item.ownerDetached !== true) throw new Error("The window of the new tab is unknown");
 				const device = (item.device as string | null) ?? undefined;
 				const cwd = item.cwd as string;
 				// One spelling per directory: the sidecar reports its realpath'd cwd.
@@ -735,7 +760,10 @@ export class SidecarPool {
 				if (gate) sidecar.setStartGate?.(gate);
 				this.#handles.set(tab, {
 					sidecar,
-					win,
+					winId: item.win as number,
+					ownerDetached: item.ownerDetached === true,
+					hostCalls: new Map(),
+					disconnectedViews: new Set(),
 					device,
 					gone: false,
 					sessionFile: null,
@@ -796,12 +824,17 @@ export class SidecarPool {
 			case "adoptCwd":
 				return this.#handles.get(tab)?.sidecar.adoptCwd(item.cwd as string) ?? false;
 			case "sideChannel": {
+				const frame = item.frame as { type?: string; id?: string };
+				if (frame.type === "host_tool_result" && frame.id) this.#handles.get(tab)?.hostCalls.delete(frame.id);
 				// The answer is nobody's here: a failure of a paired host's tab surfaces to the caller that asked.
 				void this.#handles.get(tab)?.sidecar.sendSideChannel(item.frame as object);
 				return null;
 			}
-			case "sideChannelLater":
+			case "sideChannelLater": {
+				const frame = item.frame as { type?: string; id?: string };
+				if (frame.type === "host_tool_result" && frame.id) this.#handles.get(tab)?.hostCalls.delete(frame.id);
 				return this.#handles.get(tab)?.sidecar.sendSideChannel(item.frame as object) ?? null;
+			}
 			case "rpc":
 				return this.#handles.get(tab)?.sidecar.rpcClient?.command(item.command as RpcCommand) ?? null;
 			case "endViews": {
@@ -891,6 +924,47 @@ export class SidecarPool {
 
 	// ---- the sidecar's listeners ----------------------------------------------------------------------------------
 
+	#routeHostCall(tab: string, id: string): void {
+		const handle = this.#live(tab);
+		const call = handle?.hostCalls.get(id);
+		if (!handle || !call) return;
+		const request = call.delivered ? { ...call.request, resent: true } : call.request;
+		for (const win of this.windowsShowingTab(tab)) {
+			if (win.isDestroyed()) continue;
+			handle.hostCalls.delete(id);
+			this.hostToolExecutor?.(handle.sidecar, request, { tabId: tab, win });
+			return;
+		}
+		for (const [viewId, view] of handle.views) {
+			if (handle.disconnectedViews.has(viewId)) continue;
+			call.view = viewId;
+			call.delivered = true;
+			view.emit("hostToolCall", request);
+			return;
+		}
+	}
+
+	#rerouteHostCalls(tab: string): void {
+		const handle = this.#live(tab);
+		if (!handle) return;
+		for (const [id, call] of handle.hostCalls) {
+			if (call.view !== null && handle.views.has(call.view) && !handle.disconnectedViews.has(call.view)) continue;
+			call.view = null;
+			this.#routeHostCall(tab, id);
+		}
+	}
+
+	setDeviceViewAttached(view: HostedTabView, attached: boolean): void {
+		const tab = this.#viewSources.get(view);
+		const viewId = this.#viewIds.get(view);
+		if (!tab || viewId === undefined) return;
+		const handle = this.#live(tab);
+		if (!handle) return;
+		if (attached) handle.disconnectedViews.delete(viewId);
+		else handle.disconnectedViews.add(viewId);
+		this.#rerouteHostCalls(tab);
+	}
+
 	/** Per-tab light wiring, attached for the entry's whole life: each event is fed to the core as the sidecar emits it. */
 	#wireLight(tab: string, sidecar: SidecarLike): void {
 		const feed = (event: string, payload: unknown = null): void => {
@@ -906,6 +980,9 @@ export class SidecarPool {
 				sessionEnded: payload.sessionEnded,
 				failure: failureOf(payload) ?? null,
 			});
+		});
+		sidecar.on("status", (payload: SidecarStatusPayload) => {
+			if (payload.status !== "ready") this.#handles.get(tab)?.hostCalls.clear();
 		});
 		// The host's reading of the turn on a re-attach (sent before its status): what the lost link hid of its start or end.
 		sidecar.on("hostRun", (reading: RunReading) => feed("hostRun", reading));
@@ -955,8 +1032,17 @@ export class SidecarPool {
 		sidecar.on("signInRelay", relay => feed("signInRelay", relay));
 		// A tool call blocks the turn until answered, so a hidden tab's calls are answered too.
 		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
+			const handle = this.#live(tab);
+			if (!handle) return;
+			handle.hostCalls.set(request.id, { request, view: null, delivered: false });
+			this.#routeHostCall(tab, request.id);
+		});
+		sidecar.on("frame", (frame: { type?: unknown; targetId?: unknown }) => {
+			if (frame.type !== "host_tool_cancel" || typeof frame.targetId !== "string") return;
 			const handle = this.#handles.get(tab);
-			if (handle) this.hostToolExecutor?.(sidecar, request, { tabId: tab, win: handle.win });
+			const call = handle?.hostCalls.get(frame.targetId);
+			if (call?.view !== null && call?.view !== undefined) handle?.views.get(call.view)?.emit("frame", frame);
+			handle?.hostCalls.delete(frame.targetId);
 		});
 		sidecar.on("hostReplyDelivered", (id: string) => this.hostReplyDelivered?.(id));
 		// OMPdesk registers no host URI schemes: fail the read/write instead of leaving omp waiting, shown tab or hidden.
@@ -1199,8 +1285,11 @@ export class SidecarPool {
 		this.#ensureOpen();
 		this.#handles.set(tabId, {
 			sidecar,
-			win,
 			device: undefined,
+			winId,
+			ownerDetached: false,
+			hostCalls: new Map(),
+			disconnectedViews: new Set(),
 			gone: false,
 			sessionFile: null,
 			full: null,
@@ -1263,13 +1352,16 @@ export class SidecarPool {
 				this.#call<SubagentSubscriptionLevel>("deviceSubagentLevel", { tab, view: idOf(view), level }),
 			leave: left => {
 				const id = idOf(left);
+				handle.views.delete(id);
+				handle.disconnectedViews.delete(id);
 				this.#call("deviceViewLeft", { tab, view: id });
-				this.#handles.get(tab)?.views.delete(id);
 			},
 		});
 		const id = idOf(view);
 		handle.views.set(id, view);
+		this.#viewSources.set(view, tab);
 		this.#call("deviceViewAdded", { tab, view: id });
+		queueMicrotask(() => this.#rerouteHostCalls(tab));
 		return view;
 	}
 
@@ -1325,6 +1417,56 @@ export class SidecarPool {
 	 */
 	detachViewer(win: ClientWindow, tabId: string): boolean {
 		return this.#call<boolean>("detachViewer", { win: this.#windowId(win), tab: tabId });
+	}
+
+	/** This surface's attachment and session identity, not just the tab id it happens to show. */
+	viewIdentity(win: ClientWindow, tabId: string): string | null {
+		const identity = this.#call<string | null>("viewIdentity", { win: this.#windowId(win), tab: tabId });
+		return identity === null ? null : `${this.#viewEpoch}/${identity}`;
+	}
+
+	async leaveWindowView(
+		win: ClientWindow,
+		tabId: string,
+		expectedIdentity: string,
+		expectedSessionPath: string,
+		stillClosable: () => boolean,
+	): Promise<boolean> {
+		if (!stillClosable() || this.viewIdentity(win, tabId) !== expectedIdentity) return false;
+		const guard = ++this.#token;
+		this.#viewLeaveGuards.set(guard, stillClosable);
+		try {
+			return await this.#later<boolean>("leaveWindowView", {
+				guard,
+				win: this.#windowId(win),
+				tab: tabId,
+				identity: expectedIdentity.slice(expectedIdentity.indexOf("/") + 1),
+				sessionPath: expectedSessionPath,
+			});
+		} finally {
+			this.#viewLeaveGuards.delete(guard);
+		}
+	}
+
+	reviveDetached(marker: ResumeMarker): string | null {
+		if (!marker.ownerDetached || marker.peer) return null;
+		const existing = this.tabForSession(marker.sessionPath);
+		if (existing) return existing;
+		const result = this.#call<{ ok: boolean; added: boolean }>("acquire", {
+			tab: marker.tab,
+			win: marker.window,
+			cwd: marker.cwd,
+			kind: marker.kind,
+			sessionPath: marker.sessionPath,
+			fresh: false,
+			deferStart: true,
+			ownerDetached: true,
+		});
+		return result.ok ? marker.tab : null;
+	}
+
+	continuationSettled(tabId: string): void {
+		this.#call("continuationSettled", { tab: tabId });
 	}
 
 	/** Whether another window views the tab (multi-viewer). */

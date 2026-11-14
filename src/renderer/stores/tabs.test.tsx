@@ -2866,6 +2866,43 @@ describe("agent control view requests", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
 	});
 
+	it("acknowledges the exact view request without opening another target view", async () => {
+		await bootWith("t0", "t1");
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "close", closeRequest: "one-use" });
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1", "one-use");
+		expect(tabOf("t1")).toBeUndefined();
+		expect(tabOf("t0")).toBeDefined();
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+	});
+
+	it("leaves only an unnamed empty placeholder when the last exact relay view closes", async () => {
+		await bootWith("relay");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => ({ ...tab, sessionPath: "/sessions/time_saved.jsonl", sessionId: "saved" })),
+		}));
+		omp.tabs.spawn.mockResolvedValue({ tabId: "start", cwd: "/workspace" });
+		await useTabsStore.getState().applyAgentView({ tabId: "relay", how: "close", closeRequest: "one-use" });
+		expect(omp.tabs.close).toHaveBeenCalledWith("relay", "one-use");
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({ placeholder: true, defaultWorkspace: true }),
+		);
+		const remaining = useTabsStore.getState().tabs;
+		expect(remaining.map(tab => tab.id)).toEqual(["start"]);
+		expect(remaining[0]).toMatchObject({ placeholder: true });
+		expect(remaining[0]?.sessionId).toBeUndefined();
+		expect(remaining[0]?.sessionPath).toBeUndefined();
+		expect(useTabsStore.getState().closedTabs.map(tab => tab.sessionPath)).toContain("/sessions/time_saved.jsonl");
+	});
+
+	it("refuses a dirty exact view without retaining a future close request", async () => {
+		await bootWith("t0", "t1");
+		useUiStore.setState({ fileEditDirty: true, fileEditTabId: "t1" });
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "close", closeRequest: "one-use" });
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1", "one-use", true);
+		expect(tabOf("t1")).toBeDefined();
+		expect(useUiStore.getState().pendingFileSwitch).toBeNull();
+	});
+
 	it("a tab main spawns in the background appears without switching the current view", async () => {
 		await bootWith("t0");
 		omp.tabs.list.mockResolvedValue(live("t0", "t5"));

@@ -51,6 +51,7 @@ import { RpcTimeoutError } from "../rpc-client";
 import { SessionSummaries, SUMMARY_DEBOUNCE_MS } from "../session-summaries";
 import { SidebarProjects } from "../sidebar-projects";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
+import { deriveMarkers, InterruptedTurnStore } from "../turn-resume";
 import { setTurnStopLog } from "../turn-stop-log";
 import { UploadError, UploadStore } from "../web/uploads";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
@@ -400,6 +401,25 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 	});
 	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine, recordedCwd };
 }
+
+describe("LocalHostServices view-control connections", () => {
+	it("registers authenticated incoming-only links before a request and unregisters the exact connection", async () => {
+		const { services } = setup();
+		const conn = new FakeConnection(peer("incoming-only"));
+		const connected = vi.fn();
+		const disconnected = vi.fn();
+		const call = vi.fn(async () => null);
+		services.attachViewControl({ call, connected, disconnected });
+		services.connected(conn.peer, conn);
+		expect(connected).toHaveBeenCalledExactlyOnceWith("incoming-only", conn);
+		const params = { sessionPath: "/s/surface.jsonl" };
+		await services.call(conn.peer, "views.list", params, conn);
+		expect(connected).toHaveBeenCalledTimes(1);
+		expect(call).toHaveBeenCalledExactlyOnceWith("incoming-only", "views.list", params, conn);
+		services.disconnected(conn.peer, conn);
+		expect(disconnected).toHaveBeenCalledExactlyOnceWith("incoming-only", conn);
+	});
+});
 
 describe("delete during a pending open", () => {
 	it("refuses the tombstoned saved session after its workspace lookup resumes", async () => {
@@ -3562,6 +3582,112 @@ describe("LocalHostServices: a device opening a session another device's tab run
 		sidecar.emit("events", [{ type: "agent_end" }]);
 		await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c);
 		expect(sidecar.disposed).toBe(true);
+	});
+
+	it("reroutes future and pending host calls to the remaining attached viewer", async () => {
+		const { services, sidecar, sidecars, x: b, y: c } = await held();
+		const d = new FakeConnection(peer("device-d"));
+		await services.call(d.peer, "tab.open", { rtab: "d1", cwd: workDir, sessionPath: SESSION }, d);
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b);
+		const pending = { id: "pending-c", toolName: "gui_open_url", arguments: { url: "https://example.test" } };
+		sidecar.emit("hostToolCall", pending);
+		expect(c.tabEvents().at(-1)).toEqual({ rtab: "u1", name: "hostToolCall", arg: pending });
+		await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c);
+		expect(d.tabEvents().at(-1)).toEqual({
+			rtab: "d1",
+			name: "hostToolCall",
+			arg: { ...pending, resent: true },
+		});
+		const result = { type: "host_tool_result", id: pending.id, result: { opened: true } };
+		await services.call(d.peer, "tab.sideChannel", { rtab: "d1", frame: result }, d);
+		expect(sidecar.sideFrames).toContainEqual(result);
+		const uri = { type: "host_uri_request", id: "uri-d", operation: "read", url: "fixture://read" };
+		sidecar.emit("hostUriRequest", uri);
+		expect(d.tabEvents().at(-1)).toEqual({ rtab: "d1", name: "hostUriRequest", arg: uri });
+		const uriResult = { type: "host_uri_result", id: uri.id, result: "fixture" };
+		await services.call(d.peer, "tab.sideChannel", { rtab: "d1", frame: uriResult }, d);
+		expect(sidecar.sideFrames).toContainEqual(uriResult);
+		expect(sidecars).toHaveLength(1);
+		sidecar.emit("events", [{ type: "agent_end" }]);
+		await services.call(d.peer, "tab.leave", { rtab: "d1", sessionPath: SESSION }, d);
+		expect(sidecar.disposed).toBe(true);
+	});
+
+	it("lets a local attached view answer host tools and ends execution when that last view leaves", async () => {
+		const { services, sidecar, x: b, y: c } = await held();
+		const localView = services.viewSession(SESSION);
+		if (!localView) throw new Error("expected a local view");
+		await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b);
+		await services.call(c.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, c);
+		const calls: unknown[] = [];
+		localView.on("hostToolCall", call => calls.push(call));
+		const call = { id: "local-tool", toolName: "gui_open_url", arguments: { url: "https://example.test" } };
+		sidecar.emit("hostToolCall", call);
+		expect(calls).toEqual([call]);
+		const result = { type: "host_tool_result", id: call.id, result: { opened: true } };
+		localView.sendSideChannel(result);
+		expect(sidecar.sideFrames).toContainEqual(result);
+		localView.dispose();
+		expect(sidecar.disposed).toBe(true);
+		expect(services.resumeFacts()).toEqual([]);
+	});
+
+	it("roundtrips a detached source marker and revives execution without restoring the left B view", async () => {
+		const { services, sidecar, x: b } = await held();
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		await services.call(b.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, b);
+		const markers = deriveMarkers(services.resumeFacts(), [], 100);
+		expect(markers).toMatchObject([{ peer: "device-x", tab: "peer:device-x:t1", ownerDetached: true }]);
+		const file = join(workDir, "interrupted-detached.json");
+		writeFileSync(file, JSON.stringify(markers));
+		const marker = new InterruptedTurnStore(file).read()[0];
+		if (!marker) throw new Error("expected a detached marker");
+		expect(marker.ownerDetached).toBe(true);
+		services.disposeAll();
+		const revived = setup();
+		const id = revived.services.reviveTab(b.peer, marker);
+		if (!id) throw new Error("expected a revived execution");
+		revived.services.startTab(id);
+		const execution = revived.sidecars[0];
+		if (!execution) throw new Error("expected a revived sidecar");
+		execution.setStatus("ready");
+		execution.emit("events", [{ type: "agent_start" }]);
+		expect(await revived.services.call(b.peer, "tabs.kept", {}, b)).toEqual({ tabs: [] });
+		const stale = await revived.services
+			.call(b.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: SESSION }, b)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(stale)).toBe("unknown_tab");
+		const c = new FakeConnection(peer("device-y"));
+		expect(
+			await revived.services.call(c.peer, "tab.open", { rtab: "c-reopened", cwd: workDir, sessionPath: SESSION }, c),
+		).toMatchObject({ attached: true, viewing: true });
+		const call = { id: "revived-tool", toolName: "gui_open_url", arguments: { url: "https://example.test" } };
+		execution.emit("hostToolCall", call);
+		expect(c.tabEvents().at(-1)).toEqual({ rtab: "c-reopened", name: "hostToolCall", arg: call });
+		revived.services.continuationSettled(id);
+		expect(execution.disposed).toBe(false);
+		expect(revived.sidecars).toHaveLength(1);
+		execution.emit("events", [{ type: "agent_end" }]);
+		await revived.services.call(c.peer, "tab.leave", { rtab: "c-reopened", sessionPath: SESSION }, c);
+		expect(execution.disposed).toBe(true);
+	});
+
+	it("releases a hidden revived execution when its continuation settles without a viewer or work", () => {
+		const { services, sidecars } = setup();
+		const id = services.reviveTab(peer("device-b"), {
+			tab: "peer:device-b:closed",
+			cwd: workDir,
+			kind: "agent",
+			sessionPath: SESSION,
+			ownerDetached: true,
+		});
+		if (!id) throw new Error("expected a revived execution");
+		services.startTab(id);
+		sidecars[0]?.setStatus("ready");
+		services.continuationSettled(id);
+		expect(sidecars[0]?.disposed).toBe(true);
+		expect(services.resumeFacts()).toEqual([]);
 	});
 
 	it("the same connection asking again under another rtab is refused, naming its own tab", async () => {

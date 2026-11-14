@@ -62,6 +62,7 @@ import {
 } from "../../shared/rpc-types";
 import type { Schedule } from "../../shared/schedules";
 import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
+import type { SessionViewHandle } from "../../shared/session-view";
 import type { FamilyEdits } from "../../shared/turn-edits";
 import { deletedSessions } from "../deleted-sessions";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
@@ -120,13 +121,18 @@ import {
 	type Tombstones,
 	type ToolOutcome,
 	type Tuning,
+	type ViewCloseFacts,
 } from "./service";
+import type { LocalViewSurface } from "./view-host";
 
 /** A confirmation card waits for the person this long. */
 export const CARD_TIMEOUT_MS = 10 * 60_000;
 const WORKTREE_PREFIX = "omp/agent/";
 /** A receiver's bridge answers which messages its journal holds within this (a socket request, no omp command queue). */
 const SENT_MARKS_TIMEOUT_MS = 8_000;
+function savedId(path: string): string | undefined {
+	return /_([^_/\\]+)\.jsonl$/.exec(path)?.[1];
+}
 
 /** Every tombstone, by file and computer and by saved id (stock names a session file `<time>_<session id>.jsonl`). */
 function tombstones(): Tombstones {
@@ -134,7 +140,7 @@ function tombstones(): Tombstones {
 	const byId: Tombstones["byId"] = {};
 	for (const entry of deletedSessions().list()) {
 		byPath.push(entry);
-		const id = /_([^_/\\]+)\.jsonl$/.exec(entry.path)?.[1];
+		const id = savedId(entry.path);
 		if (id && byId[id] === undefined) byId[id] = entry.at;
 	}
 	return { byPath, byId };
@@ -167,6 +173,7 @@ export interface AgentControlHostDeps {
 		| "tabWindows"
 		| "sessionOwner"
 		| "whenTabExited"
+		| "viewIdentity"
 	>;
 	/** This computer's session index (stored sessions the control tools list, search and read). */
 	sessions?: {
@@ -179,6 +186,10 @@ export interface AgentControlHostDeps {
 	remote?: {
 		hosts(): HostView[];
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
+	};
+	views?: {
+		list(): Promise<ViewCloseFacts[]>;
+		close(callerTabId: string, handle: SessionViewHandle): Promise<void>;
 	};
 	/**
 	 * The session summaries of this computer (no device) or of a paired host as this computer holds them: what every
@@ -687,12 +698,64 @@ export class AgentControlRuntime {
 		return tabs;
 	}
 
-	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>): ControlTab {
+	/** Each actual window surface, including viewers; an execution host's summary is not a surface. */
+	viewSurfaces(viewHost: string): LocalViewSurface[] {
+		const { pool, prefs } = this.#deps;
+		const windows = new Set(pool.tabWindows());
+		for (const win of windows)
+			for (const info of pool.tabsForWindow(win))
+				for (const viewer of pool.windowsShowingTab(info.tabId)) windows.add(viewer);
+		const hidden = this.#hiddenPaths();
+		const surfaces: LocalViewSurface[] = [];
+		for (const win of windows) {
+			if (win.isDestroyed()) continue;
+			const open = pool.openRequests(win);
+			for (const info of pool.tabsForWindow(win)) {
+				const session = info.sessionPath ? savedId(info.sessionPath) : undefined;
+				const incarnation = pool.viewIdentity(win, info.tabId);
+				if (!session || !incarnation) continue;
+				const asks = open
+					.filter(entry => entry.tabId === info.tabId && !entry.signIn && askOf(entry.request))
+					.map(entry => ({ id: entry.request.id, request: entry.request }));
+				const tab = this.#controlTab(info, asks, hidden, win);
+				surfaces.push({
+					win,
+					facts: {
+						handle: { viewHost, window: String(win.webContents.id), tabId: info.tabId, session, incarnation },
+						tab: { ...tab, busy: tab.busy || info.compacting === true },
+						enabled: this.#controlEnabled(),
+						manageEnabled:
+							agentControlFullEnabled(prefs.get(AGENT_CONTROL_FULL_PREF)) ||
+							agentControlManageEnabled(prefs.get(AGENT_CONTROL_MANAGE_PREF)),
+						fullEnabled: agentControlFullEnabled(prefs.get(AGENT_CONTROL_FULL_PREF)),
+					},
+				});
+			}
+		}
+		return surfaces;
+	}
+
+	viewAuthorizer(callerTabId: string, localViewHost: string): (facts: ViewCloseFacts) => Promise<void> {
+		const win = this.#win(callerTabId);
+		const identity = win ? this.#deps.pool.viewIdentity(win, callerTabId) : null;
+		return async facts => {
+			const current = () =>
+				win &&
+				!win.isDestroyed() &&
+				identity !== null &&
+				this.#deps.pool.viewIdentity(win, callerTabId) === identity;
+			if (!current()) throw new Error("The original caller's view or turn is no longer available.");
+			await this.control.authorizeView(callerTabId, facts, localViewHost);
+			if (!current()) throw new Error("The original caller changed while the view close was authorized.");
+		};
+	}
+
+	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, viewWindow?: ClientWindow): ControlTab {
 		const plan = this.#deps.pool.pendingPlan(info.tabId);
 		const autoClosable = this.#autoClosable(info);
 		const formerIds = this.#deps.pool.formerTabIds(info.tabId);
 		const facts = this.#deps.pool.tabFacts(info.tabId);
-		const owner = this.#deps.pool.windowOfTab(info.tabId);
+		const owner = viewWindow ?? this.#deps.pool.windowOfTab(info.tabId);
 		// A paired web page's tab: what its page last said about unsaved Files edits in it (never assumed clean).
 		const webEdits =
 			owner && isWebWindow(owner.webContents.id)
@@ -721,7 +784,7 @@ export class AgentControlRuntime {
 			...(info.lastRun ? { lastRun: info.lastRun } : {}),
 			autoClosable,
 			...(autoClosable && !this.#parents.has(info.tabId) ? { restored: true } : {}),
-			looked: info.active === true || info.visible === true || (info.viewerCount ?? 0) > 0,
+			looked: info.active === true || info.visible === true || (!viewWindow && (info.viewerCount ?? 0) > 0),
 			userTouched: this.#userPrompted.has(info.tabId) || this.#deps.pool.hasDraft(info.tabId),
 			...(this.#deps.pool.hasDraft(info.tabId) ? { drafting: true } : {}),
 			...(facts?.runningSince !== undefined ? { busySince: facts.runningSince } : {}),
@@ -958,6 +1021,7 @@ export class AgentControlRuntime {
 
 	#host(): AgentControlHost {
 		const deps = this.#deps;
+		const views = deps.views;
 		return {
 			enabled: () => this.#controlEnabled(),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
@@ -966,6 +1030,12 @@ export class AgentControlRuntime {
 			manageEnabled: () =>
 				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
 				agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
+			...(views
+				? {
+						listViews: () => views.list(),
+						closeView: (callerTabId: string, handle: SessionViewHandle) => views.close(callerTabId, handle),
+					}
+				: {}),
 			checkoutPeers: tabId => deps.checkoutPeers?.(tabId) ?? [],
 			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
 			// after a relaunch) the tab now holding the opener's session file.

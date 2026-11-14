@@ -8,8 +8,8 @@ import {
 	deleteSession,
 	onSessionDeleted,
 	recordSessionDelete,
-	sessionDeleteInProgress,
 	type SessionTabs,
+	sessionDeleteInProgress,
 	setSessionDeleteLog,
 } from "./session-mutations";
 

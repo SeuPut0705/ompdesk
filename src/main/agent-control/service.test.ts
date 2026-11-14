@@ -2,8 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
-import { type ClosedChild, AGENT_CONTROL_TOOLS as T, wrapAgentMessage } from "../../shared/agent-control";
+import {
+	AGENT_CONTROL_VIEW,
+	type ClosedChild,
+	AGENT_CONTROL_TOOLS as T,
+	wrapAgentMessage,
+} from "../../shared/agent-control";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
@@ -21,9 +27,13 @@ import type {
 	SchedulesState,
 } from "../../shared/schedules";
 import type { SessionSummary } from "../../shared/session-summary";
+import type { SessionViewHandle } from "../../shared/session-view";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
+import type { HostConnection } from "../remote/host-server";
+import { type ViewChannel, ViewControl } from "../remote/view-control";
 import { RpcTimeoutError } from "../rpc-client";
 import type { Pace } from "../session-pace";
+import type { ClientWindow } from "../web/client-window";
 import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import type { MailDelivery } from "./mail";
@@ -37,6 +47,7 @@ import {
 	type ControlTab,
 	type HostTab,
 	type OpenedChild,
+	parseViewCloseFacts,
 	type SchedulesHost,
 	type SentAnswer,
 	SessionFolderMissing,
@@ -44,7 +55,9 @@ import {
 	type StoredSession,
 	type Tombstones,
 	type Tuning,
+	type ViewCloseFacts,
 } from "./service";
+import { LocalViewHost, type LocalViewSurface } from "./view-host";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 const bad = (error: string): RpcResponse => ({ type: "response", success: false, error }) as RpcResponse;
@@ -6371,45 +6384,37 @@ describe("a message to a saved session whose holder this app cannot see", () => 
 });
 
 describe("closing one exact relay view", () => {
-	const handle = {
+	const handle: SessionViewHandle = {
 		viewHost: "host-b",
 		window: "window-b",
 		tabId: "view-b",
 		session: "11111111-aaaa",
 		incarnation: "incarnation-b",
 	};
-	const facts = (tab: Partial<ControlTab> = {}) => ({
+	const facts = (tab: Partial<ControlTab> = {}): ViewCloseFacts => ({
 		handle,
 		tab: {
 			tabId: handle.tabId,
 			title: "Shared completed session",
 			cwd: "/repo",
-			status: "ready" as const,
+			status: "ready",
 			busy: false,
 			asks: [],
 			hidden: false,
-			sessionPath: "/s/shared.jsonl",
+			sessionPath: "/s/time_11111111-aaaa.jsonl",
 			...tab,
 		},
 		enabled: true,
 		manageEnabled: true,
 		fullEnabled: true,
 	});
-	async function authorize(service: unknown, caller: string, view: unknown, localViewHost = "host-a") {
-		if (
-			typeof service !== "object" ||
-			service === null ||
-			!("authorizeView" in service) ||
-			typeof service.authorizeView !== "function"
-		)
-			throw new Error("View authorization is not available");
-		await service.authorizeView(caller, view, localViewHost);
-	}
 
 	it("lists actual app view handles, not saved summaries posing as views", async () => {
 		const host = new FakeHost({ tabId: "source-a" });
 		const other = { ...handle, viewHost: "host-c", tabId: "view-c", incarnation: "incarnation-c" };
-		Object.assign(host, { listViews: async () => [facts(), { ...facts(), handle: other }] });
+		Object.assign(host, {
+			listViews: async () => [facts(), { ...facts({ tabId: other.tabId }), handle: other }],
+		});
 		const result = await control(host).run("source-a", T.list, { scope: "app" });
 		expect(result.isError, result.text).toBe(false);
 		expect(result.text).toContain(JSON.stringify(handle));
@@ -6421,10 +6426,10 @@ describe("closing one exact relay view", () => {
 		host.full = true;
 		const service = control(host);
 		const remaining = new Set(["view-b", "view-c"]);
-		const closeView = vi.fn(async (caller: string, requested: typeof handle) => {
+		const closeView = vi.fn(async (caller: string, requested: SessionViewHandle) => {
 			expect(caller).toBe("source-a");
 			expect(requested).toEqual(handle);
-			await authorize(service, caller, facts({ looked: true, userTouched: true }));
+			await service.authorizeView(caller, facts({ looked: true, userTouched: true }), "host-a");
 			remaining.delete(requested.tabId);
 		});
 		Object.assign(host, { closeView });
@@ -6439,9 +6444,9 @@ describe("closing one exact relay view", () => {
 			expect([...remaining]).toEqual(["view-b", "view-c"]);
 		}
 		expect(closeView).toHaveBeenCalledTimes(1);
-		expect(host.sent.filter(entry => entry.command.type === "agent_control_turn").map(entry => entry.tabId)).toEqual([
-			"source-a",
-		]);
+		expect(host.sent.filter(entry => entry.command.type === "agent_control_turn").map(entry => entry.tabId)).toEqual(
+			personTurn ? ["source-a", "source-a"] : ["source-a"],
+		);
 		expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
 		expect(host.spawned).toEqual([]);
 		expect(host.deleted).toEqual([]);
@@ -6503,7 +6508,7 @@ describe("closing one exact relay view", () => {
 		const host = new FakeHost({ tabId: "source-a", personTurn: true });
 		host.full = true;
 		const service = control(host);
-		await expect(authorize(service, "source-a", facts(tab))).rejects.toThrow(error);
+		await expect(service.authorizeView("source-a", facts(tab), "host-a")).rejects.toThrow(error);
 		expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
 		expect(host.spawned).toEqual([]);
 		expect(host.deleted).toEqual([]);
@@ -6512,9 +6517,11 @@ describe("closing one exact relay view", () => {
 	it("refuses disabled receivers and callers no longer present", async () => {
 		const host = new FakeHost({ tabId: "source-a", personTurn: true });
 		const service = control(host);
-		await expect(authorize(service, "source-a", { ...facts(), enabled: false })).rejects.toThrow(/turned off/i);
+		await expect(service.authorizeView("source-a", { ...facts(), enabled: false }, "host-a")).rejects.toThrow(
+			/turned off/i,
+		);
 		host.tabsById.delete("source-a");
-		await expect(authorize(service, "source-a", facts())).rejects.toThrow(/gone|caller/i);
+		await expect(service.authorizeView("source-a", facts(), "host-a")).rejects.toThrow(/gone|caller/i);
 	});
 
 	it("requires an explicit view for a saved session known to be open elsewhere", async () => {
@@ -6526,5 +6533,319 @@ describe("closing one exact relay view", () => {
 		expect(result.text).not.toMatch(/not open/i);
 		expect(host.spawned).toEqual([]);
 		expect(host.deletedStored).toEqual([]);
+	});
+
+	it("retains trusted local child ownership without granting it to a remote view", async () => {
+		const host = new FakeHost(
+			{ tabId: "source-a", personTurn: false },
+			{ tabId: handle.tabId, sessionPath: "/s/time_11111111-aaaa.jsonl" },
+		);
+		host.parents.set(handle.tabId, "source-a");
+		const service = control(host);
+		const view = facts({ looked: true });
+		await expect(service.authorizeView("source-a", view, "host-b")).resolves.toBeUndefined();
+		await expect(service.authorizeView("source-a", view, "host-a")).rejects.toThrow(
+			/not started by the user's own message/,
+		);
+		expect(host.cards).toEqual([]);
+	});
+
+	it.each(["source", "receiver"])(
+		"requires both hosts' elevated grants and keeps the card on the original caller (%s)",
+		async low => {
+			const host = new FakeHost({ tabId: "source-a", personTurn: true });
+			host.full = low !== "source";
+			host.manage = low !== "source";
+			host.cardAnswer = false;
+			const service = control(host);
+			const view = {
+				...facts({ looked: true }),
+				fullEnabled: low !== "receiver",
+				manageEnabled: low !== "receiver",
+			};
+			await expect(service.authorizeView("source-a", view, "host-a")).rejects.toThrow(/declined/);
+			expect(host.cards).toHaveLength(1);
+			expect(host.spawned).toEqual([]);
+		},
+	);
+
+	it("refuses when the original caller's bridge cannot answer even for an unseen resting view", async () => {
+		const host = new FakeHost({ tabId: "source-a" });
+		const command = host.command;
+		host.command = async (tabId, request, timeoutMs) =>
+			request.type === "agent_control_turn" ? bad("bridge unavailable") : command(tabId, request, timeoutMs);
+		await expect(control(host).authorizeView("source-a", facts(), "host-a")).rejects.toThrow(/bridge/i);
+	});
+
+	it.each(["bridge", "provenance", "run"])(
+		"refuses source lifetime changes while its confirmation card is pending (%s)",
+		async change => {
+			const host = new FakeHost({
+				tabId: "source-a",
+				title: "Source",
+				sessionPath: "/s/time_source-a.jsonl",
+				personTurn: true,
+				status: "running",
+				busy: true,
+				busySince: 10,
+			});
+			const source = host.tabsById.get("source-a");
+			if (!source) throw new Error("Missing source fixture");
+			const service = control(host);
+			const entered = Promise.withResolvers<void>();
+			const release = Promise.withResolvers<void>();
+			const confirm = host.confirm;
+			host.confirm = async (caller, title, message) => {
+				entered.resolve();
+				await release.promise;
+				return confirm(caller, title, message);
+			};
+			let bridgeDown = false;
+			const command = host.command;
+			host.command = async (tabId, request, timeoutMs) =>
+				bridgeDown && request.type === "agent_control_turn"
+					? bad("Original caller bridge is down")
+					: command(tabId, request, timeoutMs);
+			const closed: string[] = [];
+			const closeView = vi.fn(async (caller: string, requested: SessionViewHandle) => {
+				await service.authorizeView(caller, facts({ looked: true }), "host-a");
+				closed.push(requested.tabId);
+			});
+			Object.assign(host, { closeView });
+			const pending = service.run("source-a", T.stop, { session: handle.session, close: true, view: handle });
+			await entered.promise;
+			if (change === "bridge") bridgeDown = true;
+			else if (change === "provenance") source.personTurn = false;
+			else source.busySince = 20;
+			release.resolve();
+			const result = await pending;
+			expect(result.isError, result.text).toBe(true);
+			expect(result.text).toMatch(/caller|bridge|turn/i);
+			expect(result.text).not.toMatch(/Closed view/);
+			expect(closeView).toHaveBeenCalledTimes(1);
+			expect(closed).toEqual([]);
+			expect(host.views).toEqual([]);
+			expect(host.spawned).toEqual([]);
+			expect(host.deleted).toEqual([]);
+			expect(host.deletedStored).toEqual([]);
+			expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
+		},
+	);
+
+	it.each([true, false])(
+		"routes native listing and exact close through the original caller and B's final acknowledgement (%s)",
+		async personTurn => {
+			const host = new FakeHost({
+				tabId: "source-a",
+				title: "Source",
+				sessionPath: "/s/time_source-a.jsonl",
+				personTurn,
+				status: "running",
+				busy: true,
+				busySince: 10,
+			});
+			host.full = true;
+			const saved = storedRow({
+				id: handle.session,
+				path: "/s/time_11111111-aaaa.jsonl",
+				elsewhere: { holder: "host-b", work: "idle" },
+			});
+			const execution = summary({
+				sessionPath: saved.path,
+				sessionId: saved.id,
+				title: saved.title,
+				status: "ready",
+				openFor: "host-b",
+			});
+			host.storedRows = [saved];
+			host.localRows = [execution];
+			const requests: { viewHost: string; tabId: string; token: string }[] = [];
+			const acknowledgements: Promise<boolean>[] = [];
+			function localSurface(viewHost: string, windowId: number, tabId: string) {
+				const viewHandle: SessionViewHandle = {
+					...handle,
+					viewHost,
+					window: String(windowId),
+					tabId,
+					incarnation: `${viewHost}-incarnation`,
+				};
+				const win: ClientWindow = {
+					webContents: {
+						id: windowId,
+						send(channel, payload) {
+							if (channel !== AGENT_CONTROL_VIEW) throw new Error("Unexpected window event");
+							const request = z
+								.object({ tabId: z.string(), how: z.literal("close"), closeRequest: z.string() })
+								.parse(payload);
+							requests.push({ viewHost, tabId: request.tabId, token: request.closeRequest });
+							queueMicrotask(() => {
+								acknowledgements.push(local.complete(win, request.tabId, request.closeRequest, false));
+							});
+						},
+					},
+					isDestroyed: () => false,
+					once: () => undefined,
+					removeListener: () => undefined,
+				};
+				const surface: LocalViewSurface = {
+					win,
+					facts: {
+						...facts({ tabId, looked: true, userTouched: true }),
+						handle: viewHandle,
+					},
+				};
+				let shown = true;
+				const detach = vi.fn(async (selected: LocalViewSurface, guard: () => boolean) => {
+					if (!guard()) return false;
+					expect(selected.win).toBe(win);
+					expect(selected.facts.handle).toEqual(viewHandle);
+					shown = false;
+					return true;
+				});
+				const local: LocalViewHost = new LocalViewHost({
+					surfaces: () => (shown ? [surface] : []),
+					close: detach,
+					isWeb: () => false,
+					timeoutMs: 1_000,
+				});
+				return { local, detach, viewHandle };
+			}
+			const b = localSurface("host-b", 2, "view-b");
+			const c = localSurface("host-c", 3, "view-c");
+			const controls = new Map<string, ViewControl>();
+			for (const [id, local] of [
+				["host-b", b.local],
+				["host-c", c.local],
+			] satisfies [string, LocalViewHost][]) {
+				controls.set(
+					id,
+					new ViewControl({
+						deviceId: () => id,
+						listLocal: () => local.list(),
+						closeLocal: (selected, authorized) => local.close(selected, authorized),
+						remote: { peers: () => [], channel: () => null },
+						timeoutMs: 1_000,
+					}),
+				);
+			}
+			const connections = new Map<string, { target: ViewControl; conn: HostConnection; channel: ViewChannel }>();
+			const a: ViewControl = new ViewControl({
+				deviceId: () => "host-a",
+				listLocal: () => [],
+				closeLocal: async () => {
+					throw new Error("A has no target view to close");
+				},
+				remote: {
+					peers: () => ["host-b", "host-c"],
+					channel: peer => {
+						const existing = connections.get(peer);
+						if (existing) return existing.channel;
+						const target = controls.get(peer);
+						if (!target) return null;
+						const identity = {};
+						const conn: HostConnection = {
+							peer: {
+								deviceId: "host-a",
+								name: "A",
+								staticPub: "test-key",
+								nodeId: "node-a",
+								login: "test",
+								pairedAt: 0,
+							},
+							emit(event, data) {
+								if (event !== "views.challenge") throw new Error("Unexpected transport event");
+								void a.challenge(peer, identity, data).catch(() => undefined);
+							},
+							close: () => target.disconnected("host-a", conn),
+						};
+						target.connected("host-a", conn);
+						const channel: ViewChannel = {
+							identity,
+							request: (method, params) => target.call("host-a", method, params, conn),
+						};
+						connections.set(peer, { target, conn, channel });
+						return channel;
+					},
+				},
+				timeoutMs: 100,
+			});
+			const service = control(host);
+			const authorize = vi.fn((caller: string, fresh: ViewCloseFacts) =>
+				service.authorizeView(caller, fresh, "host-a"),
+			);
+			Object.assign(host, {
+				listViews: () => a.list(),
+				closeView: (caller: string, selected: SessionViewHandle) =>
+					a.close(selected, fresh => authorize(caller, fresh)),
+			});
+			try {
+				const listed = await service.run("source-a", T.list, { scope: "app" });
+				expect(listed.isError, listed.text).toBe(false);
+				const handleSchema = z
+					.object({
+						viewHost: z.string(),
+						window: z.string(),
+						tabId: z.string(),
+						session: z.string(),
+						incarnation: z.string(),
+					})
+					.strict();
+				const listedHandles = listed.text
+					.split("\n")
+					.filter(line => line.startsWith("{"))
+					.map(line => handleSchema.parse(JSON.parse(line)));
+				expect(listedHandles).toEqual([b.viewHandle, c.viewHandle]);
+				const selected = listedHandles.find(item => item.viewHost === "host-b");
+				if (!selected) throw new Error("Native listing omitted B's actual view");
+				expect([...host.tabsById.keys()]).toEqual(["source-a"]);
+				const beforeClose = host.sent.length;
+				const result = await service.run("source-a", T.stop, {
+					session: selected.session,
+					close: true,
+					view: selected,
+				});
+				expect(result.isError, result.text).toBe(!personTurn);
+				expect(result.text).toMatch(personTurn ? /Closed view/ : /not started by the user's own message/);
+				expect(authorize).toHaveBeenCalledTimes(1);
+				expect(authorize.mock.calls[0]?.[0]).toBe("source-a");
+				expect(host.sent.slice(beforeClose).map(entry => [entry.tabId, entry.command.type])).toEqual(
+					personTurn
+						? [
+								["source-a", "agent_control_turn"],
+								["source-a", "agent_control_turn"],
+							]
+						: [["source-a", "agent_control_turn"]],
+				);
+				expect(b.local.list().map(item => item.handle)).toEqual(personTurn ? [] : [b.viewHandle]);
+				expect(c.local.list().map(item => item.handle)).toEqual([c.viewHandle]);
+				expect(b.detach).toHaveBeenCalledTimes(personTurn ? 1 : 0);
+				expect(c.detach).not.toHaveBeenCalled();
+				expect(requests.map(request => [request.viewHost, request.tabId])).toEqual(
+					personTurn ? [["host-b", "view-b"]] : [],
+				);
+				expect(await Promise.all(acknowledgements)).toEqual(personTurn ? [true] : []);
+				expect(host.storedRows).toEqual([saved]);
+				expect(host.localRows).toEqual([execution]);
+				expect(host.spawned).toEqual([]);
+				expect(host.deleted).toEqual([]);
+				expect(host.deletedStored).toEqual([]);
+				expect(host.views).toEqual([]);
+				expect(host.sent.some(entry => entry.command.type === "abort")).toBe(false);
+			} finally {
+				for (const { target, conn } of connections.values()) target.disconnected("host-a", conn);
+			}
+		},
+	);
+
+	it("validates receiver facts without dropping a real waiting request", () => {
+		const view = facts({ asks: [select("Continue?", ["Yes", "No"])] });
+		expect(parseViewCloseFacts(view).tab.asks).toEqual(view.tab.asks);
+		expect(() => parseViewCloseFacts({ ...view, fullEnabled: "true" })).toThrow();
+		expect(() => parseViewCloseFacts({ ...view, person: true })).toThrow();
+		expect(() => parseViewCloseFacts({ ...view, handle: { ...handle, viewHost: "x".repeat(201) } })).toThrow();
+		expect(() => parseViewCloseFacts({ ...view, tab: { ...view.tab, busy: "false" } })).toThrow();
+		expect(() =>
+			parseViewCloseFacts({ ...view, tab: { ...view.tab, asks: [{ id: "bad", request: { method: "select" } }] } }),
+		).toThrow();
 	});
 });

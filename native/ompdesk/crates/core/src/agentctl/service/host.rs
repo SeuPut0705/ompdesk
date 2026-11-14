@@ -19,8 +19,8 @@ use super::fail::{Fail, R, SavedFolder};
 use super::types::{
     AgentMessage, BranchEvidence, BranchFacts, ClosedChild, ControlDevice, ControlTab,
     LandingFacts, MergeOutcome, OpenedChild, RpcCommand, RpcResponse, ScheduleCreated,
-    ScheduleDraft, SchedulesState, SessionSummary, SpawnRequest, Spawned, StoredSession,
-    WorktreeRef, WorktreeRemoval,
+    ScheduleDraft, SchedulesState, SessionSummary, SessionViewHandle, SpawnRequest, Spawned,
+    StoredSession, ViewCloseFacts, WorktreeRef, WorktreeRemoval,
 };
 use crate::agentctl::app::AppState;
 use crate::agentctl::journal::Clock;
@@ -593,6 +593,18 @@ impl Host {
         self.ask(
             "release",
             json!({ "callerTabId": caller_tab_id, "tabId": tab_id }),
+        )
+        .await
+    }
+
+    pub async fn list_views(&self) -> R<Vec<ViewCloseFacts>> {
+        self.ask("listViews", json!({})).await
+    }
+
+    pub async fn close_view(&self, caller_tab_id: &str, handle: &SessionViewHandle) -> R<()> {
+        self.ask(
+            "closeView",
+            json!({ "callerTabId": caller_tab_id, "handle": handle }),
         )
         .await
     }

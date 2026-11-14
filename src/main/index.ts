@@ -2195,6 +2195,7 @@ app.whenReady().then(async () => {
 		now: Date.now,
 		openTab: marker => {
 			if (marker.peer) return devices.reviveHostTab(marker.peer, marker);
+			if (marker.ownerDetached) return sidecarPool.reviveDetached(marker);
 			const win = windowManager.getMainWindow();
 			if (!win) return null;
 			const sidecar = sidecarPool.acquire(marker.cwd, win, undefined, marker.sessionPath, marker.kind);
@@ -2206,7 +2207,11 @@ app.whenReady().then(async () => {
 		resumeGoal: async tabId => {
 			await autopilotRef.current?.resumeGoal(tabId);
 		},
-		goalSettled: (tabId, outcome) => autopilotRef.current?.resumeSettled(tabId, outcome),
+		goalSettled: (tabId, outcome) => {
+			autopilotRef.current?.resumeSettled(tabId, outcome);
+			hostServices.continuationSettled(tabId);
+			sidecarPool.continuationSettled(tabId);
+		},
 		log: (message, details) => writeRuntimeLog({ source: "turn-resume", message, details }),
 	});
 	ipc.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, async (_caller, tabId: unknown) => {

@@ -16,7 +16,7 @@ impl Ctx {
             pool.entries
                 .iter()
                 .filter(|entry| {
-                    (entry.win_id == win && !entry.hosted_view)
+                    (entry.win_id == win && !entry.owner_detached && !entry.hosted_view)
                         || (web && entry.session_file.is_some() && entry.shown_in(win))
                 })
                 .map(|entry| entry.tab_id.clone())

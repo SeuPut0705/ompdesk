@@ -16,10 +16,11 @@ use crate::agentctl::service::fail::{R, fail};
 use crate::agentctl::service::host::Deadline;
 use crate::agentctl::service::js::{number, one_line};
 use crate::agentctl::service::text::{
-    StopFlags, by_caller, cleanup_of, ids_of, label, stored_title, waits,
+    StopFlags, by_caller, cleanup_of, ids_of, in_use_refusal, label, saved_id_of_path,
+    stored_title, waits,
 };
 use crate::agentctl::service::types::{
-    ControlTab, StopArgs, StoredSession, WorktreeRef, WorktreeRemoval,
+    ControlTab, StopArgs, StoredSession, TabStatus, ViewCloseFacts, WorktreeRef, WorktreeRemoval,
 };
 use crate::agentctl::service::util::join;
 
@@ -180,7 +181,7 @@ impl AgentControl {
     /// says (gui-bridge turn-origin.ts, from main's `typed_prompt` word, never the text). Another agent's message, a
     /// report, a schedule, Autopilot or a relaunch's continuation did not; an outside process has no omp to ask, and
     /// an omp that cannot say counts as not.
-    async fn person_turn(&self, caller: &ControlTab) -> bool {
+    async fn person_turn_answer(&self, caller: &ControlTab) -> R<bool> {
         let response = self
             .host
             .command(
@@ -188,13 +189,21 @@ impl AgentControl {
                 &json!({ "type": "agent_control_turn" }),
                 Deadline::Ms(self.tuning.person_turn_wait_ms),
             )
-            .await
-            .ok();
-        response
-            .filter(|response| response.success)
-            .and_then(|response| response.data)
+            .await?;
+        if !response.success {
+            return fail("The original caller's bridge could not authorize this view close.");
+        }
+        match response
+            .data
             .and_then(|data| data.get("person").and_then(serde_json::Value::as_bool))
-            == Some(true)
+        {
+            Some(person) => Ok(person),
+            None => fail("The original caller's bridge did not answer its turn provenance."),
+        }
+    }
+
+    async fn person_turn(&self, caller: &ControlTab) -> bool {
+        self.person_turn_answer(caller).await.unwrap_or(false)
     }
 
     /// Whether `tab` may be stopped, closed or deleted in this turn; asks the caller's omp once (`by_person`).
@@ -212,6 +221,164 @@ impl AgentControl {
             *by_person = Some(self.person_turn(caller).await);
         }
         by_person.unwrap_or(false)
+    }
+
+    /// The existing stop/close/delete card policy, shared with an exact view close.
+    async fn confirm_stop(
+        &self,
+        caller: &ControlTab,
+        target: &ControlTab,
+        own: bool,
+        flags: StopFlags,
+        grants: (bool, bool),
+    ) -> R<bool> {
+        let (full, manage) = grants;
+        let resting = !target.busy && !waits(target) && !needs_person_turn(&facts(target), false);
+        let harmless = flags.close && !flags.delete && resting;
+        if own || harmless || full || (!flags.delete && manage) {
+            return Ok(true);
+        }
+        let caller_name = if caller.title.is_empty() {
+            "—"
+        } else {
+            &caller.title
+        };
+        let target_name = if target.title.is_empty() {
+            &target.tab_id
+        } else {
+            &target.title
+        };
+        let params = [("caller", caller_name), ("target", target_name)];
+        let state = self.host.state();
+        let message = if flags.delete {
+            "deleteMessage"
+        } else if flags.close {
+            "closeMessage"
+        } else {
+            "stopMessage"
+        };
+        self.host
+            .confirm(
+                &caller.tab_id,
+                &state.text("stopTitle", &params),
+                &state.text(message, &params),
+            )
+            .await
+    }
+
+    /// Main-only challenge. Receiver facts cannot create a caller, an ownership relation or a person turn.
+    pub(in crate::agentctl::service) async fn authorize_view(
+        &self,
+        caller_tab_id: &str,
+        view: &ViewCloseFacts,
+        local_view_host: &str,
+    ) -> R<()> {
+        let state = self.host.state();
+        if !state.enabled || !view.enabled {
+            return fail(crate::agentctl::service::TURNED_OFF);
+        }
+        let Some(tabs) = state.tabs(caller_tab_id) else {
+            return fail(crate::agentctl::service::TAB_GONE);
+        };
+        // An outside caller's stand-in is never the source of a view-close authorization.
+        if !tabs.iter().any(|tab| tab.tab_id == caller_tab_id) {
+            return fail("The original caller's tab is gone.");
+        }
+        let Some(caller) = self.caller_of(&state, caller_tab_id, &tabs) else {
+            return fail(crate::agentctl::service::TAB_GONE);
+        };
+        let same_caller_run = |tab: &ControlTab| {
+            tab.tab_id == caller.tab_id
+                && tab.session_path == caller.session_path
+                && tab.device == caller.device
+                && tab.status == caller.status
+                && tab.busy == caller.busy
+                && tab.busy_since == caller.busy_since
+                && tab.resuming == caller.resuming
+        };
+        let target = &view.tab;
+        if target.tab_id != view.handle.tab_id
+            || saved_id_of_path(target.session_path.as_deref()).as_deref()
+                != Some(view.handle.session.as_str())
+        {
+            return fail("The receiver's view no longer matches its saved session.");
+        }
+        if target.hidden {
+            return fail("The user hid this session from other agents.");
+        }
+        if target.busy
+            || target.resuming
+            || matches!(
+                target.status,
+                TabStatus::Running | TabStatus::Starting | TabStatus::Restarting
+            )
+        {
+            return fail("The view is busy or running; an exact view close never aborts work.");
+        }
+        if waits(target) || target.status == TabStatus::Waiting {
+            return fail("The view is waiting for an answer or plan approval.");
+        }
+        if matches!(tab_close_step(&facts(target), true), TabCloseStep::Keep(_)) {
+            return fail("The view holds unsaved Files edits and stays open.");
+        }
+        let initial_person = self.person_turn_answer(&caller).await?;
+        let mut by_person = Some(initial_person);
+        let state = self.host.state();
+        if !state.enabled {
+            return fail(crate::agentctl::service::TURNED_OFF);
+        }
+        let Some(tabs) = state.tabs(caller_tab_id) else {
+            return fail(crate::agentctl::service::TAB_GONE);
+        };
+        if !tabs.iter().any(same_caller_run) {
+            return fail("The original caller's tab or run changed during view authorization.");
+        }
+        let local = view.handle.view_host == local_view_host
+            && tabs.iter().any(|tab| {
+                tab.tab_id == view.handle.tab_id
+                    && saved_id_of_path(tab.session_path.as_deref()).as_deref()
+                        == Some(view.handle.session.as_str())
+            });
+        if local && target.tab_id == caller_tab_id {
+            return fail("You cannot close your own session with this tool.");
+        }
+        // A remote view carries no source-local opener record, so it never inherits local ownership.
+        let own = local && self.opened_by(&state, caller_tab_id, &tabs).contains(&target.tab_id);
+        let flags = StopFlags {
+            close: true,
+            delete: false,
+        };
+        if !self.allowed(&caller, target, own, &mut by_person).await {
+            return fail(in_use_refusal(target, flags));
+        }
+        // Both authenticated hosts must grant elevated control; either host can require the original caller's card.
+        if !self
+            .confirm_stop(
+                &caller,
+                target,
+                own,
+                flags,
+                (
+                    state.full_enabled && view.full_enabled,
+                    state.manage_enabled && view.manage_enabled,
+                ),
+            )
+            .await?
+        {
+            return fail("The user declined the view close. Do not ask again unless they tell you to.");
+        }
+        let state = self.host.state();
+        if !state.enabled || !state.tabs.iter().any(same_caller_run) {
+            return fail("The original caller's tab or run changed, or its control tools are turned off.");
+        }
+        if self.person_turn_answer(&caller).await? != initial_person {
+            return fail("The original caller's turn provenance changed during view authorization.");
+        }
+        let state = self.host.state();
+        if !state.enabled || !state.tabs.iter().any(same_caller_run) {
+            return fail("The original caller's tab or run changed, or its control tools are turned off.");
+        }
+        Ok(())
     }
 
     /// `#abort`: stock's abort, answered within `wait_ms` (true) or not yet (false); it is sent either way and never
@@ -393,53 +560,22 @@ impl AgentControl {
             close: args.close.unwrap_or(false),
             delete: args.delete.unwrap_or(false),
         };
-        let caller_name = if caller.title.is_empty() {
-            "—"
-        } else {
-            &caller.title
-        };
-        let target_name = if target.title.is_empty() {
-            &target.tab_id
-        } else {
-            &target.title
-        };
-        let params = [("caller", caller_name), ("target", target_name)];
         let mut by_person: Option<bool> = None;
         if !self.allowed(caller, target, own, &mut by_person).await {
             return self.refuse_in_use(caller, tabs, target, flags);
         }
-        // Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed
-        // into it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever
-        // opened it.
-        let resting = !target.busy && !waits(target) && !needs_person_turn(&facts(target), false);
-        let harmless = args.close == Some(true) && args.delete != Some(true) && resting;
         let (full, manage) = {
             let state = self.host.state();
             (state.full_enabled, state.manage_enabled)
         };
-        if !own && !harmless && !full && (args.delete == Some(true) || !manage) {
-            let state = self.host.state();
-            let message = if flags.delete {
-                "deleteMessage"
-            } else if flags.close {
-                "closeMessage"
-            } else {
-                "stopMessage"
-            };
-            let approved = self
-                .host
-                .confirm(
-                    &caller.tab_id,
-                    &state.text("stopTitle", &params),
-                    &state.text(message, &params),
-                )
-                .await?;
-            if !approved {
-                return Ok(format!(
-                    "The user declined: {} keeps running. Do not ask again unless they tell you to.",
-                    label(target)
-                ));
-            }
+        if !self
+            .confirm_stop(caller, target, own, flags, (full, manage))
+            .await?
+        {
+            return Ok(format!(
+                "The user declined: {} keeps running. Do not ask again unless they tell you to.",
+                label(target)
+            ));
         }
         self.mem().closing.insert(target.tab_id.clone());
         let running = target.busy && target.status.is_up();
@@ -586,6 +722,9 @@ impl AgentControl {
                 .map_or_else(String::new, |name| format!(" on {name}"))
         );
         if args.delete != Some(true) {
+            if row.elsewhere.is_some() {
+                return fail("This saved session is open elsewhere. Use an exact view handle from ompdesk_sessions scope app with close:true and view to close only that view.");
+            }
             return Ok(format!(
                 "{name} is not open in any tab: nothing to stop or close."
             ));

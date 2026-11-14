@@ -1863,6 +1863,8 @@ export interface IpcGetSessionOwnerPayload {
 
 export interface IpcCloseTabPayload {
 	tabId: string;
+	closeRequest?: string;
+	rejected?: boolean;
 }
 
 export interface IpcFileEditReportPayload {
@@ -2436,7 +2438,7 @@ export interface OmpApi {
 		 */
 		spawn(payload: IpcSpawnTabPayload): Promise<IpcSpawnTabResult | null>;
 		/** Release a tab's sidecar. False when the tab is unknown or foreign. */
-		close(tabId: string): Promise<boolean>;
+		close(tabId: string, closeRequest?: string, rejected?: boolean): Promise<boolean>;
 		/** Move full event forwarding to this tab. False when unknown or foreign. */
 		setActive(tabId: string): Promise<boolean>;
 		/** Set the focused tab plus up to four tabs rendered by the window. */

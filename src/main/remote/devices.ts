@@ -93,7 +93,7 @@ import {
 	VersionedSummariesSchema,
 } from "./app-protocol";
 import { HELLO_CAPABILITIES, RemoteClient, RemoteError, type WakeTrigger } from "./client";
-import { type HostMachineInfo, RemoteHost } from "./host-server";
+import { type HostConnection, type HostMachineInfo, RemoteHost } from "./host-server";
 import type { LocalHostServices } from "./host-services";
 import { HostSessionList } from "./host-session-list";
 import type { Identity } from "./identity";
@@ -106,6 +106,8 @@ import { REFUSAL_CODES } from "./protocol";
 import { PendingTabCloses, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
 import { SharingCore, type SharingSnapshot, type TailnetAccess } from "./sharing";
 import { TranscriptCache } from "./transcript-cache";
+import type { ViewControl, ViewTransport } from "./view-control";
+import type { Link } from "./wire";
 
 const ModelWaitCountsSchema = z.object({ counts: z.record(z.string(), z.number().int().nonnegative()) });
 const RenamePayload = z.object({ deviceId: z.string().min(1), name: z.string() });
@@ -274,6 +276,7 @@ export class RemoteDevices {
 	/** Every host's transcripts this device read (subagent journals, tail pages): one folder for all tabs and hosts. */
 	readonly #transcripts: TranscriptCache;
 	readonly #links = new Map<string, HostLink>();
+	#viewControl: ViewControl | null = null;
 	#host: RemoteHost | null = null;
 	#disposed = false;
 	readonly #keepAwake: KeepAwakePolicy;
@@ -442,6 +445,33 @@ export class RemoteDevices {
 	/** This computer's OMPdesk device id (what the computers it shares with know it by). */
 	get deviceId(): string {
 		return this.#identity.deviceId;
+	}
+
+	attachViewControl(control: ViewControl): void {
+		this.#viewControl = control;
+		this.#deps.services.attachViewControl(control);
+	}
+
+	viewTransport(): ViewTransport {
+		return {
+			peers: () => [...new Set([...this.onlineHosts(), ...(this.#viewControl?.incomingPeers() ?? [])])],
+			channel: peer => {
+				const client = this.#links.get(peer)?.client;
+				const link = client?.viewLink;
+				if (client && link) {
+					return {
+						identity: link,
+						request: (method, params, timeoutMs) => {
+							if (!["views.list", "views.close", "views.authorize"].includes(method)) {
+								return Promise.reject(new Error("Unsupported view method"));
+							}
+							return client.requestOnLink(link, method, params, timeoutMs);
+						},
+					};
+				}
+				return this.#viewControl?.incomingChannel(peer) ?? null;
+			},
+		};
 	}
 
 	/** A device may still use this computer: paired here and its Tailscale node (or login) not blocked. */
@@ -923,6 +953,71 @@ export class RemoteDevices {
 			name: () => this.deviceName(),
 			sharing,
 			log: this.#deps.logLink,
+		});
+		let viewLink: Link | null = null;
+		let viewConn: HostConnection | null = null;
+		client.onLinkChange(next => {
+			if (viewLink && viewLink !== next) {
+				this.#viewControl?.dropIdentity(deviceId, viewLink);
+				if (viewConn) this.#viewControl?.disconnected(deviceId, viewConn);
+				viewConn = null;
+			}
+			viewLink = next;
+		});
+		client.onViewEvent((eventLink, event, data) => {
+			const control = this.#viewControl;
+			if (!control || client.viewLink !== eventLink) return;
+			if (event === "views.challenge") {
+				void control.challenge(deviceId, eventLink, data).catch(() => {});
+				return;
+			}
+			if (event !== "views.request") return;
+			const parsed = z
+				.object({
+					requestId: z.string().regex(/^[a-f0-9]{64}$/),
+					method: z.enum(["views.list", "views.close", "views.authorize"]),
+					params: z.unknown(),
+				})
+				.strict()
+				.safeParse(data);
+			if (!parsed.success) return;
+			if (!viewConn) {
+				const peer: PeerInfo = {
+					deviceId: paired.deviceId,
+					name: paired.name,
+					staticPub: paired.staticPub,
+					nodeId: paired.nodeId,
+					login: null,
+					pairedAt: paired.pairedAt,
+				};
+				viewConn = {
+					peer,
+					emit: (name, value) => {
+						if (name !== "views.challenge") throw new Error("Unsupported view event");
+						void client
+							.requestOnLink(eventLink, "views.authorize", { kind: "event", event: name, data: value })
+							.catch(() => {});
+					},
+					close: () => client.close(),
+				};
+				control.connectedOutgoing(viewConn);
+			}
+			const conn = viewConn;
+			const { requestId, method, params } = parsed.data;
+			void control
+				.call(deviceId, method, params, conn)
+				.then(
+					result =>
+						client.requestOnLink(eventLink, "views.authorize", { kind: "reply", requestId, ok: true, result }),
+					error =>
+						client.requestOnLink(eventLink, "views.authorize", {
+							kind: "reply",
+							requestId,
+							ok: false,
+							error: error instanceof Error ? error.message : String(error),
+						}),
+				)
+				.catch(() => {});
 		});
 		const link: HostLink = {
 			client,

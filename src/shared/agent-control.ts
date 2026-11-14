@@ -193,6 +193,8 @@ export interface AgentControlViewEvent {
 	how: AgentControlPlacement | "close";
 	/** A close main decided on itself (an opened session's work landed): the window refuses it for a tab the person is using. */
 	auto?: true;
+	/** Single-use main-owned request, bound to the exact window surface; its IPC acknowledgement performs the final guard. */
+	closeRequest?: string;
 }
 
 /** Prefs key (written by main): opened sessions whose tab was closed automatically, so the opener's family still lists them. */

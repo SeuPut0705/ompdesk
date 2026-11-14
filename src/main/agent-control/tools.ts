@@ -595,6 +595,20 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				session: SESSION,
 				close: { type: "boolean", description: "Also close the tab; default false." },
 				delete: { type: "boolean", description: "Also delete the saved session; default false." },
+				view: {
+					type: "object",
+					description:
+						"Exact visible view handle from ompdesk_sessions scope app. Requires close:true, no delete or device, and session equal to view.session. Closes only that completed view, preserving its execution, saved session and other views.",
+					properties: {
+						viewHost: { type: "string", minLength: 1 },
+						window: { type: "string", minLength: 1 },
+						tabId: { type: "string", minLength: 1 },
+						session: { type: "string", minLength: 1 },
+						incarnation: { type: "string", minLength: 1 },
+					},
+					required: ["viewHost", "window", "tabId", "session", "incarnation"],
+					additionalProperties: false,
+				},
 				device: {
 					...DEVICE,
 					description: `${DEVICE.description} Where a stored session id is saved; default this computer or the last stored list.`,
@@ -846,8 +860,24 @@ export const ARGS = {
 			close: z.boolean().optional(),
 			delete: z.boolean().optional(),
 			device: deviceArg.optional(),
+			view: z
+				.object({
+					viewHost: z.string().min(1),
+					window: z.string().min(1),
+					tabId: z.string().min(1),
+					session: z.string().min(1),
+					incarnation: z.string().min(1),
+				})
+				.strict()
+				.optional(),
 		})
-		.strict(),
+		.strict()
+		.refine(args => !args.view || (args.close === true && args.delete !== true && args.device === undefined), {
+			message: "view requires close:true, delete must not be true, and device must be omitted",
+		})
+		.refine(args => !args.view || args.session === args.view.session, {
+			message: "session must equal view.session (the full saved session id)",
+		}),
 	[T.compare]: z
 		.object({
 			sessions: z.array(sessionArg).min(1).optional(),

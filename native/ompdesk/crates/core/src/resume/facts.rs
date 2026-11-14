@@ -33,6 +33,7 @@ pub struct Fact {
     pub win_id: i64,
     pub device: Option<String>,
     pub peer: Option<String>,
+    pub owner_detached: bool,
     pub session_file: Option<String>,
     pub cwd: String,
     pub kind: String,
@@ -91,6 +92,8 @@ pub struct MarkerData {
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub background: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owner_detached: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -155,6 +158,7 @@ pub fn derive_markers(
             prompt: truthy(&fact.unsaved_prompt)
                 .then(|| fact.unsaved_prompt.clone().unwrap_or_default()),
             background: fact.settling && reason != Reason::Network,
+            owner_detached: fact.owner_detached,
         });
     }
     markers
@@ -254,6 +258,26 @@ mod tests {
             serde_json::to_string(&markers).expect("json"),
             r#"[{"window":1,"tab":"t1","sessionPath":"/s/a.jsonl","cwd":"/work","kind":"agent","startedAt":500.0,"reason":"running"}]"#
         );
+    }
+
+    #[test]
+    fn preserves_a_detached_owner_without_changing_older_markers() {
+        let markers = derive_markers(
+            &[fact(json!({"running": true, "peer": "device-b", "ownerDetached": true}))],
+            &[],
+            500.0,
+            &HashSet::new(),
+        );
+        let wire = serde_json::to_value(&markers[0]).expect("marker json");
+        assert_eq!(wire["ownerDetached"], true);
+        assert_eq!(wire["peer"], "device-b");
+        let restored: MarkerData = serde_json::from_value(wire).expect("restored marker");
+        assert!(restored.owner_detached);
+        assert_eq!(launch_action(&restored), Action::Restore);
+        let mut older = serde_json::to_value(&restored).expect("marker json");
+        older.as_object_mut().expect("object").remove("ownerDetached");
+        let restored: MarkerData = serde_json::from_value(older).expect("older marker");
+        assert!(!restored.owner_detached);
     }
 
     #[test]
@@ -365,6 +389,7 @@ mod tests {
             peer: None,
             prompt: None,
             background,
+            owner_detached: false,
         };
         assert_eq!(
             launch_action(&marker(Reason::Running, false)),

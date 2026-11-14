@@ -129,6 +129,7 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
                 device: p.os("device"),
                 task: p.os("task"),
                 former_ids: p.has("formerIds").then(|| p.strings("formerIds")),
+                owner_detached: p.b("ownerDetached"),
             };
             let (ok, added) = ctx.acquire(args).await?;
             Ok(json!({"ok": ok, "added": added}))
@@ -229,7 +230,7 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
                 .is_some_and(|entry| entry.hosted_view)
         }))),
         // ---- paired devices' views ----
-        "viewTarget" => now(ctx.view_target(&p.s("path").unwrap_or_default())),
+        "viewTarget" => Outcome::Now(ctx.view_target(&p.s("path").unwrap_or_default())),
         "deviceViewAdded" => {
             later(async move { done(ctx.device_view_added(&p.s("tab")?, view(&p)?).await) })
         }
@@ -325,6 +326,29 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
                 .map_or(Value::Null, |owner| Value::from(owner.tab_id.clone()))
         })),
         // ---- windows ----
+        "viewIdentity" => now(ctx.with(|pool| {
+            pool.entry(&p.s("tab").unwrap_or_default())
+                .and_then(|entry| entry.view_identity(p.i("win").unwrap_or(0)))
+                .map_or(Value::Null, Value::from)
+        })),
+        "leaveWindowView" => later(async move {
+            done(
+                ctx.leave_exact_window_view(
+                    token(&p)?,
+                    p.i("guard")?
+                        .try_into()
+                        .map_err(|_| Fault::new("bad_params", "Invalid view guard"))?,
+                    p.i("win")?,
+                    &p.s("tab")?,
+                    &p.s("identity")?,
+                    &p.s("sessionPath")?,
+                )
+                .await,
+            )
+        }),
+        "continuationSettled" => later(async move {
+            done(ctx.release_hidden_if_unused(&p.s("tab")?, true).await)
+        }),
         "attachViewer" => later(async move {
             Ok(Value::from(
                 ctx.attach_viewer(p.i("win")?, &p.s("tab")?).await?,

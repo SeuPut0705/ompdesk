@@ -370,46 +370,52 @@ describe("session list snapshot", () => {
 		}
 	});
 
-	it.each(["global", "local"] as const)("a rejected %s delete leaves real rows and pending reads intact", async scope => {
-		vi.useFakeTimers();
-		const before = [row("/P"), row("/kept")];
-		const read = Promise.withResolvers<SessionInfo[]>();
-		const deletion = Promise.withResolvers<void>();
-		install(() => read.promise, () => deletion.promise);
-		for (const each of ["global", "local"] as const) snapshots().write("sessions", "local", each, before);
-		const global = sessionListFeed("global");
-		const local = sessionListFeed("local");
-		const releases = [global.retain(), local.retain()];
-		const observed: string[][] = [];
-		const subscriptions = [global, local].map(feed =>
-			feed.store.subscribe(state => observed.push(state.sessions.map(s => s.path))),
-		);
-		try {
-			const deleting = sessionListFeed(scope).deleteSession("/P");
-			const rejected = expect(deleting).rejects.toThrow("delete refused");
-			deletion.reject(new Error("delete refused"));
-			await rejected;
-			for (const feed of [global, local])
-				expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/P", "/kept"]);
-			for (const each of ["global", "local"] as const)
-				expect(
-					snapshots()
-						.read<SessionInfo[]>("sessions", "local", each)
-						?.value.map(s => s.path),
-				).toEqual(["/P", "/kept"]);
+	it.each(["global", "local"] as const)(
+		"a rejected %s delete leaves real rows and pending reads intact",
+		async scope => {
+			vi.useFakeTimers();
+			const before = [row("/P"), row("/kept")];
+			const read = Promise.withResolvers<SessionInfo[]>();
+			const deletion = Promise.withResolvers<void>();
+			install(
+				() => read.promise,
+				() => deletion.promise,
+			);
+			for (const each of ["global", "local"] as const) snapshots().write("sessions", "local", each, before);
+			const global = sessionListFeed("global");
+			const local = sessionListFeed("local");
+			const releases = [global.retain(), local.retain()];
+			const observed: string[][] = [];
+			const subscriptions = [global, local].map(feed =>
+				feed.store.subscribe(state => observed.push(state.sessions.map(s => s.path))),
+			);
+			try {
+				const deleting = sessionListFeed(scope).deleteSession("/P");
+				const rejected = expect(deleting).rejects.toThrow("delete refused");
+				deletion.reject(new Error("delete refused"));
+				await rejected;
+				for (const feed of [global, local])
+					expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/P", "/kept"]);
+				for (const each of ["global", "local"] as const)
+					expect(
+						snapshots()
+							.read<SessionInfo[]>("sessions", "local", each)
+							?.value.map(s => s.path),
+					).toEqual(["/P", "/kept"]);
 
-			read.resolve([...before, row("/new")]);
-			await vi.runAllTimersAsync();
-			for (const feed of [global, local])
-				expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/P", "/kept", "/new"]);
-			expect(observed.length).toBeGreaterThan(0);
-			for (const paths of observed) expect(paths).toContain("/P");
-		} finally {
-			for (const unsubscribe of subscriptions) unsubscribe();
-			for (const release of releases) release();
-			vi.useRealTimers();
-		}
-	});
+				read.resolve([...before, row("/new")]);
+				await vi.runAllTimersAsync();
+				for (const feed of [global, local])
+					expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/P", "/kept", "/new"]);
+				expect(observed.length).toBeGreaterThan(0);
+				for (const paths of observed) expect(paths).toContain("/P");
+			} finally {
+				for (const unsubscribe of subscriptions) unsubscribe();
+				for (const release of releases) release();
+				vi.useRealTimers();
+			}
+		},
+	);
 
 	it("a session deleted on another device leaves the local list's copy once the global list is read (a phone reload)", async () => {
 		snapshots().write("sessions", "local", "local", [row("/gone"), row("/b")]);

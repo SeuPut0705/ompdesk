@@ -42,6 +42,12 @@ pub(super) struct Entry {
     pub device: Option<String>,
     /// Windows besides the owner that show the tab (multi-viewer), in the order they joined.
     pub viewers: Vec<i64>,
+    pub owner_detached: bool,
+    pub view_serial: u64,
+    pub view_generations: OMap<i64, u64>,
+    pub session_generation: u64,
+    pub run_revision: u64,
+    pub leave_pending: bool,
     /// Latest `setStatus` per key, `setWidget` per key and `setTitle` (keys `status:`, `widget:`, `title`).
     pub ui_state: Option<OMap<String, Value>>,
     pub hosted_view: bool,
@@ -104,6 +110,16 @@ impl Entry {
             win_id,
             device: None,
             viewers: Vec::new(),
+            owner_detached: false,
+            view_serial: 0,
+            view_generations: {
+                let mut generations = OMap::default();
+                generations.insert(win_id, 0);
+                generations
+            },
+            session_generation: 0,
+            run_revision: 0,
+            leave_pending: false,
             ui_state: None,
             hosted_view: false,
             device_views: Vec::new(),
@@ -149,7 +165,26 @@ impl Entry {
 
     /// `windowOf(entry, winId)`: whether window `win_id` shows the tab (its owner, or one of its viewers).
     pub(super) fn shown_in(&self, win_id: i64) -> bool {
-        self.win_id == win_id || self.viewers.contains(&win_id)
+        (!self.owner_detached && self.win_id == win_id) || self.viewers.contains(&win_id)
+    }
+
+    pub(super) fn view_identity(&self, win: i64) -> Option<String> {
+        if !self.shown_in(win) {
+            return None;
+        }
+        let generation = self.view_generations.get(&win)?;
+        serde_json::to_string(&(
+            self.seq,
+            generation,
+            self.session_generation,
+            self.prompted,
+            self.touched,
+            self.exits,
+            self.run_revision,
+            &self.session_id,
+            &self.session_file,
+        ))
+        .ok()
     }
 
     pub(super) fn busy(&self) -> bool {
@@ -340,7 +375,10 @@ impl Pool {
 
     /// Windows that show the tab: its owner, then its viewers.
     pub(super) fn windows_of(entry: &Entry) -> Vec<i64> {
-        let mut wins = vec![entry.win_id];
+        let mut wins = Vec::with_capacity(entry.viewers.len() + usize::from(!entry.owner_detached));
+        if !entry.owner_detached {
+            wins.push(entry.win_id);
+        }
         wins.extend(entry.viewers.iter().copied());
         wins
     }

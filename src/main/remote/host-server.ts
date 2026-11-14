@@ -39,6 +39,7 @@ export type HostMachineInfo = Pick<HostHello, "platform" | "ompVersion" | "home"
 
 export interface HostServices {
 	call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown>;
+	connected?(peer: PeerInfo, conn: HostConnection): void;
 	disconnected(peer: PeerInfo, conn: HostConnection): void;
 }
 
@@ -294,7 +295,11 @@ export class RemoteHost {
 		});
 		link.listen(message => this.#onMessage(conn, message));
 		// Told once the core has the answer: the hello goes out before anything else on the link.
-		queueMicrotask(() => this.#emitter.emit("connectionsChanged"));
+		queueMicrotask(() => {
+			if (!this.#connections.has(conn)) return;
+			this.#opts.services.connected?.(conn.peer, conn);
+			this.#emitter.emit("connectionsChanged");
+		});
 		return {
 			hello: answer,
 			deflate: conn.slim.deflate,

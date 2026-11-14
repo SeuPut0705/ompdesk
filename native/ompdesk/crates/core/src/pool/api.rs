@@ -249,7 +249,8 @@ impl Ctx {
     pub(super) fn window_of_tab(&self, tab: &str) -> Value {
         self.with(|pool| {
             pool.entry(tab)
-                .map_or(Value::Null, |entry| Value::from(entry.win_id))
+                .and_then(|entry| if entry.owner_detached { entry.viewers.first().copied() } else { Some(entry.win_id) })
+                .map_or(Value::Null, Value::from)
         })
     }
 
@@ -274,8 +275,10 @@ impl Ctx {
         self.with(|pool| {
             let mut wins: Vec<i64> = Vec::new();
             for entry in &pool.entries {
-                if !wins.contains(&entry.win_id) {
-                    wins.push(entry.win_id);
+                for win in entry.view_generations.keys() {
+                    if !wins.contains(win) {
+                        wins.push(*win);
+                    }
                 }
             }
             json!(wins)
@@ -482,6 +485,9 @@ impl Ctx {
                     let mut fact = Map::new();
                     fact.insert("tabId".into(), Value::from(entry.tab_id.clone()));
                     fact.insert("winId".into(), Value::from(entry.win_id));
+                    if entry.owner_detached {
+                        fact.insert("ownerDetached".into(), Value::from(true));
+                    }
                     fact.insert("cwd".into(), facts[entry.tab_id.as_str()]["cwd"].clone());
                     fact.insert("kind".into(), Value::from(entry.kind.clone()));
                     fact.insert("running".into(), Value::from(run.running));
@@ -1497,14 +1503,17 @@ impl Ctx {
     // ---- devices' views of a tab ----------------------------------------------------------------------------------
 
     /// `viewForDevice`'s test: the tab of a window of this computer that holds `path` (not a hosted view's, not a host's).
-    pub(super) fn view_target(&self, path: &str) -> Value {
+    pub(super) fn view_target(&self, path: &str) -> R<Value> {
         self.with(|pool| {
             let entry = pool
                 .session_owners
                 .get(&path.to_string())
                 .and_then(|owner| pool.entry(&owner.tab_id))
                 .filter(|entry| !entry.hosted_view && entry.device.is_none());
-            opt(entry.map(|entry| entry.tab_id.clone()))
+            if entry.is_some_and(|entry| entry.leave_pending) {
+                return Err(fault("session_running", "This session's last view is leaving"));
+            }
+            Ok(opt(entry.map(|entry| entry.tab_id.clone())))
         })
     }
 
@@ -1536,6 +1545,8 @@ impl Ctx {
             .await?;
         if live {
             self.send_tab_lists(tab).await?;
+            self.push(&json!({"k": "viewTargetChanged", "tab": tab}));
+            self.release_hidden_if_unused(tab, false).await?;
         }
         Ok(())
     }
@@ -1685,6 +1696,7 @@ impl Ctx {
                         fresh: path.is_none(),
                         placeholder: tab["placeholder"].as_bool() == Some(true),
                         defer_start: true,
+                        owner_detached: false,
                         title: tab["title"].as_str().map(str::to_string),
                         device: device.map(str::to_string),
                         task: None,
@@ -1813,6 +1825,10 @@ impl Ctx {
                     tab["status"].as_str().unwrap_or("asleep").to_string(),
                 );
                 entry.device = tab["device"].as_str().map(str::to_string);
+                entry.owner_detached = tab["ownerDetached"].as_bool() == Some(true);
+                if entry.owner_detached {
+                    entry.view_generations.remove(&win);
+                }
                 // The file the tab held: it owns it again (F-OWN), as at its acquire. Tabs come in acquisition order.
                 if let Some(file) = tab["sessionFile"].as_str().filter(|file| !file.is_empty()) {
                     entry.session_file = Some(file.to_string());
@@ -1840,7 +1856,9 @@ impl Ctx {
                 pool.entries.push(entry);
                 seq
             });
-            self.when_closed(win, super::state::Closer::Entry(seq));
+            if tab["ownerDetached"].as_bool() != Some(true) {
+                self.when_closed(win, super::state::Closer::Entry(seq));
+            }
             if !windows.contains(&win) {
                 windows.push(win);
             }

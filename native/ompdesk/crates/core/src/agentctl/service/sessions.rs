@@ -288,8 +288,41 @@ impl AgentControl {
             .map(|row| row.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
+        let mut views = Vec::new();
+        if args.scope.as_deref() == Some("app") && !mine {
+            for view in self.host.list_views().await? {
+                let tab = &view.tab;
+                let kind = if waits(tab) {
+                    "waiting"
+                } else if tab.busy || tab.resuming || tab.status == TabStatus::Running {
+                    "running"
+                } else {
+                    "idle"
+                };
+                if folder.is_some_and(|folder| !tab.cwd.contains(folder))
+                    || status.is_some_and(|status| status != kind)
+                    || query.as_ref().is_some_and(|query| {
+                        tab.hidden || !tab.title.to_lowercase().contains(query.as_str())
+                    })
+                {
+                    continue;
+                }
+                views.push(
+                    serde_json::to_string(&view.handle)
+                        .map_err(|error| super::fail::Fail::other(error.to_string()))?,
+                );
+            }
+        }
+        let view_lines = if views.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\nExact view handles (close:true with view):\n{}",
+                views.join("\n")
+            )
+        };
         Ok(format!(
-            "{} session{} {where_}:\n{shown}{more}{others}\n{}",
+            "{} session{} {where_}:\n{shown}{more}{others}\n{}{view_lines}",
             kept.len(),
             if kept.len() == 1 { "" } else { "s" },
             self.devices_line(&state)

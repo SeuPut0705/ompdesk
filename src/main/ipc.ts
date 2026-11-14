@@ -140,6 +140,7 @@ import {
 } from "./agent-browsers";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import type { AnswerStep } from "./agent-control/target-answer";
+import { LocalViewHost } from "./agent-control/view-host";
 import { appNotification } from "./app-icon";
 import { quitApproved, requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
@@ -185,6 +186,7 @@ import type { LocalHostServices } from "./remote/host-services";
 import { uploadToHost } from "./remote/host-upload";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
 import { RemoteImageReads } from "./remote/image-reads";
+import { ViewControl } from "./remote/view-control";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 import { SafeStore } from "./safe-store";
@@ -280,6 +282,7 @@ export interface IpcDeps {
 		| "stopSessionTurns"
 		| "renameSession"
 		| "listingChanged"
+		| "attachViewControl"
 	>;
 	/** The one builder of what every row shows of this computer's sessions (session-summaries.ts). */
 	summaries: Pick<SessionSummaries, "current" | "onChange">;
@@ -1436,6 +1439,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			hosts: () => remoteDevices.state().hosts,
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
 		},
+		views: {
+			list: () => viewControl.list(),
+			close: (callerTabId, handle) =>
+				viewControl.close(handle, agentControl.viewAuthorizer(callerTabId, remoteDevices.deviceId)),
+		},
 		summaries: device => (device ? remoteDevices.summaries(device) : deps.summaries.current()),
 		// The desktop banner and paired phones (Web Push), as an Autopilot run's notice reaches them.
 		notify: (win, tabId, title, body) => {
@@ -1481,6 +1489,36 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return response === 0;
 		},
 	});
+	const localViews = new LocalViewHost({
+		surfaces: () => agentControl.viewSurfaces(remoteDevices.deviceId),
+		isWeb: win => isWebWindow(win.webContents.id),
+		timeoutMs: CARD_TIMEOUT_MS,
+		close: async (surface, stillClosable) => {
+			const { handle, tab } = surface.facts;
+			if (!tab.sessionPath) return false;
+			const released = await sidecarPool.leaveWindowView(
+				surface.win,
+				handle.tabId,
+				handle.incarnation,
+				tab.sessionPath,
+				stillClosable,
+			);
+			if (released) {
+				closeTabTerminals(surface.win.webContents.id, handle.tabId);
+				sidecarPool.announceClosed(surface.win, handle.tabId);
+			}
+			return released;
+		},
+	});
+	const viewControl = new ViewControl({
+		deviceId: () => remoteDevices.deviceId,
+		listLocal: () => localViews.list(),
+		closeLocal: (handle, facts) => localViews.close(handle, facts),
+		remote: remoteDevices.viewTransport(),
+		timeoutMs: CARD_TIMEOUT_MS,
+	});
+	remoteDevices.attachViewControl(viewControl);
+	deps.hostedTabs.attachViewControl(viewControl);
 	const pruneSchedules = () =>
 		void deps
 			.schedules?.()
@@ -1731,6 +1769,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.CLOSE_TAB, async (caller, payload: IpcCloseTabPayload) => {
 		const win = caller.win;
 		if (!win || typeof payload?.tabId !== "string") return false;
+		if (payload.closeRequest !== undefined) {
+			if (typeof payload.closeRequest !== "string") return false;
+			return localViews.complete(win, payload.tabId, payload.closeRequest, payload.rejected === true);
+		}
+		if (payload.rejected !== undefined) return false;
 		return closeWindowTab(tabRelease, win, payload.tabId, caller.sender.id);
 	});
 

@@ -234,6 +234,8 @@ export class RemoteClient {
 	/** `connect` was called: the core is reconnecting this link. */
 	#running = false;
 	#nextId = 1;
+	readonly #viewEvents = new Set<(link: Link, event: string, data: unknown) => void>();
+	readonly #linkChanges = new Set<(link: Link | null) => void>();
 
 	constructor(opts: RemoteClientOptions) {
 		this.#opts = opts;
@@ -367,6 +369,25 @@ export class RemoteClient {
 		return { client: result.client, generation };
 	}
 
+	get viewLink(): Link | null {
+		return this.#state === "online" ? this.#link : null;
+	}
+
+	onViewEvent(fn: (link: Link, event: string, data: unknown) => void): void {
+		this.#viewEvents.add(fn);
+	}
+
+	onLinkChange(fn: (link: Link | null) => void): void {
+		this.#linkChanges.add(fn);
+	}
+
+	requestOnLink<T>(link: Link, method: string, params: unknown, timeoutMs?: number): Promise<T> {
+		if (this.viewLink !== link) {
+			return Promise.reject(new RemoteError("remote_offline", `${this.#host.name} is offline`));
+		}
+		return this.request<T>(method, params, timeoutMs);
+	}
+
 	/** Rejects RemoteError `remote_offline` unless online, `timeout` after `timeoutMs`. */
 	request<T>(method: string, params: unknown, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<T> {
 		const link = this.#link;
@@ -409,12 +430,16 @@ export class RemoteClient {
 		this.#hello = told.hello;
 		this.#error = told.error;
 		if (told.state === "online" && told.link !== null && this.#link?.id !== told.link) {
+			if (this.#link) this.#dropLink(`${this.#host.name} went offline`);
 			const link = new Link(told.link);
 			this.#link = link;
 			link.onClose(() => {
 				if (this.#link === link) this.#dropLink(`${this.#host.name} went offline`);
 			});
-			link.listen(message => this.#onMessage(message));
+			link.listen(message => {
+				if (this.#link === link) this.#onMessage(link, message);
+			});
+			for (const listener of this.#linkChanges) listener(link);
 		}
 		if (told.state !== "online") this.#dropLink(`${this.#host.name} went offline`);
 		this.#setState(told.state);
@@ -426,7 +451,9 @@ export class RemoteClient {
 	}
 
 	#dropLink(message: string): void {
+		const old = this.#link;
 		this.#link = null;
+		if (old) for (const listener of this.#linkChanges) listener(null);
 		for (const [id, pending] of this.#pending) {
 			clearTimeout(pending.timer);
 			this.#pending.delete(id);
@@ -440,7 +467,7 @@ export class RemoteClient {
 		this.#emitter.emit("state", state);
 	}
 
-	#onMessage(message: WireMessage): void {
+	#onMessage(link: Link, message: WireMessage): void {
 		if (message.t === "res") {
 			const response = WireResponse.safeParse(message);
 			if (!response.success) return;
@@ -457,5 +484,6 @@ export class RemoteClient {
 		}
 		const event = WireEvent.safeParse(message);
 		if (event.success) this.#emitter.emit("event", event.data.event, event.data.data);
+		if (event.success) for (const listener of this.#viewEvents) listener(link, event.data.event, event.data.data);
 	}
 }

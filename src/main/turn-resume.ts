@@ -64,6 +64,8 @@ export interface ResumeMarker {
 	tab: string;
 	/** The paired device this computer ran the tab for (host-services.ts); absent = this computer's own tab. */
 	peer?: string;
+	/** The originating device view left; revive the execution without restoring that closed view. */
+	ownerDetached?: true;
 	sessionPath: string;
 	cwd: string;
 	kind: "agent" | "chat";
@@ -92,6 +94,7 @@ export interface ResumeFact {
 	device?: string;
 	/** The paired device a tab this computer hosts runs for. */
 	peer?: string;
+	ownerDetached?: true;
 	sessionFile?: string;
 	cwd: string;
 	kind: "agent" | "chat";
@@ -343,7 +346,8 @@ export class InterruptedTurnStore {
 function sanitizeMarker(value: unknown): ResumeMarker | null {
 	if (typeof value !== "object" || value === null) return null;
 	const record = value as Record<string, unknown>;
-	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason, prompt, background } = record;
+	const { window, tab, device, peer, ownerDetached, sessionPath, cwd, kind, startedAt, reason, prompt, background } =
+		record;
 	if (
 		typeof window !== "number" ||
 		typeof tab !== "string" ||
@@ -358,6 +362,7 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 		return null;
 	const marker: ResumeMarker = { window, tab, sessionPath, cwd, kind, startedAt, reason };
 	if (typeof peer === "string" && peer) marker.peer = peer;
+	if (ownerDetached === true) marker.ownerDetached = true;
 	if (typeof prompt === "string" && prompt) marker.prompt = prompt;
 	if (background === true) marker.background = true;
 	return marker;
