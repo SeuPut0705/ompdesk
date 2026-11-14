@@ -284,3 +284,40 @@ fn reopening_after_a_pending_cleanup_failure_does_not_count_the_install_twice() 
     assert_eq!(failure.at, 5.0);
     assert!(!marker.exists());
 }
+
+#[test]
+fn a_start_mark_save_failure_still_holds_the_version_that_failed_to_start() {
+    let root = Fixture::new(&std::env::temp_dir());
+    let pending = root.0.join("update-install.json");
+    fs::write(
+        &pending,
+        r#"{"from":"1","to":"2","mode":"relaunch","trigger":"auto","at":0}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.0.join("updates/swap.log"),
+        "swap today: /a -> /b\nstart failed; previous app restored\n",
+    )
+    .unwrap();
+    let mut records = Records::new(root.0.clone(), "1".into(), 42).unwrap();
+    assert!(matches!(
+        records.first_page_loaded(5, |_, _| Err(io::Error::other("disk full"))),
+        Err(FirstPageError::StartMark(_))
+    ));
+    assert!(records.start_failed_before(Some("2")).unwrap());
+    assert!(pending.exists());
+    assert!(!root.0.join(START_MARK_FILE).exists());
+    assert!(!root.0.join(START_FAILED_FILE).exists());
+
+    let report = records
+        .first_page_loaded(9, |path, bytes| fs::write(path, bytes))
+        .unwrap()
+        .unwrap();
+    assert_eq!(report["outcome"], "rolled back");
+    let failure =
+        parse_start_failure(&fs::read_to_string(root.0.join(START_FAILED_FILE)).unwrap()).unwrap();
+    assert_eq!(failure.version, "2");
+    assert_eq!(failure.count, 1.0);
+    assert_eq!(failure.at, 5.0);
+    assert!(!pending.exists());
+}
