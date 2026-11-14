@@ -35,21 +35,17 @@ static RUNS: LazyLock<Mutex<HashMap<String, ChildStdin>>> = LazyLock::new(Defaul
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LaunchParams {
-    run: String,
-    /// This binary, as main finds it (`nativeBinPath`).
-    supervisor: String,
-    file: String,
-    args: Vec<String>,
-    shell: bool,
-    env: BTreeMap<String, String>,
-    cwd: String,
-    /// The run's log, appended to.
-    log: String,
-    /// The file omp reads as its stdin.
-    prompt: String,
-    /// The log's first lines: the command and its folder.
-    header: String,
+pub(super) struct LaunchParams {
+    pub run: String,
+    pub supervisor: String,
+    pub file: String,
+    pub args: Vec<String>,
+    pub shell: bool,
+    pub env: BTreeMap<String, String>,
+    pub cwd: String,
+    pub log: String,
+    pub prompt: String,
+    pub header: String,
 }
 
 #[derive(Serialize)]
@@ -69,8 +65,7 @@ struct Ended<'a> {
     error: Option<String>,
 }
 
-fn launch(call: &Call) -> Result<Reply, Fault> {
-    let params: LaunchParams = call.params()?;
+pub(super) fn spawn(params: &LaunchParams) -> Result<tokio::process::Child, Fault> {
     let spec = serde_json::to_string(&Spec {
         file: &params.file,
         args: &params.args,
@@ -92,9 +87,9 @@ fn launch(call: &Call) -> Result<Reply, Fault> {
             .map_or_else(Stdio::null, Stdio::from)
     };
     let runner = Runner {
-        bin: params.supervisor,
+        bin: params.supervisor.clone(),
         args: Vec::new(),
-        env: params.env,
+        env: params.env.clone(),
         timeout_ms: 0,
         max_bytes: 0,
     };
@@ -114,24 +109,32 @@ fn launch(call: &Call) -> Result<Reply, Fault> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
+    command.spawn().map_err(|error| {
+        Fault::new(
+            "spawn_failed",
+            format!("spawn {} {}", runner.bin, uv_code(&error)),
+        )
+    })
+}
+
+fn launch(call: &Call) -> Result<Reply, Fault> {
+    let params: LaunchParams = call.params()?;
     let events = call.events.clone();
-    let run = params.run;
-    let mut child = match command.spawn() {
+    let mut child = match spawn(&params) {
         Ok(child) => child,
         Err(error) => {
-            // Node told a spawn's failure as the child's `error` event: the run was started, and ended at once.
-            let error = Some(format!("spawn {} {}", runner.bin, uv_code(&error)));
             events.send(
                 "schedules.launchEnded",
                 &Ended {
-                    run: &run,
+                    run: &params.run,
                     code: None,
-                    error,
+                    error: Some(error.message),
                 },
             );
             return Reply::json(&());
         }
     };
+    let run = params.run;
     if let Some(stdin) = child.stdin.take() {
         locked(&RUNS).insert(run.clone(), stdin);
     }

@@ -452,12 +452,20 @@ impl Engine {
                 let enabled = request.get("enabled") == Some(&Value::Bool(true));
                 self.schedules[at].insert("enabled".into(), enabled.into());
                 let id = id_of(&self.schedules[at]).to_owned();
+                if !enabled {
+                    self.invalidate_pending(&id);
+                }
                 self.pending.remove(&id);
                 self.chain.remove(&id);
                 self.reschedule(at);
             }
             Some("setPaused") => {
                 self.paused = request.get("paused") == Some(&Value::Bool(true));
+                if self.paused {
+                    for active in self.active.values_mut().filter(|active| !active.launched) {
+                        active.stop_requested = true;
+                    }
+                }
                 self.reschedule_all();
             }
             Some("runNow") => {
@@ -576,6 +584,8 @@ impl Engine {
             }
         }
         if let Some(at) = existing {
+            let id = id_of(&self.schedules[at]).to_owned();
+            self.invalidate_pending(&id);
             let schedule = &mut self.schedules[at];
             // `Object.assign`: a member it has keeps its place, a new one goes last.
             for (name, value) in clean {
@@ -764,6 +774,10 @@ impl Engine {
         let held = self.held.remove(&ask)?;
         let (Held::Due { schedule, .. } | Held::Event { schedule, .. } | Held::RunNow { schedule }) =
             &held;
+        let cancelled = self
+            .active
+            .get(schedule)
+            .is_none_or(|active| active.stop_requested);
         if self
             .active
             .get(schedule)
@@ -771,7 +785,7 @@ impl Engine {
         {
             self.active.remove(schedule);
         }
-        let at = self.find(schedule).filter(|_| !self.closed);
+        let at = self.find(schedule).filter(|_| !self.closed && !cancelled);
         let Some(at) = at else {
             // Deleted, or the service closed, while main was asked: nothing starts, nothing is spent.
             if refused.is_none() {
@@ -881,12 +895,34 @@ impl Engine {
             .map(|(id, _)| id.clone())
     }
 
+    /// Called under the host's engine lock through the actual spawn or wake commit.
+    pub fn launch_allowed(&self, run: &str) -> bool {
+        !self.closed
+            && self.running(run).is_some_and(|id| {
+                self.find(&id).is_some()
+                    && self
+                        .active
+                        .get(&id)
+                        .is_some_and(|active| !active.launched && !active.stop_requested)
+            })
+    }
+
+    fn invalidate_pending(&mut self, id: &str) {
+        if let Some(active) = self.active.get_mut(id).filter(|active| !active.launched) {
+            active.stop_requested = true;
+        }
+    }
+
     /// The host made a run's files (`failed`: why it could not, or its folder is gone): main is asked to start it.
     pub fn prepared(&mut self, run: &str, failed: Option<String>, now: i64) {
         self.now = now;
         let Some(id) = self.running(run) else {
             return;
         };
+        if !self.launch_allowed(run) {
+            self.ended(run, None, failed, now);
+            return;
+        }
         let schedule = self.find(&id).map(|at| &self.schedules[at]);
         let wake = schedule.is_some_and(|schedule| schedule.contains_key("wakeSession"));
         let failed = failed.or_else(|| {
@@ -922,6 +958,9 @@ impl Engine {
         let Some(active) = self.active.get_mut(&id) else {
             return;
         };
+        if active.launched {
+            return;
+        }
         active.launched = true;
         if active.stop_requested {
             self.outs.push(Out::Stop {
