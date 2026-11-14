@@ -5250,9 +5250,9 @@ describe("SidecarPool and a lost core", () => {
 		expect(rebuiltViewId).toEqual(expect.any(String));
 		expect(rebuiltViewId).not.toBe(originalViewId);
 		window.sent.length = 0;
-		sidecar.emitAgentEvents(["message_end"]);
+		sidecar.emitAgentEvents(["message_start"]);
 		expect(window.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
-			{ tabId: "reseed-stream", viewId: rebuiltViewId, payload: [{ type: "message_end" }] },
+			{ tabId: "reseed-stream", viewId: rebuiltViewId, payload: [{ type: "message_start" }] },
 		]);
 	});
 
