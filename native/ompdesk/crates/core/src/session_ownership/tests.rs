@@ -18,8 +18,12 @@ struct NativeFacts {
 }
 
 impl Host for NativeFacts {
-    fn hosted_held(&self, path: &str) -> bool { self.hosted.lock().unwrap().contains(path) }
-    fn log(&self, message: &str, _: Value) { self.logs.lock().unwrap().push(message.to_owned()); }
+    fn hosted_held(&self, path: &str) -> bool {
+        self.hosted.lock().unwrap().contains(path)
+    }
+    fn log(&self, message: &str, _: Value) {
+        self.logs.lock().unwrap().push(message.to_owned());
+    }
 }
 
 struct World {
@@ -34,17 +38,32 @@ impl World {
         let root = std::env::temp_dir().join(format!("ownership-{}", fresh_tag().unwrap()));
         fs::create_dir_all(&root).unwrap();
         let config = Config::new(&root, root.join("scratch"));
-        Self { root, config, host: Arc::new(NativeFacts::default()), issuer: OwnerIssuer::new(1) }
+        Self {
+            root,
+            config,
+            host: Arc::new(NativeFacts::default()),
+            issuer: OwnerIssuer::new(1),
+        }
     }
-    fn service(&self) -> Arc<SessionOwnership> { SessionOwnership::new(self.config.clone(), self.host.clone()) }
-    fn owner(&self) -> Owner { self.issuer.admit_authenticated().unwrap() }
+    fn service(&self) -> Arc<SessionOwnership> {
+        SessionOwnership::new(self.config.clone(), self.host.clone())
+    }
+    fn owner(&self) -> Owner {
+        self.issuer.admit_authenticated().unwrap()
+    }
     fn facts(&self, name: &str) -> Facts {
-        Facts { cwd: self.root.to_string_lossy().into_owned(), session_path: Some(self.root.join(name).to_string_lossy().into_owned()), device: None }
+        Facts {
+            cwd: self.root.to_string_lossy().into_owned(),
+            session_path: Some(self.root.join(name).to_string_lossy().into_owned()),
+            device: None,
+        }
     }
 }
 
 impl Drop for World {
-    fn drop(&mut self) { let _ = fs::remove_dir_all(&self.root); }
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
 }
 
 #[test]
@@ -55,22 +74,48 @@ fn owns_one_random_16_byte_tag_across_restart_and_session_changes() {
     let first = service.acquire(&owner, world.facts("a.jsonl")).unwrap();
     assert!(model::valid_tag(&first.tag));
     assert!(first.scratch.as_ref().unwrap().is_dir());
-    assert_eq!(service.acquire(&owner, world.facts("a.jsonl")).unwrap(), first);
+    assert_eq!(
+        service.acquire(&owner, world.facts("a.jsonl")).unwrap(),
+        first
+    );
     service.pid(&owner, Some(17));
     service.update(&owner, world.facts("b.jsonl")).unwrap();
     service.pid(&owner, None);
     assert_eq!(service.owners()[0].pid, None);
     let records = service.scratch_records();
-    assert_eq!(records[0].sessions, vec![world.facts("a.jsonl").session_path.unwrap(), world.facts("b.jsonl").session_path.unwrap()]);
+    assert_eq!(
+        records[0].sessions,
+        vec![
+            world.facts("a.jsonl").session_path.unwrap(),
+            world.facts("b.jsonl").session_path.unwrap()
+        ]
+    );
     service.freeze();
     service.closing(&owner);
     let next = world.service();
-    let inherited = next.acquire(&world.owner(), world.facts("b.jsonl")).unwrap();
+    let inherited = next
+        .acquire(&world.owner(), world.facts("b.jsonl"))
+        .unwrap();
     assert_eq!(inherited, first);
-    #[cfg(unix)] {
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
-        assert_eq!(fs::metadata(&world.config.process_file).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(fs::metadata(first.scratch.unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            fs::metadata(&world.config.process_file)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(first.scratch.unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
     }
 }
 
@@ -80,7 +125,13 @@ async fn closing_fences_late_acquisition_and_keeps_scratch_until_exact_exit_rece
     let service = world.service();
     let never_started = world.owner();
     service.closing(&never_started);
-    assert_eq!(service.acquire(&never_started, world.facts("a.jsonl")).unwrap_err().code, "owner_closed");
+    assert_eq!(
+        service
+            .acquire(&never_started, world.facts("a.jsonl"))
+            .unwrap_err()
+            .code,
+        "owner_closed"
+    );
     let owner = world.owner();
     let lease = service.acquire(&owner, world.facts("a.jsonl")).unwrap();
     let file = lease.scratch.as_ref().unwrap().join("output");
@@ -90,11 +141,15 @@ async fn closing_fences_late_acquisition_and_keeps_scratch_until_exact_exit_rece
     assert!(service.update(&owner, world.facts("b.jsonl")).is_err());
     assert!(service.acquire(&owner, world.facts("a.jsonl")).is_err());
     service.sweep(&BTreeSet::new(), 0);
-    service.session_deleted(&world.facts("a.jsonl").session_path.unwrap()).await;
+    service
+        .session_deleted(&world.facts("a.jsonl").session_path.unwrap())
+        .await;
     service.sweep_scratch(&[]).await.unwrap();
     assert!(file.exists());
     assert!(service.held().contains(&lease.tag));
-    let replacement = service.acquire(&world.owner(), world.facts("a.jsonl")).unwrap();
+    let replacement = service
+        .acquire(&world.owner(), world.facts("a.jsonl"))
+        .unwrap();
     assert_ne!(replacement.tag, lease.tag);
     service.released(&owner);
     service.released(&owner);
@@ -111,7 +166,9 @@ async fn in_flight_end_cannot_supply_a_reopened_session_tag() {
     let old = service.acquire(&owner, world.facts("a.jsonl")).unwrap();
     service.closing(&owner);
     service.released(&owner);
-    let new = service.acquire(&world.owner(), world.facts("a.jsonl")).unwrap();
+    let new = service
+        .acquire(&world.owner(), world.facts("a.jsonl"))
+        .unwrap();
     assert_ne!(old.tag, new.tag);
     service.settled().await;
     assert_eq!(service.held(), BTreeSet::from([new.tag]));
@@ -131,7 +188,10 @@ async fn quit_keeps_tags_and_restored_unstarted_release_cleans_every_matching_le
     before.released(&two);
     before.sweep(&BTreeSet::new(), 0);
     before.settled().await;
-    assert_eq!(before.held(), BTreeSet::from([first.tag.clone(), second.tag.clone()]));
+    assert_eq!(
+        before.held(),
+        BTreeSet::from([first.tag.clone(), second.tag.clone()])
+    );
     let next = world.service();
     next.sweep(&BTreeSet::from([facts.session_path.clone().unwrap()]), 0);
     next.settled().await;
@@ -150,7 +210,9 @@ async fn deferred_hosted_tab_closed_after_grace_releases_only_its_hosted_leftove
     let mut hosted_facts = local_facts.clone();
     hosted_facts.device = Some("fixture-device".to_owned());
     let local = before.acquire(&world.owner(), local_facts.clone()).unwrap();
-    let hosted = before.acquire(&world.owner(), hosted_facts.clone()).unwrap();
+    let hosted = before
+        .acquire(&world.owner(), hosted_facts.clone())
+        .unwrap();
     let path = hosted_facts.session_path.as_deref().unwrap();
     world.host.hosted.lock().unwrap().insert(path.to_owned());
     let next = world.service();
@@ -177,7 +239,12 @@ async fn hosted_grace_rechecks_deferred_native_tabs_and_frozen_quit() {
     let next = world.service();
     next.sweep(&BTreeSet::new(), 600_000);
     assert!(next.held().contains(&removed.tag));
-    world.host.hosted.lock().unwrap().insert(back.session_path.unwrap());
+    world
+        .host
+        .hosted
+        .lock()
+        .unwrap()
+        .insert(back.session_path.unwrap());
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_millis(600_000)).await;
     tokio::task::yield_now().await;
@@ -206,9 +273,19 @@ fn inherits_local_and_hosted_tags_separately_and_drops_damaged_journal_records()
     let remote = before.acquire(&world.owner(), hosted.clone()).unwrap();
     let next = world.service();
     hosted.device = Some("two".to_owned());
-    assert_eq!(next.acquire(&world.owner(), hosted).unwrap().tag, remote.tag);
+    assert_eq!(
+        next.acquire(&world.owner(), hosted).unwrap().tag,
+        remote.tag
+    );
     assert_eq!(next.acquire(&world.owner(), facts).unwrap().tag, local.tag);
-    fs::write(&world.config.process_file, serde_json::to_vec(&json!({"tags":[{"tag":"not-a-tag","cwd":"/w","since":1},7,{"cwd":"/w"}]})).unwrap()).unwrap();
+    fs::write(
+        &world.config.process_file,
+        serde_json::to_vec(
+            &json!({"tags":[{"tag":"not-a-tag","cwd":"/w","since":1},7,{"cwd":"/w"}]}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert!(world.service().owners().is_empty());
 }
 
@@ -226,24 +303,75 @@ async fn scratch_files_survive_tab_close_until_the_last_referring_session_is_del
     service.released(&owner);
     service.settled().await;
     assert!(dir.join("picture.png").exists());
-    service.session_deleted(a.session_path.as_deref().unwrap()).await;
+    service
+        .session_deleted(a.session_path.as_deref().unwrap())
+        .await;
     assert!(dir.exists());
-    service.session_deleted(b.session_path.as_deref().unwrap()).await;
+    service
+        .session_deleted(b.session_path.as_deref().unwrap())
+        .await;
     assert!(!dir.exists());
     assert!(service.scratch_records().is_empty());
 }
 
+#[tokio::test]
+async fn shutdown_joins_actual_scratch_deletion_after_its_caller_is_cancelled() {
+    let world = World::new();
+    let service = world.service();
+    let owner = world.owner();
+    let facts = world.facts("a.jsonl");
+    let lease = service.acquire(&owner, facts.clone()).unwrap();
+    let dir = lease.scratch.unwrap();
+    fs::write(dir.join("output"), "remove").unwrap();
+    service.released(&owner);
+    service.settled().await;
+    let (reserved, reached) = tokio::sync::oneshot::channel();
+    let (proceed, blocked) = tokio::sync::oneshot::channel();
+    *service.scratch_gate.lock().unwrap() = Some(scratch::Gate {
+        reserved,
+        proceed: blocked,
+    });
+    let caller = {
+        let service = Arc::clone(&service);
+        tokio::spawn(async move {
+            service
+                .session_deleted(facts.session_path.as_deref().unwrap())
+                .await
+        })
+    };
+    reached.await.unwrap();
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    service.freeze();
+    let mut settled = std::pin::pin!(service.settled());
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(settled.as_mut().poll(&mut context).is_pending());
+    assert!(dir.exists());
+    proceed.send(()).unwrap();
+    settled.await;
+    assert!(!dir.exists());
+    assert!(service.scratch_records().is_empty());
+    assert!(journal::scratch(&world.config.scratch_file).is_empty());
+}
+
 fn make_idle(path: &std::path::Path) {
     if path.is_dir() {
-        for entry in fs::read_dir(path).unwrap() { make_idle(&entry.unwrap().path()); }
+        for entry in fs::read_dir(path).unwrap() {
+            make_idle(&entry.unwrap().path());
+        }
     }
     let mut options = fs::OpenOptions::new();
     options.read(true);
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         use std::os::windows::fs::OpenOptionsExt;
         options.access_mode(0x0180).custom_flags(0x0200_0000);
     }
-    options.open(path).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(86_400)).unwrap();
+    options
+        .open(path)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(86_400))
+        .unwrap();
 }
 
 #[tokio::test]
@@ -266,7 +394,10 @@ async fn idle_scratch_preserves_named_files_in_a_moved_session_and_unreadable_se
     service.released(&owner);
     service.settled().await;
     make_idle(&dir);
-    let sweep = service.sweep_scratch(&[session.to_string_lossy().into_owned()]).await.unwrap();
+    let sweep = service
+        .sweep_scratch(&[session.to_string_lossy().into_owned()])
+        .await
+        .unwrap();
     assert_eq!(sweep.failed, 0);
     assert!(picture.exists());
     assert!(!dir.join("throwaway.log").exists());
@@ -274,7 +405,10 @@ async fn idle_scratch_preserves_named_files_in_a_moved_session_and_unreadable_se
     fs::write(&session, b"not stock JSON\n").unwrap();
     fs::write(dir.join("must-stay"), "keep").unwrap();
     make_idle(&dir);
-    let sweep = service.sweep_scratch(&[session.to_string_lossy().into_owned()]).await.unwrap();
+    let sweep = service
+        .sweep_scratch(&[session.to_string_lossy().into_owned()])
+        .await
+        .unwrap();
     assert_eq!(sweep.kept, 1);
     assert!(dir.join("must-stay").exists() && picture.exists());
 }
@@ -330,27 +464,80 @@ fn owned_child() {
 }
 
 async fn running(tag: Option<&str>) -> Child {
+    running_with_worker(tag, false).await
+}
+
+async fn running_with_worker(tag: Option<&str>, worker: bool) -> Child {
     let mut command = Command::new(std::env::current_exe().unwrap());
-    command.args(["--exact", "session_ownership::tests::owned_child", "--nocapture"])
-        .env("OMPDESK_OWNERSHIP_CHILD", "1").env_remove(SESSION_TAG_ENV)
-        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null())
+    command
+        .args([
+            "--exact",
+            "session_ownership::tests::owned_child",
+            "--nocapture",
+        ])
+        .env("OMPDESK_OWNERSHIP_CHILD", "1")
+        .env_remove(SESSION_TAG_ENV)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
-    if let Some(tag) = tag { command.env(SESSION_TAG_ENV, tag); }
+    if worker {
+        command.args(["--skip", "__omp_worker_ownership_fixture"]);
+    }
+    if let Some(tag) = tag {
+        command.env(SESSION_TAG_ENV, tag);
+    }
     let mut child = command.spawn().unwrap();
     let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
     loop {
-        if lines.next_line().await.unwrap().expect("owned child exited before readiness").contains("ownership-child-ready") { break; }
+        if lines
+            .next_line()
+            .await
+            .unwrap()
+            .expect("owned child exited before readiness")
+            .contains("ownership-child-ready")
+        {
+            break;
+        }
     }
     child
 }
 
 #[tokio::test]
-async fn actual_native_end_joins_only_its_tagged_child_and_preserves_other_tabs_and_untagged_children() {
+async fn real_stock_worker_survives_close_and_old_retry_cannot_end_its_new_owner() {
+    let world = World::new();
+    let service = world.service();
+    let owner = world.owner();
+    let facts = world.facts("a.jsonl");
+    let lease = service.acquire(&owner, facts.clone()).unwrap();
+    let mut worker = running_with_worker(Some(&lease.tag), true).await;
+    service.released(&owner);
+    service.settled().await;
+    assert!(worker.try_wait().unwrap().is_none());
+    assert_eq!(journal::tags(&world.config.process_file)[0].tag, lease.tag);
+    let next = service.acquire(&world.owner(), facts).unwrap();
+    assert_eq!(next.tag, lease.tag);
+    tokio::time::pause();
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(RETRY_REMAINING_MS)).await;
+    tokio::task::yield_now().await;
+    tokio::time::resume();
+    service.settled().await;
+    assert!(worker.try_wait().unwrap().is_none());
+    assert_eq!(service.held(), BTreeSet::from([next.tag]));
+    worker.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn actual_native_end_joins_only_its_tagged_child_and_preserves_other_tabs_and_untagged_children()
+ {
     let world = World::new();
     let service = world.service();
     let owner = world.owner();
     let mine = service.acquire(&owner, world.facts("mine.jsonl")).unwrap();
-    let other = service.acquire(&world.owner(), world.facts("other.jsonl")).unwrap();
+    let other = service
+        .acquire(&world.owner(), world.facts("other.jsonl"))
+        .unwrap();
     let mut mine_child = running(Some(&mine.tag)).await;
     let mut other_child = running(Some(&other.tag)).await;
     let mut untagged = running(None).await;

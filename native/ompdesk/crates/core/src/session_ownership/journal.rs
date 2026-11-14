@@ -9,9 +9,15 @@ use super::model::{ScratchRecord, TagRecord, valid_tag};
 use super::{Host, State};
 
 fn read<T: DeserializeOwned>(file: &Path, key: &str) -> Vec<T> {
-    fs::read(file).ok()
+    fs::read(file)
+        .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|mut value| value.get_mut(key).and_then(Value::as_array_mut).map(std::mem::take))
+        .and_then(|mut value| {
+            value
+                .get_mut(key)
+                .and_then(Value::as_array_mut)
+                .map(std::mem::take)
+        })
         .unwrap_or_default()
         .into_iter()
         .filter_map(|value| serde_json::from_value(value).ok())
@@ -19,13 +25,17 @@ fn read<T: DeserializeOwned>(file: &Path, key: &str) -> Vec<T> {
 }
 
 pub(super) fn tags(file: &Path) -> Vec<TagRecord> {
-    read::<TagRecord>(file, "tags").into_iter()
-        .filter(|record| valid_tag(&record.tag) && record.since.is_finite()).collect()
+    read::<TagRecord>(file, "tags")
+        .into_iter()
+        .filter(|record| valid_tag(&record.tag) && record.since.is_finite())
+        .collect()
 }
 
 pub(super) fn scratch(file: &Path) -> Vec<ScratchRecord> {
-    read::<ScratchRecord>(file, "scratch").into_iter()
-        .filter(|record| valid_tag(&record.tag) && record.since.is_finite()).collect()
+    read::<ScratchRecord>(file, "scratch")
+        .into_iter()
+        .filter(|record| valid_tag(&record.tag) && record.since.is_finite())
+        .collect()
 }
 
 fn save(file: &Path, value: &impl Serialize, host: &dyn Host) {
@@ -36,18 +46,45 @@ fn save(file: &Path, value: &impl Serialize, host: &dyn Host) {
             crate::disk::saves::write_kept(file, &bytes, Some(0o600), 0o700)
         });
     if let Err(error) = result {
-        host.log("records not saved", serde_json::json!({"file": file, "error": error.message}));
+        host.log(
+            "records not saved",
+            serde_json::json!({"file": file, "error": error.message}),
+        );
     }
+}
+
+fn tag_records<S: serde::Serializer>(
+    entries: &[super::model::Entry],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(entries.iter().map(|entry| &entry.record))
 }
 
 pub(super) fn save_tags(state: &State, file: &Path, host: &dyn Host) {
     #[derive(Serialize)]
-    struct Tags<'a> { tags: Vec<&'a TagRecord> }
-    save(file, &Tags { tags: state.entries.iter().map(|entry| &entry.record).collect() }, host);
+    struct Tags<'a> {
+        #[serde(serialize_with = "tag_records")]
+        tags: &'a [super::model::Entry],
+    }
+    save(
+        file,
+        &Tags {
+            tags: &state.entries,
+        },
+        host,
+    );
 }
 
 pub(super) fn save_scratch(state: &State, file: &Path, host: &dyn Host) {
     #[derive(Serialize)]
-    struct Scratch<'a> { scratch: &'a [ScratchRecord] }
-    save(file, &Scratch { scratch: &state.scratch }, host);
+    struct Scratch<'a> {
+        scratch: &'a [ScratchRecord],
+    }
+    save(
+        file,
+        &Scratch {
+            scratch: &state.scratch,
+        },
+        host,
+    );
 }

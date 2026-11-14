@@ -33,13 +33,23 @@ impl Config {
 #[serde(rename_all = "camelCase")]
 pub struct Facts {
     pub cwd: String,
-    #[serde(default, deserialize_with = "present_string", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_string",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub session_path: Option<String>,
-    #[serde(default, deserialize_with = "present_string", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_string",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub device: Option<String>,
 }
 
-fn present_string<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+fn present_string<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
     String::deserialize(deserializer).map(Some)
 }
 
@@ -99,12 +109,16 @@ pub struct ScratchSweep {
 }
 
 pub(super) fn valid_tag(tag: &str) -> bool {
-    tag.len() == 32 && tag.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    tag.len() == 32
+        && tag
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 pub(super) fn fresh_tag() -> Result<String, Fault> {
     let mut bytes = [0; 16];
-    crate::sys::random(&mut bytes).map_err(|error| Fault::new("random_failed", error.to_string()))?;
+    crate::sys::random(&mut bytes)
+        .map_err(|error| Fault::new("random_failed", error.to_string()))?;
     Ok(crate::hex(&bytes))
 }
 
@@ -125,10 +139,15 @@ pub(super) fn session_key(path: &str) -> String {
         }
     }
     let key = normalized.to_string_lossy();
-    if cfg!(windows) { key.to_lowercase() } else { key.into_owned() }
+    if cfg!(windows) {
+        key.to_lowercase()
+    } else {
+        key.into_owned()
+    }
 }
 
 pub(super) fn now_ms() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_millis() as f64)
 }
