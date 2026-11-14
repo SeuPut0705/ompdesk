@@ -23,6 +23,7 @@ mod handshake;
 mod host;
 pub mod identity;
 mod link;
+pub mod quota;
 pub mod store;
 pub mod tailnet;
 pub mod traffic;
