@@ -1618,8 +1618,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		const next = order[order.indexOf(target) + 1];
 		expect(next).toBeDefined();
 		const focused: string[] = [];
+		const refocused = Promise.withResolvers<void>();
+		let confirmingDelete = false;
 		const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: Element) {
 			focused.push(this.getAttribute("data-roving-item") ?? this.tagName);
+			if (confirmingDelete && focused.at(-1) === next) refocused.resolve();
 		});
 		try {
 			await act(async () => {
@@ -1631,8 +1634,9 @@ describe("Sidebar menus and pinned ordering", () => {
 				button => (button.textContent ?? "").trim() === "Delete",
 			);
 			focused.length = 0;
+			confirmingDelete = true;
 			await fire(confirm ?? null, "onClick");
-			await flush();
+			await refocused.promise;
 			expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/one.jsonl");
 			expect(focused.at(-1)).toBe(next);
 		} finally {
