@@ -340,6 +340,7 @@ impl AgentControl {
             self.mailbox.seed(&target.tab_id, marks.dispatch);
         }
         self.host.fresh().await?;
+        self.until_draft_sent(caller, target).await?;
         let state = self.host.state();
         let (current_producer, current_recipient) =
             inbox_source::addresses(&state, caller, target)?;
