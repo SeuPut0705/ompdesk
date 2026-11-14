@@ -27,7 +27,7 @@ pub struct Archives {
 }
 
 impl Archives {
-    pub async fn handle<S: Sidecar<Error = Fault> + ?Sized + 'static>(&self, command: &RpcCommand, session: &Session<S>) -> CommandResult {
+    pub async fn handle<S: Sidecar<Error = Fault> + ?Sized + 'static>(&self, command: &RpcCommand, session: &Session<S>, scope: Scope) -> CommandResult {
         match command.kind.as_str() {
             "dump_session_archive" => {
                 let anonymized = match command.params.get("anonymized") {
@@ -39,7 +39,7 @@ impl Archives {
                 if !js::truthy(Some(&archive)) {
                     return Err(CommandError::local("no_messages", "No messages to dump yet."));
                 }
-                self.redact(archive, Scope::detached()).await.map(Some)
+                self.redact(archive, scope).await.map(Some)
             }
             "discard_session_archive" => {
                 let path = command.string("path").filter(|path| !path.is_empty())

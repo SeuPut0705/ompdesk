@@ -11,7 +11,7 @@ pub const COMMANDS: &[&str] = &["history_recent", "history_search"];
 
 /// Reads use the execution machine's one native Stock history handle, not its busy tab's omp thread.
 /// The request future owns Stock's withdrawal guard: dropping a pending local call withdraws it as well.
-pub async fn handle(command: &RpcCommand, stock: &Service) -> CommandResult {
+pub async fn handle(command: &RpcCommand, stock: &Service, scope: Scope) -> CommandResult {
     let mut params = Map::new();
     if let Some(limit) = command.params.get("limit") {
         if !limit.as_f64().is_some_and(|limit| limit.is_finite() && limit.fract() == 0.0) {
@@ -32,5 +32,5 @@ pub async fn handle(command: &RpcCommand, stock: &Service) -> CommandResult {
         }
         name => return Err(CommandError::Other(format!("Unknown Stock command: {name}"))),
     };
-    stock.request(method, &Value::Object(params), Duration::from_secs(30), Scope::detached()).await.map(Some).map_err(Into::into)
+    stock.request(method, &Value::Object(params), Duration::from_secs(30), scope).await.map(Some).map_err(Into::into)
 }

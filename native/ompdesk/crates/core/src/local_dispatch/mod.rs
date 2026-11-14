@@ -8,13 +8,16 @@ use std::sync::{Arc, LazyLock, Mutex};
 use serde_json::Value;
 
 use crate::pool::application::Sidecar;
-use crate::server::Fault;
+use crate::server::{Fault, Scope};
 
 pub mod archive;
 pub mod authoring;
+pub mod cli_commands;
 pub mod composer;
 pub mod delivery;
 pub mod extensions;
+pub mod git_commands;
+pub mod github_commands;
 pub mod live;
 pub mod metadata;
 pub mod modes;
@@ -39,6 +42,9 @@ pub struct Config {
     pub version: Arc<str>,
     pub templates: Arc<[authoring::Template]>,
     pub stock: Arc<crate::stock::native::Service>,
+    pub omp: Arc<crate::application::omp_cli::Service>,
+    pub git: Option<crate::run::Runner>,
+    pub gh: Option<crate::run::Runner>,
 }
 
 static METADATA: LazyLock<metadata::Metadata> = LazyLock::new(metadata::Metadata::default);
@@ -57,6 +63,9 @@ pub enum Area {
     Live,
     Stock,
     Archive,
+    Git,
+    Github,
+    Cli,
 }
 
 pub struct CommandTable(HashMap<&'static str, Area>);
@@ -87,6 +96,9 @@ impl CommandTable {
             ("live", Area::Live, live::COMMANDS),
             ("stock", Area::Stock, stock_commands::COMMANDS),
             ("archive", Area::Archive, archive::COMMANDS),
+            ("git", Area::Git, git_commands::COMMANDS),
+            ("github", Area::Github, github_commands::COMMANDS),
+            ("cli", Area::Cli, cli_commands::COMMANDS),
         ])
     }
 }
@@ -147,17 +159,17 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
 
     pub fn command_for_generation(&self, generation: u64, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
         let cwd = Arc::from(self.source.facts()["cwd"].as_str().unwrap_or_default());
-        self.command_with_captured_cwd(generation, cwd, command)
+        self.command_with_captured_cwd(generation, cwd, command, Scope::detached())
     }
 
     /// The caller supplies only the native selected cwd, never a page's command field or a late facts lookup.
-    pub fn command_with_captured_cwd(&self, generation: u64, cwd: Arc<str>, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
+    pub fn command_with_captured_cwd(&self, generation: u64, cwd: Arc<str>, command: RpcCommand, scope: Scope) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
         let spawn = self.captured(generation);
         let session = spawn.session.clone().with_captured_cwd(cwd);
-        Box::pin(self.execute(command, spawn, session))
+        Box::pin(self.execute(command, spawn, session, scope))
     }
 
-    async fn execute(&self, mut command: RpcCommand, spawn: Arc<Spawn<S>>, session: Session<S>) -> Result<Value, Fault> {
+    async fn execute(&self, mut command: RpcCommand, spawn: Arc<Spawn<S>>, session: Session<S>, scope: Scope) -> Result<Value, Fault> {
         let sequence = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         command.id = Some(format!("gui-{sequence}"));
         let Some(area) = self.table.0.get(command.kind.as_str()) else {
@@ -176,8 +188,11 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
             Area::Extensions => extensions::handle(&command, &session).await,
             Area::Authoring => authoring::handle(&command, &session, &self.config.templates).await,
             Area::Live => live::handle(&command, &session).await,
-            Area::Stock => stock_commands::handle(&command, &self.config.stock).await,
-            Area::Archive => ARCHIVES.handle(&command, &session).await,
+            Area::Stock => stock_commands::handle(&command, &self.config.stock, scope).await,
+            Area::Archive => ARCHIVES.handle(&command, &session, scope).await,
+            Area::Git => git_commands::handle(&command, &session, self.config.git.as_ref(), &self.config.omp, scope).await,
+            Area::Github => github_commands::handle(&command, &session, self.config.git.as_ref(), self.config.gh.as_ref(), &self.config.omp, scope).await,
+            Area::Cli => cli_commands::handle(&command, &session, &self.config.omp, scope).await,
         };
         self.source.before_response();
         serde_json::to_value(RpcResponse::local(&command, result)).map_err(|error| Fault::new("internal", error.to_string()))

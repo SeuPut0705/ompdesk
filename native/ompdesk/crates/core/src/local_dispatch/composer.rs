@@ -87,15 +87,6 @@ fn job_rows(rows: Value) -> Value {
     json!({"rows":rows})
 }
 
-/// Called after the host has run `omp plugin list --json`. A failed or invalid listing is null.
-pub async fn reload_plugins<S: Sidecar<Error = Fault> + ?Sized + 'static>(session: &Session<S>, plugins: &Value) -> CommandResult {
-    session.slash("reload-plugins", None).await?;
-    let (commands, skills) = tokio::join!(session.stock(json!({"type":"get_available_commands"})), session.bridge("composer.skill_count", json!({})));
-    let commands = commands?;
-    let skills = skills?;
-    let count: usize = plugins.as_object().into_iter().flat_map(|object| object.values()).filter_map(Value::as_array).map(Vec::len).sum();
-    Ok(Some(json!({"plugins":count,"skills":skills["skills"],"commands":commands["commands"].as_array().map_or(0, Vec::len)})))
-}
 
 pub async fn handle<S: Sidecar<Error = Fault> + ?Sized + 'static>(command: &RpcCommand, session: &Session<S>) -> CommandResult {
     let value = match command.kind.as_str() {
