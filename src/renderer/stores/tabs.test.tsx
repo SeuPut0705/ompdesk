@@ -37,6 +37,7 @@ import type {
 } from "../../shared/rpc-types";
 import { readSplitNode, type SplitLayout, type SplitPlacement, splitTabIds } from "../../shared/split-layout";
 import { attachTabSession, hydrateSession, hydrateTabSession, refreshSessionState } from "../hooks/use-rpc-events";
+import * as chunkLoading from "../lib/chunk-load";
 import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { readUnreadMarks, UNREAD_MARKS_KEY } from "../lib/unread-marks";
@@ -268,6 +269,13 @@ function resetAll(): void {
 	useUiStore.getState().closeSessionOverlays();
 	useUiStore.getState().closeMissingFolder();
 	useUiStore.getState().closeDestination();
+	useUiStore.setState({
+		fileEditDirty: false,
+		fileEditTabId: null,
+		pendingFileSwitch: null,
+		discardedForTabClose: null,
+	});
+	useToastStore.setState({ toasts: [] });
 	useForkHandoffStore.getState().closeHandoffDialog();
 }
 
@@ -2815,6 +2823,31 @@ describe("agent control view requests", () => {
 		omp.tabs.list.mockResolvedValue(live(...ids));
 		await useTabsStore.getState().reconcileTabs();
 	}
+
+	it("rejects an exact close when its action chunk cannot load", async () => {
+		await bootWith("t0", "t1");
+		vi.spyOn(chunkLoading, "loadChunk").mockRejectedValueOnce(new Error("fixture action chunk unavailable"));
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "close", closeRequest: "one-use" });
+		expect(omp.tabs.close).toHaveBeenCalledExactlyOnceWith("t1", "one-use", true);
+		expect(tabOf("t1")).toBeDefined();
+		expect(isTabClosed("t1")).toBe(false);
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+	});
+
+	it("keeps edits made while its close action chunk is loading", async () => {
+		await bootWith("t0", "t1");
+		// The loading boundary is under test; a static import cannot be held at this barrier.
+		const actions = await import("./tab-actions");
+		const loaded = Promise.withResolvers<typeof actions>();
+		vi.spyOn(chunkLoading, "loadChunk").mockReturnValueOnce(loaded.promise);
+		const closing = useTabsStore.getState().applyAgentView({ tabId: "t1", how: "close", closeRequest: "one-use" });
+		useUiStore.setState({ fileEditDirty: true, fileEditTabId: "t1" });
+		loaded.resolve(actions);
+		await closing;
+		expect(omp.tabs.close).toHaveBeenCalledExactlyOnceWith("t1", "one-use", true);
+		expect(tabOf("t1")).toBeDefined();
+		expect(useUiStore.getState().fileEditDirty).toBe(true);
+	});
 
 	it("focus switches to the tab like a sidebar pick", async () => {
 		await bootWith("t0", "t1");
