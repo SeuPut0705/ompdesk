@@ -14,6 +14,7 @@
 
 mod archives;
 pub mod compiled;
+mod desktop;
 mod download;
 mod ledger;
 mod net;
@@ -24,6 +25,8 @@ pub mod service;
 #[cfg(test)]
 mod tests;
 pub mod types;
+
+pub use desktop::detect_agent_desktop;
 
 use serde::Deserialize;
 
