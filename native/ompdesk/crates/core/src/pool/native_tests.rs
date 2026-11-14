@@ -7,6 +7,10 @@ struct TestHost {
     announcements: Mutex<Vec<(Value, Value, Option<u64>)>>,
     running_changes: std::sync::atomic::AtomicUsize,
     releases: Mutex<Vec<Released<crate::sidecar::native::Service>>>,
+    fail_running: std::sync::atomic::AtomicBool,
+    fail_window_tabs: std::sync::atomic::AtomicBool,
+    receipt_gate: Mutex<Option<oneshot::Receiver<Result<(), Fault>>>>,
+    receipt_entered: Mutex<Option<oneshot::Sender<()>>>,
     on_gone: Mutex<
         Option<(
             Weak<Application<TestHost>>,
@@ -68,12 +72,22 @@ impl Collaborators for TestHost {
     fn snowflake(&self) -> String {
         unreachable!()
     }
-    fn running_changed(&self) {
+    fn running_changed(&self) -> Result<(), Fault> {
         self.running_changes.fetch_add(1, Ordering::SeqCst);
+        if self.fail_running.load(Ordering::SeqCst) {
+            return Err(Fault::new("observer_failed", "Running observer failed"));
+        }
+        Ok(())
     }
     fn session_files_changed(&self) {}
-    fn window_tabs_changed(&self, _: i64, _: Value) {
-        unreachable!()
+    fn window_tabs_changed(&self, _: i64, _: Value) -> Result<(), Fault> {
+        if self.fail_window_tabs.load(Ordering::SeqCst) {
+            return Err(Fault::new(
+                "window_observer_failed",
+                "Window observer failed",
+            ));
+        }
+        Ok(())
     }
     fn exiting(&self, _: String) -> EffectFuture<'_, Result<(), Fault>> {
         unreachable!()
@@ -84,6 +98,18 @@ impl Collaborators for TestHost {
         _: Value,
     ) -> EffectFuture<'static, Result<Value, Fault>> {
         unreachable!()
+    }
+    fn command_for_generation(
+        &self,
+        sidecar: Arc<Self::Sidecar>,
+        generation: u64,
+        command: Value,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        crate::pool::application::Sidecar::stock_for_generation(
+            sidecar.as_ref(),
+            generation,
+            command,
+        )
     }
 }
 
@@ -133,6 +159,8 @@ impl Host for TestHost {
         source: Arc<Self::Sidecar>,
     ) -> EffectFuture<'static, Result<(), Fault>> {
         let release = locked(&self.releases).pop();
+        let gate = locked(&self.receipt_gate).take();
+        let entered = locked(&self.receipt_entered).take();
         Box::pin(async move {
             let release =
                 release.ok_or_else(|| Fault::new("missing_receipt", "No release receipt"))?;
@@ -142,7 +170,15 @@ impl Host for TestHost {
                     "Release receipt names another sidecar",
                 ));
             }
-            release.exited.await
+            release.exited.await?;
+            if let Some(entered) = entered {
+                let _ = entered.send(());
+            }
+            if let Some(gate) = gate {
+                gate.await
+                    .map_err(|_| Fault::new("receipt_lost", "Receipt gate dropped"))??;
+            }
+            Ok(())
         })
     }
     fn announce(&self, activity: Value, tabs: Value, outcome_id: Option<u64>) {
@@ -356,6 +392,7 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
             &owner,
             "binding",
             Arc::clone(&current),
+            0,
             "worktree.create".into(),
             None,
             None
@@ -369,6 +406,17 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
             sidecar: Arc::clone(&current),
             device: None,
         },
+    );
+    assert!(
+        pool.stock_if_live(
+            &owner,
+            "binding",
+            Arc::clone(&current),
+            u64::MAX,
+            json!({"type": "get_state"})
+        )
+        .await
+        .is_err()
     );
     assert!(
         !pool
@@ -579,4 +627,149 @@ async fn session_close_keeps_the_detached_source_when_the_tab_is_replaced() {
     replacement.barrier().await.unwrap();
     replacement.dispose(std::time::Duration::ZERO);
     replacement_held.await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn observer_failure_still_disposes_and_waits_for_the_exact_receipt() {
+    use crate::sidecar::native::{Config as SidecarConfig, DirectSpawn, Service as SidecarService};
+    let host = Arc::new(TestHost::default());
+    let app = Arc::new(Application::new(Arc::clone(&host)));
+    let pool = Service::new(
+        Config {
+            id: 0x706f_6f6c_6170_7004,
+            layout_version: 1,
+            max_former_tab_ids: 8,
+            stop_session_wait_ms: 60_000,
+            window_tabs_hook: false,
+            now_ms: || 1234,
+        },
+        Arc::clone(&app),
+    )
+    .await
+    .unwrap();
+    pool.call("seed", json!({"tabs": [{"tab": "fault-close", "win": 17, "status": "asleep", "sessionFile": "/fault.jsonl"}]}), false).await.unwrap();
+    let (events, _output, _frames) = crate::server::Events::capture();
+    let (source, held) = SidecarService::new(
+        SidecarConfig {
+            tab: "fault-close-lane".into(),
+            seq: 0,
+            cwd: ".".into(),
+            fresh: true,
+            event_filter: Vec::new(),
+            bridge: false,
+            ledger_file: None,
+            start_slow_ms: None,
+            entry_id_timeout_ms: None,
+            tuning: None,
+            session_path: None,
+            is_new: Some(true),
+        },
+        events,
+        Arc::new(SidecarSink),
+        Arc::new(DirectSpawn),
+    )
+    .unwrap();
+    app.handles().insert(
+        super::super::HandleKey::Tab("fault-close".into()),
+        super::super::Handle {
+            sidecar: Arc::clone(&source),
+            device: None,
+        },
+    );
+    let (gate, gated) = oneshot::channel();
+    let (entered, seen) = oneshot::channel();
+    *locked(&host.receipt_gate) = Some(gated);
+    *locked(&host.receipt_entered) = Some(entered);
+    host.fail_running.store(true, Ordering::SeqCst);
+    let owner = ompdesk_app_contract::OwnerIssuer::new(1)
+        .admit_authenticated()
+        .unwrap();
+    let target = pool
+        .session_target(&owner, "/fault.jsonl", None)
+        .await
+        .unwrap()
+        .unwrap();
+    let closing = tokio::spawn(pool.close_session_tab(&owner, &target));
+    seen.await.unwrap();
+    assert!(!closing.is_finished());
+    gate.send(Err(Fault::new("exit_failed", "Exit proof failed")))
+        .unwrap();
+    let error = closing.await.unwrap().unwrap_err();
+    assert_eq!(error.code, "observer_failed");
+    held.await.unwrap();
+    assert!(app.sidecar("fault-close").is_none());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn window_observer_failure_after_disposal_still_waits_for_exit_result() {
+    use crate::sidecar::native::{Config as SidecarConfig, DirectSpawn, Service as SidecarService};
+    let host = Arc::new(TestHost::default());
+    let app = Arc::new(Application::new(Arc::clone(&host)));
+    let pool = Service::new(
+        Config {
+            id: 0x706f_6f6c_6170_7005,
+            layout_version: 1,
+            max_former_tab_ids: 8,
+            stop_session_wait_ms: 60_000,
+            window_tabs_hook: true,
+            now_ms: || 1234,
+        },
+        Arc::clone(&app),
+    )
+    .await
+    .unwrap();
+    pool.call("seed", json!({"tabs": [{"tab": "window-fault", "win": 17, "status": "asleep", "sessionFile": "/window-fault.jsonl"}]}), false).await.unwrap();
+    let (events, _output, _frames) = crate::server::Events::capture();
+    let (source, held) = SidecarService::new(
+        SidecarConfig {
+            tab: "window-fault-lane".into(),
+            seq: 0,
+            cwd: ".".into(),
+            fresh: true,
+            event_filter: Vec::new(),
+            bridge: false,
+            ledger_file: None,
+            start_slow_ms: None,
+            entry_id_timeout_ms: None,
+            tuning: None,
+            session_path: None,
+            is_new: Some(true),
+        },
+        events,
+        Arc::new(SidecarSink),
+        Arc::new(DirectSpawn),
+    )
+    .unwrap();
+    app.handles().insert(
+        super::super::HandleKey::Tab("window-fault".into()),
+        super::super::Handle {
+            sidecar: source,
+            device: None,
+        },
+    );
+    let (gate, gated) = oneshot::channel();
+    let (entered, seen) = oneshot::channel();
+    *locked(&host.receipt_gate) = Some(gated);
+    *locked(&host.receipt_entered) = Some(entered);
+    host.fail_window_tabs.store(true, Ordering::SeqCst);
+    let owner = ompdesk_app_contract::OwnerIssuer::new(1)
+        .admit_authenticated()
+        .unwrap();
+    let target = pool
+        .session_target(&owner, "/window-fault.jsonl", None)
+        .await
+        .unwrap()
+        .unwrap();
+    let closing = tokio::spawn(pool.close_session_tab(&owner, &target));
+    seen.await.unwrap();
+    assert!(!closing.is_finished());
+    gate.send(Err(Fault::new("exit_failed", "Exit proof failed")))
+        .unwrap();
+    assert_eq!(
+        closing.await.unwrap().unwrap_err().code,
+        "window_observer_failed"
+    );
+    held.await.unwrap();
 }

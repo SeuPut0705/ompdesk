@@ -232,6 +232,24 @@ pub trait Sidecar: Send + Sync {
     fn send_now(&self, frame: Value) -> Result<(), Self::Error>;
     fn send(&self, frame: Value) -> EffectFuture<'_, Result<(), Self::Error>>;
     fn stock(&self, command: Value) -> EffectFuture<'static, Result<Value, Self::Error>>;
+    /// Generation-bound operations enqueue before returning; the future is the Lane's receipt.
+    fn send_for_generation(
+        &self,
+        generation: u64,
+        frame: Value,
+    ) -> EffectFuture<'static, Result<(), Self::Error>>;
+    fn stock_for_generation(
+        &self,
+        generation: u64,
+        command: Value,
+    ) -> EffectFuture<'static, Result<Value, Self::Error>>;
+    fn bridge_for_generation(
+        &self,
+        generation: u64,
+        method: String,
+        params: Option<Value>,
+        timeout_ms: Option<u64>,
+    ) -> EffectFuture<'static, Result<Value, Self::Error>>;
     fn bridge(
         &self,
         method: String,
@@ -449,11 +467,11 @@ impl<H: Host> Application<H> {
         incarnation: Option<u64>,
         owner_key: Option<String>,
         hosted: bool,
-    ) {
+    ) -> bool {
         let key = incarnation.map_or_else(|| HandleKey::Tab(tab.to_owned()), HandleKey::Detached);
         let handle = self.handles().remove(&key);
         let Some(handle) = handle else {
-            return;
+            return false;
         };
         handle.sidecar.remove_listeners();
         let exited = handle.sidecar.exit_waiter();
@@ -470,6 +488,7 @@ impl<H: Host> Application<H> {
             local: handle.device.is_none() && !hosted,
             exited,
         });
+        true
     }
 
     pub async fn sync_settings(&self, tab: &str) {
