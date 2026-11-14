@@ -129,6 +129,7 @@ describe("SidebarUsage", () => {
 	it("marks an account at its limit, and one close to it", async () => {
 		const block = await mount([
 			report("anthropic", 1, "full@example.com", {
+				active: true,
 				limits: limits("anthropic", 0.4, 1),
 				resetAt: Date.now() + 3 * HOUR,
 			}),
@@ -139,6 +140,9 @@ describe("SidebarUsage", () => {
 		const weekly = (id: number) => row(block, id)?.querySelector('[data-window="7d"]')?.getAttribute("data-state");
 		expect([1, 2, 3].map(standing)).toEqual(["limited", "low", "ok"]);
 		expect([1, 2, 3].map(weekly)).toEqual(["limit", "near", "ok"]);
+		expect(row(block, 1)?.querySelector(".omp-account-state [aria-label]")?.getAttribute("aria-label")).toBe(
+			"In use",
+		);
 	});
 
 	it("shows every window of an account with its reset: 5H, 7D and a model's own", async () => {
