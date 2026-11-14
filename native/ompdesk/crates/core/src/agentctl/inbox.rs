@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::journal::Persistence;
-use super::journal::attachments::{Attached, AttachedSet, read_attached};
+use super::journal::attachments::{Attached, AttachedSet, AttachmentRef, read_attached, read_ref};
 
 /// Supplied only by the app's trusted native-service constructor, never by a delivery/tool payload.
 #[derive(Debug, Clone, Deserialize)]
@@ -71,7 +71,11 @@ impl InboxLogicalMessage {
         }
     }
 
-    pub fn validate(&self, entry: &NativeInboxEntry) -> Result<(), String> {
+    pub fn validate_identity(
+        &self,
+        entry_kind: InboxKind,
+        delivery_id: &str,
+    ) -> Result<(), String> {
         let kind = match &self.payload {
             InboxLogicalPayload::Prompt { .. } => InboxKind::Prompt,
             InboxLogicalPayload::Report { .. } => InboxKind::Report,
@@ -81,18 +85,26 @@ impl InboxLogicalMessage {
             || self.target.device_id.is_empty()
             || self.target.session_path.is_empty()
             || self.request_id.as_ref().is_some_and(String::is_empty)
-            || kind != entry.payload.kind()
-            || matches!(
-                (self.intent, entry.intent),
-                (InboxIntent::FollowUp, InboxIntent::Immediate)
-            )
-            || self.trigger_turn != entry.trigger_turn
-            || entry.legacy
+            || delivery_id.is_empty()
+            || kind != entry_kind
         {
             return Err("Native logical identity or delivery semantics are invalid".into());
         }
-        if self.request_id.is_some() && self.delivery_id()? != entry.delivery_id {
+        if self.request_id.is_some() && self.delivery_id()? != delivery_id {
             return Err("Native request identity is not bound to its producer and target".into());
+        }
+        Ok(())
+    }
+
+    pub fn validate(&self, entry: &NativeInboxEntry) -> Result<(), String> {
+        self.validate_identity(entry.payload.kind(), &entry.delivery_id)?;
+        if matches!(
+            (self.intent, entry.intent),
+            (InboxIntent::FollowUp, InboxIntent::Immediate)
+        ) || self.trigger_turn != entry.trigger_turn
+            || entry.legacy
+        {
+            return Err("Native logical identity or delivery semantics are invalid".into());
         }
         Ok(())
     }
@@ -300,15 +312,30 @@ pub(crate) struct NativeInboxTransferEntry {
 impl NativeInboxTransferEntry {
     /// Landing paths/times are transport materialization, not logical delivery identity.
     pub fn logical_payload(&self) -> Result<Value, serde_json::Error> {
-        let mut value = serde_json::to_value(&self.logical)?;
-        if let Some(set) = &self.attachments {
-            value["attachments"] = serde_json::json!({
-                "images": set.images.iter().map(|file| file.to_json()).collect::<Vec<_>>(),
-                "files": set.files.iter().map(|landed| landed.file.to_json()).collect::<Vec<_>>(),
-            });
-        }
-        Ok(value)
+        logical_payload(
+            &self.logical,
+            self.attachments.as_ref().map(|set| {
+                (
+                    set.images.as_slice(),
+                    set.files.iter().map(|landed| &landed.file),
+                )
+            }),
+        )
     }
+}
+
+fn logical_payload<'a>(
+    logical: &InboxLogicalMessage,
+    attachments: Option<(&[AttachmentRef], impl Iterator<Item = &'a AttachmentRef>)>,
+) -> Result<Value, serde_json::Error> {
+    let mut value = serde_json::to_value(logical)?;
+    if let Some((images, files)) = attachments {
+        value["attachments"] = serde_json::json!({
+            "images": images.iter().map(AttachmentRef::to_json).collect::<Vec<_>>(),
+            "files": files.map(AttachmentRef::to_json).collect::<Vec<_>>(),
+        });
+    }
+    Ok(value)
 }
 
 pub(crate) fn same_native_source(
@@ -430,9 +457,69 @@ pub(crate) struct NativeInboxAcceptance {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InboxLogicalAttachments {
+    #[serde(
+        serialize_with = "serialize_refs",
+        deserialize_with = "deserialize_refs"
+    )]
+    pub images: Vec<AttachmentRef>,
+    #[serde(
+        serialize_with = "serialize_refs",
+        deserialize_with = "deserialize_refs"
+    )]
+    pub files: Vec<AttachmentRef>,
+}
+
+fn serialize_refs<S: serde::Serializer>(
+    files: &[AttachmentRef],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeSeq;
+    let mut sequence = serializer.serialize_seq(Some(files.len()))?;
+    for file in files {
+        sequence.serialize_element(&file.to_json())?;
+    }
+    sequence.end()
+}
+
+fn deserialize_refs<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<AttachmentRef>, D::Error> {
+    Vec::<Value>::deserialize(deserializer)?
+        .iter()
+        .map(|value| {
+            read_ref(value).ok_or_else(|| {
+                serde::de::Error::custom("Invalid native inbox attachment reference")
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NativeInboxLookupEntry {
+    pub key: NativeInboxKey,
+    pub logical: InboxLogicalMessage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<InboxLogicalAttachments>,
+}
+
+impl NativeInboxLookupEntry {
+    pub fn logical_payload(&self) -> Result<Value, serde_json::Error> {
+        logical_payload(
+            &self.logical,
+            self.attachments
+                .as_ref()
+                .map(|set| (set.images.as_slice(), set.files.iter())),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct NativeInboxLookup {
     pub receiver: InboxReceiver,
-    pub entries: Vec<NativeInboxTransferEntry>,
+    pub entries: Vec<NativeInboxLookupEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -463,3 +550,7 @@ pub(crate) struct NativeInboxLookupReply {
     pub receiver: InboxReceiver,
     pub entries: Vec<NativeInboxLookupResult>,
 }
+
+#[cfg(test)]
+#[path = "inbox/lookup_tests.rs"]
+mod lookup_tests;

@@ -186,7 +186,7 @@ fn chars_between(text: &str, min: usize, max: usize) -> bool {
     n >= min && n <= max
 }
 
-fn read_ref(value: &Value) -> Option<AttachmentRef> {
+pub(crate) fn read_ref(value: &Value) -> Option<AttachmentRef> {
     let fields = object(value)?;
     let sha256 = string(fields, "sha256").filter(|sha| is_sha(sha))?;
     let name = string(fields, "name").filter(|name| chars_between(name, 1, 1000))?;
