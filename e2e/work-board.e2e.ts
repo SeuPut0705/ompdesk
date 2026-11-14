@@ -293,13 +293,14 @@ for (const language of variants(["en", "ko"] as const))
 							}).length,
 					);
 					expect(cut, "no address is cut").toBe(0);
-					// The groups scroll inside a height cap: 20rem, at most 40 % of the window.
-					const scroller = await block.locator("[data-sidebar-usage-scroll]").evaluate(list => {
+					// The accounts scroll, but the whole block (header and explanation too) stays inside its cap.
+					const scroller = await block.evaluate(block => {
 						const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
 						return {
-							height: list.getBoundingClientRect().height,
-							cap: Math.min(20 * rem, innerHeight * 0.4),
-							overflowY: getComputedStyle(list).overflowY,
+							height: block.getBoundingClientRect().height,
+							cap: Math.min(16 * rem, innerHeight * 0.32),
+							overflowY: getComputedStyle(block.querySelector("[data-sidebar-usage-scroll]") as Element)
+								.overflowY,
 						};
 					});
 					expect(scroller.height).toBeLessThanOrEqual(scroller.cap + 1);

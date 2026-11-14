@@ -7,8 +7,8 @@
  * measured window as a gauge with its reset beneath (5H, 7D, a model's own weekly limit), a window at its limit in
  * the danger fill and one near it in warning, as in Settings (`AccountQuota.tsx`). The provider this tab uses comes
  * first; inside a group the accounts keep a fixed order, so a reading never moves a row. The accounts scroll inside
- * a capped height, so many of them never take the sidebar. The in-use account's row says why the session is on it
- * (`rotationReason`, the account rotation's last decision) when the report carries one. API-key providers have no
+ * the block's capped height. The in-use account's explanation stays below that scroller, within the same cap, so the
+ * rotation's last decision (`rotationReason`) is never cut by a scroll edge. API-key providers have no
  * windows and are not listed; with no account at all the block renders nothing. The header's gear opens Settings ›
  * Models & accounts. Reads go through `useUsageReports` (live quotas, no polling of its own).
  */
@@ -68,7 +68,6 @@ function groupOf(id: string, providers: readonly ProviderInfo[]): ProviderGroup 
 }
 
 function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers: readonly ProviderInfo[] }) {
-	const t = useT();
 	const folded = useSidebarFolds(s => s.usageGroups[group.provider] === true);
 	const sources = group.accounts.map(({ report, inUse }) => sourceOf(report, inUse));
 	const labels = group.accounts.map(({ report }) => report.account?.trim() || report.provider);
@@ -97,7 +96,6 @@ function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers:
 						key={`${report.provider}:${report.credentialId ?? labels[index]}`}
 						quota={<QuotaCell account={source} columns={columns} compact now={now} tracks={0} />}
 						quotaColumns={columns.length}
-						reason={inUse ? rotationReason(report.rotation, t) : null}
 						rowProps={{
 							"data-in-use": inUse || undefined,
 							"data-rail-account": `${report.provider}:${report.account ?? ""}`,
@@ -134,7 +132,7 @@ export function SidebarUsage({
 			onContextMenu={onContextMenu}
 			onKeyDown={onKeyDown}
 		>
-			<div className="flex items-center gap-0.5">
+			<div className="flex shrink-0 items-center gap-0.5">
 				<DisclosureButton
 					chevron="end"
 					chevronClassName="size-(--sc-icon-sm)"
@@ -154,11 +152,27 @@ export function SidebarUsage({
 				/>
 			</div>
 			{!collapsed && (
-				<ul aria-label={t("sidebar.pin.usage")} className="omp-sidebar-usage-groups" data-sidebar-usage-scroll>
-					{groups.map(group => (
-						<UsageGroup group={group} key={group.provider} providers={providers} />
-					))}
-				</ul>
+				<>
+					<ul aria-label={t("sidebar.pin.usage")} className="omp-sidebar-usage-groups" data-sidebar-usage-scroll>
+						{groups.map(group => (
+							<UsageGroup group={group} key={group.provider} providers={providers} />
+						))}
+					</ul>
+					{groups.map(group =>
+						group.accounts.map(({ report, inUse }) => {
+							const reason = inUse ? rotationReason(report.rotation, t) : null;
+							return reason ? (
+								<p
+									className="shrink-0 px-2 text-sc-xs break-words text-(--sc-text-muted)"
+									data-account-reason
+									key={`${report.provider}:${report.credentialId ?? report.account}`}
+								>
+									{reason}
+								</p>
+							) : null;
+						}),
+					)}
+				</>
 			)}
 		</div>
 	);
