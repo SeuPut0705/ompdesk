@@ -77,6 +77,9 @@ const TRACING_REASON: &str = "OMPdesk's preview does not allow Tracing (tab.trac
 /// Announced targets that are not children of this page (a session onto them is never relayed).
 const FOREIGN_TARGET_TYPES: &[&str] = &["page", "tab", "browser"];
 
+const LOOPBACK_REASON: &str =
+    "OMPdesk's preview does not open this computer's own addresses for a paired computer's agent";
+
 /// Why the preview may not show `url`, or None: `about:blank` or an http(s) page (the rule every navigation shares), and
 /// for a paired host's agent never this computer's own addresses. `url` is None when the value is absent; anything that
 /// is not a string is refused like a non-http(s) address.
@@ -87,8 +90,7 @@ fn navigation_refusal(url: Option<&Value>, block_loopback: bool) -> Option<&'sta
     let Some(safe) = url.and_then(Value::as_str).and_then(preview_url) else {
         return Some("OMPdesk's preview only opens http(s) pages");
     };
-    (block_loopback && is_loopback_url(&safe))
-        .then_some("OMPdesk's preview does not open this computer's own addresses for a paired computer's agent")
+    (block_loopback && is_loopback_url(&safe)).then_some(LOOPBACK_REASON)
 }
 
 /// `/^\s*file:/im.test(text)`: some line of `text` starts, after any whitespace, with `file:` in any letter case.
@@ -158,13 +160,15 @@ pub fn refused_command(method: &str, params: &Value, block_loopback: bool) -> Op
     {
         return Some(refusal.to_owned());
     }
-    // DevTools' resource loader (source maps): only what the page could fetch from the web, never a local file.
-    if method == "Network.loadNetworkResource"
-        && field("url")
-            .and_then(Value::as_str)
-            .is_none_or(|url| preview_url(url).is_none())
-    {
-        return Some("OMPdesk's preview only loads http(s) resources".to_owned());
+    // The DevTools resource loader bypasses page navigation and CORS. Keep its direct URL under the same local-address
+    // rule as Page.navigate, not just the scheme check, or a paired agent can read this computer's loopback services.
+    if method == "Network.loadNetworkResource" {
+        let Some(url) = field("url").and_then(Value::as_str).and_then(preview_url) else {
+            return Some("OMPdesk's preview only loads http(s) resources".to_owned());
+        };
+        if block_loopback && is_loopback_url(&url) {
+            return Some(LOOPBACK_REASON.to_owned());
+        }
     }
     // The target URL is read from the page's own history before the command goes out (see `Step::History`).
     if method == "Page.navigateToHistoryEntry" && !field("entryId").is_some_and(is_integer) {
@@ -1376,6 +1380,47 @@ mod tests {
             true
         );
         assert_eq!(harness.sent_methods(), ["Network.loadNetworkResource"]);
+    }
+
+    #[test]
+    fn a_paired_agent_cannot_read_local_services_through_the_resource_loader() {
+        let mut remote = Harness::with(true);
+        remote.attach();
+        let mut local = Harness::new();
+        local.attach();
+        for (id, url) in [
+            (2, "http://127.0.0.1:47831/"),
+            (3, "http://localhost:9333/json"),
+            (4, "http://[::1]:8000/private"),
+            (5, "http://2130706433:8000/private"),
+        ] {
+            let rpc = json!({
+                "op": "send", "tabId": 7, "method": "Network.loadNetworkResource",
+                "params": { "frameId": "f", "url": url, "options": { "includeCredentials": true } }
+            });
+            let refused = remote.rpc(id, rpc.clone()).unwrap();
+            assert_eq!(refused["ok"], false, "{url}");
+            assert!(
+                refused["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("paired computer")
+            );
+            assert_eq!(local.rpc(id, rpc).unwrap()["ok"], true, "{url}");
+        }
+        assert!(remote.sent.is_empty());
+        assert_eq!(
+            remote
+                .rpc(
+                    6,
+                    json!({
+                        "op": "send", "tabId": 7, "method": "Network.loadNetworkResource",
+                        "params": { "frameId": "f", "url": "https://example.com/app.js.map" }
+                    })
+                )
+                .unwrap()["ok"],
+            true
+        );
     }
 
     #[test]
