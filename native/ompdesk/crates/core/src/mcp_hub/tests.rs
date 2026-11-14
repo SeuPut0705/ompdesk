@@ -2,11 +2,15 @@ use super::*;
 use http_body_util::Full;
 use tokio::net::TcpStream;
 
+static FIXTURE_PORTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 struct Fixture {
     dir: PathBuf,
+    _port_owner: tokio::sync::MutexGuard<'static, ()>,
 }
 impl Fixture {
-    fn new() -> Self {
+    async fn new() -> Self {
+        let port_owner = FIXTURE_PORTS.lock().await;
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let dir = std::env::temp_dir().join(format!(
             "mcp-hub-native-{}-{}",
@@ -14,10 +18,13 @@ impl Fixture {
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        Self { dir }
+        Self {
+            dir,
+            _port_owner: port_owner,
+        }
     }
     fn config(&self) -> Config {
-        let mut env: BTreeMap<String, String> = std::env::vars().collect();
+        let mut env = fixture_environment(&self.dir);
         env.insert(
             "OMP_GUI_MCP_HUB_SECRET".into(),
             "must-not-reach-child".into(),
@@ -117,7 +124,7 @@ async fn initialize(hub: &McpHub) -> (String, Value) {
 
 #[tokio::test]
 async fn loopback_requires_launch_auth_and_keeps_port_and_credentials_on_restart() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let hub = McpHub::start(fixture.config()).await.unwrap();
     let env = hub.omp_env("/a b/한글?x=1&y=%2F");
     assert_eq!(
@@ -157,8 +164,14 @@ async fn loopback_requires_launch_auth_and_keeps_port_and_credentials_on_restart
         answer["error"]["message"],
         "upstream MCP request failed: memory is not running"
     );
+    let mut held = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     hub.shutdown().await.unwrap();
-    assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err());
+    let mut byte = [0];
+    let closed = tokio::time::timeout(Duration::from_secs(10), held.read(&mut byte))
+        .await
+        .unwrap();
+    assert!(closed.is_err() || closed.unwrap() == 0);
+    assert_listener_closed(&hub).await;
     assert!(hub.omp_env("/").is_empty());
     let second = McpHub::start(fixture.config()).await.unwrap();
     assert_ne!(second.inner.auth, env["OMP_GUI_MCP_AUTH"]);
@@ -167,7 +180,7 @@ async fn loopback_requires_launch_auth_and_keeps_port_and_credentials_on_restart
 
 #[tokio::test]
 async fn session_http_preserves_descriptors_ids_cwd_env_and_stream_events() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let hub = McpHub::start(fixture.config()).await.unwrap();
     let cwd = fixture.dir.join("space 한글");
     std::fs::create_dir(&cwd).unwrap();
@@ -248,7 +261,7 @@ async fn session_http_preserves_descriptors_ids_cwd_env_and_stream_events() {
 
 #[tokio::test]
 async fn eof_joins_listener_and_child_and_unknown_sessions_are_not_reused() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let hub = McpHub::start(fixture.config()).await.unwrap();
     let (session, _) = initialize(&hub).await;
     let (_, call) = post(&hub, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"inspect","arguments":{}}}), Some(&session)).await;
@@ -267,16 +280,21 @@ async fn eof_joins_listener_and_child_and_unknown_sessions_are_not_reused() {
     assert_eq!(response.status(), 404);
     let (owner, pipe) = tokio::io::duplex(8);
     drop(owner);
-    let port = hub.port();
+    let mut held = TcpStream::connect(("127.0.0.1", hub.port())).await.unwrap();
     hub.own_until(pipe).await.unwrap();
-    assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err());
+    let mut byte = [0];
+    let closed = tokio::time::timeout(Duration::from_secs(10), held.read(&mut byte))
+        .await
+        .unwrap();
+    assert!(closed.is_err() || closed.unwrap() == 0);
+    assert_listener_closed(&hub).await;
     #[cfg(unix)]
     assert!(!crate::sys::alive(pid));
 }
 
 #[tokio::test]
 async fn memory_reads_current_token_and_preserves_upstream_instructions_and_sse() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let data_dir = fixture.dir.join("data");
     std::fs::create_dir_all(data_dir.join("auth-tokens")).unwrap();
     std::fs::write(data_dir.join("auth-tokens/default"), "fixture-token-one\n").unwrap();
@@ -342,7 +360,7 @@ async fn memory_reads_current_token_and_preserves_upstream_instructions_and_sse(
 
 #[tokio::test]
 async fn completed_session_tasks_are_reaped_but_shutdown_still_joins_active_cleanup() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let hub = McpHub::start(fixture.config()).await.unwrap();
     let (release, wait) = oneshot::channel();
     let (closed, mut was_closed) = oneshot::channel();
@@ -355,8 +373,8 @@ async fn completed_session_tasks_are_reaped_but_shutdown_still_joins_active_clea
         (&mut finished).await.unwrap();
         hub.inner.track(finished);
     }
-    // One active close and the last completed handle; history does not grow with closed sessions.
-    assert_eq!(hub.inner.tasks.lock().unwrap().len(), 2);
+    // Completed work is gone; the active close still belongs to shutdown.
+    assert_eq!(hub.inner.tasks.lock().unwrap().len(), 1);
     let mut stopping = std::pin::pin!(hub.shutdown());
     std::future::poll_fn(|cx| {
         assert!(stopping.as_mut().poll(cx).is_pending());
@@ -374,7 +392,7 @@ async fn completed_session_tasks_are_reaped_but_shutdown_still_joins_active_clea
 
 #[tokio::test]
 async fn replacing_a_stream_keeps_the_same_rea_while_a_dropped_live_stream_closes_it() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let hub = McpHub::start(fixture.config()).await.unwrap();
     let (session, _) = initialize(&hub).await;
     let (_, first) = post(&hub, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"inspect","arguments":{}}}), Some(&session)).await;
@@ -441,7 +459,7 @@ async fn replacing_a_stream_keeps_the_same_rea_while_a_dropped_live_stream_close
 
 #[tokio::test]
 async fn requested_port_conflict_falls_back_and_bundled_config_reads_the_shipped_pin() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let occupied = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let taken = occupied.local_addr().unwrap().port();
     let mut config = fixture.config();
@@ -463,7 +481,7 @@ async fn requested_port_conflict_falls_back_and_bundled_config_reads_the_shipped
 
 #[tokio::test]
 async fn stream_end_waits_for_the_outstanding_post_body_to_be_consumed_or_cancelled() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::new().await;
     let hub = McpHub::start(fixture.config()).await.unwrap();
     let (_id, session) = hub.inner.open(None).unwrap();
     let (tx, mut stream) = mpsc::unbounded_channel();
@@ -496,4 +514,47 @@ async fn stream_end_waits_for_the_outstanding_post_body_to_be_consumed_or_cancel
     finish.await;
     assert!(stream.recv().await.is_none());
     hub.shutdown().await.unwrap();
+}
+
+async fn assert_listener_closed(hub: &McpHub) {
+    let connected = tokio::time::timeout(
+        Duration::from_secs(10),
+        TcpStream::connect(("127.0.0.1", hub.port())),
+    )
+    .await
+    .expect("fresh connect timed out; listener ownership is unknown");
+    let socket = match connected {
+        Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => return,
+        Err(error) => panic!("fresh connect failed without proving refusal: {error}"),
+        Ok(socket) => socket,
+    };
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket))
+        .await
+        .expect("fresh peer is not identified as an MCP HTTP server");
+    let driver = tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let probe = Request::builder()
+        .method(Method::POST)
+        .uri("/memory")
+        .header("host", "127.0.0.1")
+        .header("authorization", &hub.inner.auth)
+        .body(Full::new(Bytes::from_static(
+            br#"{"jsonrpc":"2.0","id":"closed-owner","method":"ping"}"#,
+        )))
+        .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(10), sender.send_request(probe)).await;
+    driver.abort();
+    let _ = driver.await;
+    match result {
+        Ok(Ok(reply)) if reply.status() == 200 => {
+            panic!("the closed hub still accepts its old launch bearer")
+        }
+        Ok(Ok(reply)) => panic!(
+            "fresh peer at the closed port is unknown; old-bearer probe returned {}",
+            reply.status()
+        ),
+        Ok(Err(error)) => panic!("fresh peer identity could not be established: {error}"),
+        Err(_) => panic!("fresh peer timed out; listener closure is not proved"),
+    }
 }
