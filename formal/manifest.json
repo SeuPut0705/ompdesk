@@ -229,7 +229,7 @@
 				"native/ompdesk/crates/core/src/checks/queue.rs",
 				"native/ompdesk/crates/core/src/checks/hub.rs"
 			],
-			"syncCommit": null
+			"syncCommit": "e87d85e5b2cc1435a715c6b0a9dc92cdfb74529d"
 		},
 		{
 			"id": "checks-local-lifecycle",
