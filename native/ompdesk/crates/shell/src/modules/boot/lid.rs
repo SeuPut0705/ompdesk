@@ -2,161 +2,81 @@
 //! (`boot_core::powercfg`). Inputs arrive from the host's reader thread (`awakeStart`/`awakeStop`) and the hidden window
 //! (AC/battery); backend calls block, so they run here, never on the UI thread.
 
+use std::path::Path;
 use std::sync::Mutex;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use serde_json::{Value, json};
-use shell_core::boot_core::lid::{Backend, Input, Policy};
+use serde_json::json;
+use shell_core::boot_core::lid::{Backend, Input};
+use shell_core::boot_core::lid_runtime::{LidRuntime, Logger};
 
-use crate::modules::Ctx;
+static RUNTIME: Mutex<Option<LidRuntime>> = Mutex::new(None);
 
-enum Msg {
-    Input(Input),
-    /// Answered with `held` once the policy settled on everything sent before it.
-    Query(Box<dyn FnOnce(bool) + Send>),
-    Dispose(Sender<()>),
-}
-
-static INPUTS: Mutex<Option<Sender<Msg>>> = Mutex::new(None);
-
-fn send(msg: Msg) -> bool {
-    INPUTS
-        .lock()
-        .unwrap()
-        .as_ref()
-        .is_some_and(|tx| tx.send(msg).is_ok())
-}
-
-/// Starts the policy (UI thread, `ready`). A test launch (`OMP_GUI_HEADLESS=1`) never changes the machine's power
-/// settings: a killed test app would leave them changed.
-pub fn start(ctx: Ctx) {
+pub fn start_with(user_data: &Path, on_ac: bool, log: Logger) -> std::io::Result<()> {
     if std::env::var("OMP_GUI_HEADLESS").as_deref() == Ok("1") {
-        return;
+        return Ok(());
     }
-    let Some(backend) = backend() else { return };
-    let on_ac = !crate::system::on_battery();
-    let (tx, rx) = channel();
-    *INPUTS.lock().unwrap() = Some(tx);
-    let spawned = std::thread::Builder::new()
-        .name("boot-lid".into())
-        .spawn(move || run(backend, on_ac, &rx, ctx));
-    if let Err(error) = spawned {
-        INPUTS.lock().unwrap().take();
-        crate::log::log(
-            "boot.lid_thread_failed",
-            json!({ "error": error.to_string() }),
-        );
+    let mut runtime = RUNTIME.lock().unwrap();
+    if runtime.is_some() {
+        return Ok(());
     }
+    if let Some(backend) = backend(user_data) {
+        *runtime = Some(LidRuntime::start(backend, on_ac, log)?);
+    }
+    Ok(())
 }
 
 pub fn blocker(id: &str, held: bool) {
-    send(Msg::Input(Input::Blocker {
-        key: id.to_string(),
-        held,
-    }));
+    if let Some(runtime) = RUNTIME.lock().unwrap().as_ref() {
+        runtime.input(Input::Blocker {
+            key: id.to_string(),
+            held,
+        });
+    }
 }
 
 pub fn on_ac(on_ac: bool) {
-    send(Msg::Input(Input::OnAc(on_ac)));
-}
-
-/// `answer(held)` once the policy settled; `false` at once when none runs (a desktop OS without a backend, a test).
-pub fn query(answer: impl FnOnce(bool) + Send + 'static) {
-    let tx = INPUTS.lock().unwrap().clone();
-    match tx {
-        Some(tx) => {
-            if let Err(error) = tx.send(Msg::Query(Box::new(answer)))
-                && let Msg::Query(answer) = error.0
-            {
-                answer(false);
-            }
-        }
-        None => answer(false),
+    if let Some(runtime) = RUNTIME.lock().unwrap().as_ref() {
+        runtime.input(Input::OnAc(on_ac));
     }
 }
 
-/// Quit (UI thread): releases at once and waits up to 5 s for a backend call under way.
+/// Answers after the policy settles, or false when no runtime is available.
+pub fn query(answer: impl FnOnce(bool) + Send + 'static) {
+    let runtime = RUNTIME.lock().unwrap();
+    if let Some(runtime) = runtime.as_ref() {
+        runtime.query(answer);
+    } else {
+        drop(runtime);
+        answer(false);
+    }
+}
+
+/// Releases the backend, allowing up to five seconds for an in-flight call.
 pub fn stop() {
-    let Some(tx) = INPUTS.lock().unwrap().take() else {
+    let Some(mut runtime) = RUNTIME.lock().unwrap().take() else {
         return;
     };
-    let (ack, done) = channel();
-    if tx.send(Msg::Dispose(ack)).is_ok() {
-        let _ = done.recv_timeout(Duration::from_secs(5));
-    }
-}
-
-fn run(mut backend: Box<dyn Backend + Send>, on_ac: bool, rx: &Receiver<Msg>, ctx: Ctx) {
-    let mut log = |message: &'static str, details: Value| {
-        ctx.runtime_log(
-            json!({ "source": "keep-awake", "message": message, "details": details }),
-            None,
+    if !runtime.shutdown(Duration::from_secs(5)) {
+        crate::log::log(
+            "boot.lid_shutdown_timeout",
+            json!({ "error": "lid backend did not settle within 5 seconds" }),
         );
-    };
-    let mut policy = Policy::new(on_ac);
-    policy.start(backend.as_mut(), &mut log);
-    while let Ok(msg) = rx.recv() {
-        let mut queries = Vec::new();
-        let mut acks = Vec::new();
-        if take(&mut policy, msg, &mut queries, &mut acks) {
-            policy.converge(backend.as_mut(), &mut log, &mut |policy| {
-                while let Ok(more) = rx.try_recv() {
-                    take(policy, more, &mut queries, &mut acks);
-                }
-            });
-        }
-        if !acks.is_empty() {
-            policy.dispose(backend.as_mut(), &mut log);
-        }
-        for answer in queries {
-            answer(policy.held());
-        }
-        for ack in acks {
-            let _ = ack.send(());
-        }
-    }
-}
-
-type Answer = Box<dyn FnOnce(bool) + Send>;
-
-/// Applies one message: an input (true when the backend may have to move), a query or a dispose kept for when the
-/// policy settled.
-fn take(
-    policy: &mut Policy,
-    msg: Msg,
-    queries: &mut Vec<Answer>,
-    acks: &mut Vec<Sender<()>>,
-) -> bool {
-    match msg {
-        Msg::Input(input) => policy.apply(input),
-        Msg::Query(answer) => {
-            queries.push(answer);
-            false
-        }
-        Msg::Dispose(ack) => {
-            policy.apply(Input::Dispose);
-            acks.push(ack);
-            false
-        }
     }
 }
 
 #[cfg(target_os = "macos")]
-fn backend() -> Option<Box<dyn Backend + Send>> {
+fn backend(_user_data: &Path) -> Option<Box<dyn Backend + Send>> {
     Some(Box::new(mac::Caffeinate::default()))
 }
 
 #[cfg(windows)]
-fn backend() -> Option<Box<dyn Backend + Send>> {
-    let user_data = crate::state::FACTS.get()?["paths"]["userData"]
-        .as_str()
-        .map(std::path::PathBuf::from)?;
+fn backend(user_data: &Path) -> Option<Box<dyn Backend + Send>> {
     Some(Box::new(windows::lid(user_data.join("lid-awake.json"))))
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn backend() -> Option<Box<dyn Backend + Send>> {
+fn backend(_user_data: &Path) -> Option<Box<dyn Backend + Send>> {
     None
 }
 

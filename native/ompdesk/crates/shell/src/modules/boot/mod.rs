@@ -1,10 +1,12 @@
-//! `boot.*` (PROTOCOL.md §15.9, batch SX5): what main's `index.ts` wired to Electron at start. `omp-media://` served
-//! from disk, keep-awake's blockers with the lid policy that keeps a charging laptop awake while work runs, the power
-//! and network events main reacts to, the app's theme over the OS's, the global shortcut, the resolver main's
-//! reachability probe asks, and main's text: the UI language and the table Node's `mainT` reads.
+//! Native boot, power and media coordinators. The temporary Module/Call boundary delegates here; neither a Node
+//! connection nor a label mirror owns the state. Base initializes this on the CEF UI thread before other domains.
 
 mod lid;
-mod media;
+pub mod media;
+
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 use shell_core::boot_core::text::{self, Lang};
@@ -16,64 +18,186 @@ use crate::host::Call;
 
 pub struct Boot;
 
-const CTX: Ctx = Ctx { namespace: "boot" };
+#[derive(Clone)]
+pub struct Hooks {
+    pub log: Arc<dyn Fn(Value) + Send + Sync>,
+    pub emit: Arc<dyn Fn(&str, Value) + Send + Sync>,
+}
 
-/// `power.rs`: a power event (`suspend`, `resume`, `lock-screen`, `unlock-screen`, `on-ac`, `on-battery`,
-/// `shutdown`). UI thread.
+pub struct Config {
+    pub user_data: PathBuf,
+    pub app_locale: String,
+    pub preferred_languages: Vec<String>,
+    pub language: Option<String>,
+    pub on_ac: bool,
+}
+
+struct Runtime {
+    config: Config,
+    hooks: Hooks,
+}
+
+enum State {
+    New,
+    Running(Runtime),
+    Stopped,
+}
+
+static STATE: Mutex<State> = Mutex::new(State::New);
+static BLOCKERS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+
+/// Once on the UI thread, after Base sets native paths/facts and before app pages are made.
+pub fn start(config: Config, hooks: Hooks) -> Result<(), String> {
+    {
+        let mut state = STATE.lock().unwrap();
+        if !matches!(*state, State::New) {
+            return Err("boot is already started or stopped".into());
+        }
+        *state = State::Running(Runtime {
+            config,
+            hooks: hooks.clone(),
+        });
+    }
+    let result = (|| {
+        media::register()?;
+        let state = STATE.lock().unwrap();
+        let State::Running(runtime) = &*state else {
+            return Err("boot is stopped".into());
+        };
+        let user_data = runtime.config.user_data.clone();
+        let on_ac = runtime.config.on_ac;
+        let language = runtime.config.language.clone();
+        drop(state);
+        lid::start_with(
+            &user_data,
+            on_ac,
+            Box::new(move |message, details| {
+                (hooks.log)(
+                    json!({ "source": "keep-awake", "message": message, "details": details }),
+                );
+            }),
+        )
+        .map_err(|error| error.to_string())?;
+        set_language(language.as_deref());
+        online(crate::system::online());
+        Ok(())
+    })();
+    if result.is_err() {
+        stop();
+    }
+    result
+}
+
+/// UI thread, before core drain and CEF shutdown. Stops new events/capabilities, releases open media bodies and
+/// every boot-owned blocker, then lets the platform lid backend settle.
+pub fn stop() {
+    let previous = std::mem::replace(&mut *STATE.lock().unwrap(), State::Stopped);
+    media::stop();
+    lid::stop();
+    let ids = std::mem::take(&mut *BLOCKERS.lock().unwrap());
+    for id in ids {
+        if let Err(error) = crate::power::release(&id.to_string())
+            && let State::Running(runtime) = &previous
+        {
+            (runtime.hooks.log)(failure("stop", &error));
+        }
+    }
+}
+
+fn hooks() -> Option<Hooks> {
+    match &*STATE.lock().unwrap() {
+        State::Running(runtime) => Some(runtime.hooks.clone()),
+        State::New | State::Stopped => None,
+    }
+}
+
+fn emit(name: &str, data: Value) {
+    if let Some(hooks) = hooks() {
+        (hooks.emit)(name, data);
+    }
+}
+
+/// Native power notifications enter here even when no page or Node receiver exists.
 pub fn power(name: &str) {
-    CTX.emit("power", json!({ "name": name }));
     match name {
         "on-ac" => lid::on_ac(true),
         "on-battery" => lid::on_ac(false),
         _ => {}
     }
+    emit("boot.power", json!({ "name": name }));
 }
 
-/// `system.rs`'s network poll: Chromium's link state changed.
 pub fn online(online: bool) {
-    CTX.emit("online", json!({ "online": online }));
+    emit("boot.online", json!({ "online": online }));
 }
 
-/// `shortcut.rs`: a registered global shortcut fired. UI thread.
 pub fn shortcut(accelerator: &str) {
-    CTX.emit("shortcut", json!({ "accelerator": accelerator }));
+    emit("boot.shortcut", json!({ "accelerator": accelerator }));
 }
 
-/// Node's blocker id as the key `power.rs` and the lid policy hold it under.
-fn blocker_id(data: &Value) -> Option<String> {
-    data.get("id")
-        .and_then(Value::as_u64)
-        .map(|id| id.to_string())
+/// UI thread. Base resolves the theme preference before any window is made.
+pub fn theme_source(source: ThemeSource) {
+    crate::theme::set_source(source);
 }
 
-/// Chooses the UI language (`stored`: the person's `language` pref, else the app locale), for the shell's labels and
-/// Node's copy of the table (`boot.labels`, which carries both languages, as `mainT` may ask for either, and the locale
-/// facts Node's `deviceLanguage` reads).
-fn choose_language(stored: Option<&str>) {
-    let locale = crate::state::FACTS
-        .get()
-        .map(|facts| facts["locale"].clone())
-        .unwrap_or(Value::Null);
-    let app_locale = locale["appLocale"].as_str().unwrap_or("en-US");
-    let lang = Lang::chosen(stored, app_locale);
-    labels::set_language(lang);
-    CTX.emit(
-        "labels",
+pub fn register_shortcut(accelerator: &str) -> bool {
+    crate::shortcut::register(accelerator)
+}
+
+/// The native language is authoritative; emitting boot.labels only updates consumers.
+pub fn set_language(stored: Option<&str>) {
+    let (app_locale, preferred_languages, hooks) = {
+        let state = STATE.lock().unwrap();
+        let State::Running(runtime) = &*state else {
+            return;
+        };
+        (
+            runtime.config.app_locale.clone(),
+            runtime.config.preferred_languages.clone(),
+            runtime.hooks.clone(),
+        )
+    };
+    let language = Lang::chosen(stored, &app_locale);
+    labels::set_language(language);
+    (hooks.emit)(
+        "boot.labels",
         json!({
-            "language": lang.as_str(),
+            "language": language.as_str(),
             "text": &*text::TABLE_JSON,
             "appLocale": app_locale,
-            "preferredLanguages": locale["preferredLanguages"].as_array().cloned().unwrap_or_default(),
+            "preferredLanguages": preferred_languages,
         }),
     );
 }
 
-/// The `language` pref as electron-store keeps it (`<userData>/prefs.json`).
-fn stored_language() -> Option<String> {
-    let user_data = crate::state::FACTS.get()?["paths"]["userData"].as_str()?;
-    text::stored_language(
-        &std::fs::read_to_string(std::path::Path::new(user_data).join("prefs.json")).ok()?,
-    )
+/// UI thread. The same ids aggregate local and hosted work; repeated starts/stops are idempotent.
+pub fn awake_start(id: u64) -> Result<(), String> {
+    if hooks().is_none() {
+        return Err("boot is not running".into());
+    }
+    BLOCKERS.lock().unwrap().insert(id);
+    crate::power::hold(id.to_string())?;
+    lid::blocker(&id.to_string(), true);
+    Ok(())
+}
+
+pub fn awake_stop(id: u64) -> Result<(), String> {
+    if hooks().is_none() {
+        return Err("boot is not running".into());
+    }
+    crate::power::release(&id.to_string())?;
+    BLOCKERS.lock().unwrap().remove(&id);
+    lid::blocker(&id.to_string(), false);
+    Ok(())
+}
+
+pub fn awake_state(answer: impl FnOnce(bool, bool) + Send + 'static) {
+    let held = crate::power::held();
+    lid::query(move |lid_held| answer(held, lid_held));
+}
+
+fn failure(step: &str, error: &str) -> Value {
+    json!({ "source": "keep-awake", "message": "failed", "details": { "step": step, "error": error } })
 }
 
 impl Module for Boot {
@@ -82,15 +206,53 @@ impl Module for Boot {
     }
 
     fn ready(&self, ctx: Ctx) {
-        // Node's mirrors of the text and of `online` start here: these arrive before `app.ready`.
-        choose_language(stored_language().as_deref());
-        media::register();
-        lid::start(ctx);
-        online(crate::system::online());
+        let Some(facts) = crate::state::FACTS.get() else {
+            return crate::log::log(
+                "boot.start_failed",
+                json!({ "error": "native facts unavailable" }),
+            );
+        };
+        let Some(user_data) = facts["paths"]["userData"].as_str() else {
+            return crate::log::log(
+                "boot.start_failed",
+                json!({ "error": "userData unavailable" }),
+            );
+        };
+        let language = std::fs::read_to_string(PathBuf::from(user_data).join("prefs.json"))
+            .ok()
+            .and_then(|prefs| text::stored_language(&prefs));
+        let config = Config {
+            user_data: user_data.into(),
+            app_locale: facts["locale"]["appLocale"]
+                .as_str()
+                .unwrap_or("en-US")
+                .into(),
+            preferred_languages: facts["locale"]["preferredLanguages"]
+                .as_array()
+                .map(|languages| {
+                    languages
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            language,
+            on_ac: !crate::system::on_battery(),
+        };
+        let hooks = Hooks {
+            log: Arc::new(move |line| ctx.runtime_log(line, None)),
+            emit: Arc::new(move |name, data| {
+                ctx.emit(name.strip_prefix("boot.").unwrap_or(name), data)
+            }),
+        };
+        if let Err(error) = start(config, hooks) {
+            crate::log::log("boot.start_failed", json!({ "error": error }));
+        }
     }
 
     fn shutdown(&self, _ctx: Ctx) {
-        lid::stop();
+        stop();
     }
 
     fn request(&self, _ctx: Ctx, call: Call) {
@@ -104,13 +266,13 @@ impl Module for Boot {
                     return call.err("invalid", "boot.registerShortcut needs an accelerator");
                 };
                 crate::ui::run(move || {
-                    let registered = crate::shortcut::register(&accelerator);
-                    call.ok(json!({ "registered": registered }));
+                    call.ok(json!({ "registered": register_shortcut(&accelerator) }))
                 });
             }
             "awakeState" => crate::ui::run(move || {
-                let held = crate::power::held();
-                lid::query(move |lid_held| call.ok(json!({ "held": held, "lidHeld": lid_held })));
+                awake_state(move |held, lid_held| {
+                    call.ok(json!({ "held": held, "lidHeld": lid_held }))
+                });
             }),
             "themeSource" => {
                 let Some(source) = call.str("source").as_deref().and_then(ThemeSource::parse)
@@ -120,41 +282,38 @@ impl Module for Boot {
                         "boot.themeSource: source must be system, light or dark",
                     );
                 };
-                // `theme.changed` goes out before the answer, so Node's `nativeTheme` mirror agrees when it resumes.
                 crate::ui::run(move || {
-                    crate::theme::set_source(source);
+                    theme_source(source);
                     call.ok(json!({}));
                 });
             }
-            // The person changed the UI language (or cleared it: `null` follows the locale). `boot.labels` goes out
-            // before the answer, so Node's `mainT` already speaks it when the call resolves.
             "language" => {
-                choose_language(call.params.get("language").and_then(Value::as_str));
+                set_language(call.params.get("language").and_then(Value::as_str));
                 call.ok(json!({}));
             }
             _ => call.unsupported(),
         }
     }
 
-    fn event(&self, ctx: Ctx, name: &str, data: Value, _bin: Option<Vec<u8>>) {
+    fn event(&self, _ctx: Ctx, name: &str, data: Value, _bin: Option<Vec<u8>>) {
         match name.strip_prefix("boot.").unwrap_or_default() {
             "mediaRelease" => media::release(&data),
             "mediaReleaseOwner" => media::release_owner(&data),
-            "awakeStart" => {
-                let Some(id) = blocker_id(&data) else { return };
-                lid::blocker(&id, true);
+            "awakeStart" | "awakeStop" => {
+                let Some(id) = data.get("id").and_then(Value::as_u64) else {
+                    return;
+                };
+                let starting = name.ends_with("awakeStart");
                 crate::ui::run(move || {
-                    if let Err(error) = crate::power::hold(id) {
-                        log_blocker_failure(ctx, "start", &error);
-                    }
-                });
-            }
-            "awakeStop" => {
-                let Some(id) = blocker_id(&data) else { return };
-                lid::blocker(&id, false);
-                crate::ui::run(move || {
-                    if let Err(error) = crate::power::release(&id) {
-                        log_blocker_failure(ctx, "stop", &error);
+                    let result = if starting {
+                        awake_start(id)
+                    } else {
+                        awake_stop(id)
+                    };
+                    if let Err(error) = result
+                        && let Some(hooks) = hooks()
+                    {
+                        (hooks.log)(failure(if starting { "start" } else { "stop" }, &error));
                     }
                 });
             }
@@ -164,11 +323,4 @@ impl Module for Boot {
             ),
         }
     }
-}
-
-fn log_blocker_failure(ctx: Ctx, step: &str, error: &str) {
-    ctx.runtime_log(
-        json!({ "source": "keep-awake", "message": "failed", "details": { "step": step, "error": error } }),
-        None,
-    );
 }

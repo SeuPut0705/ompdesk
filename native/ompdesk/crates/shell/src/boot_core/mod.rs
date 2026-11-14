@@ -3,6 +3,7 @@
 //! TypeScript did before it was deleted; the tests replay it.
 
 pub mod lid;
+pub mod lid_runtime;
 pub mod media;
 pub mod powercfg;
 pub mod text;
