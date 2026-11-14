@@ -25,7 +25,7 @@ use tokio::time::{MissedTickBehavior, interval};
 use super::net::{USER_AGENT, describe, routed};
 use crate::fs::error::NodeError;
 use crate::http::{self, Request};
-use crate::server::{Call, Events, Fault, Reply, Scope};
+use crate::server::{Call, Fault, Reply, Scope};
 
 /// How often the bytes received so far are reported while they grow.
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
@@ -72,15 +72,51 @@ fn failed(message: String) -> Stop {
 
 pub async fn handle(call: Call) -> Result<Reply, Fault> {
     let params: Params = call.params()?;
+    let report = |received, total| {
+        call.events.send(
+            "setup.downloadProgress",
+            &Progress {
+                id: params.id,
+                received,
+                total,
+            },
+        )
+    };
+    verified(&params, &call.scope, &report).await?;
+    Reply::json(&Done {})
+}
+
+pub(super) async fn fetch(
+    download: &super::types::PlanDownload,
+    mirror: Option<String>,
+    scope: &Scope,
+    report: &(dyn Fn(u64, Option<u64>) + Send + Sync),
+) -> Result<(), Fault> {
+    let params = Params {
+        id: 0,
+        url: download.url.clone(),
+        sha256: download.sha256.clone(),
+        file: download.file.clone(),
+        accept: None,
+        mirror,
+    };
+    verified(&params, scope, report).await
+}
+
+async fn verified(
+    params: &Params,
+    scope: &Scope,
+    report: &(dyn Fn(u64, Option<u64>) + Send + Sync),
+) -> Result<(), Fault> {
     let part = format!("{}.part", params.file);
     let mut created = false;
-    let outcome = transfer(&params, &part, &call.scope, &call.events, &mut created).await;
+    let outcome = transfer(params, &part, scope, report, &mut created).await;
     if outcome.is_err() && created {
         let part = part.clone();
         let _ = blocking(move || std::fs::remove_file(part)).await;
     }
     match outcome {
-        Ok(()) => Reply::json(&Done {}),
+        Ok(()) => Ok(()),
         Err(Stop::Cancelled) => Err(Fault::cancelled()),
         Err(Stop::Fault(fault)) => Err(fault),
         Err(Stop::WriterGone) => Err(Fault::new("download", format!("{part}: the file is gone"))),
@@ -145,7 +181,7 @@ async fn transfer(
     params: &Params,
     part: &str,
     scope: &Scope,
-    events: &Events,
+    report: &(dyn Fn(u64, Option<u64>) + Send + Sync),
     created: &mut bool,
 ) -> Result<(), Stop> {
     let target = routed(&params.url, params.mirror.as_deref());
@@ -198,7 +234,7 @@ async fn transfer(
     *created = true;
     let mut writer = Writer::start(file);
 
-    let streamed = stream(response.into_body(), &writer, params, total, scope, events).await;
+    let streamed = stream(response.into_body(), &writer, params, total, scope, report).await;
     let closed = writer.finish().await;
     let (received, digest) = match (streamed, closed) {
         (Err(Stop::WriterGone), Err(error)) | (Ok(_), Err(error)) => {
@@ -207,14 +243,7 @@ async fn transfer(
         (Err(stop), _) => return Err(stop),
         (Ok(done), Ok(())) => done,
     };
-    events.send(
-        "setup.downloadProgress",
-        &Progress {
-            id: params.id,
-            received,
-            total,
-        },
-    );
+    report(received, total);
     let actual = crate::hex(&digest.finalize());
     if actual != params.sha256 {
         return Err(Stop::Fault(Fault::new(
@@ -238,19 +267,9 @@ async fn stream(
     params: &Params,
     total: Option<u64>,
     scope: &Scope,
-    events: &Events,
+    progress: &(dyn Fn(u64, Option<u64>) + Send + Sync),
 ) -> Result<(u64, Sha256), Stop> {
-    let id = params.id;
-    let report = |received: u64| {
-        events.send(
-            "setup.downloadProgress",
-            &Progress {
-                id,
-                received,
-                total,
-            },
-        )
-    };
+    let report = |received| progress(received, total);
     let mut hash = Sha256::new();
     let mut received = 0_u64;
     let mut reported = 0_u64;
