@@ -436,3 +436,32 @@ fn shared_attachment_pins_cover_import_windows_and_release_only_their_own_refere
     assert_eq!(store.sweep(&HashSet::new()), 1);
     assert!(store.get_now(&sha).is_none());
 }
+
+#[test]
+fn malformed_retention_time_refuses_new_work_without_replacing_accepted_responsibility() {
+    let dir = Dir::new();
+    let receiver = receiver("current");
+    let ledger = InboxLedger::new(Some(dir.file()));
+    let entries = [entry("observed", InboxKind::Prompt)];
+    ledger.keep(&receiver, &entries).unwrap();
+    ledger
+        .reconcile(&receiver, &receipt(&receiver, &entries))
+        .unwrap();
+    drop(ledger);
+    let original: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.file()).unwrap()).unwrap();
+    for invalid in [json!(null), json!("1234.5"), json!({"unexpected":1234.5})] {
+        let mut damaged = original.clone();
+        *damaged["entries"][0].get_mut("retain_until").unwrap() = invalid;
+        let bytes = serde_json::to_vec(&damaged).unwrap();
+        std::fs::write(dir.file(), &bytes).unwrap();
+        let reopened = InboxLedger::new(Some(dir.file()));
+        assert!(reopened.pending(&receiver).is_err());
+        assert!(
+            reopened
+                .keep(&receiver, &[entry("new", InboxKind::Prompt)])
+                .is_err()
+        );
+        assert_eq!(std::fs::read(dir.file()).unwrap(), bytes);
+    }
+}

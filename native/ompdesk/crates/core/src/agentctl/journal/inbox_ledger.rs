@@ -47,8 +47,22 @@ enum Delivery {
     ContextObserved {
         proof: Proof,
         attachment_shas: Vec<String>,
+        #[serde(deserialize_with = "deserialize_retention_time")]
         retain_until: f64,
     },
+}
+
+// The workspace enables serde_json/arbitrary_precision. Serde's flattened enum buffers a JSON number as a map;
+// Number decodes that representation without weakening this field to an arbitrary value or changing its wire form.
+fn deserialize_retention_time<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<f64, D::Error> {
+    serde_json::Number::deserialize(deserializer)?
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| {
+            serde::de::Error::custom("Inbox retention time must be a finite JSON number")
+        })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
