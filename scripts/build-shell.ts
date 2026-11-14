@@ -320,10 +320,6 @@ export function shellCargoEnv(cargo: string): NodeJS.ProcessEnv {
 	env.CEF_PATH = path.join(SHELL_DIR, "target", "cef-bin");
 	env.OMPDESK_ICON = path.join(REPO_ROOT, "resources", "icon.ico");
 	env.OMPDESK_BRAND = path.join(REPO_ROOT, "resources", "brand");
-	if (process.platform === "win32") {
-		const tools = vsTools();
-		env.PATH = `${env.PATH ?? env.Path ?? ""};${tools.cmakeBin};${tools.ninjaBin}`;
-	}
 	return env;
 }
 
@@ -378,7 +374,9 @@ export async function cargoInShell(args: string[], options: { quiet?: boolean } 
 		env.CEF_DOWNLOAD_URL = `http://127.0.0.1:${server.port}`;
 		await withSubst(async cwd => {
 			if (process.platform === "win32") {
-				const withInclude = { ...env, INCLUDE: vsTools().include };
+				const tools = vsTools();
+				env.PATH = `${env.PATH ?? env.Path ?? ""};${tools.cmakeBin};${tools.ninjaBin}`;
+				const withInclude = { ...env, INCLUDE: tools.include };
 				const locked = args.includes("--locked") ? ["--locked"] : [];
 				await runCargo(
 					cargo,
