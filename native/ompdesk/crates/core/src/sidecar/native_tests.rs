@@ -163,7 +163,7 @@ async fn abandoning_a_native_handle_releases_its_lane_without_an_explicit_dispos
     }
 }
 
-async fn ready(service: &Service, recorded: &mut mpsc::UnboundedReceiver<LaneEvent>) {
+pub(crate) async fn ready(service: &Service, recorded: &mut mpsc::UnboundedReceiver<LaneEvent>) {
     loop {
         let event = recorded.recv().await.expect("the lane's events stay open");
         let ask = Ask {
