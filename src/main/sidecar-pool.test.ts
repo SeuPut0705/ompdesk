@@ -496,6 +496,94 @@ describe("SidecarPool exact window-view leave", () => {
 		},
 	);
 
+	async function busyWithoutViews() {
+		const { pool, sidecars } = fakePool(true);
+		const owner = fakeWindow(8631);
+		const other = fakeWindow(8632);
+		pool.acquire("/a", owner.win, "busy-reopen", SESSION);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.emitStatus("ready");
+		const oldIdentity = pool.viewIdentity(owner.win, "busy-reopen");
+		if (!oldIdentity) throw new Error("expected the owner view");
+		const oldDeviceView = pool.viewForDevice(SESSION, { deviceId: "c", name: "C" }, "Host");
+		if (!oldDeviceView) throw new Error("expected the device view");
+		sidecar.emitAgentEvents(["agent_start"]);
+		expect(await pool.leaveWindowView(owner.win, "busy-reopen", oldIdentity, SESSION, () => true, authorize)).toBe(
+			true,
+		);
+		oldDeviceView.dispose();
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		expect(pool.tabsForWindow(other.win)).toEqual([]);
+		expect(pool.viewIdentity(owner.win, "busy-reopen")).toBeNull();
+		expect(pool.resumeFacts()).toMatchObject([
+			{ tabId: "busy-reopen", sessionFile: SESSION, running: true, ownerDetached: true },
+		]);
+		expect(sidecar.disposed).toBe(false);
+		expect(sidecars).toHaveLength(1);
+		return { pool, sidecars, sidecar, owner, other, oldIdentity, oldDeviceView };
+	}
+
+	it.each(["owner", "other"] as const)(
+		"reopens a busy zero-window session in the %s window without a new execution",
+		async destination => {
+			const { pool, sidecars, sidecar, owner, other, oldIdentity } = await busyWithoutViews();
+			const window = destination === "owner" ? owner : other;
+			const kindFor = vi.fn(async () => "agent" as const);
+			const recordedCwd = vi.fn(async () => "/a");
+			const result = await spawnTabForWindow(
+				{
+					sidecarPool: pool,
+					sessionIndex: { kindFor, recordedCwd },
+					fallbackCwd: () => "/a",
+					initialCwd: () => "/a",
+					defaultWorkspace: () => "/a",
+					remote: { kindFor: async () => "agent", defaultWorkspace: async () => "/a" },
+				},
+				window.win,
+				{ sessionPath: SESSION },
+			);
+			expect(result).toEqual({ tabId: "busy-reopen", attached: true });
+			expect(pool.tabsForWindow(window.win)).toHaveLength(1);
+			expect(pool.tabsForWindow(window.win)[0]).toMatchObject({ tabId: "busy-reopen", sessionPath: SESSION });
+			expect(pool.sidecarForTab(window.win, "busy-reopen")).toBe(sidecar);
+			const newIdentity = pool.viewIdentity(window.win, "busy-reopen");
+			expect(newIdentity).toBeTruthy();
+			expect(newIdentity).not.toBe(oldIdentity);
+			expect(await pool.leaveWindowView(owner.win, "busy-reopen", oldIdentity, SESSION, () => true, authorize)).toBe(
+				false,
+			);
+			expect(sidecars).toEqual([sidecar]);
+			expect(sidecar.disposed).toBe(false);
+			expect(sidecars[0]).toBe(sidecar);
+			expect(sidecar.restartArgs).toEqual([]);
+			expect(kindFor).not.toHaveBeenCalled();
+			expect(recordedCwd).not.toHaveBeenCalled();
+		},
+	);
+
+	it("rejoins a busy zero-window session from a paired device without a new execution", async () => {
+		const { pool, sidecars, sidecar, owner, oldIdentity, oldDeviceView } = await busyWithoutViews();
+		const oldEvents = vi.fn();
+		oldDeviceView.on("events", oldEvents);
+		const view = pool.viewForDevice(SESSION, { deviceId: "d", name: "D" }, "Host");
+		if (!view) throw new Error("expected a new device view");
+		expect(view).not.toBe(oldDeviceView);
+		const newEvents = vi.fn();
+		view.on("events", newEvents);
+		sidecar.emitAgentEvents(["message_start"]);
+		expect(oldEvents).not.toHaveBeenCalled();
+		expect(newEvents).toHaveBeenCalledOnce();
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		expect(await pool.leaveWindowView(owner.win, "busy-reopen", oldIdentity, SESSION, () => true, authorize)).toBe(
+			false,
+		);
+		expect(pool.resumeFacts()).toMatchObject([{ tabId: "busy-reopen", sessionFile: SESSION, running: true }]);
+		expect(sidecars).toEqual([sidecar]);
+		expect(sidecar.disposed).toBe(false);
+		view.dispose();
+	});
+
 	it("directs a new-window saved-session focus to a surviving view instead of the detached owner", async () => {
 		const { pool, sidecars } = fakePool(true);
 		const owner = fakeWindow(8621);
