@@ -9,6 +9,7 @@ import {
 	onSessionDeleted,
 	recordSessionDelete,
 	type SessionTabs,
+	sessionDeleteInProgress,
 	setSessionDeleteLog,
 } from "./session-mutations";
 
@@ -124,6 +125,65 @@ describe("deleteSession", () => {
 			expect(told).toEqual(["/s/g.jsonl host-b"]);
 		} finally {
 			stop();
+		}
+	});
+
+	it("fences concurrent opens from the first awaited close through storage and notices", async () => {
+		const { fake } = tabs(true);
+		const close = Promise.withResolvers<boolean>();
+		const stored = Promise.withResolvers<void>();
+		const storageEntered = Promise.withResolvers<void>();
+		fake.closeSessionTab = vi.fn(() => close.promise);
+		const notice = vi.fn(() => expect(sessionDeleteInProgress("/s/fenced.jsonl")).toBe(true));
+		const stop = onSessionDeleted(notice);
+		const deletion = deleteSession(fake, "/s/fenced.jsonl", undefined, async () => {
+			storageEntered.resolve();
+			await stored.promise;
+		});
+		try {
+			expect(sessionDeleteInProgress("/s/fenced.jsonl")).toBe(true);
+			expect(sessionDeleteInProgress("/s/fenced.jsonl", "other-device")).toBe(false);
+			close.resolve(true);
+			await storageEntered.promise;
+			expect(sessionDeleteInProgress("/s/fenced.jsonl")).toBe(true);
+			stored.resolve();
+			await deletion;
+			expect(notice).toHaveBeenCalledOnce();
+			expect(sessionDeleteInProgress("/s/fenced.jsonl")).toBe(false);
+			expect(deletedSessions().has("/s/fenced.jsonl")).toBe(true);
+		} finally {
+			close.resolve(true);
+			stored.resolve();
+			await deletion.catch(() => undefined);
+			stop();
+		}
+	});
+
+	it("retains the fence until both concurrent deletes finish and releases it after failure", async () => {
+		const { fake } = tabs(true);
+		const first = Promise.withResolvers<void>();
+		const second = Promise.withResolvers<void>();
+		const bothEntered = Promise.withResolvers<void>();
+		let entered = 0;
+		const storage = (gate: Promise<void>) => async () => {
+			if (++entered === 2) bothEntered.resolve();
+			await gate;
+		};
+		const a = deleteSession(fake, "/s/shared.jsonl", undefined, storage(first.promise));
+		const b = deleteSession(fake, "/s/shared.jsonl", undefined, storage(second.promise));
+		const rejected = expect(b).rejects.toThrow("storage refused");
+		try {
+			await bothEntered.promise;
+			first.resolve();
+			await a;
+			expect(sessionDeleteInProgress("/s/shared.jsonl")).toBe(true);
+			second.reject(new Error("storage refused"));
+			await rejected;
+			expect(sessionDeleteInProgress("/s/shared.jsonl")).toBe(false);
+		} finally {
+			first.resolve();
+			second.reject(new Error("storage refused"));
+			await Promise.allSettled([a, b]);
 		}
 	});
 });
