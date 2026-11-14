@@ -506,6 +506,62 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
         .await
         .unwrap();
     assert_eq!(value, json!({"branch": "new"}));
+    let admitted = pool
+        .callers
+        .admit_page(ompdesk_app_contract::NativeCaller::Desktop {
+            win_id: 17,
+            wc_id: 117,
+        })
+        .unwrap();
+    let reservation = pool
+        .callers
+        .reserve_execution(&admitted.owner, "binding", 17)
+        .unwrap();
+    let execution = pool.callers.execution_owner("binding").unwrap();
+    pool.callers.finish_execution_reservation(reservation, true);
+    let generation = current.generation();
+    assert!(
+        pool.execution_note_stopped(
+            &execution,
+            "binding",
+            Arc::clone(&current),
+            generation.wrapping_add(1),
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        pool.execution_note_stopped(&execution, "binding", Arc::clone(&old), generation)
+            .await
+            .is_err()
+    );
+    let stopped = pool
+        .execute(false, |ctx, _| {
+            Outcome::Now(Ok(Value::Bool(
+                ctx.with(|pool| pool.entry("binding").unwrap().tracking.stopped),
+            )))
+        })
+        .await
+        .unwrap();
+    assert_eq!(stopped, Value::Bool(false));
+    pool.execution_note_stopped(&execution, "binding", Arc::clone(&current), generation)
+        .await
+        .unwrap();
+    let stopped = pool
+        .execute(false, |ctx, _| {
+            Outcome::Now(Ok(Value::Bool(
+                ctx.with(|pool| pool.entry("binding").unwrap().tracking.stopped),
+            )))
+        })
+        .await
+        .unwrap();
+    assert_eq!(stopped, Value::Bool(true));
+    assert!(pool.callers.retire_execution(&execution));
+    assert!(
+        pool.execution_note_stopped(&execution, "binding", Arc::clone(&current), generation)
+            .await
+            .is_err()
+    );
     old.dispose(std::time::Duration::ZERO);
     current.dispose(std::time::Duration::ZERO);
     old_held.await.unwrap();
