@@ -186,10 +186,10 @@ fn cycle_lines(body: &mut String, cycle: &Value) {
             _ => "undefined",
         };
         let _ = write!(body, "  - Verify: {message}");
-        if kind == "check_failed" {
-            if let Some(command) = text(note, "command").filter(|command| !command.is_empty()) {
-                let _ = write!(body, " (`{command}`)");
-            }
+        if kind == "check_failed"
+            && let Some(command) = text(note, "command").filter(|command| !command.is_empty())
+        {
+            let _ = write!(body, " (`{command}`)");
         }
         body.push('\n');
     }

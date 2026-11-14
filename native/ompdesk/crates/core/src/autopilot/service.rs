@@ -357,11 +357,11 @@ impl Service {
                     approval::approval_response(&request, once, reason.as_deref())
                 }
             };
-            if let Some(id) = text(&request, "id") {
-                if let Err(error) = this.coordinator.port.answer(&tab, id, response).await {
-                    this.host
-                        .log(&format!("approval answer in {tab}: {}", error.message));
-                }
+            if let Some(id) = text(&request, "id")
+                && let Err(error) = this.coordinator.port.answer(&tab, id, response).await
+            {
+                this.host
+                    .log(&format!("approval answer in {tab}: {}", error.message));
             }
         });
         true
