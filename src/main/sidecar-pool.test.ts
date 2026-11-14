@@ -285,7 +285,14 @@ describe("SidecarPool exact window-view leave", () => {
 		if (!identity) throw new Error("expected an owner view identity");
 		let settled = false;
 		const closing = pool.leaveWindowView(owner.win, "local-exit", identity, SESSION, () => true, authorize);
-		void closing.then(() => { settled = true; }, () => { settled = true; });
+		void closing.then(
+			() => {
+				settled = true;
+			},
+			() => {
+				settled = true;
+			},
+		);
 		await Promise.resolve();
 		await Promise.resolve();
 		hub().barrier();
@@ -307,7 +314,10 @@ describe("SidecarPool exact window-view leave", () => {
 		const identity = pool.viewIdentity(owner.win, "local-exit-failed");
 		if (!identity) throw new Error("expected an owner view identity");
 		const closing = pool.leaveWindowView(owner.win, "local-exit-failed", identity, SESSION, () => true, authorize);
-		const outcome = closing.then(value => value, (error: unknown) => error);
+		const outcome = closing.then(
+			value => value,
+			(error: unknown) => error,
+		);
 		void sidecar.exited.promise.catch(() => {});
 		await Promise.resolve();
 		await Promise.resolve();
@@ -334,7 +344,9 @@ describe("SidecarPool exact window-view leave", () => {
 		sidecar.emitStatus("ready");
 		const identity = pool.viewIdentity(owner.win, "local-viewer");
 		if (!identity) throw new Error("expected an owner view identity");
-		expect(await pool.leaveWindowView(owner.win, "local-viewer", identity, SESSION, () => true, authorize)).toBe(true);
+		expect(await pool.leaveWindowView(owner.win, "local-viewer", identity, SESSION, () => true, authorize)).toBe(
+			true,
+		);
 		expect(sidecar.disposed).toBe(false);
 		expect(pool.tabsForWindow(viewer.win).map(tab => tab.tabId)).toEqual(["local-viewer"]);
 	});
