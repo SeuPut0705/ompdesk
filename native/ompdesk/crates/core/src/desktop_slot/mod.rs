@@ -13,10 +13,9 @@ use serde_json::json;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
 
 use crate::pool::application::Sidecar;
-use crate::server::Fault;
+use crate::server::{Fault, Scope};
 use crate::sidecar::application::EffectFuture;
 use crate::sidecar::native::Service as NativeSidecar;
 use policy::{Attempt, Effect, Lease, Policy, Reason};
@@ -166,7 +165,7 @@ pub struct Service {
     slot: Arc<()>,
     events: mpsc::UnboundedSender<Event>,
     state: watch::Sender<State>,
-    stop: CancellationToken,
+    stop: Scope,
     worker: tokio::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -184,7 +183,7 @@ impl Service {
     pub fn new(config: Config) -> Self {
         let (events, incoming) = mpsc::unbounded_channel();
         let (state, _) = watch::channel(State::default());
-        let stop = CancellationToken::new();
+        let stop = Scope::detached();
         let worker = tokio::spawn(drive(config, incoming, state.clone(), stop.clone()));
         Self {
             slot: Arc::new(()),
@@ -210,7 +209,7 @@ impl Service {
     }
 
     fn admit(&self, capture: &Capture) -> Result<(), Fault> {
-        if self.stop.is_cancelled() || !Arc::ptr_eq(&self.slot, &capture.0.slot) {
+        if self.stop.cancelled() || !Arc::ptr_eq(&self.slot, &capture.0.slot) {
             return Err(closed());
         }
         Ok(())
@@ -273,7 +272,7 @@ impl Service {
     }
 
     pub fn retry(&self) -> Result<(), Fault> {
-        if self.stop.is_cancelled() {
+        if self.stop.cancelled() {
             return Err(closed());
         }
         self.events.send(Event::Retry).map_err(|_| closed())
@@ -326,7 +325,7 @@ async fn drive(
     config: Config,
     mut incoming: mpsc::UnboundedReceiver<Event>,
     state: watch::Sender<State>,
-    stop: CancellationToken,
+    stop: Scope,
 ) {
     let origin = Instant::now();
     let mut policy = Policy::new(config.timing);
@@ -338,7 +337,7 @@ async fn drive(
         let deadline = policy.deadline();
         let changed = tokio::select! {
             biased;
-            _ = stop.cancelled() => break,
+            _ = stop.on_cancel() => break,
             _ = async {
                 match deadline {
                     Some(at) => tokio::time::sleep_until(origin + Duration::from_millis(at)).await,
