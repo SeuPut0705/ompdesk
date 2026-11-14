@@ -26,6 +26,11 @@ impl<S: Sidecar<Error = Fault> + ?Sized> Clone for Session<S> {
 impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Session<S> {
     pub fn new(source: Arc<S>, version: Arc<str>) -> Self {
         let generation = source.generation();
+        Self::from_captured(source, version, generation)
+    }
+
+    /// Only a host-selected native source generation may supply this value; never deserialize it from RPC data.
+    pub fn from_captured(source: Arc<S>, version: Arc<str>, generation: u64) -> Self {
         Self { source, version, generation, slash: Arc::default() }
     }
 

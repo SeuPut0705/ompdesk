@@ -110,32 +110,47 @@ pub struct Commands<S: Sidecar<Error = Fault> + ?Sized> {
 
 impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
     pub fn new(source: Arc<S>, config: Config) -> Result<Self, Fault> {
-        let spawn = Arc::new(Self::spawn(Arc::clone(&source), Arc::clone(&config.version)));
+        let generation = source.generation();
+        Self::from_captured(source, config, generation)
+    }
+
+    /// Native admission supplies the generation captured with the authenticated source in the same hub step.
+    pub fn from_captured(source: Arc<S>, config: Config, generation: u64) -> Result<Self, Fault> {
+        let spawn = Arc::new(Self::spawn(Arc::clone(&source), Arc::clone(&config.version), generation));
         Ok(Self { source, config, table: CommandTable::builtin()?, spawn: Mutex::new(spawn), next: AtomicU64::new(0) })
     }
 
-    fn spawn(source: Arc<S>, version: Arc<str>) -> Spawn<S> {
-        Spawn { generation: source.generation(), session: Session::new(source, version), queue: queue::Queue::new(), transcript: transcript::Transcript::default() }
+    fn spawn(source: Arc<S>, version: Arc<str>, generation: u64) -> Spawn<S> {
+        Spawn { generation, session: Session::from_captured(source, version, generation), queue: queue::Queue::new(), transcript: transcript::Transcript::default() }
     }
 
-    fn current(&self) -> Arc<Spawn<S>> {
+    fn captured(&self, generation: u64) -> Arc<Spawn<S>> {
         let mut spawn = self.spawn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if spawn.generation != self.source.generation() {
-            *spawn = Arc::new(Self::spawn(Arc::clone(&self.source), Arc::clone(&self.config.version)));
-        }
-        Arc::clone(&spawn)
+        if spawn.generation == generation { return Arc::clone(&spawn); }
+        let selected = Arc::new(Self::spawn(Arc::clone(&self.source), Arc::clone(&self.config.version), generation));
+        if spawn.generation < generation { *spawn = Arc::clone(&selected); }
+        selected
     }
 
     /// Runs before the same source's queue_update reaches the pool and its windows. Sharing this Queue with command
     /// reads preserves chip ids through events, edits and moves, and resets them only for a new omp generation.
     pub fn project_frame(&self, frame: &mut Value) {
         if frame["type"] == "queue_update" {
-            *frame = self.current().queue.project_queue_update(std::mem::take(frame));
+            *frame = self.captured(self.source.generation()).queue.project_queue_update(std::mem::take(frame));
         }
     }
 
-    pub async fn command(&self, mut command: RpcCommand) -> Result<Value, Fault> {
-        let spawn = self.current();
+    /// Capture before returning the future, not when an executor first polls it after another lifecycle command.
+    pub fn command(&self, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
+        self.command_for_generation(self.source.generation(), command)
+    }
+
+    pub fn command_for_generation(&self, generation: u64, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
+        let spawn = self.captured(generation);
+        Box::pin(self.execute(command, spawn))
+    }
+
+    async fn execute(&self, mut command: RpcCommand, spawn: Arc<Spawn<S>>) -> Result<Value, Fault> {
         let sequence = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         command.id = Some(format!("gui-{sequence}"));
         let Some(area) = self.table.0.get(command.kind.as_str()) else {
