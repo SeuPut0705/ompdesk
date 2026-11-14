@@ -150,7 +150,7 @@ pub struct Queues {
 
 impl Drop for Queues {
     fn drop(&mut self) {
-        self.shared.stop.cancel();
+        self.stop();
     }
 }
 
@@ -226,10 +226,13 @@ impl Shared {
 impl QueueSeam for Queues {
     fn enqueue(&self, origin: Origin, request: LandRequest) -> Fut<'_, Result<StartReply, Fault>> {
         Box::pin(async move {
+            let gone = || Fault::new("queue_gone", "the merge queue of that branch stopped");
+            if self.shared.stop.cancelled() {
+                return Err(gone());
+            }
             self.shared.load().await;
             let lane = self.shared.lane(&request.repo, &request.base);
             let (reply, answer) = oneshot::channel();
-            let gone = || Fault::new("queue_gone", "the merge queue of that branch stopped");
             lane.send(Msg::Enqueue {
                 origin,
                 request,
@@ -242,6 +245,10 @@ impl QueueSeam for Queues {
 
     fn entries(&self) -> watch::Receiver<Arc<Vec<QueueEntry>>> {
         self.shared.entries.subscribe()
+    }
+
+    fn stop(&self) {
+        self.shared.stop.cancel();
     }
 }
 

@@ -362,6 +362,8 @@ async fn a_start_dispatches_only_the_inputs_the_workflow_declares_and_a_newer_on
 
 #[tokio::test]
 async fn macos_is_for_listed_branches_one_unit_at_a_time_and_the_dispatch_carries_a_ticket() {
+    // The ticket's expiry is minted and checked on the hub's clock, which another test may set: hold it real.
+    let _serial = clock::TEST_CLOCK.lock().await;
     let github = github(&format!("{CI_MAC}      ticket:\n        type: string\n"));
     let hub = hub(&github);
     let refused = hub
@@ -768,6 +770,32 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
     assert!(!mine.exists());
     // The hub was the queues' owner: they drop with it, which stops their lanes (queue_run.rs).
     assert!(queue.upgrade().is_none());
+}
+
+#[tokio::test]
+async fn a_hub_dropped_while_a_batch_wait_holds_its_core_stops_its_queue() {
+    let github = github(CI);
+    let hub = hub(&github);
+    // What a batch's wait on the hub holds (`Host::batch_answer` upgrades to the core for as long as it waits).
+    let held = Arc::clone(&hub.core);
+    drop(hub);
+    let refused = held
+        .queue
+        .enqueue(
+            samples::session(),
+            LandRequest {
+                repo: REPO.into(),
+                branch: "feat".into(),
+                sha: SHA.into(),
+                base: "main".into(),
+                pr: None,
+                title: "feat".into(),
+                scope: StartScope::Changed,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code, "queue_gone");
 }
 
 #[tokio::test]

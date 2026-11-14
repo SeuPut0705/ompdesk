@@ -132,6 +132,9 @@ struct Host {
     push_before_first_run: Mutex<Option<String>>,
     /// While set, every start reaches admission and fails with these words (a dispatch that failed).
     refuse: Mutex<Option<String>>,
+    /// While set, a batch's answer is withheld until the wait's scope is cancelled; counts the waits under way.
+    hold_answers: AtomicUsize,
+    waiting: AtomicUsize,
     told: mpsc::UnboundedSender<RunResult>,
 }
 
@@ -203,8 +206,16 @@ impl QueueHost for Host {
         })
     }
 
-    fn batch_answer(&self, run: String, _scope: Scope) -> Fut<'_, Result<Answer, Fault>> {
-        Box::pin(async move { Ok(self.answers.lock().unwrap()[&run].clone()) })
+    fn batch_answer(&self, run: String, scope: Scope) -> Fut<'_, Result<Answer, Fault>> {
+        Box::pin(async move {
+            if self.hold_answers.load(Ordering::SeqCst) > 0 {
+                self.waiting.fetch_add(1, Ordering::SeqCst);
+                scope.on_cancel().await;
+                self.waiting.fetch_sub(1, Ordering::SeqCst);
+                return Err(Fault::new("cancelled", "the batch's wait was cancelled"));
+            }
+            Ok(self.answers.lock().unwrap()[&run].clone())
+        })
     }
 
     fn paused(&self) -> bool {
@@ -302,6 +313,8 @@ fn start(batch_size: usize, push_before_first_run: Option<&str>) -> Run {
         answers: Mutex::default(),
         push_before_first_run: Mutex::new(push_before_first_run.map(str::to_owned)),
         refuse: Mutex::default(),
+        hold_answers: AtomicUsize::new(0),
+        waiting: AtomicUsize::new(0),
         told: told_tx,
     });
     let remote = fixture.remote.to_string_lossy().into_owned();
@@ -430,6 +443,41 @@ async fn a_batch_of_two_lands_on_main_as_the_commit_its_one_run_passed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_queue_stopped_while_its_batch_waits_on_the_hub_ends_that_wait_though_the_queues_are_still_held()
+ {
+    let run = start(1, None);
+    run.host.hold_answers.store(1, Ordering::SeqCst);
+    let one = run.fixture.branch("b1", "one.txt", "1\n");
+    run.enqueue("b1", &one).await;
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while run.host.waiting.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the batch waits on the hub within a minute");
+    // The real hub's wait holds the hub's core, which owns these queues: only `stop` can end it, not their drop.
+    run.queues.stop();
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while run.host.waiting.load(Ordering::SeqCst) > 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the batch's wait ends within a minute of the stop");
+    let request = LandRequest {
+        repo: "o/r".into(),
+        branch: "b2".into(),
+        sha: one.clone(),
+        base: "main".into(),
+        pr: None,
+        title: "change b2".into(),
+        scope: StartScope::Changed,
+    };
+    let refused = run.queues.enqueue(origin(), request).await.unwrap_err();
+    assert_eq!(refused.code, "queue_gone");
+}
+#[tokio::test(flavor = "multi_thread")]
 async fn a_batch_whose_run_could_not_start_fails_with_the_reason_and_is_never_sent_again() {
     let mut run = start(1, None);
     *run.host.refuse.lock().unwrap() = Some("its dispatch failed: HTTP 502".into());
@@ -546,6 +594,8 @@ async fn a_queue_opened_again_shows_what_it_had_and_a_build_is_the_same_commit()
         answers: Mutex::default(),
         push_before_first_run: Mutex::default(),
         refuse: Mutex::default(),
+        hold_answers: AtomicUsize::new(0),
+        waiting: AtomicUsize::new(0),
         told,
     });
     let remote = run.fixture.remote.to_string_lossy().into_owned();
@@ -655,6 +705,8 @@ async fn a_dropped_queue_ends_its_lanes_and_their_work_and_one_opened_again_is_t
         answers: Mutex::default(),
         push_before_first_run: Mutex::default(),
         refuse: Mutex::default(),
+        hold_answers: AtomicUsize::new(0),
+        waiting: AtomicUsize::new(0),
         told,
     });
     let tuning = Tuning {

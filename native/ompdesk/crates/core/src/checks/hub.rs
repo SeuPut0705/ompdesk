@@ -109,6 +109,11 @@ pub trait LandQueue: Send + Sync {
 
     /// The queue as it stands, now and at each change (the snapshot's `queue`).
     fn entries(&self) -> watch::Receiver<Arc<Vec<QueueEntry>>>;
+
+    /// The hub closes: every lane ends at its next turn and cancels the steps it started (a batch's wait on the hub
+    /// included), and nothing is taken any more. Called by `Hub::drop`, because a step under way holds the hub's core,
+    /// which owns the queue, so the queue's own drop would wait on that step.
+    fn stop(&self);
 }
 
 /// What the merge queue asks of the hub, so a batch's run goes through the same admission as every run. The hub's
@@ -263,6 +268,7 @@ impl std::ops::Deref for Hub {
 
 impl Drop for Hub {
     fn drop(&mut self) {
+        self.core.queue.stop();
         for task in locked(&self.tasks).drain(..) {
             task.abort();
         }
