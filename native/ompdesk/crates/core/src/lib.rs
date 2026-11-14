@@ -44,6 +44,7 @@ pub mod tailscale;
 pub mod upkeep;
 pub mod web;
 pub mod wire;
+pub mod worktree_lifecycle;
 
 pub use server::{registry, serve};
 
