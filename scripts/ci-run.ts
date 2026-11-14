@@ -5,7 +5,7 @@
  *   bun scripts/ci-run.ts ci --ref omp/agent/foo -f batch=true -f mac=true      the landing gate
  *   bun scripts/ci-run.ts e2e-nightly --ref omp/agent/foo -f specs="e2e/a.e2e.ts"
  *   bun scripts/ci-run.ts flake-probe --ref omp/agent/foo -f spec=e2e/a.e2e.ts -f os=macos
- *   options: --ref <branch> (default: the current branch), -f key=value (any number), --dry-run
+ *   options: --ref <branch> (default: the current branch), -f key=value (any number), --wait, --replace, --dry-run
  *
  * A thin client: it asks the hub (`ompdesk checks start --workflow <file> --input k=v ... [--macos] --ref <branch>`),
  * which runs the one admission every session's start goes through (the queue, the release lane first, macOS only for
@@ -20,6 +20,12 @@
  * without a hub refused with "open OMPdesk (a version with checks)" (exit 2): queue-gate.yml would refuse it anyway.
  * A hub that answered with an error of its own never has macOS work sent around it.
  *
+ * A direct dispatch keeps the workflows' queue rules from before the hub (the `mac-dispatch` lane: one holder and one
+ * waiting request for every dispatched macOS job): macOS only for main and MAC_REFS branches (exit 2), a branch without
+ * queue-gate.yml refused (exit 2), and a macOS dispatch while the lane has a holder and a waiting request refused
+ * (exit 3) with their run ids, because it would replace the waiting one. `--wait` watches the holder (one
+ * `gh run watch`) and checks again; `--replace` dispatches anyway.
+ *
  * Exit 0: started, held in the hub's queue or reused (the hub's words say which); 2: refused; 1: the dispatch failed.
  */
 import { spawnSync } from "node:child_process";
@@ -33,11 +39,14 @@ const WORKFLOWS: Record<string, (inputs: Record<string, string>) => boolean> = {
 	"flake-probe": inputs => (inputs.os ?? "all") === "macos" || (inputs.os ?? "all") === "all",
 	formal: () => false,
 };
+const LANE_WORKFLOWS = ["ci", "e2e-nightly", "flake-probe"];
 
 export interface CiRunArgs {
 	workflow: string;
 	ref: string | undefined;
 	inputs: Record<string, string>;
+	wait: boolean;
+	replace: boolean;
 	dryRun: boolean;
 }
 
@@ -45,10 +54,12 @@ export function parseArgs(argv: string[]): CiRunArgs | string {
 	const [first, ...rest] = argv;
 	const workflow = first?.replace(/\.yml$/, "") ?? "";
 	if (!(workflow in WORKFLOWS)) return `workflow must be one of ${Object.keys(WORKFLOWS).join(", ")}`;
-	const args: CiRunArgs = { workflow, ref: undefined, inputs: {}, dryRun: false };
+	const args: CiRunArgs = { workflow, ref: undefined, inputs: {}, wait: false, replace: false, dryRun: false };
 	for (let i = 0; i < rest.length; i++) {
 		const arg = rest[i];
 		if (arg === "--ref") args.ref = rest[++i];
+		else if (arg === "--wait") args.wait = true;
+		else if (arg === "--replace") args.replace = true;
 		else if (arg === "--dry-run") args.dryRun = true;
 		else if (arg === "-f" || arg === "--field" || arg === "--raw-field") {
 			const pair = rest[++i] ?? "";
@@ -63,6 +74,82 @@ export function parseArgs(argv: string[]): CiRunArgs | string {
 /** Whether the dispatch asks for a macOS runner. */
 export function asksForMac(workflow: string, inputs: Record<string, string>): boolean {
 	return WORKFLOWS[workflow]?.(inputs) ?? false;
+}
+
+/** MAC_REFS is a list of exact branch names, separated by spaces or commas. */
+export function refAllowed(ref: string, macRefs: string): boolean {
+	return ref === "main" || macRefs.split(/[\s,]+/).includes(ref);
+}
+
+export interface LaneJob {
+	status: string;
+	labels: string[];
+}
+
+export interface LaneRun {
+	id: number;
+	workflow: string;
+	branch: string;
+	jobs: LaneJob[];
+}
+
+export interface Lane {
+	/** Runs whose macOS jobs are queued or running: they hold the lane. */
+	holders: LaneRun[];
+	/** Runs with jobs held back by a concurrency group (GitHub's `pending`; such a job shows no runner label yet, observed on run 43443610875). */
+	waiting: LaneRun[];
+	/** Open macOS jobs of the dispatched runs. */
+	openJobs: number;
+}
+
+const isMac = (job: LaneJob) => job.labels.some(label => label.startsWith("macos"));
+
+/** The lane as the dispatched runs show it. A run of the same workflow and branch is the one a new dispatch replaces anyway. */
+export function laneOf(runs: LaneRun[], replacing: { workflow: string; branch: string }): Lane {
+	const lane: Lane = { holders: [], waiting: [], openJobs: 0 };
+	for (const run of runs) {
+		if (run.workflow === replacing.workflow && run.branch === replacing.branch) continue;
+		const active = run.jobs.filter(job => isMac(job) && (job.status === "queued" || job.status === "in_progress"));
+		const pending = run.jobs.filter(job => job.status === "pending");
+		lane.openJobs += active.length;
+		if (active.length > 0) lane.holders.push(run);
+		else if (pending.length > 0) lane.waiting.push(run);
+	}
+	return lane;
+}
+
+export type Decision = { go: true; note?: string } | { go: false; code: 2 | 3; why: string };
+
+/** Whether a direct dispatch may go out now, by the workflows' queue rules. */
+export function decide(
+	args: Pick<CiRunArgs, "workflow" | "inputs" | "replace">,
+	ref: string,
+	macRefs: string,
+	lane: Lane,
+): Decision {
+	if (!asksForMac(args.workflow, args.inputs)) return { go: true };
+	if (!refAllowed(ref, macRefs)) {
+		return {
+			go: false,
+			code: 2,
+			why: `${ref} is not in MAC_REFS (${macRefs || "empty"}): macOS runners are for main and release-bound branches. Ask Main to add it (gh variable set MAC_REFS --body "<branch> ..."), or drop mac=true / e2e=true.`,
+		};
+	}
+	if (lane.holders.length > 0 && lane.waiting.length > 0 && !args.replace) {
+		const ids = (runs: LaneRun[]) => runs.map(run => `${run.id} (${run.workflow}, ${run.branch})`).join(", ");
+		return {
+			go: false,
+			code: 3,
+			why: `the macOS lane has a holder, ${ids(lane.holders)}, and a waiting request, ${ids(lane.waiting)}; a dispatch now replaces the waiting one. Wait for the holder (--wait, or one gh run watch ${lane.holders[0]?.id}) and dispatch again.`,
+		};
+	}
+	if (lane.holders.length > 0) {
+		return {
+			go: true,
+			note: `the macOS lane is held by run ${lane.holders[0]?.id}; this run's macOS jobs wait for it (nothing queues on a runner meanwhile).`,
+		};
+	}
+	return { go: true };
 }
 
 /** The `ompdesk` command line that asks the hub. */
@@ -149,6 +236,30 @@ function ompdesk(): string | undefined {
 	return fs.existsSync(staged) ? staged : undefined;
 }
 
+function readLane(replacing: { workflow: string; branch: string }): Lane {
+	const runs: LaneRun[] = [];
+	for (const workflow of LANE_WORKFLOWS) {
+		const listed = gh([
+			"api",
+			`repos/{owner}/{repo}/actions/workflows/${workflow}.yml/runs?event=workflow_dispatch&per_page=30`,
+		]);
+		if (!listed.ok) fail(`could not list ${workflow} runs: ${listed.err}`, 1);
+		const rows = (JSON.parse(listed.out) as { workflow_runs: { id: number; status: string; head_branch: string }[] })
+			.workflow_runs;
+		for (const row of rows.filter(candidate => candidate.status !== "completed")) {
+			const jobs = gh([
+				"api",
+				`repos/{owner}/{repo}/actions/runs/${row.id}/jobs?per_page=100`,
+				"--jq",
+				"[.jobs[] | {status, labels}]",
+			]);
+			if (!jobs.ok) fail(`could not list the jobs of run ${row.id}: ${jobs.err}`, 1);
+			runs.push({ id: row.id, workflow, branch: row.head_branch, jobs: JSON.parse(jobs.out) as LaneJob[] });
+		}
+	}
+	return laneOf(runs, replacing);
+}
+
 /**
  * The runner caps every workflow of this repo shares, in one place (the docs say "this account's caps" and point here):
  * the personal account's 40 jobs and 5 macOS at once. seuoffice moved to the org seuput-inc, so today this repo is the
@@ -162,10 +273,56 @@ export const RUNNER_LIMITS = {
 	siblings: (process.env.OMPDESK_CI_SIBLINGS ?? "").split(",").filter(Boolean),
 };
 
-/** No hub took it: the run goes out as `gh workflow run` would send it, with one line saying the hub was not used. */
+/** Open runs of this repo and its siblings, for the wait to be expected, not a mystery. */
+function accountLoad(): string {
+	const count = (repo: string, status: string) => {
+		const counted = gh(["api", `repos/${repo}/actions/runs?status=${status}&per_page=1`, "--jq", ".total_count"]);
+		return counted.ok ? counted.out.trim() : "?";
+	};
+	const here = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).out.trim();
+	const parts = [here, ...RUNNER_LIMITS.siblings]
+		.filter(Boolean)
+		.map(repo => `${repo} ${count(repo, "in_progress")} running, ${count(repo, "queued")} queued runs`);
+	return `${RUNNER_LIMITS.owner} (${RUNNER_LIMITS.jobs} jobs and ${RUNNER_LIMITS.macos} macOS at once, shared by this account's repos): ${parts.join("; ")}`;
+}
+
+/**
+ * No hub took it: the run goes out as `gh workflow run` would send it, with one line saying the hub was not used, under
+ * the workflows' queue rules (MAC_REFS, queue-gate.yml on the branch, the macOS lane's waiting request).
+ */
 async function dispatchDirectly(args: CiRunArgs, ref: string, why: string): Promise<number> {
-	console.log(`ci-run: dispatched directly, the checks hub was not used (${why}).`);
+	console.log(`ci-run: the checks hub was not used (${why}); dispatching directly.`);
 	if (!gh(["api", `repos/{owner}/{repo}/git/ref/heads/${ref}`]).ok) fail(`${ref} is not pushed: push it first`, 2);
+	if (
+		args.workflow !== "formal" &&
+		!gh(["api", `repos/{owner}/{repo}/contents/.github/workflows/queue-gate.yml?ref=${ref}`]).ok
+	) {
+		fail(
+			`${ref} has no .github/workflows/queue-gate.yml: its workflow files predate the check queue and hold nothing. Merge main into it first.`,
+			2,
+		);
+	}
+	const mac = asksForMac(args.workflow, args.inputs);
+	for (;;) {
+		const macRefs = mac ? gh(["variable", "get", "MAC_REFS"]).out.trim() : "";
+		const lane = mac ? readLane({ workflow: args.workflow, branch: ref }) : { holders: [], waiting: [], openJobs: 0 };
+		const decision = decide(args, ref, macRefs, lane);
+		if (mac) {
+			console.log(accountLoad());
+			console.log(
+				`macOS lane: ${lane.holders.length} holder(s), ${lane.waiting.length} waiting, ${lane.openJobs} open macOS job(s) of dispatched runs`,
+			);
+		}
+		const holder = lane.holders[0];
+		if (!decision.go && decision.code === 3 && args.wait && holder) {
+			console.log(`waiting for run ${holder.id} (one gh run watch, no polling)`);
+			gh(["run", "watch", String(holder.id), "--interval", "120"]);
+			continue;
+		}
+		if (!decision.go) fail(decision.why, decision.code);
+		if (decision.note) console.log(decision.note);
+		break;
+	}
 	const fields = Object.entries(args.inputs).flatMap(([key, value]) => ["-f", `${key}=${value}`]);
 	const started = Date.now();
 	const dispatched = gh(["workflow", "run", `${args.workflow}.yml`, "--ref", ref, ...fields]);
@@ -206,7 +363,10 @@ async function dispatchDirectly(args: CiRunArgs, ref: string, why: string): Prom
 async function main(argv: string[]): Promise<number> {
 	const args = parseArgs(argv);
 	if (typeof args === "string")
-		fail(`${args}\nusage: bun scripts/ci-run.ts <workflow> [--ref <branch>] [-f key=value]... [--dry-run]`, 2);
+		fail(
+			`${args}\nusage: bun scripts/ci-run.ts <workflow> [--ref <branch>] [-f key=value]... [--wait] [--replace] [--dry-run]`,
+			2,
+		);
 	const ref = args.ref ?? currentBranch();
 	const mac = asksForMac(args.workflow, args.inputs);
 	const command = hubArgs(args, ref);
