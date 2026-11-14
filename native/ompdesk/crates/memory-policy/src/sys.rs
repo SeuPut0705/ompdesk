@@ -14,7 +14,12 @@ pub extern "C" fn policy_alloc(len: u32) -> u32 {
 /// `ptr` and `len` must identify a live boxed byte slice returned by this module, exactly once.
 pub unsafe extern "C" fn policy_free(ptr: u32, len: u32) {
     // SAFETY: the embedded adapter returns the exact live allocation and length from this module.
-    drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr as *mut u8, len as usize)) });
+    drop(unsafe {
+        Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+            ptr as *mut u8,
+            len as usize,
+        ))
+    });
 }
 
 fn error(code: &str, message: &str) -> String {
