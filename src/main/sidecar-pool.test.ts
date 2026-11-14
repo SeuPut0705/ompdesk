@@ -22,6 +22,7 @@ import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool, type TabActivity } from "./sidecar-pool";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
+import { spawnTabForWindow } from "./tab-spawn";
 import { deriveMarkers, InterruptedTurnStore, TurnResume } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
 import { withRemovalClaim } from "./worktree-removals";
@@ -326,6 +327,63 @@ describe("SidecarPool exact window-view leave", () => {
 		expect(after).not.toBe(first);
 		expect(await pool.leaveWindowView(owner.win, "generation", first, SESSION, () => true, authorize)).toBe(false);
 		expect(sidecars[0]?.disposed).toBe(false);
+	});
+
+	it.each([-8612, 8612])(
+		"reopens the detached owner's saved session without duplicating viewer %s",
+		async viewerId => {
+			const { pool, sidecars } = fakePool();
+			const owner = fakeWindow(8611);
+			const viewer = fakeWindow(viewerId);
+			pool.acquire("/a", owner.win, "reopen-retained", SESSION);
+			expect(pool.attachViewer(viewer.win, "reopen-retained")).toBe(true);
+			sidecars[0]?.emitStatus("ready");
+			const identity = pool.viewIdentity(owner.win, "reopen-retained");
+			if (!identity) throw new Error("expected an owner view");
+			expect(
+				await pool.leaveWindowView(owner.win, "reopen-retained", identity, SESSION, () => true, authorize),
+			).toBe(true);
+			expect(pool.tabsForWindow(owner.win)).toEqual([]);
+			const result = await spawnTabForWindow(
+				{
+					sidecarPool: pool,
+					sessionIndex: { kindFor: async () => "agent", recordedCwd: async () => "/a" },
+					fallbackCwd: () => "/a",
+					initialCwd: () => "/a",
+					defaultWorkspace: () => "/a",
+					remote: { kindFor: async () => "agent", defaultWorkspace: async () => "/a" },
+					anyWindowViews: true,
+				},
+				owner.win,
+				{ sessionPath: SESSION },
+			);
+			expect(result).toEqual({ tabId: "reopen-retained", attached: true });
+			expect(pool.tabsForWindow(owner.win).map(tab => tab.tabId)).toEqual(["reopen-retained"]);
+			expect(pool.tabsForWindow(viewer.win).map(tab => tab.tabId)).toEqual(["reopen-retained"]);
+			expect(sidecars).toHaveLength(1);
+			expect(sidecars[0]?.disposed).toBe(false);
+			pool.disposeAll();
+		},
+	);
+
+	it("directs a new-window saved-session focus to a surviving view instead of the detached owner", async () => {
+		const { pool, sidecars } = fakePool();
+		const owner = fakeWindow(8621);
+		const viewer = fakeWindow(-8622);
+		pool.acquire("/a", owner.win, "focus-retained", SESSION);
+		expect(pool.attachViewer(viewer.win, "focus-retained")).toBe(true);
+		sidecars[0]?.emitStatus("ready");
+		const identity = pool.viewIdentity(owner.win, "focus-retained");
+		if (!identity) throw new Error("expected an owner view");
+		await pool.leaveWindowView(owner.win, "focus-retained", identity, SESSION, () => true, authorize);
+		const target = pool.sessionOwner(SESSION);
+		if (!target) throw new Error("expected the retained execution");
+		expect(target).toEqual({ tabId: "focus-retained", winId: viewer.win.webContents.id });
+		expect(pool.tabsForWindow(viewer.win).some(tab => tab.tabId === target.tabId)).toBe(true);
+		expect(pool.tabsForWindow(owner.win)).toEqual([]);
+		expect(sidecars).toHaveLength(1);
+		expect(sidecars[0]?.disposed).toBe(false);
+		pool.disposeAll();
 	});
 
 	it("leaves the original owner while keeping every local viewer and the one execution", async () => {
