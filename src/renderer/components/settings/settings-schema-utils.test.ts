@@ -121,3 +121,20 @@ describe.skipIf(!stockAvailable)("settings condition gates against installed sto
 		}
 	});
 });
+
+describe("project-supplied global editors", () => {
+	it.each([
+		"contextFilesExtraNotProject",
+		"restrictedFoldersNotProject",
+		"perCallModelAllowNotProject",
+		"unpausedProvidersNotProject",
+	])("does not promote a project list through %s", condition => {
+		const entry: SettingEntry = {
+			...gated(condition),
+			provenance: { layers: ["project"] },
+		};
+		expect(isSettingVisible(entry, {})).toBe(false);
+		expect(isSettingVisible({ ...entry, provenance: { layers: ["global"] } }, {})).toBe(true);
+		expect(isSettingVisible({ ...entry, provenance: { layers: [] } }, {})).toBe(true);
+	});
+});
