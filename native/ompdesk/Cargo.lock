@@ -1285,6 +1285,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ompdesk-app-contract"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "ompdesk-checks"
 version = "0.1.0"
 dependencies = [
@@ -1323,6 +1330,7 @@ dependencies = [
  "icu_properties",
  "libc",
  "notify",
+ "ompdesk-app-contract",
  "p256",
  "rcgen",
  "rustls",
