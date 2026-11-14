@@ -64,3 +64,48 @@ export function blockedAccountUsage(now = Date.now(), similar = false): UsageRep
 			: report,
 	);
 }
+
+export function manyWindowUsage(now = Date.now()): UsageReport[] {
+	return blockedAccountUsage(now).map(report => ({
+		...report,
+		limits: [
+			...report.limits,
+			...["Opus", "Sonnet"].map((model, index) => ({
+				id: `anthropic:7d:${model.toLowerCase()}`,
+				label: `Claude 7 Day (${model})`,
+				windowId: "7d",
+				usedFraction: (index + 1) * 0.25,
+				resetsAt: now + 90 * HOUR,
+			})),
+		],
+	}));
+}
+
+export function usageFigureReports(now = Date.now()): UsageReport[] {
+	return [
+		{
+			provider: "devin",
+			fetchedAt: now,
+			account: "devin@example.com",
+			credentialId: 1,
+			limits: [],
+			notes: ["Overage balance: $12.50"],
+		},
+		{
+			provider: "github-copilot",
+			fetchedAt: now,
+			account: "copilot@example.com",
+			credentialId: 2,
+			limits: [
+				{
+					id: "copilot:premium",
+					label: "Premium requests",
+					used: 24,
+					limit: 100,
+					unit: "requests",
+					notes: ["Overage requests: 17"],
+				},
+			],
+		},
+	];
+}

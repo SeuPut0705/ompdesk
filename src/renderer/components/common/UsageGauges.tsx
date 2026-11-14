@@ -97,6 +97,7 @@ export function UsageGauges({
 	const t = useT();
 	const windows = columns ? accountGauges(limits) : accountWindows(limits, session);
 	if (windows.length === 0) return null;
+	const stackedLabels = sharedLabels && (columns?.length ?? 0) > MAX_USAGE_COLUMNS;
 	const now = Date.now();
 	const slots = columns
 		? columns.map(column => windows.find(entry => gaugeColumn(entry.limit) === column) ?? column)
@@ -107,10 +108,14 @@ export function UsageGauges({
 			data-columns={columns ? "" : undefined}
 			data-compact={compact || undefined}
 			data-count={windows.length}
+			data-stacked-labels={stackedLabels || undefined}
 			style={
 				columns
 					? ({
-							"--omp-usage-columns": Math.min(Math.max(columns.length, tracks ?? 0), MAX_USAGE_COLUMNS),
+							"--omp-usage-columns": Math.min(
+								Math.max(columns.length, tracks ?? 0),
+								stackedLabels ? 3 : MAX_USAGE_COLUMNS,
+							),
 						} as CSSProperties)
 					: undefined
 			}
@@ -142,7 +147,7 @@ export function UsageGauges({
 						>
 							<span className="omp-usage-gauge-fill" style={{ transform: `scaleX(${percent / 100})` }} />
 							<span aria-hidden className="omp-usage-gauge-text">
-								{!sharedLabels && <span data-usage-label>{shortWindowLabel(limit)}</span>}
+								{(!sharedLabels || stackedLabels) && <span data-usage-label>{shortWindowLabel(limit)}</span>}
 								<span data-usage-percent>{percent}%</span>
 							</span>
 						</span>

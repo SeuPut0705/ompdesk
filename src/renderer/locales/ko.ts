@@ -1300,6 +1300,11 @@ export const ko: Record<string, string> = {
 	"usage.inUse": "사용 중",
 	"usage.updatedAgo": "{time} 전 업데이트",
 	"usage.limitedShort": "한도",
+	"usage.note.overageBalance": "초과 잔액",
+	"usage.note.overageRequests": "초과 요청",
+	"usage.note.requests": "요청",
+	"usage.note.unlimited": "무제한",
+	"usage.note.deprioritized": "우선순위 낮음",
 
 	// First-run onboarding
 

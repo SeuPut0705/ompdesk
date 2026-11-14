@@ -1311,6 +1311,11 @@ export const en: Record<string, string> = {
 	"usage.inUse": "In use",
 	"usage.updatedAgo": "Updated {time} ago",
 	"usage.limitedShort": "Limited",
+	"usage.note.overageBalance": "Overage balance",
+	"usage.note.overageRequests": "Overage requests",
+	"usage.note.requests": "Requests",
+	"usage.note.unlimited": "Unlimited",
+	"usage.note.deprioritized": "Deprioritized",
 
 	// First-run onboarding
 
