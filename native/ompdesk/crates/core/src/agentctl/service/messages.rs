@@ -290,8 +290,20 @@ impl AgentControl {
 
         self.until_draft_sent(caller, target).await?;
         self.host.fresh().await?;
-        let (producer, recipient) = inbox_source::addresses(&self.host.state(), caller, target)?;
-        let follow_up = args.delivery.as_deref() == Some("follow_up");
+        let owns_target = |state: &HostState| {
+            state.parent_of(&target.tab_id) == Some(caller.tab_id.as_str())
+                || self
+                    .opened_by(
+                        state,
+                        &caller.tab_id,
+                        &state.tabs(&caller.tab_id).unwrap_or_default(),
+                    )
+                    .contains(&target.tab_id)
+        };
+        let state = self.host.state();
+        let (producer, recipient) = inbox_source::addresses(&state, caller, target)?;
+        let own_child = owns_target(&state);
+        let follow_up = own_child && args.delivery.as_deref() == Some("follow_up");
         let logical = InboxLogicalMessage {
             producer,
             target: recipient,
@@ -322,17 +334,6 @@ impl AgentControl {
         if producer != logical.producer || recipient != logical.target {
             return fail("The native source or recipient changed while attachments were prepared");
         }
-        let own_child = {
-            let state = self.host.state();
-            state.parent_of(&target.tab_id) == Some(caller.tab_id.as_str())
-                || self
-                    .opened_by(
-                        &state,
-                        &caller.tab_id,
-                        &state.tabs(&caller.tab_id).unwrap_or_default(),
-                    )
-                    .contains(&target.tab_id)
-        };
         if own_child {
             // Transcript dN can seed presentation numbering, never authorize native consumption/deduplication.
             let marks = self.journal_marks(&target.tab_id).await;
@@ -342,7 +343,10 @@ impl AgentControl {
         let state = self.host.state();
         let (current_producer, current_recipient) =
             inbox_source::addresses(&state, caller, target)?;
-        if current_producer != logical.producer || current_recipient != logical.target {
+        if current_producer != logical.producer
+            || current_recipient != logical.target
+            || owns_target(&state) != own_child
+        {
             return fail("The logical source or recipient changed before source persistence");
         }
         let current = state
@@ -684,15 +688,17 @@ impl AgentControl {
         }
         self.host.fresh().await?;
         let state = self.host.state();
-        let recipient = state
-            .tabs
-            .iter()
-            .chain(state.mail_targets.iter())
-            .find(|tab| tab.tab_id == to)
-            .ok_or_else(|| Fail::other("The report recipient is no longer current"))?;
-        mail.native_source = Some(crate::agentctl::runtime::inbox_source::report_source(
-            &state, caller, recipient, &mail, &args.text,
-        )?);
+        if !state.outside_callers.contains_key(&to) {
+            let recipient = state
+                .tabs
+                .iter()
+                .chain(state.mail_targets.iter())
+                .find(|tab| tab.tab_id == to)
+                .ok_or_else(|| Fail::other("The report recipient is no longer current"))?;
+            mail.native_source = Some(crate::agentctl::runtime::inbox_source::report_source(
+                &state, caller, recipient, &mail, &args.text,
+            )?);
+        }
         // The turn of the mail the mailbox keeps: taken with the post (a reader during its delivery sees the new mail
         // with it), and given back only when the mailbox refuses a replay, which leaves its state as it was; a mail it
         // took and could not deliver is its newest all the same.
