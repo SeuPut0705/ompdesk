@@ -51,6 +51,18 @@ pub struct Selected<S: Sidecar + ?Sized> {
     pub generation: u64,
     pub sidecar: Arc<S>,
 }
+#[derive(Debug)]
+pub enum SessionRelease {
+    Busy,
+    /// The entry was released and its captured receipt joined, even when later observers failed.
+    Released(Result<(), Fault>),
+}
+
+#[derive(Clone, Copy)]
+pub struct SessionRuntime {
+    pub activity: crate::session_ops::Activity,
+    pub state: crate::session_ops::RuntimeState,
+}
 
 pub struct SessionTarget<S: Sidecar + ?Sized> {
     pub tab: String,
@@ -342,6 +354,24 @@ impl<H: Host> Service<H> {
         };
         Box::pin(async move {
             let _waiting = waiting;
+            answer.await.map_err(|_| closed())?
+        })
+    }
+
+    fn execute_typed<T: Send + 'static>(
+        &self,
+        action: impl FnOnce(Ctx) -> LocalFuture<Result<T, Fault>> + Send + 'static,
+    ) -> EffectFuture<'static, Result<T, Fault>> {
+        let (reply, answer) = oneshot::channel();
+        let completed = self.execute(false, move |ctx, _| {
+            Outcome::Later(Box::pin(async move {
+                let result = action(ctx).await;
+                let _ = reply.send(result);
+                Ok(Value::Null)
+            }))
+        });
+        Box::pin(async move {
+            completed.await?;
             answer.await.map_err(|_| closed())?
         })
     }
@@ -823,19 +853,64 @@ impl<H: Host> Service<H> {
         });
         Box::pin(async move { answer.await.map_err(|_| closed())? })
     }
+
+    pub fn session_runtime(
+        &self,
+        owner: &Owner,
+        target: &SessionTarget<H::Sidecar>,
+    ) -> EffectFuture<'static, Result<SessionRuntime, Fault>> {
+        let owner = owner.clone();
+        let target = target.clone();
+        let app = Arc::clone(&self.app);
+        self.execute_typed(move |ctx| {
+            Box::pin(async move {
+                use crate::session_ops::{Activity, RuntimeState};
+                check_target(&ctx, &app, &owner, &target)?;
+                let (activity, ready) = ctx.with(|pool| {
+                    let entry = pool
+                        .entry(&target.tab)
+                        .expect("checked target remains in this hub step");
+                    let run = &entry.tracking.run;
+                    let activity = if run.compacting == Some(true) {
+                        Activity::Compacting
+                    } else if run.running {
+                        Activity::Running
+                    } else {
+                        Activity::Idle
+                    };
+                    (activity, entry.status == "ready")
+                });
+                let alive = target.sidecar.facts()["processAlive"]
+                    .as_bool()
+                    .ok_or_else(|| {
+                        Fault::new("tab_state", "The sidecar has no process lifetime fact")
+                    })?;
+                Ok(SessionRuntime {
+                    activity,
+                    state: if alive && ready {
+                        RuntimeState::Ready
+                    } else if alive {
+                        RuntimeState::Starting
+                    } else {
+                        RuntimeState::Dormant
+                    },
+                })
+            })
+        })
+    }
     pub fn close_session_tab(
         &self,
         owner: &Owner,
         target: &SessionTarget<H::Sidecar>,
-    ) -> EffectFuture<'static, Result<bool, Fault>> {
+    ) -> EffectFuture<'static, Result<SessionRelease, Fault>> {
         let owner = owner.clone();
         let target = target.clone();
         let app = Arc::clone(&self.app);
-        let work = self.execute(false, move |ctx, _| {
-            Outcome::Later(Box::pin(async move {
+        self.execute_typed(move |ctx| {
+            Box::pin(async move {
                 check_target(&ctx, &app, &owner, &target)?;
                 if ctx.with(|pool| pool.entry(&target.tab).is_some_and(|entry| entry.busy())) {
-                    return Ok(Value::Bool(false));
+                    return Ok(SessionRelease::Busy);
                 }
                 let Some((mut result, disposed)) = ctx.release_entry_detail(&target.tab).await
                 else {
@@ -853,10 +928,9 @@ impl<H: Host> Service<H> {
                     let receipt = app.host.when_released(target.tab, target.sidecar).await;
                     result = result.and(receipt);
                 }
-                result.map(|()| Value::Bool(true))
-            }))
-        });
-        Box::pin(async move { Ok(work.await? == Value::Bool(true)) })
+                Ok(SessionRelease::Released(result))
+            })
+        })
     }
 
     pub fn stop_session(
