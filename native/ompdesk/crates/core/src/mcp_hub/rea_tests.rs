@@ -33,7 +33,7 @@ fn config(dir: &Path) -> ReaConfig {
                 .to_string_lossy()
                 .into_owned(),
         ],
-        env: std::env::vars().collect(),
+        env: super::super::fixture_environment(dir),
         cache_dir: Some(dir.to_owned()),
         version: "test".into(),
         curated_tools: vec!["open_binary".into()],

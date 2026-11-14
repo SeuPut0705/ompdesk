@@ -142,7 +142,7 @@ struct Inner {
 /// The secret has no Debug or serialization implementation.
 pub struct McpHub {
     inner: Arc<Inner>,
-    port: watch::Receiver<u16>,
+    port: u16,
     stop: watch::Sender<bool>,
     done: watch::Receiver<bool>,
     task: tokio::sync::Mutex<Option<JoinHandle<io::Result<()>>>>,
@@ -171,17 +171,16 @@ impl McpHub {
         });
         let (stop, stopped) = watch::channel(false);
         let (done_tx, done) = watch::channel(false);
-        let (port_tx, port_rx) = watch::channel(port);
         let (restart, requested) = mpsc::unbounded_channel();
         let own = Arc::clone(&inner);
         let task = tokio::spawn(async move {
-            let result = serve(own, listener, stopped, requested, port_tx).await;
+            let result = serve(own, listener, stopped, requested).await;
             done_tx.send_replace(true);
             result
         });
         Ok(Self {
             inner,
-            port: port_rx,
+            port,
             stop,
             done,
             task: tokio::sync::Mutex::new(Some(task)),
@@ -190,7 +189,7 @@ impl McpHub {
     }
 
     pub fn port(&self) -> u16 {
-        *self.port.borrow()
+        self.port
     }
 
     pub fn omp_env(&self, cwd: &str) -> BTreeMap<String, String> {
@@ -207,7 +206,7 @@ impl McpHub {
         ])
     }
 
-    /// Restarts the listener without changing the launch bearer. Existing sessions are ended and joined first.
+    /// Restarts sessions and transport tasks while the app keeps its bound listener and launch bearer.
     pub async fn restart(&self) -> io::Result<u16> {
         let (tx, rx) = oneshot::channel();
         self.restart
@@ -268,10 +267,9 @@ async fn bind(port: u16) -> io::Result<TcpListener> {
 
 async fn serve(
     inner: Arc<Inner>,
-    mut listener: TcpListener,
+    listener: TcpListener,
     mut stopped: watch::Receiver<bool>,
     mut restart: mpsc::UnboundedReceiver<oneshot::Sender<io::Result<u16>>>,
-    port: watch::Sender<u16>,
 ) -> io::Result<()> {
     let mut connections = JoinSet::new();
     let result = loop {
@@ -282,23 +280,10 @@ async fn serve(
             biased;
             _ = stopped.changed() => break Ok(()),
             Some(answer) = restart.recv() => {
-                let previous = *port.borrow();
-                drop(listener);
                 connections.abort_all();
                 while connections.join_next().await.is_some() {}
                 inner.close_all().await;
-                match bind(previous).await {
-                    Ok(next) => {
-                        let at = next.local_addr()?.port();
-                        listener = next;
-                        port.send_replace(at);
-                        let _ = answer.send(Ok(at));
-                    }
-                    Err(error) => {
-                        let _ = answer.send(Err(io::Error::new(error.kind(), error.to_string())));
-                        break Err(error);
-                    }
-                }
+                let _ = answer.send(listener.local_addr().map(|address| address.port()));
             }
             accepted = listener.accept() => {
                 let (socket, _) = match accepted { Ok(socket) => socket, Err(error) => break Err(error) };
@@ -325,7 +310,9 @@ impl Inner {
     fn track(&self, task: JoinHandle<()>) {
         let mut tasks = self.tasks.lock().unwrap();
         tasks.retain(|task| !task.is_finished());
-        tasks.push(task);
+        if !task.is_finished() {
+            tasks.push(task);
+        }
     }
 
     fn close(self: &Arc<Self>, id: &str) {
@@ -661,6 +648,27 @@ pub(super) fn rpc_response(status: u16, message: Value) -> Response<Out> {
         hyper::header::HeaderValue::from_static("application/json"),
     );
     answer
+}
+
+#[cfg(test)]
+fn fixture_environment(home: &std::path::Path) -> BTreeMap<String, String> {
+    let mut env: BTreeMap<String, String> = [
+        "PATH",
+        "SystemRoot",
+        "WINDIR",
+        "ComSpec",
+        "PATHEXT",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+    ]
+    .into_iter()
+    .filter_map(|name| std::env::var(name).ok().map(|value| (name.into(), value)))
+    .collect();
+    let home = home.to_string_lossy().into_owned();
+    env.insert("HOME".into(), home.clone());
+    env.insert("USERPROFILE".into(), home);
+    env
 }
 
 #[cfg(test)]
