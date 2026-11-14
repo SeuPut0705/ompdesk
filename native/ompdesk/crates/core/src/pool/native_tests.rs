@@ -4,6 +4,8 @@ use crate::pool::application::{Released, Spawn, asks::Collaborators};
 #[derive(Default)]
 struct TestHost {
     listening: Mutex<Vec<i64>>,
+    announcements: Mutex<Vec<(Value, Value)>>,
+    running_changes: std::sync::atomic::AtomicUsize,
 }
 
 impl super::super::Host for TestHost {
@@ -50,9 +52,6 @@ impl Collaborators for TestHost {
     fn end_views(&self, _: &str, _: &[i64]) {
         unreachable!()
     }
-    fn activity(&self, _: Value) {
-        unreachable!()
-    }
     fn deleted_add(&self, _: &str, _: Option<&str>) {
         unreachable!()
     }
@@ -63,7 +62,7 @@ impl Collaborators for TestHost {
         unreachable!()
     }
     fn running_changed(&self) {
-        unreachable!()
+        self.running_changes.fetch_add(1, Ordering::SeqCst);
     }
     fn session_files_changed(&self) {
         unreachable!()
@@ -87,6 +86,7 @@ impl effects::Host for TestHost {
     fn notify(&self, notification: effects::Notification) {
         match notification {
             effects::Notification::ListenClosed { window } => locked(&self.listening).push(window),
+            effects::Notification::Send { .. } | effects::Notification::SettleWatch { .. } => {}
             _ => unreachable!(),
         }
     }
@@ -108,6 +108,9 @@ impl Host for TestHost {
     }
     fn when_released(&self, _: String) -> EffectFuture<'static, ()> {
         unreachable!()
+    }
+    fn announce(&self, activity: Value, tabs: Value) {
+        locked(&self.announcements).push((activity, tabs));
     }
 }
 
@@ -140,6 +143,22 @@ async fn native_pool_finishes_effects_before_answer_and_keeps_seeded_host_identi
     assert_eq!(rows[1]["sessionFile"], "/host/session.jsonl");
     assert_eq!(rows[0]["facts"]["busy"], false);
     assert!(rows[0]["pendingPlan"].is_null());
+    service
+        .feed("local", "events", json!([{"type": "agent_start"}]), false)
+        .await
+        .unwrap();
+    service.feed("local", "events", json!([{"type": "agent_end", "messages": [
+        {"role": "assistant", "stopReason": "stop", "content": [{"type": "text", "text": "done"}]}
+    ]}]), false).await.unwrap();
+    let announcements = locked(&host.announcements);
+    assert_eq!(announcements[0].0["type"], "busy");
+    assert_eq!(announcements[0].1[0]["facts"]["busy"], true);
+    assert_eq!(announcements[0].1[0]["sessionFile"], "/local/session.jsonl");
+    assert_eq!(announcements[1].0["type"], "idle");
+    assert_eq!(announcements[1].1[0]["facts"]["busy"], false);
+    assert_eq!(announcements[1].0["outcome"]["reply"], "done");
+    assert_eq!(host.running_changes.load(Ordering::SeqCst), 2);
+    drop(announcements);
     let out = service.out;
     drop(service);
     let (send, recv) = oneshot::channel();

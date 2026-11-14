@@ -50,6 +50,8 @@ pub trait Host: effects::Host<Sidecar: Sidecar<Error = Fault>> + 'static {
     fn authorize_tab(&self, owner: &Owner, tab: &str) -> Result<(), Fault>;
     /// The actual release receipt registered inside Application::dispose, not a wait captured before release.
     fn when_released(&self, tab: String) -> EffectFuture<'static, ()>;
+    /// Called on the hub thread with the snapshot captured at this activity, before the next job can change it.
+    fn announce(&self, activity: Value, tabs: Value);
 }
 
 struct Reserved<H: Host> {
@@ -80,6 +82,7 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 struct Sink<H: Host> {
+    id: u64,
     app: Arc<Application<H>>,
     pending: Arc<Mutex<Pending>>,
 }
@@ -113,6 +116,15 @@ impl<H: Host> NativeSink for Sink<H> {
         payload: Value,
         _sync: bool,
     ) -> LocalFuture<Result<Value, Fault>> {
+        if question == "announce" {
+            let ctx = engine::POOLS.with(|pools| pools.borrow().get(&self.id).cloned());
+            let result = ctx.ok_or_else(closed).map(|ctx| {
+                let tabs = snapshot(&ctx, &self.app);
+                self.app.host.announce(payload["activity"].clone(), tabs);
+                Value::Null
+            });
+            return Box::pin(std::future::ready(result));
+        }
         let app = Arc::clone(&self.app);
         Box::pin(async move { app.ask(&question, &payload).await })
     }
@@ -143,6 +155,7 @@ impl<H: Host> Service<H> {
         let window_tabs_hook = config.window_tabs_hook;
         hub::post(move || {
             let sink = Rc::new(Sink {
+                id: config.id,
                 app: sink_app,
                 pending: sink_pending,
             });
@@ -401,12 +414,18 @@ impl<H: Host> Service<H> {
 
     pub fn snapshot(&self) -> EffectFuture<'static, Result<Value, Fault>> {
         let app = Arc::clone(&self.app);
-        self.execute(false, move |ctx, _| {
-            let rows = ctx.with(|pool| pool.entries.iter().map(|entry| json!({
-                "tab": entry.tab_id, "device": entry.device, "sessionFile": entry.session_file, "kind": entry.kind,
-                "openedBy": entry.opened_by, "openedBySession": entry.opened_by_session, "hosted": entry.hosted_view,
-            })).collect::<Vec<_>>());
-            let rows = rows.into_iter().map(|mut row| {
+        self.execute(false, move |ctx, _| Outcome::Now(Ok(snapshot(&ctx, &app))))
+    }
+}
+
+fn snapshot<H: Host>(ctx: &Ctx, app: &Application<H>) -> Value {
+    let rows = ctx.with(|pool| pool.entries.iter().map(|entry| json!({
+        "tab": entry.tab_id, "device": entry.device, "sessionFile": entry.session_file, "kind": entry.kind,
+        "openedBy": entry.opened_by, "openedBySession": entry.opened_by_session, "hosted": entry.hosted_view,
+    })).collect::<Vec<_>>());
+    Value::Array(
+        rows.into_iter()
+            .map(|mut row| {
                 let tab = row["tab"].as_str().unwrap_or_default();
                 let facts = ctx.tab_facts(tab);
                 let plan = ctx.pending_plan(tab);
@@ -417,10 +436,9 @@ impl<H: Host> Service<H> {
                     row["sidecar"] = sidecar;
                 }
                 row
-            }).collect::<Vec<_>>();
-            Outcome::Now(Ok(Value::Array(rows)))
-        })
-    }
+            })
+            .collect(),
+    )
 }
 
 impl<H: Host> Drop for Service<H> {

@@ -17,7 +17,6 @@ pub trait Collaborators: Host {
     -> bool;
     fn acquired(&self, tab: &str, sidecar: Arc<Self::Sidecar>);
     fn end_views(&self, tab: &str, views: &[i64]);
-    fn activity(&self, activity: Value);
     fn deleted_add(&self, session: &str, device: Option<&str>);
     fn self_device(&self) -> Option<String>;
     fn snowflake(&self) -> String;
@@ -145,10 +144,6 @@ impl<H: Collaborators> Application<H> {
                         handle.sidecar.dispose();
                     }
                 }
-                Ok(Value::Null)
-            }
-            "announce" => {
-                self.host.activity(item["activity"].clone());
                 Ok(Value::Null)
             }
             "decide" => {
