@@ -288,10 +288,11 @@ function vsTools(): { cmakeBin: string; ninjaBin: string; include: string } {
 }
 
 export function shellCargoMount(shellDir: string = SHELL_DIR): { root: string; cwd: string } {
-	return { root: path.dirname(shellDir), cwd: path.basename(shellDir) };
+	const root = path.resolve(shellDir, "..", "..");
+	return { root, cwd: path.relative(root, shellDir) };
 }
 
-/** Preserve sibling path dependencies while shortening the shell workspace's paths for CEF's wrapper. */
+/** Preserve sibling dependencies and their workspace inheritance while shortening CEF's wrapper paths. */
 async function withSubst<T>(run: (cwd: string) => Promise<T>): Promise<T> {
 	if (process.platform !== "win32") return run(SHELL_DIR);
 	let letter = "";
