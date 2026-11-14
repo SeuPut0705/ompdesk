@@ -11,6 +11,8 @@ pub(crate) struct TestHost {
     releases: Mutex<Vec<Released<crate::sidecar::native::Service>>>,
     fail_running: std::sync::atomic::AtomicBool,
     fail_window_tabs: std::sync::atomic::AtomicBool,
+    retire_on_running: Mutex<Option<(Arc<Callers>, Owner)>>,
+    command_seen: Mutex<Option<oneshot::Sender<()>>>,
     receipt_gate: Mutex<Option<oneshot::Receiver<Result<(), Fault>>>>,
     receipt_entered: Mutex<Option<oneshot::Sender<()>>>,
     on_gone: Mutex<
@@ -107,6 +109,9 @@ impl Collaborators for TestHost {
     }
     fn running_changed(&self) -> Result<(), Fault> {
         self.running_changes.fetch_add(1, Ordering::SeqCst);
+        if let Some((callers, owner)) = locked(&self.retire_on_running).take() {
+            callers.retire_execution(&owner);
+        }
         if self.fail_running.load(Ordering::SeqCst) {
             return Err(Fault::new("observer_failed", "Running observer failed"));
         }
@@ -138,6 +143,9 @@ impl Collaborators for TestHost {
         generation: u64,
         command: Value,
     ) -> EffectFuture<'static, Result<Value, Fault>> {
+        if let Some(seen) = locked(&self.command_seen).take() {
+            let _ = seen.send(());
+        }
         crate::pool::application::Sidecar::stock_for_generation(
             sidecar.as_ref(),
             generation,
