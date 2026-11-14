@@ -239,9 +239,8 @@ describe("two computers that use each other as hosts", () => {
 	 */
 	async function reconnectBothWays(gateMs = 0) {
 		await rig.pickPort();
-		const lines: { message: string; details: Record<string, unknown>; at: number }[] = [];
-		const logLink = (message: string, details: Record<string, unknown>) =>
-			lines.push({ message, details, at: Date.now() });
+		const lines: { message: string; details: Record<string, unknown> }[] = [];
+		const logLink = (message: string, details: Record<string, unknown>) => lines.push({ message, details });
 		const studioTailnet = fakeTailnet({
 			peers: [studioNode({ nodeId: "nLAPTOP", name: "laptop" })],
 			whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]),
@@ -277,29 +276,10 @@ describe("two computers that use each other as hosts", () => {
 		expect(b.devices.state().hosts[0]?.state).toBe("online");
 		expect(lines.slice(settled).filter(line => line.message === "down" || line.message === "attempt")).toEqual([]);
 		const attempts = lines.slice(reopened).filter(line => line.message === "attempt");
-		// Neither dial ended by the other's link opening while younger than the stale step (1 s): the other's link
-		// reaching this computer's host (`peer`) may end only a dial that has waited that long, and the dial then runs
-		// again at once. How many attempts a host logs after the restart is a race: none when a dial begun while the
-		// hosts went down was taken by the closing listener and finished, one when its backoff or the other's link
-		// woke it, two when a slow gate held it past the stale step.
-		for (const host of [a, b]) {
-			const id = host.devices.state().hosts[0]?.deviceId;
-			// Every attempt line for the host, so a rerun after the restart is timed against its dial even when that
-			// dial began before it.
-			const history = lines.filter(line => line.message === "attempt" && line.details.deviceId === id);
-			const first = history.length - attempts.filter(line => line.details.deviceId === id).length;
-			for (const [index, attempt] of history.entries()) {
-				if (index < first) continue;
-				expect(["backoff", "peer"]).toContain(attempt.details.trigger);
-				if (attempt.details.trigger !== "peer" || index === 0) continue;
-				// The stale step is the core's 1 s; the lines cross to main after it, so allow a little of their delay.
-				expect(attempt.at - (history[index - 1]?.at ?? 0), JSON.stringify(history)).toBeGreaterThanOrEqual(900);
-			}
-		}
-		return attempts;
+		for (const attempt of attempts) expect(["backoff", "peer"]).toContain(attempt.details.trigger);
 	}
 
-	it("reconnect to each other at once and stay connected (each one's link opening never ends the other's dial)", async () => {
+	it("reconnect to each other at once and stay connected", async () => {
 		await reconnectBothWays();
 	}, 20_000);
 

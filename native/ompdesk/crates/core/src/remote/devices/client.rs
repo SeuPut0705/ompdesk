@@ -707,7 +707,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_peer_link_never_ends_an_attempt_still_looking_up_its_host() {
+    async fn a_peer_link_only_ends_a_host_lookup_after_the_stale_step() {
         let _serial = clock::TEST_CLOCK.lock().await;
         clock::set_real();
         let dir = std::env::temp_dir().join(format!("ompdesk-client-peer-{}", std::process::id()));
@@ -728,22 +728,27 @@ mod tests {
             store: None,
             addresses: Box::new(Held(Arc::clone(&release))),
         });
+        clock::set_manual(10_000);
         client.connect();
-        // The other computer's link reached this one's host while the attempt has not dialed anything yet.
+        let original = client.inner().cancel.clone();
         client.wake("peer");
-        {
-            let inner = client.inner();
-            assert_eq!(inner.rerun, None, "the attempt is not run again");
-            assert!(
-                inner
-                    .cancel
-                    .as_ref()
-                    .is_some_and(|cancel| !cancel.cancelled()),
-                "the attempt goes on"
-            );
-        }
+        clock::advance(STALE_STEP_MS - 1).await;
+        let before_deadline = original.as_ref().is_some_and(|cancel| !cancel.cancelled())
+            && client.inner().rerun.is_none();
+        clock::advance(1).await;
+        let at_deadline = original.as_ref().is_some_and(Scope::cancelled)
+            && client.inner().rerun.as_deref() == Some("peer");
         client.close();
         release.notify_one();
+        clock::set_real();
         let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            before_deadline,
+            "a peer ended the original lookup before its stale deadline"
+        );
+        assert!(
+            at_deadline,
+            "a stale original lookup was not cancelled for its peer retry"
+        );
     }
 }
