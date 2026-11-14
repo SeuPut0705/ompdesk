@@ -4464,6 +4464,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.streamMetadata": "읽기 묶음과 토큰 속도",
 	"bridgeHealth.feature.agentBrowser": "미리보기에서 에이전트 브라우징",
 	"bridgeHealth.feature.agentControl": "OMPdesk 제어 도구(세션, 확인 카드)",
+	"bridgeHealth.feature.agentInbox": "에이전트 간 메시지 전달",
 	"bridgeHealth.feature.desktopSlot": "세션 간 화면 사용 차례",
 	"bridgeHealth.feature.sessionDump": "진단 묶음 저장(세션 덤프)",
 	"bridgeHealth.feature.advisorStats": "어드바이저 비용과 조언(실행 팝오버, 인사이트)",

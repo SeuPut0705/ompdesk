@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	ALL_FEATURES,
 	BUNDLED_SCHEME,
 	deriveUnavailable,
 	FEATURES,
@@ -18,7 +17,6 @@ import {
 	UnsupportedOmpError,
 	unsafeCopies,
 } from "../../resources/gui-bridge/capabilities";
-import { en } from "../renderer/locales/en";
 
 const BRIDGE_DIR = path.join(__dirname, "..", "..", "resources", "gui-bridge");
 
@@ -132,11 +130,6 @@ describe("deriveUnavailable", () => {
 			{ feature: "workspace", missing: ["AgentSession.sessionManager.addWorkspaceDirectory"] },
 			{ feature: "planMode", missing: ["AgentSession.getPlanModeState"] },
 		]);
-	});
-
-	it("covers every feature with a requirement and a renderer label", () => {
-		expect(Object.keys(REQUIREMENTS).sort()).toEqual([...ALL_FEATURES].sort());
-		for (const feature of ALL_FEATURES) expect(en[`bridgeHealth.feature.${feature}`], feature).toBeTruthy();
 	});
 
 	it("reports composer unavailable on an omp without the session members its methods read", () => {

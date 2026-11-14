@@ -4471,6 +4471,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.streamMetadata": "Read grouping and token rate",
 	"bridgeHealth.feature.agentBrowser": "Agent browsing in the preview",
 	"bridgeHealth.feature.agentControl": "OMPdesk control tools (sessions, confirmation cards)",
+	"bridgeHealth.feature.agentInbox": "Inter-agent message delivery",
 	"bridgeHealth.feature.desktopSlot": "Screen turns between sessions",
 	"bridgeHealth.feature.sessionDump": "Save diagnostic bundle (session dump)",
 	"bridgeHealth.feature.advisorStats": "Advisor spend and advisories (Run popover, Insights)",
