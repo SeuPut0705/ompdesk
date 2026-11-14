@@ -199,6 +199,9 @@ impl Callers {
         effect: impl FnOnce() -> Result<T, Fault>,
     ) -> Result<T, Fault> {
         let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if state.stopped {
+            return Err(closed());
+        }
         if let Some(record) = state.executions.get(owner) {
             if record.facts.tab != tab
                 || !matches!(record.life, Life::Bound { .. })
@@ -206,7 +209,7 @@ impl Callers {
             {
                 return Err(closed());
             }
-        } else if state.stopped || !state.owners.contains_key(owner) {
+        } else if !state.owners.contains_key(owner) {
             return Err(closed());
         }
         effect()
