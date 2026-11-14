@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 use super::status::{Access, Status};
 
 /// The release repository's API root. A test points the unpackaged shell elsewhere (`OMP_DEV_UPDATE_API`).
-pub const GITHUB_API_REPO: &str = "https://api.github.com/repos/SeuPut0705/ompdesk";
+pub const GITHUB_API_REPO: &str = "https://api.github.com/repos/seuput-inc/ompdesk";
 
 /// `GET /repos/{owner}/{repo}` status → access. GitHub answers 404 (not 403) for a private repo the caller cannot
 /// see, so both mean "no access". A 403 with `x-ratelimit-remaining: 0` is the hourly limit: a network-class failure.
@@ -233,16 +233,6 @@ pub fn js_number(n: f64) -> String {
     } else {
         format!("{n}")
     }
-}
-
-/// The version a start-failure record names (`update-start-failed.json`, written by Node's `rememberStartFailure`):
-/// `parseStartFailure` in `src/main/update-log-core.ts` reads the same file the same way, a `version` string and an `at`
-/// number or nothing.
-pub fn start_failed_version(raw: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(raw).ok()?;
-    let object = value.as_object()?;
-    object.get("at")?.as_f64()?;
-    Some(object.get("version")?.as_str()?.to_string())
 }
 
 /// The token cut out of a text for the log (`<token>`); Node's `scrubUpdateText` takes URLs and the rest.

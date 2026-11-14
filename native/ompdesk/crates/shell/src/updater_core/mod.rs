@@ -3,8 +3,10 @@
 //! the network, the files and the processes around them. `captured.json` holds the TypeScript's answers to the same
 //! inputs, taken before it was deleted (`scripts/shell-port/capture-updater.ts`); `tests.rs` replays it.
 
+pub mod records;
 pub mod release;
 pub mod rules;
+pub mod scheduler;
 pub mod secret;
 pub mod semver;
 pub mod spawn;

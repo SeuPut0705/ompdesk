@@ -639,6 +639,34 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 			expect(await startedWith(rig)).toEqual(["--updated", "--force-run"]);
 		});
 
+		it(
+			"a held check completing during an install cannot release its claim or start another installer",
+			TIMEOUT,
+			async () => {
+				const rig = await downloaded(recorder);
+				writeFileSync(path.join(rig.userData, "update-start-failed.json"), '{"version":"2.0.0","count":1,"at":1}');
+				const looking = Promise.withResolvers<void>();
+				const release = Promise.withResolvers<void>();
+				rig.stand.latest = async () => {
+					looking.resolve();
+					await release.promise;
+					return releaseOf(rig.stand.origin, "2.0.0", { payload: recorder });
+				};
+				const check = rig.updater.call("check", {});
+				await looking.promise;
+				try {
+					const installed = await rig.updater.call("install", { trigger: "user click" });
+					expect(installed.then).toBe("quit-for-update");
+				} finally {
+					release.resolve();
+				}
+				expect((await check).status).toMatchObject({ state: "downloaded", version: "2.0.0" });
+				const repeated = await rig.updater.call("install", { trigger: "user click" });
+				expect(repeated.then).toBe("none");
+				expect(await startedWith(rig)).toEqual(["--updated", "--force-run"]);
+			},
+		);
+
 		it("an installer Windows refuses to run fails the install, and Node still quits", TIMEOUT, async () => {
 			const rig = await downloaded(Buffer.from("MZ, but no program at all"));
 			const installed = await rig.updater.call("install", { trigger: "user click" });

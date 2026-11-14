@@ -293,7 +293,8 @@ fn notes_are_cut_at_500_utf16_units() {
 /// `update-log-core.test.ts`'s `parseStartFailure` cases: the shell reads the record Node writes.
 #[test]
 fn a_start_failure_record_names_its_version_or_nothing() {
-    let version = |raw: &str| rules::start_failed_version(raw);
+    let version =
+        |raw: &str| super::records::parse_start_failure(raw).map(|failure| failure.version);
     assert_eq!(
         version(r#"{"version":"0.39.0","count":2,"at":5}"#).as_deref(),
         Some("0.39.0")

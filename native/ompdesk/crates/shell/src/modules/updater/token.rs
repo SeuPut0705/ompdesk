@@ -85,16 +85,18 @@ fn key(user_data: &Path) -> Result<Key, String> {
     slot.get_or_insert_with(|| read_key(user_data)).clone()
 }
 
-fn drop_stored(service: &Service, reason: &str) {
+fn drop_stored(service: &Service, reason: &str) -> std::io::Result<()> {
     let user_data = service.user_data();
-    let _ = std::fs::remove_file(token_file(user_data));
-    let _ = write_private(&dropped_file(user_data), reason.as_bytes());
+    shell_core::updater_core::secret::drop_unreadable_token(user_data, |file, bytes| {
+        service.write_private(file, bytes)
+    })?;
     service.log_line(&format!(
         "The saved update token was removed: it cannot be read on this computer ({reason}); GH_TOKEN, GITHUB_TOKEN and the gh login still apply"
     ));
+    Ok(())
 }
 
-fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(super) fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -145,37 +147,39 @@ fn gh_token(path: &str) -> Option<String> {
     }
 }
 
-fn stored_token(service: &Service) -> Option<String> {
-    let blob = std::fs::read(token_file(service.user_data())).ok()?;
-    match key(service.user_data()) {
+fn stored_token(service: &Service) -> std::io::Result<Option<String>> {
+    let Ok(blob) = std::fs::read(token_file(service.user_data())) else {
+        return Ok(None);
+    };
+    Ok(match key(service.user_data()) {
         Ok(key) => key.decrypt(&blob).ok(),
         Err(reason) => {
-            // The key was refused without a dialog: the token never decrypts on this computer, so it goes.
+            // Preserve the reason before dropping the only ciphertext: a full disk must not lose both.
             if reason == KEYCHAIN_WOULD_ASK {
-                drop_stored(service, KEYCHAIN_WOULD_ASK);
+                drop_stored(service, KEYCHAIN_WOULD_ASK)?;
             }
             None
         }
-    }
+    })
 }
 
 /// The first usable token in precedence order; lookups run lazily, so one in the environment never starts `gh`.
-pub fn resolve(service: &Service) -> Option<(String, Source)> {
+pub fn resolve(service: &Service) -> std::io::Result<Option<(String, Source)>> {
     let env = service.login_env();
-    let lookups: [(Source, &dyn Fn() -> Option<String>); 3] = [
-        (Source::Env, &|| env.token.clone()),
-        (Source::Gh, &|| gh_token(&env.path)),
-        (Source::Stored, &|| stored_token(service)),
-    ];
-    for (source, lookup) in lookups {
-        if let Some(token) = lookup()
+    for source in [Source::Env, Source::Gh, Source::Stored] {
+        let token = match source {
+            Source::Env => env.token.clone(),
+            Source::Gh => gh_token(&env.path),
+            Source::Stored => stored_token(service)?,
+        };
+        if let Some(token) = token
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
         {
-            return Some((token, source));
+            return Ok(Some((token, source)));
         }
     }
-    None
+    Ok(None)
 }
 
 /// Whether the release repo is readable with `token`, or anonymously without one.
@@ -197,8 +201,8 @@ pub fn repo_access(service: &Service, token: Option<&str>) -> Access {
 }
 
 /// `UpdateAuthInfo`.
-pub fn info(service: &Service) -> Value {
-    let resolved = resolve(service);
+pub fn info(service: &Service) -> std::io::Result<Value> {
+    let resolved = resolve(service)?;
     // After the resolve: a token it just dropped is no longer stored, and says why.
     let user_data = service.user_data();
     let stored = token_file(user_data).exists();
@@ -206,29 +210,29 @@ pub fn info(service: &Service) -> Value {
         .ok()
         .map(|reason| reason.trim().to_string())
         .filter(|reason| !reason.is_empty());
-    json!({
+    Ok(json!({
         "droppedReason": dropped,
         "source": resolved.map(|(_, source)| source.as_str()),
         "hasStoredToken": stored,
         // macOS and Windows always have an OS keystore; probing it could ask (see the module docs).
         "canStore": true,
-    })
+    }))
 }
 
 /// `UpdateAuthTestResult` for `token`, or for the token the next check would use.
-pub fn test(service: &Service, token: Option<&str>) -> Value {
+pub fn test(service: &Service, token: Option<&str>) -> std::io::Result<Value> {
     if let Some(token) = token.map(str::trim).filter(|t| !t.is_empty()) {
-        return json!({ "access": repo_access(service, Some(token)).as_str(), "source": null });
+        return Ok(json!({ "access": repo_access(service, Some(token)).as_str(), "source": null }));
     }
-    let resolved = resolve(service);
+    let resolved = resolve(service)?;
     let access = repo_access(service, resolved.as_ref().map(|(t, _)| t.as_str()));
-    match resolved {
+    Ok(match resolved {
         // Anonymous and refused: the repo is private, so a token is what is missing.
         None => {
             json!({ "access": if access == Access::Denied { "missing" } else { access.as_str() }, "source": null })
         }
         Some((_, source)) => json!({ "access": access.as_str(), "source": source.as_str() }),
-    }
+    })
 }
 
 /// Stores `token` when the repository answers `ok` to it. Errors: `(code, message)`.
@@ -255,16 +259,26 @@ pub fn save(service: &Service, token: &str) -> Result<Value, (&'static str, Stri
         let blob = key
             .encrypt(token)
             .map_err(|e| ("safe_storage_unavailable", e))?;
-        write_private(&token_file(service.user_data()), &blob)
+        service
+            .write_private(&token_file(service.user_data()), &blob)
             .map_err(|e| ("failed", e.to_string()))?;
-        let _ = std::fs::remove_file(dropped_file(service.user_data()));
+        remove_optional(&dropped_file(service.user_data()))
+            .map_err(|e| ("failed", e.to_string()))?;
     }
     Ok(
         json!({ "access": access.as_str(), "source": if access == Access::Ok { Some("stored") } else { None } }),
     )
 }
 
-pub fn clear(service: &Service) {
-    let _ = std::fs::remove_file(token_file(service.user_data()));
-    let _ = std::fs::remove_file(dropped_file(service.user_data()));
+fn remove_optional(file: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(file) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+pub fn clear(service: &Service) -> std::io::Result<()> {
+    remove_optional(&token_file(service.user_data()))?;
+    remove_optional(&dropped_file(service.user_data()))
 }

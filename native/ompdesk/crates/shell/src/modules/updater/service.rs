@@ -18,8 +18,10 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha512};
 use shell_core::labels;
+use shell_core::updater_core::records::{FirstPageError, Records, WindowPresence};
 use shell_core::updater_core::release::{self, FeedError, Platform, PlatformRelease};
 use shell_core::updater_core::rules::{self, DOWNLOAD_IDLE_TIMEOUT_MS};
+use shell_core::updater_core::scheduler::{Config, Effect, Facts, Scheduler, Trigger};
 use shell_core::updater_core::semver;
 use shell_core::updater_core::spawn;
 use shell_core::updater_core::status::{Access, Mode, Status};
@@ -184,8 +186,10 @@ struct State {
     check_asked: bool,
     transfer: bool,
     helpers: Vec<JoinHandle<()>>,
+    native: Option<NativeRuntime>,
 }
 
+#[derive(Clone)]
 pub struct LoginEnv {
     pub token: Option<String>,
     pub path: String,
@@ -196,6 +200,27 @@ pub struct Service {
     places: Places,
     api: String,
     state: Mutex<State>,
+}
+
+pub type AtomicWrite = fn(&Path, &[u8]) -> std::io::Result<()>;
+
+struct NativeRuntime {
+    scheduler: Scheduler,
+    records: Records,
+    login: LoginEnv,
+    save: AtomicWrite,
+    intent: Option<(Trigger, Option<WindowPresence>)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuitMode {
+    Normal,
+    ForUpdate,
+}
+
+pub struct NativeUpdate {
+    pub state: Value,
+    pub quit: Option<QuitMode>,
 }
 
 fn now_ms() -> u64 {
@@ -271,8 +296,197 @@ impl Service {
                 check_asked: false,
                 transfer: false,
                 helpers: Vec::new(),
+                native: None,
             }),
         }
+    }
+
+    pub fn start_native(
+        self: &Arc<Self>,
+        version: &str,
+        login: LoginEnv,
+        save: AtomicWrite,
+    ) -> std::io::Result<Value> {
+        if self.lock().native.is_some() {
+            return Ok(self.state());
+        }
+        let records = Records::new(
+            self.places.user_data.clone(),
+            version.to_string(),
+            std::process::id(),
+        )?;
+        {
+            let mut s = self.lock();
+            if s.native.is_some() {
+                return Ok(Self::state_json(&s));
+            }
+            if !s.version.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "the Node updater already started",
+                ));
+            }
+            let mut config = Config::default();
+            if !self.places.packaged {
+                for (name, slot) in [
+                    ("OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS", &mut config.countdown_ms),
+                    ("OMP_DEV_UPDATE_AUTO_MAX_WAIT_MS", &mut config.max_wait_ms),
+                ] {
+                    if let Some(value) = env(name).and_then(|v| v.parse::<f64>().ok())
+                        && value.is_finite()
+                        && value > 0.0
+                    {
+                        *slot = value;
+                    }
+                }
+            }
+            s.native = Some(NativeRuntime {
+                scheduler: Scheduler::new(config),
+                records,
+                login,
+                save,
+                intent: None,
+            });
+        }
+        Ok(self.start(version))
+    }
+
+    pub fn first_page_loaded(&self, now: i64) -> Result<Option<Value>, FirstPageError> {
+        let report = {
+            let mut s = self.lock();
+            let native = s
+                .native
+                .as_mut()
+                .ok_or_else(|| std::io::Error::other("the native updater has not started"))?;
+            native.records.first_page_loaded(now, native.save)?
+        };
+        if let Some(report) = &report {
+            self.log("swap", report.clone());
+        }
+        Ok(report)
+    }
+
+    pub fn launch_presence(
+        &self,
+        now: f64,
+        has_folder_arg: bool,
+    ) -> std::io::Result<Option<WindowPresence>> {
+        self.lock()
+            .native
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("the native updater has not started"))?
+            .records
+            .launch_presence(now, has_folder_arg)
+    }
+
+    pub fn tick(
+        &self,
+        now: f64,
+        mut facts: Facts,
+        presence: Option<WindowPresence>,
+    ) -> std::io::Result<NativeUpdate> {
+        let effects = {
+            let mut s = self.lock();
+            facts.installable = Self::installable_of(&s) && s.mode != Mode::Manual;
+            let version = match &s.status {
+                Status::Downloaded { version, .. } => Some(version.clone()),
+                _ => None,
+            };
+            let native = s
+                .native
+                .as_mut()
+                .ok_or_else(|| std::io::Error::other("the native updater has not started"))?;
+            facts.start_failed_before = native.records.start_failed_before(version.as_deref())?;
+            native.scheduler.tick(now, &facts)
+        };
+        self.scheduler_effects(effects, presence)
+    }
+
+    pub fn postpone(&self, now: f64) -> std::io::Result<Value> {
+        let effects = self
+            .lock()
+            .native
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("the native updater has not started"))?
+            .scheduler
+            .postpone(now);
+        self.scheduler_effects(effects, None).map(|out| out.state)
+    }
+
+    fn scheduler_effects(
+        &self,
+        effects: Vec<Effect>,
+        presence: Option<WindowPresence>,
+    ) -> std::io::Result<NativeUpdate> {
+        let mut quit = None;
+        for effect in effects {
+            match effect {
+                Effect::Log { event, mut details } => {
+                    details["event"] = json!(event);
+                    self.log("scheduler", details);
+                }
+                Effect::Announce { .. } | Effect::Withdraw => {
+                    self.ctx.emit("status", self.state());
+                }
+                Effect::Install => {
+                    quit = self.install_native(Trigger::Auto, presence)?.quit;
+                }
+            }
+        }
+        Ok(NativeUpdate {
+            state: self.state(),
+            quit,
+        })
+    }
+
+    pub fn install_native(
+        &self,
+        trigger: Trigger,
+        presence: Option<WindowPresence>,
+    ) -> std::io::Result<NativeUpdate> {
+        let trigger = match trigger {
+            Trigger::Auto => "auto",
+            Trigger::UserClick => "user click",
+            Trigger::Quit => "quit",
+        };
+        let presence = presence.map(|p| match p {
+            WindowPresence::Hidden => "hidden",
+            WindowPresence::Minimized => "minimized",
+            WindowPresence::Behind => "behind",
+        });
+        let answer = self.install(trigger, presence)?;
+        let quit = match answer["then"].as_str() {
+            Some("quit") => Some(QuitMode::Normal),
+            Some("quit-for-update") => Some(QuitMode::ForUpdate),
+            _ => None,
+        };
+        Ok(NativeUpdate {
+            state: self.state(),
+            quit,
+        })
+    }
+
+    pub fn approved_quit(
+        &self,
+        code: i32,
+        presence: Option<WindowPresence>,
+    ) -> std::io::Result<()> {
+        if code != 0 {
+            return Ok(());
+        }
+        let intent = self.lock().native.as_ref().and_then(|n| n.intent);
+        let (trigger, presence) = intent.unwrap_or((Trigger::Quit, presence));
+        let trigger = match trigger {
+            Trigger::Auto => "auto",
+            Trigger::UserClick => "user click",
+            Trigger::Quit => "quit",
+        };
+        let presence = presence.map(|p| match p {
+            WindowPresence::Hidden => "hidden",
+            WindowPresence::Minimized => "minimized",
+            WindowPresence::Behind => "behind",
+        });
+        self.quit(trigger, presence)
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -301,8 +515,43 @@ impl Service {
         }
     }
 
+    pub fn write_private(&self, file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        let save = self.lock().native.as_ref().map(|n| n.save);
+        match save {
+            Some(save) => save(file, bytes),
+            None => token::write_private(file, bytes),
+        }
+    }
+
+    pub fn auth_info(&self) -> Result<Value, (&'static str, String)> {
+        token::info(self).map_err(|error| ("failed", error.to_string()))
+    }
+
+    pub fn auth_test(&self, value: Option<&str>) -> Result<Value, (&'static str, String)> {
+        token::test(self, value).map_err(|error| ("failed", error.to_string()))
+    }
+
+    pub fn auth_save(&self, value: &str) -> Result<Value, (&'static str, String)> {
+        token::save(self, value)
+    }
+
+    pub fn auth_clear(&self) -> Result<Value, (&'static str, String)> {
+        token::clear(self).map_err(|error| ("failed", error.to_string()))?;
+        self.auth_info()
+    }
+
     fn state_json(s: &State) -> Value {
-        json!({ "status": s.status.to_json(), "installable": Self::installable_of(s), "mode": s.mode.as_str() })
+        let mut status = s.status.to_json();
+        if matches!(s.status, Status::Downloaded { .. })
+            && let Some(native) = &s.native
+        {
+            if s.install_started {
+                status["installing"] = json!(true);
+            } else if let Some(at) = native.scheduler.restart_at() {
+                status["restartAt"] = json!(at);
+            }
+        }
+        json!({ "status": status, "installable": Self::installable_of(s), "mode": s.mode.as_str() })
     }
 
     pub fn state(&self) -> Value {
@@ -310,8 +559,16 @@ impl Service {
     }
 
     fn broadcast(&self, status: Status) {
+        self.publish(status, false);
+    }
+
+    fn publish(&self, status: Status, install_result: bool) {
         let state = {
             let mut s = self.lock();
+            // A late check or transfer cannot replace the update an install already claimed.
+            if s.install_started && !install_result {
+                return;
+            }
             s.status = status;
             Self::state_json(&s)
         };
@@ -324,9 +581,12 @@ impl Service {
 
     /// The version whose start failed after an install (`update-start-failed.json`; Node writes and clears it).
     fn start_failed(&self) -> Option<String> {
+        if let Some(native) = &self.lock().native {
+            return native.records.failed_version().map(str::to_owned);
+        }
         let raw =
             std::fs::read_to_string(self.places.user_data.join("update-start-failed.json")).ok()?;
-        rules::start_failed_version(&raw)
+        shell_core::updater_core::records::parse_start_failure(&raw).map(|failure| failure.version)
     }
 
     /// The downloaded version is the one whose start failed, and nobody started its install: only a person's click
@@ -362,6 +622,9 @@ impl Service {
 
     /// `GH_TOKEN`/`GITHUB_TOKEN` and the `PATH` for `gh`, from Node (its launch environment and the login shell's).
     pub fn login_env(&self) -> LoginEnv {
+        if let Some(native) = &self.lock().native {
+            return native.login.clone();
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         self.ctx.ask("loginEnv", json!({}), None, move |answer, _| {
             let _ = tx.send(answer);
@@ -521,7 +784,23 @@ impl Service {
     }
 
     fn check_once(&self) {
-        let mut token = token::resolve(self).map(|(token, _)| token);
+        let mut token = match token::resolve(self) {
+            Ok(token) => token.map(|(token, _)| token),
+            Err(error) => {
+                if self.held_start_failed() {
+                    self.log(
+                        "check",
+                        json!({ "event": "error", "kind": "held", "manual": self.lock().check_asked,
+                                "reason": error.to_string() }),
+                    );
+                } else if !self.lock().install_started {
+                    self.broadcast(
+                        Failure::Raw(error.to_string()).status("updates.checkFailed", true),
+                    );
+                }
+                return;
+            }
+        };
         let configured = token.clone();
         let mut rejected = false;
         self.lock().token = token.clone();
@@ -727,7 +1006,7 @@ impl Service {
         {
             let mut s = self.lock();
             // The transfer in flight keeps its asset and version.
-            if s.transfer {
+            if s.transfer || s.install_started {
                 return;
             }
             s.active_version = Some(version.clone());
@@ -1104,23 +1383,64 @@ impl Service {
 
     // ---------------------------------------------------------------- install
 
-    /// `updater.install`: Node began the install and shows it; this starts what the mode needs and says how Node quits.
-    pub fn install(&self, trigger: &str, presence: Option<&str>) -> Value {
-        let none = json!({ "then": "none" });
-        let (mode, installer, ready, dry) = {
-            let s = self.lock();
-            if !matches!(s.status, Status::Downloaded { .. }) || s.install_started {
-                return none;
-            }
-            (
-                s.mode,
-                s.installer.clone(),
-                s.staged_app.is_some() && s.own_bundle.is_some(),
-                s.dev_dry_install,
-            )
+    fn begin_install(s: &mut State, trigger: &str, presence: Option<&str>) -> Vec<Effect> {
+        s.install_started = true;
+        let Some(native) = &mut s.native else {
+            return Vec::new();
         };
+        let trigger = match trigger {
+            "auto" => Trigger::Auto,
+            "quit" => Trigger::Quit,
+            _ => Trigger::UserClick,
+        };
+        let presence = presence.and_then(|p| match p {
+            "hidden" => Some(WindowPresence::Hidden),
+            "minimized" => Some(WindowPresence::Minimized),
+            "behind" => Some(WindowPresence::Behind),
+            _ => None,
+        });
+        native.intent = Some((trigger, presence));
+        native.scheduler.install_started(trigger)
+    }
+
+    /// Claim the install under the state lock before releasing it for the installer or its files.
+    pub fn install(&self, trigger: &str, presence: Option<&str>) -> std::io::Result<Value> {
+        let none = json!({ "then": "none" });
         let missing =
             || Failure::own("updates.installerMissing").status("updates.installerMissing", true);
+        let (mode, installer, dry, effects, native) = {
+            let mut s = self.lock();
+            if !matches!(s.status, Status::Downloaded { .. }) || s.install_started {
+                return Ok(none);
+            }
+            let mode = s.mode;
+            let installer = s.installer.clone();
+            let dry = s.dev_dry_install;
+            if mode == Mode::Relaunch && (s.staged_app.is_none() || s.own_bundle.is_none()) {
+                drop(s);
+                self.broadcast(missing());
+                return Ok(none);
+            }
+            if mode == Mode::Automatic && !dry && installer.is_none() {
+                drop(s);
+                self.broadcast(
+                    Failure::Raw("No update filepath provided, can't quit and install".into())
+                        .status("updates.failed", false),
+                );
+                return Ok(none);
+            }
+            let effects = if mode == Mode::Manual {
+                Vec::new()
+            } else {
+                s.relaunch_after_swap = mode == Mode::Relaunch;
+                Self::begin_install(&mut s, trigger, presence)
+            };
+            (mode, installer, dry, effects, s.native.is_some())
+        };
+        self.scheduler_effects(effects, None)?;
+        if native {
+            self.ctx.emit("status", self.state());
+        }
         match mode {
             Mode::Manual => {
                 match installer {
@@ -1134,54 +1454,50 @@ impl Service {
                         }
                     }
                 }
-                none
+                Ok(none)
             }
-            Mode::Relaunch => {
-                if !ready {
-                    self.broadcast(missing());
-                    return none;
-                }
-                let mut s = self.lock();
-                s.relaunch_after_swap = true;
-                s.install_started = true;
-                json!({ "then": "quit" })
-            }
-            Mode::Automatic if dry => {
-                self.lock().install_started = true;
-                json!({ "then": "quit" })
-            }
+            Mode::Relaunch => Ok(json!({ "then": "quit" })),
+            Mode::Automatic if dry => Ok(json!({ "then": "quit" })),
             Mode::Automatic => {
-                let Some(installer) = installer else {
-                    self.broadcast(
-                        Failure::Raw("No update filepath provided, can't quit and install".into())
-                            .status("updates.failed", false),
-                    );
-                    return none;
-                };
-                self.lock().install_started = true;
-                self.note_helper("nsis", trigger, presence, Map::new());
-                // Started off the reader thread (Defender scans a fresh unsigned setup inside `CreateProcess`); the quit
-                // follows once the attempt ended, started or not.
-                if let Err(error) = platform::start_installer(&installer, &spawn::RESTART_ARGS) {
+                if let Err(error) = self.note_helper("nsis", trigger, presence, Map::new()) {
+                    {
+                        let mut s = self.lock();
+                        s.install_started = false;
+                        if let Some(native) = &mut s.native {
+                            native.intent = None;
+                        }
+                    }
                     self.broadcast(Failure::Raw(error.to_string()).status("updates.failed", false));
+                    return Err(error);
                 }
-                json!({ "then": "quit-for-update" })
+                if let Err(error) = platform::start_installer(
+                    installer
+                        .as_deref()
+                        .expect("the install claim checked the file"),
+                    &spawn::RESTART_ARGS,
+                ) {
+                    self.publish(
+                        Failure::Raw(error.to_string()).status("updates.failed", false),
+                        true,
+                    );
+                }
+                Ok(json!({ "then": "quit-for-update" }))
             }
         }
     }
 
     /// `updater.quit`: an approved quit with an update downloaded installs it, though nothing asked.
-    pub fn quit(&self, trigger: &str, presence: Option<&str>) {
+    pub fn quit(&self, trigger: &str, presence: Option<&str>) -> std::io::Result<()> {
         let mut s = self.lock();
         match s.mode {
             Mode::Relaunch => {
                 let (Some((staged, expected)), Some(own)) =
                     (s.staged_app.clone(), s.own_bundle.clone())
                 else {
-                    return;
+                    return Ok(());
                 };
                 if s.swap_launched {
-                    return;
+                    return Ok(());
                 }
                 s.swap_launched = true;
                 let relaunch = s.relaunch_after_swap;
@@ -1193,11 +1509,17 @@ impl Service {
                         "swap",
                         json!({ "event": "skipped", "reason": "start failed before", "version": expected }),
                     );
-                    return;
+                    return Ok(());
                 }
+                let effects = Self::begin_install(&mut self.lock(), trigger, presence);
+                self.scheduler_effects(effects, None)?;
+                self.ctx.emit("status", self.state());
                 let mut extra = Map::new();
                 extra.insert("relaunch".into(), json!(relaunch));
-                self.note_helper("relaunch", trigger, presence, extra);
+                if let Err(error) = self.note_helper("relaunch", trigger, presence, extra) {
+                    self.lock().swap_launched = false;
+                    return Err(error);
+                }
                 // What the reopened app is launched with: the shell's own arguments.
                 let args: Vec<String> = self.places.argv.iter().skip(1).cloned().collect();
                 let log = self.updates_dir().join("swap.log");
@@ -1212,7 +1534,7 @@ impl Service {
             }
             Mode::Automatic => {
                 if s.install_started || !matches!(s.status, Status::Downloaded { .. }) {
-                    return;
+                    return Ok(());
                 }
                 drop(s);
                 // A quit never installs a version whose start failed; only "Restart & install" does.
@@ -1222,16 +1544,21 @@ impl Service {
                         "swap",
                         json!({ "event": "skipped", "reason": "start failed before", "version": version }),
                     );
-                    return;
+                    return Ok(());
                 }
                 let mut s = self.lock();
                 if s.install_started {
-                    return;
+                    return Ok(());
                 }
-                s.install_started = true;
+                let effects = Self::begin_install(&mut s, trigger, presence);
                 let installer = (!s.dev_dry_install).then(|| s.installer.clone()).flatten();
                 drop(s);
-                self.note_helper("nsis", trigger, presence, Map::new());
+                self.scheduler_effects(effects, None)?;
+                self.ctx.emit("status", self.state());
+                if let Err(error) = self.note_helper("nsis", trigger, presence, Map::new()) {
+                    self.lock().install_started = false;
+                    return Err(error);
+                }
                 if let Some(installer) = installer {
                     // The install at quit runs silently and must start before the shell is gone: `shutdown` joins it.
                     let handle = std::thread::spawn(move || {
@@ -1242,6 +1569,7 @@ impl Service {
             }
             Mode::Manual => {}
         }
+        Ok(())
     }
 
     /// The install's helper starts: one line, and the marker the next launch reports from.
@@ -1251,7 +1579,7 @@ impl Service {
         trigger: &str,
         presence: Option<&str>,
         extra: Map<String, Value>,
-    ) {
+    ) -> std::io::Result<()> {
         let (from, to) = {
             let s = self.lock();
             let to = match &s.status {
@@ -1271,11 +1599,12 @@ impl Service {
         for (key, value) in extra {
             line[key] = value;
         }
-        let _ = std::fs::write(
-            self.places.user_data.join("update-install.json"),
-            pending.to_string(),
-        );
+        self.write_private(
+            &self.places.user_data.join("update-install.json"),
+            pending.to_string().as_bytes(),
+        )?;
         self.log("swap", line);
+        Ok(())
     }
 
     /// The app exits: the installer started at quit must exist before the shell is gone.

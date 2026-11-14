@@ -10,6 +10,23 @@ use crate::migrate::safe_storage::{decrypt_v10_cbc, decrypt_v10_gcm, mac_key};
 /// The answer a keychain read gives when it would have shown a dialog (`src/shared/keychain.ts`).
 pub const KEYCHAIN_WOULD_ASK: &str = "keychain-would-ask";
 
+/// Keep the only ciphertext until its refusal reason is durable. The native caller supplies the common atomic
+/// saver and receives its error so its retained-save owner can retry a full disk.
+pub fn drop_unreadable_token(
+    user_data: &std::path::Path,
+    atomic_write: impl FnOnce(&std::path::Path, &[u8]) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    atomic_write(
+        &user_data.join("update-token.dropped"),
+        KEYCHAIN_WOULD_ASK.as_bytes(),
+    )?;
+    match std::fs::remove_file(user_data.join("update-token.bin")) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 /// The platform's key: Windows' 32-byte AES-GCM key, or macOS' keychain password (the key is derived from it).
 #[derive(Clone)]
 pub enum Key {
@@ -52,5 +69,33 @@ impl Key {
             Key::Windows(key) => decrypt_v10_gcm(key, blob),
             Key::Mac(password) => decrypt_v10_cbc(password, blob),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_refusal_save_keeps_the_token_until_its_reason_can_be_saved() {
+        let mut random = [0u8; 8];
+        getrandom::fill(&mut random).unwrap();
+        let tag: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let root = std::env::temp_dir().join(format!("updater-token-{tag}"));
+        std::fs::create_dir(&root).unwrap();
+        let file = root.join("update-token.bin");
+        std::fs::write(&file, b"ciphertext").unwrap();
+        let error = drop_unreadable_token(&root, |_, _| Err(std::io::Error::other("disk full")));
+        let kept = std::fs::read(&file).unwrap();
+        let marker_before = root.join("update-token.dropped").exists();
+        drop_unreadable_token(&root, |path, bytes| std::fs::write(path, bytes)).unwrap();
+        let marker = std::fs::read_to_string(root.join("update-token.dropped")).unwrap();
+        let token_exists = file.exists();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(error.is_err());
+        assert_eq!(kept, b"ciphertext");
+        assert!(!marker_before);
+        assert_eq!(marker, KEYCHAIN_WOULD_ASK);
+        assert!(!token_exists);
     }
 }

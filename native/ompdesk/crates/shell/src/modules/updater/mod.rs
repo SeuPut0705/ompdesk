@@ -13,7 +13,7 @@ use serde_json::json;
 
 use super::{Ctx, Module};
 use crate::host::Call;
-use service::Service;
+pub use service::{AtomicWrite, LoginEnv, NativeUpdate, QuitMode, Service};
 
 pub struct Updater;
 
@@ -29,6 +29,18 @@ fn service() -> Arc<Service> {
         .get()
         .expect("the updater service exists once a frame reached it")
         .clone()
+}
+
+/// Called by native boot with trusted launch/login facts, never with page-supplied environment or save functions.
+pub fn start_native(
+    ctx: Ctx,
+    version: &str,
+    login: LoginEnv,
+    save: AtomicWrite,
+) -> std::io::Result<Arc<Service>> {
+    let service = service_with(ctx);
+    service.start_native(version, login, save)?;
+    Ok(service)
 }
 
 /// Runs a request's work on a thread of its own (the reader thread never waits for the network or a process).
@@ -61,19 +73,15 @@ impl Module for Updater {
             "updater.download" => answer(call, |s, _| Ok(s.download())),
             "updater.install" => answer(call, |s, call| {
                 let trigger = call.str("trigger").unwrap_or_else(|| "user click".into());
-                Ok(s.install(&trigger, call.str("presence").as_deref()))
+                s.install(&trigger, call.str("presence").as_deref())
+                    .map_err(|error| ("failed", error.to_string()))
             }),
-            "updater.authInfo" => answer(call, |s, _| Ok(token::info(s))),
-            "updater.authTest" => answer(call, |s, call| {
-                Ok(token::test(s, call.str("token").as_deref()))
-            }),
+            "updater.authInfo" => answer(call, |s, _| s.auth_info()),
+            "updater.authTest" => answer(call, |s, call| s.auth_test(call.str("token").as_deref())),
             "updater.authSave" => answer(call, |s, call| {
-                token::save(s, &call.str("token").unwrap_or_default())
+                s.auth_save(&call.str("token").unwrap_or_default())
             }),
-            "updater.authClear" => answer(call, |s, _| {
-                token::clear(s);
-                Ok(token::info(s))
-            }),
+            "updater.authClear" => answer(call, |s, _| s.auth_clear()),
             _ => call.unsupported(),
         }
     }
@@ -85,7 +93,16 @@ impl Module for Updater {
         let service = service_with(ctx);
         let trigger = data["trigger"].as_str().unwrap_or("quit").to_string();
         let presence = data["presence"].as_str().map(String::from);
-        service.quit(&trigger, presence.as_deref());
+        if let Err(error) = service.quit(&trigger, presence.as_deref()) {
+            crate::log::log(
+                "updater.quit_failed",
+                json!({ "reason": error.to_string() }),
+            );
+        }
+    }
+
+    fn ready(&self, ctx: Ctx) {
+        service_with(ctx);
     }
 
     fn shutdown(&self, _ctx: Ctx) {
