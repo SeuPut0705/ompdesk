@@ -10,12 +10,17 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
 use super::{Application, EffectFuture, Sidecar, effects};
+use crate::application::callers::Callers;
 use crate::hub::{self, LocalFuture, NativeSink, Out, Outcome};
 use crate::pool::{
     self as engine,
     state::{Ctx, P},
 };
 use crate::server::Fault;
+use crate::worktree_lifecycle::{Folder, RemovalClaims};
+
+#[path = "worktree_admission.rs"]
+mod worktree_admission;
 
 pub struct Config {
     /// Allocated by Base's native instance registry, not page data.
@@ -25,6 +30,8 @@ pub struct Config {
     pub stop_session_wait_ms: u64,
     pub window_tabs_hook: bool,
     pub now_ms: fn() -> i64,
+    pub callers: Arc<Callers>,
+    pub removal_claims: Arc<RemovalClaims>,
 }
 
 pub struct Acquire {
@@ -62,6 +69,20 @@ pub enum SessionRelease {
 pub struct SessionRuntime {
     pub activity: crate::session_ops::Activity,
     pub state: crate::session_ops::RuntimeState,
+}
+
+pub enum ExecutionCommand {
+    Stock(Value),
+    Bridge {
+        method: String,
+        params: Option<Value>,
+        timeout_ms: Option<u64>,
+    },
+}
+
+pub enum ExecutionRun {
+    Captured(u64),
+    Current,
 }
 
 pub struct SessionTarget<S: Sidecar + ?Sized> {
@@ -135,6 +156,7 @@ struct Sink<H: Host> {
     id: u64,
     app: Arc<Application<H>>,
     pending: Arc<Mutex<Pending>>,
+    removal_claims: Arc<RemovalClaims>,
 }
 
 impl<H: Host> Sink<H> {
@@ -229,7 +251,22 @@ impl<H: Host> NativeSink for Sink<H> {
             return Box::pin(std::future::ready(result));
         }
         let app = Arc::clone(&self.app);
-        Box::pin(async move { app.ask(&question, &payload).await })
+        let claims = Arc::clone(&self.removal_claims);
+        Box::pin(async move {
+            if matches!(question.as_str(), "blocked" | "spawn") && payload["device"].is_null() {
+                let folder = Folder::resolve_now(payload["cwd"].as_str().ok_or_else(|| {
+                    Fault::new("invalid_cwd", "The native acquire has no working directory")
+                })?)?;
+                if claims.holds(&folder) {
+                    return if question == "blocked" {
+                        Ok(Value::Bool(true))
+                    } else {
+                        Err(Fault::new("in_use", "The worktree is being removed"))
+                    };
+                }
+            }
+            app.ask(&question, &payload).await
+        })
     }
 }
 
@@ -246,6 +283,8 @@ pub struct Service<H: Host> {
     next: AtomicU64,
     now_ms: fn() -> i64,
     window_tabs_hook: bool,
+    callers: Arc<Callers>,
+    removal_claims: Arc<RemovalClaims>,
 }
 
 fn check_target<H: Host>(
@@ -269,6 +308,29 @@ fn check_target<H: Host>(
     Ok(())
 }
 
+fn execution_source<H: Host>(
+    ctx: &Ctx,
+    app: &Application<H>,
+    tab: &str,
+    source: &Arc<H::Sidecar>,
+    window: Option<crate::worktree_lifecycle::Window>,
+) -> Result<i64, Fault> {
+    let win = ctx
+        .with(|pool| pool.entry(tab).map(|entry| entry.win_id))
+        .ok_or_else(|| Fault::new("tab_stale", "The execution's tab is no longer open"))?;
+    if window.is_some_and(|window| window.id != win)
+        || !app
+            .sidecar(tab)
+            .is_some_and(|current| Arc::ptr_eq(&current, source))
+    {
+        return Err(Fault::new(
+            "tab_stale",
+            "The execution's captured source has changed",
+        ));
+    }
+    Ok(win)
+}
+
 impl<H: Host> Service<H> {
     pub async fn new(config: Config, app: Arc<Application<H>>) -> Result<Arc<Self>, Fault> {
         let pending = Arc::new(Mutex::new(HashMap::new()));
@@ -277,11 +339,15 @@ impl<H: Host> Service<H> {
         let (bound, binding) = oneshot::channel();
         let now_ms = config.now_ms;
         let window_tabs_hook = config.window_tabs_hook;
+        let callers = config.callers;
+        let removal_claims = config.removal_claims;
+        let sink_claims = Arc::clone(&removal_claims);
         hub::post(move || {
             let sink = Rc::new(Sink {
                 id: config.id,
                 app: sink_app,
                 pending: sink_pending,
+                removal_claims: sink_claims,
             });
             let opts = serde_json::value::to_raw_value(&json!({
                 "layoutVersion": config.layout_version, "maxFormerTabIds": config.max_former_tab_ids,
@@ -304,6 +370,8 @@ impl<H: Host> Service<H> {
             next: AtomicU64::new(1),
             now_ms,
             window_tabs_hook,
+            callers,
+            removal_claims,
         }))
     }
 
@@ -397,6 +465,100 @@ impl<H: Host> Service<H> {
         self.app
             .sidecar(tab)
             .ok_or_else(|| Fault::new("tab_unknown", "The tab is not open"))
+    }
+    pub fn execution_command(
+        &self,
+        callers: Arc<crate::application::callers::Callers>,
+        owner: &Owner,
+        tab: &str,
+        source: Arc<H::Sidecar>,
+        window: Option<crate::worktree_lifecycle::Window>,
+        run: ExecutionRun,
+        command: ExecutionCommand,
+    ) -> EffectFuture<'static, Result<Value, Fault>> {
+        let owner = owner.clone();
+        let tab = tab.to_owned();
+        let app = Arc::clone(&self.app);
+        self.execute(false, move |ctx, _| {
+            match callers.admit_execution(&owner, &tab, window, || {
+                execution_source(&ctx, &app, &tab, &source, window)?;
+                let generation = match run {
+                    ExecutionRun::Captured(generation) => generation,
+                    ExecutionRun::Current => source.generation(),
+                };
+                Ok(match command {
+                    ExecutionCommand::Stock(command) => {
+                        source.stock_for_generation(generation, command)
+                    }
+                    ExecutionCommand::Bridge {
+                        method,
+                        params,
+                        timeout_ms,
+                    } => source.bridge_for_generation(generation, method, params, timeout_ms),
+                })
+            }) {
+                Ok(receipt) => Outcome::Later(receipt),
+                Err(error) => Outcome::Now(Err(error)),
+            }
+        })
+    }
+
+    pub fn bind_execution(
+        &self,
+        callers: Arc<crate::application::callers::Callers>,
+        owner: &Owner,
+        tab: &str,
+        source: Arc<H::Sidecar>,
+        window: crate::worktree_lifecycle::Window,
+        binding: Value,
+    ) -> EffectFuture<'static, Result<bool, Fault>> {
+        let owner = owner.clone();
+        let tab = tab.to_owned();
+        let app = Arc::clone(&self.app);
+        self.execute_typed(move |ctx| {
+            Box::pin(async move {
+                let win = callers.admit_execution(&owner, &tab, Some(window), || {
+                    execution_source(&ctx, &app, &tab, &source, Some(window))?;
+                    Ok(ctx.bind_worktree_start(&tab, binding))
+                })?;
+                match win {
+                    Some(win) => ctx.bind_worktree_finish(&tab, win).await,
+                    None => Ok(false),
+                }
+            })
+        })
+    }
+
+    pub fn release_execution(
+        &self,
+        callers: Arc<crate::application::callers::Callers>,
+        owner: &Owner,
+        tab: &str,
+        source: Arc<H::Sidecar>,
+    ) -> EffectFuture<'static, Result<(), Fault>> {
+        let owner = owner.clone();
+        let tab = tab.to_owned();
+        let app = Arc::clone(&self.app);
+        self.execute_typed(move |ctx| {
+            Box::pin(async move {
+                let (win, seq) = callers.admit_execution(&owner, &tab, None, || {
+                    let win = execution_source(&ctx, &app, &tab, &source, None)?;
+                    let seq = ctx.take_entry(&tab).ok_or_else(|| {
+                        Fault::new("tab_stale", "The execution's tab is no longer open")
+                    })?;
+                    Ok((win, seq))
+                })?;
+                let (mut result, disposed) = ctx.release_taken_detail(&tab, seq).await;
+                if result.is_ok() {
+                    result = ctx.notify_window_tabs_changed(win).await;
+                }
+                if disposed {
+                    let receipt = app.host.when_released(tab, source).await;
+                    result = result.and(receipt);
+                }
+                result
+            })
+        })
     }
     pub fn bind_if_live(
         &self,
