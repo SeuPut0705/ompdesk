@@ -373,6 +373,27 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
         .unwrap();
     assert_eq!(target.tab, "binding");
     assert!(Arc::ptr_eq(&target.sidecar, &current));
+    let mut stale_generation = target.clone();
+    stale_generation.generation = stale_generation.generation.wrapping_add(1);
+    assert!(
+        pool.note_name_for_session(&owner, &stale_generation, "not current")
+            .await
+            .is_err()
+    );
+    let mut stale_incarnation = target.clone();
+    stale_incarnation.incarnation = stale_incarnation.incarnation.wrapping_add(1);
+    assert!(
+        pool.note_name_for_session(&owner, &stale_incarnation, "not current")
+            .await
+            .is_err()
+    );
+    pool.note_name_for_session(&owner, &target, "captured title")
+        .await
+        .unwrap();
+    assert_eq!(
+        pool.facts("binding").await.unwrap()["title"],
+        "captured title"
+    );
     app.handles().insert(
         super::super::HandleKey::Tab("binding".into()),
         super::super::Handle {
@@ -387,6 +408,11 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
     );
     assert!(pool.stop_session(&owner, &target).await.is_err());
     assert!(pool.close_session_tab(&owner, &target).await.is_err());
+    assert!(
+        pool.note_name_for_session(&owner, &target, "wrong source")
+            .await
+            .is_err()
+    );
     assert!(
         pool.bridge_if_live(
             &owner,
