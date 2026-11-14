@@ -268,15 +268,12 @@ impl SessionOwnership {
             .and_then(|result| result);
             let mut state = service.lock();
             state.cleaning.remove(&tag);
-            if let Ok(swept) = &result {
-                if swept.kept == 0 && swept.left == 0 {
-                    state.scratch.retain(|record| record.tag != tag);
-                    journal::save_scratch(
-                        &state,
-                        &service.config.scratch_file,
-                        service.host.as_ref(),
-                    );
-                }
+            if let Ok(swept) = &result
+                && swept.kept == 0
+                && swept.left == 0
+            {
+                state.scratch.retain(|record| record.tag != tag);
+                journal::save_scratch(&state, &service.config.scratch_file, service.host.as_ref());
             }
             service.changed.notify_waiters();
             result.map(|swept| (swept.removed > 0).then_some(swept.bytes))
