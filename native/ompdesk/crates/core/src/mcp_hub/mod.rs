@@ -560,10 +560,10 @@ impl Drop for StreamLease {
                 return;
             };
             let mut state = session.events.lock().unwrap();
-            if !state
+            if state
                 .stream
                 .as_ref()
-                .is_some_and(|(generation, _)| *generation == self.generation)
+                .is_none_or(|(generation, _)| *generation != self.generation)
             {
                 return;
             }

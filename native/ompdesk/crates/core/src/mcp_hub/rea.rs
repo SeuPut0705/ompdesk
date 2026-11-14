@@ -666,13 +666,13 @@ impl Inner {
         let (tx, rx) = oneshot::channel();
         {
             let mut state = self.state.lock().unwrap();
-            if let Some(client) = client {
-                if let Some(request) = state.requests.get_mut(client) {
-                    if request.cancelled {
-                        return Err(Failure::new(-32800, "Request cancelled"));
-                    }
-                    request.child_id = Some(id.clone());
+            if let Some(client) = client
+                && let Some(request) = state.requests.get_mut(client)
+            {
+                if request.cancelled {
+                    return Err(Failure::new(-32800, "Request cancelled"));
                 }
+                request.child_id = Some(id.clone());
             }
             if state.writer.is_none() {
                 return Err(Failure::new(-32603, "REA child exited"));
@@ -692,10 +692,11 @@ impl Inner {
         let _guard = self.catalog_lock.lock().await;
         let generation = {
             let state = self.state.lock().unwrap();
-            if !refresh && state.catalog_generation == state.loaded_generation {
-                if let Some(tools) = &state.tools {
-                    return Ok(tools.clone());
-                }
+            if !refresh
+                && state.catalog_generation == state.loaded_generation
+                && let Some(tools) = &state.tools
+            {
+                return Ok(tools.clone());
             }
             state.catalog_generation
         };
@@ -747,44 +748,44 @@ impl Inner {
                 state.prompts.clone(),
             )
         };
-        if self.cache.file.is_some() {
-            if let (Some(initialize), Some(work)) = (initialize, self.admit()) {
-                let inner = self.clone();
-                let tools = tools.clone();
-                let revision = self.remember_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                tokio::spawn(async move {
-                    let _work = work;
-                    let prompts = if initialize
-                        .pointer("/capabilities/prompts")
-                        .is_some_and(|v| !v.is_null() && v != &json!(false))
-                    {
-                        match inner.request("prompts/list", Some(json!({})), None).await {
-                            Ok(prompts) => Some(prompts),
-                            Err(_) => return,
-                        }
-                    } else {
-                        old_prompts.clone()
-                    };
-                    if inner.remember_generation.load(Ordering::Acquire) != revision {
-                        return;
+        if self.cache.file.is_some()
+            && let (Some(initialize), Some(work)) = (initialize, self.admit())
+        {
+            let inner = self.clone();
+            let tools = tools.clone();
+            let revision = self.remember_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            tokio::spawn(async move {
+                let _work = work;
+                let prompts = if initialize
+                    .pointer("/capabilities/prompts")
+                    .is_some_and(|v| !v.is_null() && v != &json!(false))
+                {
+                    match inner.request("prompts/list", Some(json!({})), None).await {
+                        Ok(prompts) => Some(prompts),
+                        Err(_) => return,
                     }
-                    if old_prompts.is_some() && old_prompts != prompts {
-                        let _ = inner.events.send(
-                            json!({"jsonrpc":"2.0","method":"notifications/prompts/list_changed"}),
-                        );
-                    }
-                    inner.state.lock().unwrap().prompts = prompts.clone();
-                    inner
-                        .cache
-                        .write(Entry {
-                            client: init.to_string(),
-                            initialize,
-                            tools,
-                            prompts,
-                        })
-                        .await;
-                });
-            }
+                } else {
+                    old_prompts.clone()
+                };
+                if inner.remember_generation.load(Ordering::Acquire) != revision {
+                    return;
+                }
+                if old_prompts.is_some() && old_prompts != prompts {
+                    let _ = inner.events.send(
+                        json!({"jsonrpc":"2.0","method":"notifications/prompts/list_changed"}),
+                    );
+                }
+                inner.state.lock().unwrap().prompts = prompts.clone();
+                inner
+                    .cache
+                    .write(Entry {
+                        client: init.to_string(),
+                        initialize,
+                        tools,
+                        prompts,
+                    })
+                    .await;
+            });
         }
         Ok(tools)
     }
@@ -802,13 +803,14 @@ impl Inner {
         let params = message.get("params").cloned();
         if method == "initialize" {
             let init = params.unwrap_or(Value::Null);
+            let client_key = init.to_string();
             let cached = {
                 let mut state = self.state.lock().unwrap();
                 state.init = init.clone();
                 let cached = state
                     .cache
                     .clone()
-                    .filter(|entry| entry.client == init.to_string());
+                    .filter(|entry| entry.client == client_key);
                 if cached.is_none() {
                     state.cache = None;
                     state.tools = None;
@@ -844,10 +846,9 @@ impl Inner {
             && params
                 .as_ref()
                 .is_none_or(|p| p.is_object() && p.get("cursor").is_none())
+            && let Some(prompts) = &self.state.lock().unwrap().prompts
         {
-            if let Some(prompts) = &self.state.lock().unwrap().prompts {
-                return Ok(prompts.clone());
-            }
+            return Ok(prompts.clone());
         }
         if method == "tools/list" {
             if params
@@ -896,10 +897,10 @@ impl Inner {
                     ));
                 }
                 let requested = input.get("name").and_then(Value::as_str);
-                if let Some(name) = requested {
-                    if !all.iter().any(|tool| tool["name"] == name) {
-                        return Err(Failure::new(-32602, format!("Unknown REA tool: {name}")));
-                    }
+                if let Some(name) = requested
+                    && !all.iter().any(|tool| tool["name"] == name)
+                {
+                    return Err(Failure::new(-32602, format!("Unknown REA tool: {name}")));
                 }
                 let query = input
                     .get("query")
