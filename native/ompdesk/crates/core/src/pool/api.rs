@@ -15,6 +15,13 @@ fn opt(value: Option<String>) -> Value {
     value.map_or(Value::Null, Value::from)
 }
 
+pub(super) struct TabTarget {
+    pub tab: String,
+    pub device: Option<String>,
+    pub window: i64,
+    pub session_file: Option<String>,
+}
+
 impl Ctx {
     // ---- reads ------------------------------------------------------------------------------------------------
 
@@ -180,15 +187,20 @@ impl Ctx {
 
     /// A session renamed on disk while its tab holds no live omp: the tab entry, its strip and every window's session
     /// title learn the name now.
-    pub(super) async fn note_session_name(&self, tab: &str, title: &str) -> R<()> {
-        let wins = self.with(|pool| {
+    pub(super) fn note_session_name_start(&self, tab: &str, title: &str) -> Option<Vec<i64>> {
+        self.with(|pool| {
             let entry = pool.entry_mut(tab)?;
             entry.title = Some(Some(title.to_string()));
             Some(entry.full.clone().unwrap_or_default())
-        });
-        let Some(wins) = wins else {
-            return Ok(());
-        };
+        })
+    }
+
+    pub(super) async fn note_session_name_finish(
+        &self,
+        tab: &str,
+        title: &str,
+        wins: Vec<i64>,
+    ) -> R<()> {
         self.forward_status(tab).await?;
         for win in wins {
             self.send(
@@ -198,6 +210,13 @@ impl Ctx {
             );
         }
         Ok(())
+    }
+
+    pub(super) async fn note_session_name(&self, tab: &str, title: &str) -> R<()> {
+        let Some(wins) = self.note_session_name_start(tab, title) else {
+            return Ok(());
+        };
+        self.note_session_name_finish(tab, title, wins).await
     }
 
     // ---- window routing -----------------------------------------------------------------------------------------
@@ -226,24 +245,34 @@ impl Ctx {
     }
 
     /// `tabTarget`: one tab of `win` (`tab`, or its active tab) with what a handler routes it by.
-    pub(super) fn tab_target(&self, win: i64, tab: Option<&str>) -> Value {
+    pub(super) fn selected_target(&self, win: i64, tab: Option<&str>) -> Option<TabTarget> {
         self.with(|pool| {
             let entry = match tab {
                 Some(tab) if !tab.is_empty() => pool.entry(tab),
                 _ => Ctx::entry_for_window(pool, win),
             };
-            let Some(entry) = entry.filter(|entry| entry.shown_in(win)) else {
-                return Value::Null;
-            };
-            let mut target = Map::new();
-            target.insert("tabId".into(), Value::from(entry.tab_id.clone()));
-            if let Some(device) = &entry.device {
-                target.insert("device".into(), Value::from(device.clone()));
-            }
-            target.insert("winId".into(), Value::from(entry.win_id));
-            target.insert("sessionFile".into(), opt(entry.session_file.clone()));
-            Value::Object(target)
+            let entry = entry.filter(|entry| entry.shown_in(win))?;
+            Some(TabTarget {
+                tab: entry.tab_id.clone(),
+                device: entry.device.clone(),
+                window: entry.win_id,
+                session_file: entry.session_file.clone(),
+            })
         })
+    }
+
+    pub(super) fn tab_target(&self, win: i64, tab: Option<&str>) -> Value {
+        let Some(selected) = self.selected_target(win, tab) else {
+            return Value::Null;
+        };
+        let mut target = Map::new();
+        target.insert("tabId".into(), Value::from(selected.tab));
+        if let Some(device) = selected.device {
+            target.insert("device".into(), Value::from(device));
+        }
+        target.insert("winId".into(), Value::from(selected.window));
+        target.insert("sessionFile".into(), opt(selected.session_file));
+        Value::Object(target)
     }
 
     pub(super) fn window_of_tab(&self, tab: &str) -> Value {
@@ -1253,18 +1282,26 @@ impl Ctx {
         self.notify_window_tabs_changed(win).await
     }
 
-    pub(super) async fn bind_worktree(&self, tab: &str, worktree: Value) -> R<bool> {
-        let win = self.with(|pool| {
+    pub(super) fn bind_worktree_start(&self, tab: &str, worktree: Value) -> Option<i64> {
+        self.with(|pool| {
             let entry = pool.entry_mut(tab)?;
             entry.worktree = Some(worktree);
             Some(entry.win_id)
-        });
-        let Some(win) = win else {
-            return Ok(false);
-        };
+        })
+    }
+
+    pub(super) async fn bind_worktree_finish(&self, tab: &str, win: i64) -> R<bool> {
         self.forward_status(tab).await?;
         self.notify_window_tabs_changed(win).await?;
         Ok(true)
+    }
+
+    pub(super) async fn bind_worktree(&self, tab: &str, worktree: Value) -> R<bool> {
+        let win = self.bind_worktree_start(tab, worktree);
+        let Some(win) = win else {
+            return Ok(false);
+        };
+        self.bind_worktree_finish(tab, win).await
     }
 
     /// `releaseTab`: false when the tab is unknown.

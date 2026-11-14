@@ -20,9 +20,11 @@ mod orphans;
 pub(crate) mod parse;
 pub(crate) mod read;
 pub(crate) mod run;
+pub mod repo_lock;
 mod scm;
+pub mod session_lifecycle;
 mod seed;
-mod triggers;
+pub(crate) mod triggers;
 mod unlanded;
 mod worktree;
 

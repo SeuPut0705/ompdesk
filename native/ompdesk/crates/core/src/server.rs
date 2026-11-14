@@ -52,10 +52,24 @@ pub struct Scope {
     _alive: mpsc::Sender<()>,
 }
 
+/// A cancellation signal without a hold on the request's supervised effects.
+#[derive(Clone)]
+pub struct Cancellation(Arc<watch::Sender<bool>>);
+
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.send_replace(true);
+    }
+}
+
 impl Scope {
     /// Whether the request was cancelled.
     pub fn cancelled(&self) -> bool {
         *self.cancel.borrow()
+    }
+
+    pub fn cancellation(&self) -> Cancellation {
+        Cancellation(Arc::clone(&self.cancel))
     }
 
     /// Resolves once the request is cancelled (at once when it already was).
