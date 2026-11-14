@@ -9,6 +9,8 @@ it("does not let an ambient executable shadow a resolved toolchain child", () =>
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shell-toolchain-child-"));
 	const previous = process.env.PATH;
 	try {
+		const work = path.join(dir, "work");
+		fs.mkdirSync(work);
 		const name = path.basename(process.execPath).replace(/\.exe$/i, "");
 		fs.writeFileSync(
 			path.join(dir, process.platform === "win32" ? `${name}.cmd` : name),
@@ -21,7 +23,7 @@ it("does not let an ambient executable shadow a resolved toolchain child", () =>
 		const actual = execFileSync(
 			process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "/bin/sh",
 			process.platform === "win32" ? ["/d", "/s", "/c", `"${name}" --version`] : ["-c", `"${name}" --version`],
-			{ cwd: dir, env, encoding: "utf8" },
+			{ cwd: work, env, encoding: "utf8" },
 		);
 		expect(actual).toBe(expected);
 	} finally {
