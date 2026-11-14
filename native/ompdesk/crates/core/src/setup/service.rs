@@ -159,6 +159,7 @@ pub struct SetupService {
     host: Arc<dyn Host>,
     shared: Arc<Shared>,
     queue: mpsc::UnboundedSender<Queued>,
+    finished: watch::Receiver<bool>,
 }
 
 impl SetupService {
@@ -209,12 +210,17 @@ impl SetupService {
             shared: shared.clone(),
             detection: None,
         };
-        tokio::spawn(data.run(receive));
+        let (finished, completion) = watch::channel(false);
+        tokio::spawn(async move {
+            data.run(receive).await;
+            finished.send_replace(true);
+        });
         Arc::new(Self {
             config,
             host,
             shared,
             queue,
+            finished: completion,
         })
     }
 
@@ -389,6 +395,17 @@ impl SetupService {
         }
     }
 
+    /// Terminal and shared by every caller: returns only after queued work and the active tree have ended.
+    pub async fn close(&self) -> Result<(), String> {
+        self.dispose();
+        let mut finished = self.finished.clone();
+        finished
+            .wait_for(|finished| *finished)
+            .await
+            .map(|_| ())
+            .map_err(|_| "Machine setup worker stopped before shutdown completed".to_owned())
+    }
+
     fn mark_queued(&self, items: Vec<Item>) {
         let mut state = lock(&self.shared.state);
         for id in items {
@@ -418,7 +435,16 @@ struct Data {
 
 impl Data {
     async fn run(mut self, mut queue: mpsc::UnboundedReceiver<Queued>) {
-        while let Some(queued) = queue.recv().await {
+        let mut shutdown = self.shared.shutdown.subscribe();
+        loop {
+            let queued = tokio::select! {
+                biased;
+                () = async { let _ = shutdown.wait_for(|closed| *closed).await; } => break,
+                queued = queue.recv() => match queued {
+                    Some(queued) => queued,
+                    None => break,
+                },
+            };
             if self.shared.disposed.load(Ordering::Acquire) {
                 let _ = queued
                     .done
@@ -429,12 +455,20 @@ impl Data {
             let tool = matches!(&queued.operation, Operation::Tool(_));
             let aslr = matches!(&queued.operation, Operation::GitAslr(_));
             let lookup = matches!(&queued.operation, Operation::Latest | Operation::Managed(_));
-            let scope = Scope::detached();
+            let (scope, gone) = Scope::watched();
             *lock(&self.shared.active) = Some(scope.clone());
+            if self.shared.disposed.load(Ordering::Acquire) {
+                scope.cancel();
+            }
             let mut stalled = false;
             let mut answer = {
                 let mut work = Box::pin(self.perform(queued.operation, &scope));
-                tokio::select! { answer = &mut work => answer, () = tokio::time::sleep(STEP_MAX) => { stalled = true; scope.cancel(); work.await } }
+                tokio::select! {
+                    biased;
+                    () = async { let _ = shutdown.wait_for(|closed| *closed).await; } => { scope.cancel(); work.await },
+                    answer = &mut work => answer,
+                    () = tokio::time::sleep(STEP_MAX) => { stalled = true; scope.cancel(); work.await },
+                }
             };
             if stalled {
                 answer = Err("machine setup step was stopped after 30 minutes".to_owned());
@@ -455,7 +489,15 @@ impl Data {
                 };
             }
             *lock(&self.shared.active) = None;
+            drop(scope);
+            gone.wait().await;
             let _ = queued.done.send(answer);
+        }
+        queue.close();
+        while let Some(queued) = queue.recv().await {
+            let _ = queued
+                .done
+                .send(Err("Machine setup is disposed".to_owned()));
         }
     }
 

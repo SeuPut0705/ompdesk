@@ -310,6 +310,104 @@ async fn cancelling_install_ends_tree_drops_backoff_and_stops_pipeline() {
 }
 
 #[tokio::test]
+async fn close_is_terminal_and_shared_when_the_setup_actor_is_idle() {
+    let fixture = Fixture::new("close-idle");
+    let (service, _, _) = fixture.service(Platform::Darwin, false, false);
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        tokio::join!(service.close(), service.close())
+    })
+    .await
+    .unwrap();
+    first.unwrap();
+    second.unwrap();
+    service.close().await.unwrap();
+    assert!(service.latest_omp().await.unwrap_err().contains("disposed"));
+    assert!(fixture.runs().is_empty());
+}
+
+#[tokio::test]
+async fn close_releases_the_first_tab_gate_without_installing_optional_tools() {
+    let fixture = Fixture::new("close-first-tab");
+    let (service, host, _) = fixture.service(Platform::Darwin, false, false);
+    let start = tokio::spawn(service.start());
+    host.ready.notified().await;
+    tokio::time::timeout(std::time::Duration::from_secs(30), service.close())
+        .await
+        .unwrap()
+        .unwrap();
+    start.await.unwrap().unwrap();
+    assert_eq!(fixture.runs(), ["bun:bun-script", "omp:bun-global"]);
+}
+
+#[tokio::test]
+async fn close_cancels_the_real_installer_tree_and_rejects_queued_work() {
+    use std::io::{BufRead, Read};
+    use std::task::Poll;
+    let fixture = Fixture::new("close-running");
+    let pipe = fixture.root.join("exit-witness");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap()
+            .success()
+    );
+    executable(
+        &fixture.root.join("installer"),
+        r#"#!/bin/sh
+set -eu
+printf '%s:%s\n' "$1" "$2" >> "$ROOT/runs"
+trap 'echo stopped > "$ROOT/stopped"; exit 1' TERM INT
+exec 3>"$ROOT/exit-witness"
+echo ready >&3
+sleep 60 &
+wait $!
+"#,
+    );
+    let (ready, begun) = tokio::sync::oneshot::channel();
+    let witness = tokio::task::spawn_blocking(move || {
+        let mut input = std::io::BufReader::new(std::fs::File::open(pipe).unwrap());
+        let mut line = String::new();
+        input.read_line(&mut line).unwrap();
+        assert_eq!(line, "ready\n");
+        ready.send(()).unwrap();
+        let mut rest = Vec::new();
+        input.read_to_end(&mut rest).unwrap();
+        rest
+    });
+    let (service, _, _) = fixture.service(Platform::Darwin, false, false);
+    let start = tokio::spawn(service.start());
+    tokio::time::timeout(std::time::Duration::from_secs(30), begun)
+        .await
+        .unwrap()
+        .unwrap();
+    let queued = service.latest_omp();
+    let first = service.close();
+    tokio::pin!(first);
+    // This current-thread runtime has not polled the actor since dispose: an active tree still needs its join.
+    assert!(std::future::poll_fn(|cx| Poll::Ready(first.as_mut().poll(cx).is_pending())).await);
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        tokio::join!(first, service.close())
+    })
+    .await
+    .unwrap();
+    first.unwrap();
+    second.unwrap();
+    assert!(fixture.root.join("stopped").exists());
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(30), witness)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(queued.await.unwrap_err().contains("disposed"));
+    start.await.unwrap().unwrap();
+    assert_eq!(fixture.runs(), ["bun:bun-script"]);
+    service.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn manual_retry_bypasses_daily_backoff_and_launch_limit() {
     let fixture = Fixture::new("retry");
     let now = std::time::SystemTime::now()
