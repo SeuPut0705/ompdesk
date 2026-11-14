@@ -376,30 +376,22 @@ impl Records {
         if self.start_noted {
             return Ok(None);
         }
-        atomic_write(
-            &self.user_data.join(START_MARK_FILE),
-            start_mark_json(&self.version, self.pid, now).as_bytes(),
-        )
-        .map_err(FirstPageError::StartMark)?;
         let path = self.user_data.join("update-install.json");
         let raw = read_optional(&path)?;
         let pending = raw.as_deref().and_then(parse_pending_install);
-        let mut report = None;
-        if let Some(pending) = pending {
-            let swap = if pending.mode == InstallHelperMode::Relaunch {
-                read_optional(&self.user_data.join("updates").join("swap.log"))?.and_then(|log| {
-                    let units: Vec<u16> = log.encode_utf16().collect();
-                    let tail = &units[units.len().saturating_sub(16 * 1024)..];
-                    last_swap_entry(&String::from_utf16_lossy(tail))
-                })
-            } else {
-                None
-            };
-            report = Some(
-                previous_install_details(&pending, &self.version, swap.as_ref()).ok_or_else(
-                    || io::Error::new(io::ErrorKind::InvalidData, "invalid install timestamp"),
-                )?,
-            );
+        let swap = if pending
+            .as_ref()
+            .is_some_and(|pending| pending.mode == InstallHelperMode::Relaunch)
+        {
+            read_optional(&self.user_data.join("updates").join("swap.log"))?.and_then(|log| {
+                let units: Vec<u16> = log.encode_utf16().collect();
+                let tail = &units[units.len().saturating_sub(16 * 1024)..];
+                last_swap_entry(&String::from_utf16_lossy(tail))
+            })
+        } else {
+            None
+        };
+        if let Some(pending) = &pending {
             let receipt = ReportedInstall {
                 from: pending.from.clone(),
                 to: pending.to.clone(),
@@ -407,7 +399,7 @@ impl Records {
             };
             if self.reported_install.as_ref() != Some(&receipt)
                 && let Some(failure) = start_failure_of(
-                    &pending,
+                    pending,
                     &self.version,
                     swap.as_ref(),
                     now as f64,
@@ -419,6 +411,19 @@ impl Records {
                 self.reported_install = Some(receipt);
                 self.failure_saved = false;
             }
+        }
+        atomic_write(
+            &self.user_data.join(START_MARK_FILE),
+            start_mark_json(&self.version, self.pid, now).as_bytes(),
+        )
+        .map_err(FirstPageError::StartMark)?;
+        let mut report = None;
+        if let Some(pending) = pending {
+            report = Some(
+                previous_install_details(&pending, &self.version, swap.as_ref()).ok_or_else(
+                    || io::Error::new(io::ErrorKind::InvalidData, "invalid install timestamp"),
+                )?,
+            );
             if !self.failure_saved
                 && self.reported_install.as_ref().is_some_and(|r| {
                     r.from == pending.from && r.to == pending.to && r.at == pending.at
