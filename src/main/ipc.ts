@@ -269,7 +269,10 @@ export interface IpcDeps {
 		| "sidecarOf"
 		| "attachAutopilot"
 		| "attachAgentReview"
+		| "attachAgentInbox"
 		| "mailTargets"
+		| "inboxRoutes"
+		| "inboxTarget"
 		| "agentReviewChanged"
 		| "chargeRun"
 		| "runEvents"
@@ -1371,6 +1374,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		deviceId: remoteDevices.deviceId,
 		mailTargets: () => deps.hostedTabs.mailTargets(peer => remoteDevices.allowsPeer(peer)),
+		inboxRoutes: targets => deps.hostedTabs.inboxRoutes(targets),
+		hostedInboxTarget: (tabId, sessionPath) =>
+			deps.hostedTabs.inboxTarget(tabId, sessionPath, peer => remoteDevices.allowsPeer(peer)),
 		fileEdits: fileEditReports,
 		releaseTab: async (win, tabId, stillReleasable) => {
 			const released = await closeWindowTab(tabRelease, win, tabId, win.webContents.id, stillReleasable);
@@ -1423,6 +1429,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
 		sendOutboxFile: path.join(app.getPath("userData"), "send-outbox.json"),
 		attachmentsDir: path.join(app.getPath("userData"), "agent-attachments"),
+		inboxFiles: {
+			ledger: path.join(app.getPath("userData"), "agent-inbox.json"),
+			uploadUserData: app.getPath("userData"),
+		},
 		uploads: deps.uploads,
 		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
 		sessionFatesFile: path.join(app.getPath("userData"), "agent-session-fates.json"),
@@ -1483,6 +1493,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			});
 			return response === 0;
 		},
+	});
+	deps.hostedTabs.attachAgentInbox({
+		allowsPeer: peer => remoteDevices.allowsPeer(peer),
+		status: target => agentControl.hostedInboxStatus(target),
+		accept: (target, transfer, producerDeviceId) =>
+			agentControl.acceptHostedInbox(target, transfer, producerDeviceId),
 	});
 	const pruneSchedules = () =>
 		void deps

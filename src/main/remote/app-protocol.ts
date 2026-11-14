@@ -100,6 +100,11 @@
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
+import type {
+	NativeInboxAcceptance,
+	NativeInboxReply,
+	NativeInboxTransfer,
+} from "../../../resources/gui-bridge/agent-inbox-contracts";
 import { ACCOUNT_ROTATION_MODES, type AccountRotationState } from "../../shared/account-rotation";
 import type { BuiltinReaState } from "../../shared/builtin-mcp";
 import type { CreditSpendState } from "../../shared/credit-spend";
@@ -234,6 +239,129 @@ export const SignInCallbackReply = z.object({
 	contentType: z.string().max(200),
 	body: z.string().max(SIGN_IN_PAGE_MAX_CHARS),
 });
+
+export const INBOX_METHODS = { status: "host.inbox.status", accept: "host.inbox" } as const;
+const InboxReceiverSchema = z
+	.object({ sessionPath: z.string().min(1), device: z.string().min(1).optional(), instance: z.string().min(1) })
+	.strict();
+const InboxAddressSchema = z.object({ deviceId: z.string().min(1), sessionPath: z.string().min(1) }).strict();
+const InboxContentSchema = z.union([
+	z.string(),
+	z.array(
+		z.discriminatedUnion("type", [
+			z.object({ type: z.literal("text"), text: z.string() }).strict(),
+			z.object({ type: z.literal("image"), data: z.string(), mimeType: z.string() }).strict(),
+		]),
+	),
+]);
+const InboxEntryFields = {
+	deliveryId: z.string().min(1),
+	sender: z.object({ session: z.string(), device: z.string().optional() }).strict(),
+	intent: z.enum(["immediate", "follow_up"]),
+	triggerTurn: z.boolean(),
+	content: InboxContentSchema,
+	legacy: z.literal(true).optional(),
+};
+const InboxEntrySchema = z.discriminatedUnion("kind", [
+	z.object({ ...InboxEntryFields, kind: z.literal("prompt") }).strict(),
+	z.object({ ...InboxEntryFields, kind: z.literal("report"), details: z.record(z.unknown()) }).strict(),
+]);
+const InboxLogicalSchema = z
+	.object({
+		producer: InboxAddressSchema,
+		target: InboxAddressSchema,
+		requestId: z.string().min(1).nullable(),
+		intent: z.enum(["immediate", "follow_up"]),
+		triggerTurn: z.boolean(),
+		payload: z.discriminatedUnion("kind", [
+			z.object({ kind: z.literal("prompt"), text: z.string() }).strict(),
+			z
+				.object({
+					kind: z.literal("report"),
+					text: z.string(),
+					details: z.record(z.unknown()),
+					instruction: z.string().nullable(),
+					card: z.string().nullable(),
+				})
+				.strict(),
+		]),
+	})
+	.strict();
+const InboxAttachmentSchema = z
+	.object({
+		sha256: z.string().regex(/^[0-9a-f]{64}$/),
+		name: z.string(),
+		mimeType: z.string(),
+		size: z.number().int().nonnegative(),
+	})
+	.strict();
+export const NativeInboxTransferSchema: z.ZodType<NativeInboxTransfer> = z
+	.object({
+		receiver: InboxReceiverSchema,
+		entries: z.array(
+			z
+				.object({
+					entry: InboxEntrySchema,
+					logical: InboxLogicalSchema,
+					dispatch: z.number().int().nonnegative().nullable(),
+					attachments: z
+						.object({
+							images: z.array(InboxAttachmentSchema),
+							files: z.array(
+								InboxAttachmentSchema.extend({ path: z.string().min(1), landedAt: z.number().finite() }),
+							),
+						})
+						.strict()
+						.optional(),
+				})
+				.strict(),
+		),
+		uploads: z.array(z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), path: z.string().min(1) }).strict()),
+	})
+	.strict();
+const InboxKeyFields = { kind: z.enum(["prompt", "report"]), deliveryId: z.string().min(1) };
+export const NativeInboxReplySchema: z.ZodType<NativeInboxReply> = z
+	.object({
+		receiver: InboxReceiverSchema,
+		entries: z.array(
+			z
+				.object({
+					...InboxKeyFields,
+					state: z.enum(["accepted", "journaled", "context_observed", "legacy_ambiguous", "failed"]),
+					error: z.string().optional(),
+				})
+				.strict(),
+		),
+		receipts: z.array(
+			z
+				.object({
+					requestId: z.string(),
+					sessionPath: z.string(),
+					instance: z.string(),
+					ids: z.array(z.string()),
+					evidence: z.literal("context-id-and-provider-output"),
+				})
+				.strict(),
+		),
+	})
+	.strict();
+export const NativeInboxAcceptanceSchema: z.ZodType<NativeInboxAcceptance> = z
+	.object({
+		persistence: z.enum(["disk", "memory"]),
+		receiver: InboxReceiverSchema,
+		deliveries: z.array(
+			z
+				.object({
+					key: z.object(InboxKeyFields).strict(),
+					dispatch: z.number().int().nonnegative().nullable(),
+				})
+				.strict(),
+		),
+	})
+	.strict();
+export const InboxStatusParams = z.object({ rtab: PreviewRelayRtab, sessionPath: z.string().min(1) }).strict();
+export const InboxAcceptParams = z.object({ rtab: PreviewRelayRtab, transfer: NativeInboxTransferSchema }).strict();
+
 /**
  * This computer's session summaries changed (data: a `SummaryDelta`), sent to every connected device; `sessions.summaries
  * {}` answers the whole set (a device reads it as its link comes up and whenever a change does not apply on its copy).

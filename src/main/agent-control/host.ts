@@ -9,6 +9,14 @@
 
 import { stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
+import type {
+	NativeInboxAcceptance,
+	NativeInboxFiles,
+	NativeInboxReply,
+	NativeInboxRequest,
+	NativeInboxRoute,
+	NativeInboxTransfer,
+} from "../../../resources/gui-bridge/agent-inbox-contracts";
 import type { AutopilotAction, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	AGENT_CARD_PREFIX,
@@ -70,6 +78,9 @@ import { describePreparation, MERGE_HOOKS_BUDGET_MS } from "../local/git/worktre
 import {
 	GIT_METHODS,
 	GIT_REQUEST_TIMEOUT_MS,
+	INBOX_METHODS,
+	NativeInboxAcceptanceSchema,
+	NativeInboxReplySchema,
 	ScheduleCreatedSchema,
 	SchedulesStateSchema,
 	WorktreeCreateReply,
@@ -84,7 +95,7 @@ import type { SidecarLike } from "../sidecar-types";
 import { recordTurnStop } from "../turn-stop-log";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
-import { attachHere, type UploadStore } from "../web/uploads";
+import { attachHere, LOCAL_UPLOAD_DEVICE, type UploadStore } from "../web/uploads";
 import { sessionOpenFolders } from "../worktree-orphans";
 import {
 	type BranchEvidence,
@@ -149,6 +160,21 @@ function summaryWork(summary: SessionSummary): StoredWork | undefined {
 	return summary.status === "ready" ? "idle" : undefined;
 }
 
+export interface LocalInboxTarget {
+	readonly tabId: string;
+	readonly sessionPath: string;
+	readonly sidecar: SidecarLike;
+	readonly runtimeInstance: string;
+	assertCurrent(): void;
+}
+
+export interface InboxSelection {
+	readonly tabId: string;
+	readonly sessionPath: string;
+	readonly route: Pick<NativeInboxRoute, "peerDeviceId" | "connectionIncarnation" | "rtab">;
+	assertCurrent(): void;
+}
+
 export interface AgentControlHostDeps {
 	/** This app's persistent identity, loaded by the existing remote identity service. */
 	deviceId: string;
@@ -185,6 +211,8 @@ export interface AgentControlHostDeps {
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
 	};
 	mailTargets?: () => ControlTab[];
+	inboxRoutes?: (targets: readonly ControlTab[]) => NativeInboxRoute[];
+	hostedInboxTarget?: (tabId: string, sessionPath: string) => LocalInboxTarget | null;
 	/**
 	 * The session summaries of this computer (no device) or of a paired host as this computer holds them: what every
 	 * row shows, so a list line and a row cannot disagree. Null for a host offline or too old to send them.
@@ -219,6 +247,7 @@ export interface AgentControlHostDeps {
 	mailOutboxFile?: string | null;
 	/** Where the bytes of the attachments an outbox entry still owes are kept, by content; absent: in memory only. */
 	attachmentsDir?: string | null;
+	inboxFiles?: NativeInboxFiles;
 	/** This computer's upload folder (`web/uploads.ts`): where a file sent to a session on this computer lands. */
 	uploads?: Pick<UploadStore, "store">;
 	/** Where sent messages wait for their receiver's journal (`send-outbox`); absent: kept in memory only. */
@@ -351,6 +380,7 @@ export class AgentControlRuntime {
 				sendOutbox: deps.sendOutboxFile ?? null,
 				mailOutbox: deps.mailOutboxFile ?? null,
 				attachments: deps.attachmentsDir ?? null,
+				inbox: deps.inboxFiles,
 			},
 		});
 		// Every tab activity goes to the core's runtime, which decides what it means (the sweep of the opened sessions,
@@ -669,6 +699,170 @@ export class AgentControlRuntime {
 
 	#hiddenPaths(): Set<string> {
 		return agentHiddenPaths(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
+	}
+
+	#assertInboxAllowed(sessionPath: string, device?: string): void {
+		if (!this.#controlEnabled()) throw new Error("OMPdesk control tools are disabled");
+		if (
+			(!device && this.#hiddenPaths().has(sessionPath)) ||
+			deletedSessions().has(sessionPath, device) ||
+			sessionDeleteInProgress(sessionPath, device)
+		)
+			throw new Error("The Inbox recipient is hidden, deleted or being deleted");
+	}
+
+	#localInboxTarget(tabId: string, sessionPath: string): LocalInboxTarget {
+		this.#assertInboxAllowed(sessionPath);
+		const info = this.#hostTabs().find(tab => tab.tabId === tabId);
+		const sidecar = this.#deps.pool.sidecarOf(tabId);
+		const client = sidecar?.rpcClient;
+		const runtimeInstance = localInboxRuntimeInstance(client);
+		if (info && !info.device && info.sessionPath === sessionPath && sidecar && runtimeInstance) {
+			return {
+				tabId,
+				sessionPath,
+				sidecar,
+				runtimeInstance,
+				assertCurrent: () => {
+					this.#assertInboxAllowed(sessionPath);
+					const current = this.#hostTabs().find(tab => tab.tabId === tabId);
+					if (
+						!current ||
+						current.device ||
+						current.sessionPath !== sessionPath ||
+						this.#deps.pool.sidecarOf(tabId) !== sidecar ||
+						sidecar.rpcClient !== client ||
+						sidecar.status !== "ready" ||
+						!sidecar.processAlive
+					)
+						throw new Error("The local Inbox receiving execution changed");
+				},
+			};
+		}
+		const hosted = this.#deps.hostedInboxTarget?.(tabId, sessionPath);
+		if (!hosted) throw new Error("The local Inbox receiving execution is unavailable");
+		return {
+			...hosted,
+			assertCurrent: () => {
+				this.#assertInboxAllowed(sessionPath);
+				hosted.assertCurrent();
+			},
+		};
+	}
+
+	#remoteInboxTarget(tabId: string, sessionPath: string, device: string): () => void {
+		const sidecar = this.#deps.pool.sidecarOf(tabId);
+		if (!sidecar || sidecar.device !== device) throw new Error("The paired Inbox recipient changed");
+		const check = () => {
+			this.#assertInboxAllowed(sessionPath, device);
+			const current = this.#hostTabs().find(tab => tab.tabId === tabId);
+			if (
+				!current ||
+				current.device !== device ||
+				current.sessionPath !== sessionPath ||
+				this.#deps.pool.sidecarOf(tabId) !== sidecar ||
+				sidecar.status !== "ready" ||
+				!sidecar.processAlive
+			)
+				throw new Error("The paired Inbox receiving view changed");
+		};
+		check();
+		return check;
+	}
+
+	#inboxReply(raw: unknown, sessionPath: string, instance?: string): NativeInboxReply {
+		const parsed = NativeInboxReplySchema.safeParse(raw);
+		if (
+			!parsed.success ||
+			parsed.data.receiver.sessionPath !== sessionPath ||
+			parsed.data.receiver.device !== undefined ||
+			(instance !== undefined && parsed.data.receiver.instance !== instance)
+		)
+			throw new Error("The receiving bridge returned a different Inbox identity");
+		return parsed.data;
+	}
+
+	async #inboxStatus(tabId: string, sessionPath: string, device?: string): Promise<NativeInboxReply> {
+		if (device) {
+			const check = this.#remoteInboxTarget(tabId, sessionPath, device);
+			const raw = await this.#remote().request(device, INBOX_METHODS.status, { rtab: tabId, sessionPath });
+			check();
+			return this.#inboxReply(raw, sessionPath);
+		}
+		const target = this.#localInboxTarget(tabId, sessionPath);
+		target.assertCurrent();
+		const request = target.sidecar.bridgeRequest;
+		if (!request) throw new Error("The local Inbox bridge route is unavailable");
+		const raw = await request.call(target.sidecar, "agent_control.inbox_status", {});
+		target.assertCurrent();
+		return this.#inboxReply(raw, sessionPath);
+	}
+
+	async #deliverInbox(tabId: string, request: NativeInboxRequest): Promise<NativeInboxReply> {
+		const target = this.#localInboxTarget(tabId, request.receiver.sessionPath);
+		target.assertCurrent();
+		const bridge = target.sidecar.bridgeRequest;
+		if (!bridge) throw new Error("The local Inbox bridge route is unavailable");
+		const raw = await bridge.call(target.sidecar, "agent_control.inbox", request);
+		target.assertCurrent();
+		return this.#inboxReply(raw, target.sessionPath, request.receiver.instance);
+	}
+
+	async acceptHostedInbox(
+		target: InboxSelection,
+		transfer: NativeInboxTransfer,
+		producerDeviceId: string,
+	): Promise<NativeInboxAcceptance> {
+		target.assertCurrent();
+		const local = this.#localInboxTarget(target.tabId, target.sessionPath);
+		local.assertCurrent();
+		if (transfer.receiver.sessionPath !== local.sessionPath)
+			throw new Error("The authenticated Inbox recipient path differs");
+		const raw = await this.control.runtime.acceptInbox({
+			tabId: local.tabId,
+			transfer,
+			uploadDeviceId: producerDeviceId,
+			expectedProducerDeviceId: producerDeviceId,
+			expectedRuntimeInstance: local.runtimeInstance,
+			expectedRoute: {
+				...target.route,
+				tabId: local.tabId,
+				sessionPath: local.sessionPath,
+				runtimeInstance: local.runtimeInstance,
+			},
+		});
+		local.assertCurrent();
+		target.assertCurrent();
+		return NativeInboxAcceptanceSchema.parse(raw);
+	}
+
+	async hostedInboxStatus(target: InboxSelection): Promise<NativeInboxReply> {
+		target.assertCurrent();
+		const reply = await this.#inboxStatus(target.tabId, target.sessionPath);
+		target.assertCurrent();
+		return reply;
+	}
+
+	async #acceptInbox(tabId: string, transfer: NativeInboxTransfer): Promise<NativeInboxAcceptance> {
+		const sidecar = this.#deps.pool.sidecarOf(tabId);
+		if (sidecar?.device) {
+			const device = sidecar.device;
+			const check = this.#remoteInboxTarget(tabId, transfer.receiver.sessionPath, device);
+			const raw = await this.#remote().request(device, INBOX_METHODS.accept, { rtab: tabId, transfer });
+			check();
+			return NativeInboxAcceptanceSchema.parse(raw);
+		}
+		const target = this.#localInboxTarget(tabId, transfer.receiver.sessionPath);
+		target.assertCurrent();
+		const raw = await this.control.runtime.acceptInbox({
+			tabId: target.tabId,
+			transfer,
+			uploadDeviceId: LOCAL_UPLOAD_DEVICE,
+			expectedProducerDeviceId: this.#deps.deviceId,
+			expectedRuntimeInstance: target.runtimeInstance,
+		});
+		target.assertCurrent();
+		return NativeInboxAcceptanceSchema.parse(raw);
 	}
 
 	/** Every open tab of the app once, in the pool's order, with the window it is in (any window). */
@@ -995,6 +1189,9 @@ export class AgentControlRuntime {
 				}
 				return this.#sendMail(tabId, content, details, delivery);
 			},
+			inboxStatus: (tabId, sessionPath, device) => this.#inboxStatus(tabId, sessionPath, device),
+			inbox: (tabId, transfer) => this.#acceptInbox(tabId, transfer),
+			deliverInbox: (tabId, request) => this.#deliverInbox(tabId, request),
 			land: (tabId, name, bytes) => this.#land(tabId, name, bytes),
 			sentMarks: async (tabId, marks) => {
 				const response = await this.#hostCommand(
@@ -1010,6 +1207,7 @@ export class AgentControlRuntime {
 			reviewChanged: parentTabId => void this.control.runtime.pushReview(parentTabId).catch(() => undefined),
 			tabs: () => this.#hostTabs(),
 			mailTargets: () => deps.mailTargets?.() ?? [],
+			inboxRoutes: targets => deps.inboxRoutes?.(targets) ?? [],
 			mailBlocked: targets =>
 				targets
 					.filter(

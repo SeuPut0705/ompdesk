@@ -24,7 +24,7 @@ use super::types::{
 };
 use crate::agentctl::app::AppState;
 use crate::agentctl::inbox::{
-    InboxAdmission, InboxLogicalSource, NativeInboxAcceptance, NativeInboxReply,
+    InboxAdmission, InboxLogicalSource, InboxRoute, NativeInboxAcceptance, NativeInboxReply,
     NativeInboxRequest, NativeInboxTransfer,
 };
 use crate::agentctl::journal::Clock;
@@ -83,6 +83,7 @@ pub struct HostState {
     pub mail_targets: Vec<ControlTab>,
     /// Current tab identities blocked by main's in-progress deletion fence, before a tombstone exists.
     pub mail_blocked: HashSet<String>,
+    pub inbox_routes: Vec<InboxRoute>,
     /// Each open tab's window (any stable key): `here` and the caller's-window-first order come from the caller's.
     pub window_of: HashMap<String, String>,
     /// `outsideCaller(id)`: the stand-in tab of each process calling over the control socket, never listed in `tabs`.

@@ -29,6 +29,14 @@
  *           A session the user hid from agents refuses all, whatever the switches.
  *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
+import type {
+	NativeInboxAcceptance,
+	NativeInboxFiles,
+	NativeInboxReply,
+	NativeInboxRequest,
+	NativeInboxRoute,
+	NativeInboxTransfer,
+} from "../../../resources/gui-bridge/agent-inbox-contracts";
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type {
 	AgentAppEvent,
@@ -343,6 +351,9 @@ export interface AgentControlHost {
 		details: Record<string, unknown>,
 		delivery: MailDelivery,
 	): Promise<MailAnswer | undefined | void>;
+	inboxStatus?(tabId: string, sessionPath: string, device?: string): Promise<NativeInboxReply>;
+	inbox?(tabId: string, transfer: NativeInboxTransfer): Promise<NativeInboxAcceptance>;
+	deliverInbox?(tabId: string, request: NativeInboxRequest): Promise<NativeInboxReply>;
 	/**
 	 * Put a file on the computer `tabId`'s session runs on, where its omp reads it by path (the upload folder a
 	 * composer's attached file lands in; a paired host's through `host.files.upload`). A caller outside OMPdesk's id
@@ -356,6 +367,7 @@ export interface AgentControlHost {
 	/** Actual hosted executions, not window or sidebar rows. */
 	mailTargets?(): ControlTab[];
 	mailBlocked?(targets: readonly ControlTab[]): readonly string[];
+	inboxRoutes?(targets: readonly ControlTab[]): NativeInboxRoute[];
 	/**
 	 * Processes outside OMPdesk calling over the control socket (src/main/control-socket), by id: each has no tab, so it
 	 * is this stand-in, never listed among `tabs`.
@@ -570,6 +582,7 @@ export interface AgentControlFiles {
 	mailOutbox?: string | null;
 	/** The bytes of the attachments an outbox entry still owes, by content (`<userData>/agent-attachments`). */
 	attachments?: string | null;
+	inbox?: NativeInboxFiles;
 }
 
 export interface AgentControlOptions {
@@ -597,6 +610,7 @@ interface HostSnapshot {
 	tabs: ControlTab[];
 	mailTargets: ControlTab[];
 	mailBlocked: readonly string[];
+	inboxRoutes: NativeInboxRoute[];
 	windowOf: Record<string, string>;
 	outsideCallers: Record<string, ControlTab>;
 	outsideWindow: string | null;
@@ -647,6 +661,17 @@ export class RuntimeClient {
 
 	constructor(control: AgentControl) {
 		this.#control = control;
+	}
+
+	acceptInbox(request: {
+		tabId: string;
+		transfer: NativeInboxTransfer;
+		uploadDeviceId: string;
+		expectedProducerDeviceId: string;
+		expectedRuntimeInstance: string;
+		expectedRoute?: NativeInboxRoute;
+	}): Promise<NativeInboxAcceptance> {
+		return this.#control.callRuntime("acceptInbox", request);
 	}
 
 	/** One tab activity the pool reported, with what only main knows at that moment (`activity.rs`). */
@@ -910,6 +935,7 @@ export class AgentControl {
 				...(files.sendOutbox !== undefined ? { sendOutbox: file(files.sendOutbox) } : {}),
 				...(files.mailOutbox !== undefined || host.runtime ? { mailOutbox: file(files.mailOutbox ?? null) } : {}),
 				...(files.attachments ? { attachments: files.attachments } : {}),
+				...(files.inbox ? { inbox: files.inbox } : {}),
 			},
 			caps: {
 				reviewChanged: host.reviewChanged !== undefined,
@@ -940,6 +966,7 @@ export class AgentControl {
 			console.warn(`[agent-control] snapshot: ${error instanceof Error ? error.message : String(error)}`);
 			return {
 				...this.#last,
+				inboxRoutes: [],
 				mailBlocked: [
 					...new Set([
 						...this.#last.mailBlocked,
@@ -962,7 +989,9 @@ export class AgentControl {
 			windowOf[tab.tabId] = window;
 		}
 		const mailTargets = host.mailTargets?.() ?? [];
-		const mailBlocked = host.mailBlocked?.([...tabs, ...mailTargets]) ?? [];
+		const targets = [...tabs, ...mailTargets];
+		const mailBlocked = host.mailBlocked?.(targets) ?? [];
+		const inboxRoutes = host.inboxRoutes?.(targets) ?? [];
 		const devices = host.devices();
 		const parents: HostSnapshot["parents"] = {};
 		const checkoutPeers: HostSnapshot["checkoutPeers"] = {};
@@ -996,6 +1025,7 @@ export class AgentControl {
 			tabs,
 			mailTargets,
 			mailBlocked,
+			inboxRoutes,
 			windowOf,
 			outsideCallers: host.outsideCallers?.() ?? {},
 			outsideWindow: host.outsideWindow?.() ?? null,
@@ -1070,6 +1100,29 @@ export class AgentControl {
 				details: Record<string, unknown>;
 				delivery: MailDelivery;
 			}) => coded(async () => (await host.mail(tabId, content, details, delivery)) ?? null),
+			inboxStatus: ({
+				tabId,
+				sessionPath,
+				device: where,
+			}: {
+				tabId: string;
+				sessionPath: string;
+				device?: string | null;
+			}) =>
+				coded(() => {
+					if (!host.inboxStatus) throw new Error("The native Inbox route is unavailable");
+					return host.inboxStatus(tabId, sessionPath, device(where));
+				}),
+			inbox: ({ tabId, transfer }: { tabId: string; transfer: NativeInboxTransfer }) =>
+				coded(() => {
+					if (!host.inbox) throw new Error("The native Inbox route is unavailable");
+					return host.inbox(tabId, transfer);
+				}),
+			deliverInbox: ({ tabId, request }: { tabId: string; request: NativeInboxRequest }) =>
+				coded(() => {
+					if (!host.deliverInbox) throw new Error("The native Inbox route is unavailable");
+					return host.deliverInbox(tabId, request);
+				}),
 			land: ({ tabId, name, dataBase64 }: { tabId: string; name: string; dataBase64: string }) =>
 				coded(async () => {
 					if (!host.land)

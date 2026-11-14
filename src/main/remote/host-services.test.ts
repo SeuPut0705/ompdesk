@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -7,6 +8,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
+import type { NativeInboxAcceptance, NativeInboxTransfer } from "../../../resources/gui-bridge/agent-inbox-contracts";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { type AgentReviewItem, type AgentReviewResult, wrapAgentMessage } from "../../shared/agent-control";
@@ -39,11 +41,14 @@ import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState }
 import { applySummaryChange, type SummaryDelta, type VersionedSummaries } from "../../shared/session-summary";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
+import type { InboxSelection } from "../agent-control/host";
 import { localInboxRuntimeInstance } from "../agent-control/inbox-runtime-instance";
+import type { ControlTab } from "../agent-control/service";
 import type { MemoryPageCopy } from "../ai-memory/client";
 import { serveMemoryStore } from "../ai-memory/memory-store-test-rig";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
 import { canonicalCwd } from "../canonical-cwd";
+import { core } from "../core/process";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
@@ -59,6 +64,7 @@ import { withRemovalClaim } from "../worktree-removals";
 import {
 	AUTOPILOT_NOTICE_EVENT,
 	decodeBinaryRead,
+	INBOX_METHODS,
 	type KeptTab,
 	MemoryConclusionPullReply,
 	MemoryPullReply,
@@ -184,6 +190,7 @@ class FakeHostSidecar extends EventEmitter {
 }
 
 class FakeConnection implements HostConnection {
+	readonly connectionIncarnation = randomUUID();
 	readonly events: Array<{ event: string; data: unknown }> = [];
 	constructor(readonly peer: PeerInfo) {}
 	emit(event: string, data: unknown): void {
@@ -402,6 +409,13 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 }
 
 describe("hosted inbox execution inventory", () => {
+	beforeEach(() => {
+		vi.spyOn(core(), "call").mockRejectedValue(new Error("No native process in the hosted inventory fixture"));
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
 	it("projects only a connected permitted local execution and keeps its runtime identity exact", async () => {
 		const { services, sidecars, local } = setup();
 		const connection = new FakeConnection(peer("producer"));
@@ -471,6 +485,331 @@ describe("hosted inbox execution inventory", () => {
 		]);
 		await services.call(connection.peer, "tab.close", { rtab: "receiver" }, connection);
 		sidecar.exited.resolve();
+	});
+});
+
+describe("authenticated inbox forwarding", () => {
+	const sessionPath = "/s/recipient.jsonl";
+	const receiver = { sessionPath, instance: "bridge-1" };
+	const transfer: NativeInboxTransfer = {
+		receiver,
+		entries: [
+			{
+				entry: {
+					kind: "report",
+					deliveryId: "delivery-1",
+					sender: { session: "/s/source.jsonl", device: "claimed-device" },
+					intent: "follow_up",
+					triggerTurn: false,
+					content: "Report content",
+					details: { nested: { value: 42 } },
+				},
+				logical: {
+					producer: { deviceId: "claimed-device", sessionPath: "/s/source.jsonl" },
+					target: { deviceId: "host", sessionPath },
+					requestId: "request-1",
+					intent: "follow_up",
+					triggerTurn: false,
+					payload: {
+						kind: "report",
+						text: "Report content",
+						details: { nested: { value: 42 } },
+						instruction: "Review",
+						card: "Card",
+					},
+				},
+				dispatch: 7,
+			},
+		],
+		uploads: [],
+	};
+	const acceptance: NativeInboxAcceptance = {
+		persistence: "memory",
+		receiver,
+		deliveries: [{ key: { kind: "report", deliveryId: "delivery-1" }, dispatch: 7 }],
+	};
+	const reply = { receiver, entries: [], receipts: [] };
+
+	async function fixture() {
+		const native = vi
+			.spyOn(core(), "call")
+			.mockRejectedValue(new Error("No native process in the authenticated endpoint fixture"));
+		const context = setup();
+		const connection = new FakeConnection(peer("authenticated-producer"));
+		await context.services.call(
+			connection.peer,
+			"tab.open",
+			{ rtab: "receiver", cwd: workDir, fresh: true },
+			connection,
+		);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("Missing hosted fixture");
+		sidecar.emit("session", { sessionFile: sessionPath, sessionId: "recipient" });
+		const tabId = context.services.tabForSession(sessionPath, connection.peer.deviceId);
+		if (!tabId) throw new Error("Missing canonical hosted execution");
+		const status = vi.fn(async (_target: InboxSelection) => reply);
+		const accept = vi.fn(
+			async (_target: InboxSelection, _transfer: NativeInboxTransfer, _producer: string) => acceptance,
+		);
+		let allowed = true;
+		context.services.attachAgentInbox({ allowsPeer: () => allowed, status, accept });
+		let current = connection;
+		onTestFinished(async () => {
+			try {
+				await context.services.call(current.peer, "tab.close", { rtab: "receiver" }, current);
+				for (const item of context.sidecars) item.exited.resolve();
+			} finally {
+				native.mockRestore();
+			}
+		});
+		return {
+			...context,
+			connection,
+			sidecar,
+			status,
+			accept,
+			tabId,
+			revoke: () => {
+				allowed = false;
+			},
+			setCurrent: (next: FakeConnection) => {
+				current = next;
+			},
+		};
+	}
+
+	it("forwards to the actual execution with the authenticated producer and preserves memory acceptance", async () => {
+		const { services, connection, status, accept, sidecar, tabId } = await fixture();
+		expect(
+			await services.call(connection.peer, INBOX_METHODS.status, { rtab: "receiver", sessionPath }, connection),
+		).toEqual(reply);
+		expect(
+			await services.call(connection.peer, INBOX_METHODS.accept, { rtab: "receiver", transfer }, connection),
+		).toEqual(acceptance);
+		expect(status).toHaveBeenCalledWith(expect.objectContaining({ tabId, sessionPath }));
+		expect(accept).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tabId,
+				sessionPath,
+				route: {
+					peerDeviceId: connection.peer.deviceId,
+					connectionIncarnation: connection.connectionIncarnation,
+					rtab: "receiver",
+				},
+			}),
+			transfer,
+			"authenticated-producer",
+		);
+		expect(sidecar.commands).toEqual([]);
+	});
+
+	it("rejects another peer's same rtab and untrusted extra fields before callbacks", async () => {
+		const { services, connection, status, accept } = await fixture();
+		const foreign = new FakeConnection(peer("foreign"));
+		const error = await services
+			.call(foreign.peer, INBOX_METHODS.accept, { rtab: "receiver", transfer }, foreign)
+			.catch((e: unknown) => e);
+		expect(ipcErrorCode(error)).toBe("unknown_tab");
+		const foreignStatus = await services
+			.call(foreign.peer, INBOX_METHODS.status, { rtab: "receiver", sessionPath }, foreign)
+			.catch((e: unknown) => e);
+		expect(ipcErrorCode(foreignStatus)).toBe("unknown_tab");
+		for (const field of ["caller", "person", "expectedProducer"]) {
+			await expect(
+				services.call(
+					connection.peer,
+					INBOX_METHODS.accept,
+					{ rtab: "receiver", transfer, [field]: "forged" },
+					connection,
+				),
+			).rejects.toThrow();
+			await expect(
+				services.call(
+					connection.peer,
+					INBOX_METHODS.status,
+					{ rtab: "receiver", sessionPath, [field]: "forged" },
+					connection,
+				),
+			).rejects.toThrow();
+		}
+		expect(status).not.toHaveBeenCalled();
+		expect(accept).not.toHaveBeenCalled();
+	});
+
+	it("projects only the current original route against the same captured runtime inventory", async () => {
+		const { services, connection, sidecar, tabId, revoke, setCurrent } = await fixture();
+		const client = new RpcClient({
+			send: () => {
+				throw new Error("No stock command in route projection");
+			},
+		});
+		Object.defineProperty(sidecar, "rpcClient", { value: client, configurable: true });
+		sidecar.setStatus("ready");
+		const inventory = services.mailTargets(() => true);
+		const first = {
+			peerDeviceId: connection.peer.deviceId,
+			connectionIncarnation: connection.connectionIncarnation,
+			rtab: "receiver",
+			tabId,
+			sessionPath,
+			runtimeInstance: localInboxRuntimeInstance(client),
+		};
+		expect(services.inboxRoutes(inventory)).toEqual([first]);
+		expect(services.inboxRoutes([{ ...inventory[0], sessionPath: "/s/another.jsonl" }])).toEqual([]);
+		expect(services.inboxRoutes([{ ...inventory[0], device: "foreign" }])).toEqual([]);
+		services.disconnected(connection.peer, connection);
+		expect(services.inboxRoutes(inventory)).toEqual([]);
+		const next = new FakeConnection(connection.peer);
+		await services.call(next.peer, "tab.open", { rtab: "receiver" }, next);
+		setCurrent(next);
+		expect(next.connectionIncarnation).not.toBe(connection.connectionIncarnation);
+		expect(services.inboxRoutes(inventory)).toEqual([
+			{ ...first, connectionIncarnation: next.connectionIncarnation },
+		]);
+		revoke();
+		expect(services.inboxRoutes(inventory)).toEqual([]);
+	});
+
+	it("withdraws the original peer route while its local-window execution remains available", async () => {
+		const native = vi
+			.spyOn(core(), "call")
+			.mockRejectedValue(new Error("No native process in window route projection"));
+		const { services, local, sidecars } = setup();
+		const connection = new FakeConnection(peer("authenticated-producer"));
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		local.owned.set(sessionPath, { tabId: "local-window", winId: 1 });
+		local.views.set(sessionPath, view);
+		services.attachAgentInbox({
+			allowsPeer: () => true,
+			status: async () => reply,
+			accept: async () => acceptance,
+		});
+		onTestFinished(async () => {
+			try {
+				await services.call(connection.peer, "tab.close", { rtab: "window-view" }, connection);
+			} finally {
+				native.mockRestore();
+			}
+		});
+		await services.call(connection.peer, "tab.open", { rtab: "window-view", cwd: workDir, sessionPath }, connection);
+		const target: ControlTab = {
+			tabId: "local-window",
+			title: "Local window",
+			cwd: workDir,
+			status: "ready",
+			busy: false,
+			asks: [],
+			hidden: false,
+			sessionPath,
+			runtimeInstance: "actual-local-runtime",
+		};
+		expect(services.inboxRoutes([target])).toEqual([
+			{
+				peerDeviceId: connection.peer.deviceId,
+				connectionIncarnation: connection.connectionIncarnation,
+				rtab: "window-view",
+				tabId: target.tabId,
+				sessionPath,
+				runtimeInstance: target.runtimeInstance,
+			},
+		]);
+		services.disconnected(connection.peer, connection);
+		expect(services.inboxRoutes([target])).toEqual([]);
+		expect(local.owned.get(sessionPath)).toEqual({ tabId: "local-window", winId: 1 });
+		expect(sidecars).toEqual([]);
+	});
+
+	it("rejects a pending acceptance after the peer is revoked", async () => {
+		const { services, connection, accept, revoke } = await fixture();
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		accept.mockImplementation(async () => {
+			entered.resolve();
+			await release.promise;
+			return acceptance;
+		});
+		const pending = services.call(connection.peer, INBOX_METHODS.accept, { rtab: "receiver", transfer }, connection);
+		const rejected = expect(pending).rejects.toThrow();
+		await entered.promise;
+		revoke();
+		release.resolve();
+		await rejected;
+	});
+
+	it("rejects the old connection after reconnect even when the same execution returns", async () => {
+		const { services, connection, accept, setCurrent } = await fixture();
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		accept.mockImplementationOnce(async () => {
+			entered.resolve();
+			await release.promise;
+			return acceptance;
+		});
+		const pending = services.call(connection.peer, INBOX_METHODS.accept, { rtab: "receiver", transfer }, connection);
+		const rejected = expect(pending).rejects.toThrow();
+		await entered.promise;
+		services.disconnected(connection.peer, connection);
+		const next = new FakeConnection(connection.peer);
+		await services.call(next.peer, "tab.open", { rtab: "receiver" }, next);
+		setCurrent(next);
+		release.resolve();
+		await rejected;
+		expect(await services.call(next.peer, INBOX_METHODS.accept, { rtab: "receiver", transfer }, next)).toEqual(
+			acceptance,
+		);
+	});
+
+	it("rejects a pending status when the session changes", async () => {
+		const { services, connection, sidecar, status } = await fixture();
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		status.mockImplementation(async () => {
+			entered.resolve();
+			await release.promise;
+			return reply;
+		});
+		const pending = services.call(
+			connection.peer,
+			INBOX_METHODS.status,
+			{ rtab: "receiver", sessionPath },
+			connection,
+		);
+		const rejected = expect(pending).rejects.toThrow();
+		await entered.promise;
+		sidecar.emit("session", { sessionFile: "/s/other.jsonl", sessionId: "other" });
+		release.resolve();
+		await rejected;
+	});
+
+	it("propagates the original callback error", async () => {
+		const { services, connection, accept } = await fixture();
+		const failure = new Error("Inbox callback failed");
+		accept.mockRejectedValueOnce(failure);
+		await expect(
+			services.call(connection.peer, INBOX_METHODS.accept, { rtab: "receiver", transfer }, connection),
+		).rejects.toBe(failure);
+	});
+
+	it("invalidates a captured actual target when its RPC client is replaced", async () => {
+		const { services, sidecar, tabId } = await fixture();
+		sidecar.setStatus("ready");
+		const client = new RpcClient({
+			send: () => {
+				throw new Error("No stock commands");
+			},
+		});
+		Object.defineProperty(sidecar, "rpcClient", { value: client, configurable: true });
+		const target = services.inboxTarget(tabId, sessionPath, () => true);
+		if (!target) throw new Error("Missing actual target");
+		target.assertCurrent();
+		const replacement = new RpcClient({
+			send: () => {
+				throw new Error("No stock commands");
+			},
+		});
+		Object.defineProperty(sidecar, "rpcClient", { value: replacement, configurable: true });
+		expect(() => target.assertCurrent()).toThrow();
 	});
 });
 

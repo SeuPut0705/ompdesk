@@ -17,6 +17,7 @@
  * delays are shortened by `tuning`.
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -291,7 +292,12 @@ function peer(deviceId: string): PeerInfo {
 }
 
 function connection(of: PeerInfo): HostConnection {
-	return { peer: of, emit: () => {}, close: () => {} } as unknown as HostConnection;
+	return {
+		peer: of,
+		connectionIncarnation: randomUUID(),
+		emit: () => {},
+		close: () => {},
+	} as unknown as HostConnection;
 }
 
 function hostServices(pool: SidecarPool, create: LocalSidecarFactory): LocalHostServices {

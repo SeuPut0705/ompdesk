@@ -40,10 +40,16 @@ import { randomUUID } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import type {
+	NativeInboxAcceptance,
+	NativeInboxReply,
+	NativeInboxRoute,
+	NativeInboxTransfer,
+} from "../../../resources/gui-bridge/agent-inbox-contracts";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
-import { codedError } from "../../shared/ipc-error-codes";
+import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPDATE_ACTIONS,
 	HOST_UPLOAD_MAX_BYTES,
@@ -71,6 +77,7 @@ import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation } from "../../shared/terminal-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import type { InboxSelection, LocalInboxTarget } from "../agent-control/host";
 import { localInboxRuntimeInstance } from "../agent-control/inbox-runtime-instance";
 import type { ControlTab } from "../agent-control/service";
 import { type AnswerStep, TargetAnswer } from "../agent-control/target-answer";
@@ -154,6 +161,9 @@ import {
 	HostFsReadRangeParams,
 	HostUploadParams,
 	HostUploadPartParams,
+	INBOX_METHODS,
+	InboxAcceptParams,
+	InboxStatusParams,
 	KEPT_TABS_METHOD,
 	type KeptTab,
 	MEMORY_METHODS,
@@ -453,6 +463,16 @@ export type HostedAgentReview = (
 	command: { type: "agent_control_review" | "agent_control_family_edits" } & Record<string, unknown>,
 ) => Promise<RpcResponse>;
 
+export interface HostedAgentInbox {
+	allowsPeer(deviceId: string): boolean;
+	status(target: InboxSelection): Promise<NativeInboxReply>;
+	accept(
+		target: InboxSelection,
+		transfer: NativeInboxTransfer,
+		producerDeviceId: string,
+	): Promise<NativeInboxAcceptance>;
+}
+
 const Rtab = z.string().min(1).max(128);
 const AbsolutePath = z.string().min(1).refine(isAbsolute, "absolute path required");
 const SessionPath = z.string().endsWith(".jsonl");
@@ -675,6 +695,7 @@ export class LocalHostServices implements HostServices {
 	#resume: Pick<TurnResume, "sync" | "cancelWait" | "relaunchContinuation"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
 	#agentReview: HostedAgentReview | null = null;
+	#agentInbox: HostedAgentInbox | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
 	#runCharges: Map<string, RunCharge> | null = null;
 	/** Saves `#runCharges`: a charge changes on a turn's event, so a full disk must never throw into it. */
@@ -737,6 +758,10 @@ export class LocalHostServices implements HostServices {
 	/** This computer's control tools for a device viewing a window's session (see {@link HostedAgentReview}). */
 	attachAgentReview(review: HostedAgentReview): void {
 		this.#agentReview = review;
+	}
+
+	attachAgentInbox(inbox: HostedAgentInbox): void {
+		this.#agentInbox = inbox;
 	}
 
 	/**
@@ -941,18 +966,8 @@ export class LocalHostServices implements HostServices {
 	mailTargets(allowsPeer: (deviceId: string) => boolean): ControlTab[] {
 		const hidden = this.#deps.agentHidden?.() ?? new Set<string>();
 		return [...this.#tabs.values()].flatMap(tab => {
-			const { sidecar, sessionFile, conn } = tab;
-			if (
-				tab.viewing ||
-				!sessionFile ||
-				!conn ||
-				!this.#conns.has(conn) ||
-				conn.peer.deviceId !== tab.peerId ||
-				!allowsPeer(tab.peerId) ||
-				!sidecar.processAlive ||
-				sidecar.status !== "ready"
-			)
-				return [];
+			const { sidecar, sessionFile } = tab;
+			if (!sessionFile || !this.#currentInboxExecution(tab, allowsPeer)) return [];
 			const runtimeInstance = localInboxRuntimeInstance(sidecar.rpcClient);
 			if (!runtimeInstance) return [];
 			return [
@@ -969,6 +984,73 @@ export class LocalHostServices implements HostServices {
 				},
 			];
 		});
+	}
+	inboxRoutes(targets: readonly ControlTab[]): NativeInboxRoute[] {
+		if (!this.#agentInbox) return [];
+		const inventory = new Map(targets.map(target => [target.tabId, target]));
+		const routes: NativeInboxRoute[] = [];
+		for (const tab of this.#tabs.values()) {
+			const { conn, sessionFile } = tab;
+			if (!conn || !sessionFile) continue;
+			let selection: InboxSelection;
+			try {
+				selection = this.#inboxSelection(conn.peer, tab.rtab, sessionFile, conn);
+			} catch (error) {
+				const code = ipcErrorCode(error);
+				if (code === "remote_protocol" || code === "unknown_tab") continue;
+				throw error;
+			}
+			const target = inventory.get(selection.tabId);
+			if (target?.device || target?.sessionPath !== sessionFile || !target.runtimeInstance) continue;
+			routes.push({
+				...selection.route,
+				tabId: target.tabId,
+				sessionPath: sessionFile,
+				runtimeInstance: target.runtimeInstance,
+			});
+		}
+		return routes;
+	}
+	inboxTarget(tabId: string, sessionPath: string, allowsPeer: (deviceId: string) => boolean): LocalInboxTarget | null {
+		const tab = this.#byResumeId(tabId);
+		if (!tab || tab.sessionFile !== sessionPath || !this.#currentInboxExecution(tab, allowsPeer)) return null;
+		const { sidecar, conn, rtab, omp } = tab;
+		const client = sidecar.rpcClient;
+		const runtimeInstance = localInboxRuntimeInstance(client);
+		if (!runtimeInstance) return null;
+		return {
+			tabId,
+			sessionPath,
+			sidecar,
+			runtimeInstance,
+			assertCurrent: () => {
+				if (
+					!this.#currentInboxExecution(tab, allowsPeer) ||
+					tab.conn !== conn ||
+					tab.rtab !== rtab ||
+					tab.omp !== omp ||
+					tab.sidecar !== sidecar ||
+					tab.sessionFile !== sessionPath ||
+					sidecar.rpcClient !== client ||
+					localInboxRuntimeInstance(client) !== runtimeInstance
+				)
+					throw codedError("remote_protocol", "The authenticated Inbox receiving execution changed");
+			},
+		};
+	}
+
+	#currentInboxExecution(tab: HostTab, allowsPeer: (deviceId: string) => boolean): boolean {
+		const { sidecar, conn } = tab;
+		return (
+			this.#tabs.get(this.#key(tab.peerId, tab.rtab)) === tab &&
+			!tab.viewing &&
+			conn !== null &&
+			this.#conns.has(conn) &&
+			conn.peer.deviceId === tab.peerId &&
+			allowsPeer(tab.peerId) &&
+			sidecar.processAlive &&
+			sidecar.status === "ready"
+		);
 	}
 
 	/** The sessions the tabs here run for paired devices, for the one summary builder (session-summaries.ts). */
@@ -1190,6 +1272,24 @@ export class LocalHostServices implements HostServices {
 		this.#conns.add(conn);
 		this.#connOf.set(peer.deviceId, conn);
 		switch (method) {
+			case INBOX_METHODS.status: {
+				const { rtab, sessionPath } = parse(InboxStatusParams, method, params);
+				const target = this.#inboxSelection(peer, rtab, sessionPath, conn);
+				const inbox = this.#agentInbox;
+				if (!inbox) throw codedError("unsupported", "The native Inbox route is unavailable");
+				const answer = await inbox.status(target);
+				target.assertCurrent();
+				return answer;
+			}
+			case INBOX_METHODS.accept: {
+				const { rtab, transfer } = parse(InboxAcceptParams, method, params);
+				const target = this.#inboxSelection(peer, rtab, transfer.receiver.sessionPath, conn);
+				const inbox = this.#agentInbox;
+				if (!inbox) throw codedError("unsupported", "The native Inbox route is unavailable");
+				const answer = await inbox.accept(target, transfer, peer.deviceId);
+				target.assertCurrent();
+				return answer;
+			}
 			case "tab.open":
 				return this.#open(peer, parse(OpenParams, method, params), conn);
 			case "tab.start":
@@ -1729,6 +1829,44 @@ export class LocalHostServices implements HostServices {
 		const tab = this.#tabs.get(this.#key(peer.deviceId, rtab));
 		if (!tab) throw codedError("unknown_tab", "Unknown tab");
 		return tab;
+	}
+
+	#inboxSelection(peer: PeerInfo, rtab: string, sessionPath: string, conn: HostConnection): InboxSelection {
+		const inbox = this.#agentInbox;
+		if (!inbox) throw codedError("unsupported", "The native Inbox route is unavailable");
+		const tab = this.#tab(peer, rtab);
+		const viewing = tab.viewing;
+		const selectedId = () =>
+			tab.viewing === "window"
+				? this.#deps.localTabs.sessionOwner(sessionPath)?.tabId
+				: (tab.viewing ?? tab).resumeId;
+		const tabId = selectedId();
+		if (!tabId) throw codedError("unknown_tab", "The actual Inbox receiving execution is gone");
+		const connectionIncarnation = conn.connectionIncarnation;
+		const assertCurrent = () => {
+			if (
+				this.#agentInbox !== inbox ||
+				!inbox.allowsPeer(peer.deviceId) ||
+				conn.peer.deviceId !== peer.deviceId ||
+				!connectionIncarnation ||
+				conn.connectionIncarnation !== connectionIncarnation ||
+				!this.#conns.has(conn) ||
+				tab.conn !== conn ||
+				this.#tabs.get(this.#key(peer.deviceId, rtab)) !== tab ||
+				tab.rtab !== rtab ||
+				tab.sessionFile !== sessionPath ||
+				tab.viewing !== viewing ||
+				selectedId() !== tabId
+			)
+				throw codedError("remote_protocol", "The authenticated Inbox target or connection changed");
+		};
+		assertCurrent();
+		return {
+			tabId,
+			sessionPath,
+			route: { peerDeviceId: peer.deviceId, connectionIncarnation, rtab },
+			assertCurrent,
+		};
 	}
 
 	#byResumeId(id: string): HostTab | undefined {

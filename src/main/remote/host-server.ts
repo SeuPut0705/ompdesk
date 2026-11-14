@@ -5,6 +5,7 @@
  * the core's devices instance's (`crates/core/src/remote/devices/`); main answers the device's hello (`open`), which
  * makes the link one of this host's connections.
  */
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { core } from "../core/process";
@@ -44,6 +45,7 @@ export interface HostServices {
 
 export interface HostConnection {
 	readonly peer: PeerInfo;
+	readonly connectionIncarnation: string;
 	/** What the device reads beyond whole frames (`slimOf`, protocol.ts); absent for an older device. */
 	readonly slim?: LinkSlim;
 	/** Push `{t:"evt"}`; throws when the event exceeds the frame cap. */
@@ -96,12 +98,14 @@ function slimNames(slim: LinkSlim): string {
 
 class PeerConnection implements HostConnection {
 	readonly link: Link;
+	readonly connectionIncarnation: string;
 	peer: PeerInfo;
 	readonly slim: LinkSlim;
 	/** The device's OMPdesk version, from its hello. */
 	readonly appVersion: string;
 
 	constructor(link: Link, peer: PeerInfo, slim: LinkSlim, appVersion: string) {
+		this.connectionIncarnation = randomUUID();
 		this.link = link;
 		this.peer = peer;
 		this.appVersion = appVersion;

@@ -8,7 +8,7 @@
  * `OMP_GUI_FANOUT_PROFILE=1` a CPU profile of one replay is written beside it, and its self time grouped by function.
  */
 import type * as NodeCrypto from "node:crypto";
-import { createHash, type Hash } from "node:crypto";
+import { createHash, type Hash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
@@ -228,6 +228,7 @@ class SinkLink extends Link {
 }
 
 class Connection implements HostConnection {
+	readonly connectionIncarnation = randomUUID();
 	readonly slim = slimOf({
 		t: "hello",
 		protocol: 1,

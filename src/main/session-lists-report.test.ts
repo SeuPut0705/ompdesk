@@ -13,6 +13,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -338,6 +339,7 @@ describe.skipIf(!OUT || !stockRoot)("session lists across windows and paired com
 				const conns: Array<HostConnection & { win?: Win; list?: HostSessionList }> = [];
 				for (const name of ["device-1", "device-2"]) {
 					const conn: HostConnection & { win?: Win; list?: HostSessionList } = {
+						connectionIncarnation: randomUUID(),
 						peer: peer(name),
 						slim: slimOf(HELLO),
 						emit: (event, data) => {

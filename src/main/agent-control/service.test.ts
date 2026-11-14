@@ -645,25 +645,36 @@ describe("native inbox snapshot authority", () => {
 		sessionPath: "/s/recipient.jsonl",
 		runtimeInstance: "runtime-a",
 	};
+	const route = {
+		peerDeviceId: "peer",
+		connectionIncarnation: "connection-a",
+		rtab: "remote-view",
+		tabId: receiver.tabId,
+		sessionPath: "/s/recipient.jsonl",
+		runtimeInstance: "runtime-a",
+	};
 
 	it("supplies a windowless receiver without creating a roster row or a window", async () => {
 		const host = Object.assign(new FakeHost({ tabId: "caller" }), {
 			mailTargets: () => [receiver],
 			mailBlocked: () => [],
+			inboxRoutes: () => [route],
 		});
 		const service = new AgentControl(host);
 		services.push(service);
 		const snapshot = await snapshotOf(service);
-		expect(snapshot).toMatchObject({ mailTargets: [receiver], tabs: [{ tabId: "caller" }] });
+		expect(snapshot).toMatchObject({ mailTargets: [receiver], tabs: [{ tabId: "caller" }], inboxRoutes: [route] });
 		expect(snapshot).toHaveProperty("windowOf", { caller: "main" });
 	});
 
 	it("blocks every last-known receiver on a failed build until a fresh success", async () => {
 		let failed = false;
 		let current = receiver;
+		let currentRoute = route;
 		const host = Object.assign(new FakeHost({ tabId: "caller" }), {
 			mailTargets: () => [current],
 			mailBlocked: () => ["already-blocked"],
+			inboxRoutes: () => [currentRoute],
 		});
 		const tabs = host.tabs;
 		host.tabs = () => {
@@ -679,12 +690,15 @@ describe("native inbox snapshot authority", () => {
 			mailBlocked: expect.arrayContaining(["already-blocked", "caller", receiver.tabId]),
 			tabs: [{ tabId: "caller" }],
 			mailTargets: [receiver],
+			inboxRoutes: [],
 		});
 		current = { ...receiver, runtimeInstance: "runtime-b" };
+		currentRoute = { ...route, runtimeInstance: "runtime-b" };
 		failed = false;
 		expect(await snapshotOf(service)).toMatchObject({
 			mailBlocked: ["already-blocked"],
 			mailTargets: [current],
+			inboxRoutes: [{ ...route, runtimeInstance: "runtime-b" }],
 		});
 	});
 

@@ -1,7 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NativeInboxAcceptance, NativeInboxTransfer } from "../../../resources/gui-bridge/agent-inbox-contracts";
 import {
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APPROVE_PREF,
@@ -10,6 +11,7 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
+	AGENT_HIDDEN_PREFS_KEY,
 	type AgentReviewEvent,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
@@ -24,14 +26,18 @@ import type {
 } from "../../shared/schedules";
 import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
 import { createControlBackend } from "../control-socket/backend";
+import { core } from "../core/process";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
+import { RpcClient } from "../rpc-client";
 import type { ScheduleService } from "../schedules";
+import { deleteSession, sessionDeleteInProgress } from "../session-mutations";
 import type { ClientWindow } from "../web/client-window";
 import { FileEditReports } from "../web/file-edit-reports";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
+import { localInboxRuntimeInstance } from "./inbox-runtime-instance";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 
@@ -246,6 +252,207 @@ function setup(
 		sidecars,
 	};
 }
+
+describe("private Inbox receiving guards", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.spyOn(core(), "call").mockRejectedValue(new Error("No native process in the TS receiving fixture"));
+		initDeletedSessions(null);
+	});
+	afterEach(() => {
+		for (const runtime of runtimes.splice(0)) runtime.control.close();
+		vi.clearAllTimers();
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+		initDeletedSessions(null);
+	});
+
+	function receiving() {
+		const sessionPath = "/s/fixture-inbox.jsonl";
+		const env = setup({ tabs: [{ tabId: "recipient", sessionPath }] });
+		const rpcClient = new RpcClient({
+			send: () => {
+				throw new Error("No stock command in this fixture");
+			},
+		});
+		const bridgeRequest = vi.fn(async () => ({
+			receiver: { sessionPath, instance: "bridge-a" },
+			entries: [],
+			receipts: [],
+		}));
+		const sidecar = { cwd: "/repo", status: "ready", processAlive: true, rpcClient, bridgeRequest };
+		env.sidecars.set("recipient", sidecar);
+		const receiver = { sessionPath, instance: "bridge-a" };
+		const transfer: NativeInboxTransfer = {
+			receiver,
+			entries: [
+				{
+					entry: {
+						kind: "prompt",
+						deliveryId: "fixture-delivery",
+						sender: { session: "/s/producer.jsonl" },
+						intent: "immediate",
+						triggerTurn: true,
+						content: "fixture prompt",
+					},
+					logical: {
+						producer: { deviceId: "authenticated-peer", sessionPath: "/s/producer.jsonl" },
+						target: { deviceId: "fixture-host", sessionPath },
+						requestId: "fixture-request",
+						intent: "immediate",
+						triggerTurn: true,
+						payload: { kind: "prompt", text: "fixture prompt" },
+					},
+					dispatch: 1,
+				},
+			],
+			uploads: [],
+		};
+		const selection = {
+			tabId: "recipient",
+			sessionPath,
+			route: {
+				peerDeviceId: "authenticated-peer",
+				connectionIncarnation: "fixture-connection",
+				rtab: "fixture-rtab",
+			},
+			assertCurrent: () => {},
+		};
+		const acceptance: NativeInboxAcceptance = {
+			persistence: "disk",
+			receiver,
+			deliveries: [{ key: { kind: "prompt", deliveryId: "fixture-delivery" }, dispatch: 1 }],
+		};
+		return { ...env, sidecar, bridgeRequest, transfer, selection, acceptance, sessionPath };
+	}
+
+	it.each(["disabled", "hidden", "deleted", "runtime", "path"] as const)(
+		"rejects a receiving %s change while native acceptance is awaited",
+		async change => {
+			const env = receiving();
+			const entered = Promise.withResolvers<void>();
+			const accepted = Promise.withResolvers<NativeInboxAcceptance>();
+			const native = vi.spyOn(env.runtime.control.runtime, "acceptInbox").mockImplementation(async () => {
+				entered.resolve();
+				return accepted.promise;
+			});
+			const pending = env.runtime.acceptHostedInbox(env.selection, env.transfer, "authenticated-peer");
+			const refused = expect(pending).rejects.toThrow();
+			await entered.promise;
+			switch (change) {
+				case "disabled":
+					env.prefs[AGENT_CONTROL_PREF] = false;
+					break;
+				case "hidden":
+					env.prefs[AGENT_HIDDEN_PREFS_KEY] = { agentHidden: [env.sessionPath] };
+					break;
+				case "deleted":
+					deletedSessions().add(env.sessionPath);
+					break;
+				case "runtime":
+					env.sidecar.rpcClient = new RpcClient({
+						send: async () => {
+							throw new Error("Unexpected fixture command");
+						},
+					});
+					break;
+				case "path": {
+					const tab = env.tabs.find(tab => tab.tabId === "recipient");
+					if (!tab) throw new Error("Missing recipient fixture");
+					tab.sessionPath = "/s/another-fixture.jsonl";
+					break;
+				}
+			}
+			accepted.resolve(env.acceptance);
+			await refused;
+			expect(native).toHaveBeenCalledOnce();
+			expect(env.bridgeRequest).not.toHaveBeenCalled();
+		},
+	);
+
+	it("uses the exact current native nonce and preserves Memory rather than claiming Disk", async () => {
+		const env = receiving();
+		const memory: NativeInboxAcceptance = { ...env.acceptance, persistence: "memory" };
+		const native = vi.spyOn(env.runtime.control.runtime, "acceptInbox").mockResolvedValue(memory);
+		expect(await env.runtime.acceptHostedInbox(env.selection, env.transfer, "authenticated-peer")).toEqual(memory);
+		expect(native).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tabId: "recipient",
+				transfer: env.transfer,
+				uploadDeviceId: "authenticated-peer",
+				expectedProducerDeviceId: "authenticated-peer",
+				expectedRuntimeInstance: localInboxRuntimeInstance(env.sidecar.rpcClient),
+				expectedRoute: {
+					...env.selection.route,
+					tabId: "recipient",
+					sessionPath: env.sessionPath,
+					runtimeInstance: localInboxRuntimeInstance(env.sidecar.rpcClient),
+				},
+			}),
+		);
+	});
+
+	it("refuses the exact in-progress delete before returning an awaited receiving ACK", async () => {
+		const env = receiving();
+		const entered = Promise.withResolvers<void>();
+		const accepted = Promise.withResolvers<NativeInboxAcceptance>();
+		vi.spyOn(env.runtime.control.runtime, "acceptInbox").mockImplementation(async () => {
+			entered.resolve();
+			return accepted.promise;
+		});
+		const pending = env.runtime.acceptHostedInbox(env.selection, env.transfer, "authenticated-peer");
+		const refused = expect(pending).rejects.toThrow();
+		await entered.promise;
+		const storageEntered = Promise.withResolvers<void>();
+		const storage = Promise.withResolvers<void>();
+		const deleting = deleteSession(
+			{
+				sessionOwner: () => null,
+				sessionOwnerIsLive: () => false,
+				sessionRunning: () => false,
+				commandForSession: async () => null,
+				closeSessionTab: async () => true,
+				noteSessionName: () => {},
+			},
+			env.sessionPath,
+			undefined,
+			async () => {
+				storageEntered.resolve();
+				await storage.promise;
+			},
+		);
+		try {
+			await storageEntered.promise;
+			expect(sessionDeleteInProgress(env.sessionPath)).toBe(true);
+			accepted.resolve(env.acceptance);
+			await refused;
+		} finally {
+			storage.resolve();
+			await deleting;
+		}
+	});
+
+	it("rejects a bridge status from a replaced runtime without sending a stock command", async () => {
+		const env = receiving();
+		const bridge = Promise.withResolvers<{
+			receiver: { sessionPath: string; instance: string };
+			entries: [];
+			receipts: [];
+		}>();
+		env.bridgeRequest.mockImplementation(() => bridge.promise);
+		const pending = env.runtime.hostedInboxStatus(env.selection);
+		const refused = expect(pending).rejects.toThrow("execution changed");
+		env.sidecar.rpcClient = new RpcClient({
+			send: async () => {
+				throw new Error("Unexpected fixture command");
+			},
+		});
+		bridge.resolve({ receiver: env.transfer.receiver, entries: [], receipts: [] });
+		await refused;
+		expect(env.bridgeRequest).toHaveBeenCalledWith("agent_control.inbox_status", {});
+		expect(env.commands).toEqual([]);
+	});
+});
 
 describe("AgentControlRuntime", () => {
 	it("splits an agent-chosen branch into prefix and name, defaulting to omp/agent/", () => {
