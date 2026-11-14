@@ -321,10 +321,27 @@ export const NativeInboxTransferSchema: z.ZodType<NativeInboxTransfer> = z
 		uploads: z.array(z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), path: z.string().min(1) }).strict()),
 	})
 	.strict();
-export const NativeInboxLookupSchema: z.ZodType<NativeInboxLookup> = z
-	.object({ receiver: InboxReceiverSchema, entries: z.array(InboxTransferEntrySchema) })
-	.strict();
 const InboxKeyFields = { kind: z.enum(["prompt", "report"]), deliveryId: z.string().min(1) };
+export const NativeInboxLookupSchema: z.ZodType<NativeInboxLookup> = z
+	.object({
+		receiver: InboxReceiverSchema,
+		entries: z.array(
+			z
+				.object({
+					key: z.object(InboxKeyFields).strict(),
+					logical: InboxLogicalSchema,
+					attachments: z
+						.object({
+							images: z.array(InboxAttachmentSchema),
+							files: z.array(InboxAttachmentSchema),
+						})
+						.strict()
+						.optional(),
+				})
+				.strict(),
+		),
+	})
+	.strict();
 const InboxContextReceiptSchema = z
 	.object({
 		requestId: z.string(),

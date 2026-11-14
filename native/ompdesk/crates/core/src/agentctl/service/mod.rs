@@ -98,6 +98,7 @@ pub struct QueuedFollowUp {
     pub n: u64,
     pub id: String,
     pub from: String,
+    pub(crate) native_key: Option<crate::agentctl::inbox::NativeInboxKey>,
 }
 
 /// A session's last read cost and split, which stand while its omp cannot answer.

@@ -31,7 +31,9 @@
  */
 import type {
 	InboxContextReceipt,
+	InboxLogicalMessage,
 	NativeInboxAcceptance,
+	NativeInboxAttachmentRef,
 	NativeInboxFiles,
 	NativeInboxKey,
 	NativeInboxReply,
@@ -245,9 +247,18 @@ export interface SentAnswer {
 	journaled: string[];
 }
 
+export interface NativeInboxLookupEntry {
+	key: NativeInboxKey;
+	logical: InboxLogicalMessage;
+	attachments?: {
+		images: NativeInboxAttachmentRef[];
+		files: NativeInboxAttachmentRef[];
+	};
+}
+
 export interface NativeInboxLookup {
 	receiver: NativeInboxTransfer["receiver"];
-	entries: NativeInboxTransfer["entries"];
+	entries: NativeInboxLookupEntry[];
 }
 
 export type NativeInboxLookupResult =
