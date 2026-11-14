@@ -22,6 +22,7 @@ mod schedule;
 mod tests;
 
 pub use app::{ServicePorts, command_timeout};
+pub(crate) use review::{is_turn_prompt, turn_edits};
 
 use serde_json::json;
 

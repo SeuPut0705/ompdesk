@@ -341,7 +341,7 @@ fn make_private_dirs(folder: &Path) -> io::Result<()> {
 }
 
 /// `randomUUID()`.
-fn uuid() -> String {
+pub(crate) fn uuid() -> String {
     let mut bytes = [0; 16];
     if crate::sys::random(&mut bytes).is_err() {
         bytes = SystemTime::now()
