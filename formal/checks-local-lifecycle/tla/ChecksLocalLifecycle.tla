@@ -4,12 +4,13 @@ EXTENDS Naturals, FiniteSets, TLC
 CONSTANT Workers
 None == "none"
 Epochs == 0..Cardinality(Workers)
+WorkerSymmetry == Permutations(Workers)
 
 VARIABLE s
 vars == <<s>>
 
-Init ==
-  /\ s = [ paused |-> FALSE,
+Initial ==
+         [ paused |-> FALSE,
            stopped |-> [w \in Workers |-> FALSE],
            core |-> [w \in Workers |-> "live"],
            admission |-> [w \in Workers |-> "new"],
@@ -28,6 +29,24 @@ Init ==
            badPause |-> FALSE, badFallback |-> FALSE,
            badEpoch |-> FALSE, badSha |-> FALSE,
            badReturn |-> FALSE, badRepair |-> FALSE, badDamagedWork |-> FALSE ]
+
+Init == s = Initial
+
+\* A reachable three-worker prefix: delayed epoch-1 starter, epoch-2 active worker
+\* whose core died, and a third core holding A while it waits for that worker's B.
+WorkerBusyInit ==
+  \E late, old, fresh \in Workers :
+    /\ late # old /\ old # fresh /\ late # fresh
+    /\ s = [Initial EXCEPT
+         !.admission = [w \in Workers |-> "accepted"],
+         !.phase[late] = "reserved", !.phase[old] = "reserved", !.phase[fresh] = "a",
+         !.core[late] = "dead", !.core[old] = "dead",
+         !.stopped[late] = TRUE, !.stopped[old] = TRUE,
+         !.cancel[late] = TRUE, !.cancel[old] = TRUE,
+         !.a = fresh, !.b = old, !.bOwner = "worker", !.epoch = 2,
+         !.childEpoch[late] = 1, !.childEpoch[old] = 2,
+         !.child[late] = "pending", !.child[old] = "active",
+         !.kind[late] = "check", !.kind[old] = "git", !.sha = old]
 
 TypeOK ==
   /\ s.paused \in BOOLEAN /\ s.broken \in BOOLEAN
@@ -214,4 +233,5 @@ Next ==
        \/ BeginCleanup(w) \/ EndCleanup(w) \/ ReturnCancelled(w) \/ PrepareFallback(w) \/ Fallback(w) \/ Crash(w)
 
 Spec == Init /\ [][Next]_vars
+BusySpec == WorkerBusyInit /\ [][Next]_vars
 =============================================================================

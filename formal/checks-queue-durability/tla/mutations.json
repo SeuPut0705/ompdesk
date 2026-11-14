@@ -6,7 +6,7 @@
     {
       "name": "ack-before-save",
       "why": "An enqueue is acknowledged after a failed save.",
-      "search": "/\\ ~stopped /\\ mem > 0 /\\ mem = disk /\\ ~ack",
+      "search": "/\\ ~stopped /\\ ready /\\ mem > 0 /\\ mem = disk /\\ ~ack",
       "replace": "/\\ ~stopped /\\ mem > 0 /\\ ~ack",
       "breaks": "AckDurable",
       "isolate": true
@@ -14,7 +14,7 @@
     {
       "name": "effect-before-save",
       "why": "The lane runs an effect after a failed save.",
-      "search": "/\\ ~stopped /\\ mem > 0 /\\ mem = disk /\\ mem \\in memOut /\\ mem \\in diskOut /\\ mem \\notin effects",
+      "search": "/\\ ~stopped /\\ ready /\\ mem > 0 /\\ mem = disk /\\ mem \\in memOut /\\ mem \\in diskOut /\\ mem \\notin effects",
       "replace": "/\\ ~stopped /\\ mem > 0 /\\ mem \\in memOut /\\ mem \\notin effects",
       "breaks": "EffectsDurable",
       "isolate": true
@@ -38,7 +38,7 @@
     {
       "name": "forget-receipt-before-outbox-save",
       "why": "The destination forgets an accepted result while Tell can still replay.",
-      "search": "/\\ ~stopped /\\ diskRetire /\\ 2 \\notin diskOut /\\ receipt",
+      "search": "/\\ ~stopped /\\ ready /\\ diskRetire /\\ 2 \\notin diskOut /\\ receipt",
       "replace": "/\\ ~stopped /\\ receipt",
       "breaks": "ReceiptCoversReplay",
       "isolate": true

@@ -6,14 +6,16 @@
       "why": "A volatile receiver or failed save cannot take durable source responsibility.",
       "search": "s.receipt[k] = \"disk\" \\* disk-only-ack",
       "replace": "s.receipt[k] # \"none\" \\* disk-only-ack",
-      "breaks": "DiskBeforeAck"
+      "breaks": "DiskBeforeAck",
+      "isolate": true
     },
     {
       "name": "forget-disk-receiver-on-crash",
       "why": "After source ACK, receiver restart must retain the accepted journal responsibility.",
       "search": "!.memory = {}] \\* durable-receiver-survives",
       "replace": "!.memory = {}, !.receiver = {}] \\* durable-receiver-survives",
-      "breaks": "NoLossAfterPublication"
+      "breaks": "NoLossAfterPublication",
+      "isolate": true
     },
     {
       "name": "fresh-receiver-entry-on-replay",
@@ -28,6 +30,14 @@
       "search": "k \\in s.source \\* persisted-before-send",
       "replace": "k \\in s.prepared \\* persisted-before-send",
       "breaks": "NoSendBeforePersistence"
+    },
+    {
+      "name": "corrupt-receipt-type",
+      "why": "The finite receipt shape must reject an undeclared receiver outcome.",
+      "search": "!.receipt[k] = \"memory\"",
+      "replace": "!.receipt[k] = \"invalid\"",
+      "breaks": "TypeOK",
+      "isolate": true
     }
   ]
 }

@@ -20,7 +20,9 @@
       "why": "A new worker enters while an older worker still runs or cleans up.",
       "search": "  /\\ s.b = None  \\* worker-B",
       "replace": "  /\\ TRUE  \\* worker-B",
-      "breaks": "NoCheckoutOverlap"
+      "breaks": "NoCheckoutOverlap",
+      "config": "MC_busy.cfg",
+      "isolate": true
     },
     {
       "name": "late-worker-ignores-epoch",
@@ -63,6 +65,14 @@
       "search": "!.b = IF s.b = w /\\ s.bOwner = \"core\" THEN None ELSE @,",
       "replace": "!.b = IF s.b = w THEN None ELSE @,",
       "breaks": "NoCheckoutOverlap"
+    },
+    {
+      "name": "initial-state-shape-corrupt",
+      "why": "The model must reject an undeclared sticky-event field value.",
+      "search": "badPause |-> FALSE",
+      "replace": "badPause |-> \"invalid\"",
+      "breaks": "TypeOK",
+      "isolate": true
     }
   ]
 }

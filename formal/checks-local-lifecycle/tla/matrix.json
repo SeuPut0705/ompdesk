@@ -1,6 +1,7 @@
 {
   "runs": [
     { "name": "two-checkout-generations", "config": "MC.cfg", "expect": "pass" },
-    { "name": "three-checkout-generations", "config": "MC.cfg", "constants": { "Workers": "{w1, w2, w3}" }, "expect": "pass" }
+    { "name": "three-checkout-generations", "config": "MC.cfg", "constants": { "Workers": "{w1, w2, w3}" }, "timeoutSec": 3600, "expect": "pass" },
+    { "name": "three-workers-delayed-starter-and-live-lock", "config": "MC_busy.cfg", "expect": "pass" }
   ]
 }
