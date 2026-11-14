@@ -42,23 +42,36 @@ pub struct Config {
 
 impl Config {
     /// Machine supplies its resolved spawn environment. The shipped REA pin remains the only version source.
-    pub fn bundled(builtin_dir: &std::path::Path, user_data: &std::path::Path, env: BTreeMap<String, String>, windows: bool) -> io::Result<Self> {
+    pub fn bundled(
+        builtin_dir: &std::path::Path,
+        user_data: &std::path::Path,
+        env: BTreeMap<String, String>,
+        windows: bool,
+    ) -> io::Result<Self> {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
-        struct Pin { version: String, curated_tools: Vec<String> }
-        let pin: Pin = serde_json::from_slice(&std::fs::read(builtin_dir.join("rea/rea-config.json"))?)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        struct Pin {
+            version: String,
+            curated_tools: Vec<String>,
+        }
+        let pin: Pin =
+            serde_json::from_slice(&std::fs::read(builtin_dir.join("rea/rea-config.json"))?)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         Ok(Self {
             port: 0,
             rea: ReaConfig {
                 command: if windows { "npx.cmd" } else { "npx" }.into(),
-                args: vec!["-y".into(), format!("rea-agents@{}", pin.version), "mcp".into()],
+                args: vec![
+                    "-y".into(),
+                    format!("rea-agents@{}", pin.version),
+                    "mcp".into(),
+                ],
                 env,
                 cache_dir: Some(user_data.join("rea")),
                 version: pin.version,
                 curated_tools: pin.curated_tools,
             },
-            memory_state_file: Some(user_data.join("recall.json")),
+            memory_state_file: Some(user_data.join("ai-memory/recall.json")),
         })
     }
 }
@@ -73,6 +86,47 @@ struct Session {
     rea: Arc<rea::Rea>,
     events: Mutex<Events>,
     end: watch::Sender<bool>,
+    replies: Mutex<Replies>,
+    drained: tokio::sync::Notify,
+}
+
+#[derive(Default)]
+struct Replies {
+    count: usize,
+    closing: bool,
+}
+
+impl Session {
+    async fn finish(&self) {
+        self.rea.close().await;
+        loop {
+            let drained = self.drained.notified();
+            if self.replies.lock().unwrap().count == 0 {
+                break;
+            }
+            drained.await;
+        }
+        self.end.send_replace(true);
+        self.events.lock().unwrap().stream = None;
+    }
+}
+
+struct ReplyLease(Arc<Session>);
+impl ReplyLease {
+    fn acquire(session: &Arc<Session>) -> Option<Self> {
+        let mut replies = session.replies.lock().unwrap();
+        if replies.closing {
+            return None;
+        }
+        replies.count += 1;
+        Some(Self(Arc::clone(session)))
+    }
+}
+impl Drop for ReplyLease {
+    fn drop(&mut self) {
+        self.0.replies.lock().unwrap().count -= 1;
+        self.0.drained.notify_one();
+    }
 }
 
 struct Inner {
@@ -96,13 +150,15 @@ pub struct McpHub {
 
 impl McpHub {
     pub async fn start(mut config: Config) -> io::Result<Self> {
-        // Never inherit the app-only bearer through REA, including an app started inside another session.
-        config.rea.env.remove("OMP_GUI_MCP_HUB_SECRET");
+        // REA receives neither this app's hub credentials nor a parent session's plumbing.
+        policy::sanitize_environment(&mut config.rea.env);
         let mut secret = [0; 32];
         crate::sys::random(&mut secret)?;
         let listener = tokio::time::timeout(READY_WAIT, bind(config.port))
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "MCP hub did not listen in time"))??;
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::TimedOut, "MCP hub did not listen in time")
+            })??;
         let port = listener.local_addr()?.port();
         let cache = Arc::new(rea::Cache::new(&config.rea));
         let inner = Arc::new(Inner {
@@ -141,7 +197,10 @@ impl McpHub {
             return BTreeMap::new();
         }
         BTreeMap::from([
-            ("OMP_GUI_MCP_HUB".into(), format!("http://127.0.0.1:{}", self.port())),
+            (
+                "OMP_GUI_MCP_HUB".into(),
+                format!("http://127.0.0.1:{}", self.port()),
+            ),
             ("OMP_GUI_MCP_AUTH".into(), self.inner.auth.clone()),
             ("OMP_GUI_MCP_CWD".into(), encode_cwd(cwd)),
         ])
@@ -150,7 +209,9 @@ impl McpHub {
     /// Restarts the listener without changing the launch bearer. Existing sessions are ended and joined first.
     pub async fn restart(&self) -> io::Result<u16> {
         let (tx, rx) = oneshot::channel();
-        self.restart.send(tx).map_err(|_| io::Error::other("MCP hub stopped"))?;
+        self.restart
+            .send(tx)
+            .map_err(|_| io::Error::other("MCP hub stopped"))?;
         rx.await.map_err(|_| io::Error::other("MCP hub stopped"))?
     }
 
@@ -213,7 +274,9 @@ async fn serve(
 ) -> io::Result<()> {
     let mut connections = JoinSet::new();
     let result = loop {
-        if *stopped.borrow() { break Ok(()); }
+        if *stopped.borrow() {
+            break Ok(());
+        }
         tokio::select! {
             biased;
             _ = stopped.changed() => break Ok(()),
@@ -258,25 +321,46 @@ async fn serve(
 }
 
 impl Inner {
+    fn track(&self, task: JoinHandle<()>) {
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.retain(|task| !task.is_finished());
+        tasks.push(task);
+    }
+
     fn close(self: &Arc<Self>, id: &str) {
-        if let Some(session) = self.sessions.lock().unwrap().remove(id) {
-            session.end.send_replace(true);
-            session.events.lock().unwrap().stream = None;
-            self.tasks.lock().unwrap().push(tokio::spawn(async move { session.rea.close().await; }));
+        let session = self.sessions.lock().unwrap().remove(id);
+        if let Some(session) = session {
+            self.retire(session);
         }
     }
 
+    fn retire(&self, session: Arc<Session>) {
+        session.replies.lock().unwrap().closing = true;
+        self.track(tokio::spawn(async move {
+            session.finish().await;
+        }));
+    }
+
     async fn close_all(self: &Arc<Self>) {
-        let sessions: Vec<_> = self.sessions.lock().unwrap().drain().map(|(_, v)| v).collect();
+        let sessions: Vec<_> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .drain()
+            .map(|(_, v)| v)
+            .collect();
         let mut closing = JoinSet::new();
         for session in sessions {
-            session.end.send_replace(true);
-            session.events.lock().unwrap().stream = None;
-            closing.spawn(async move { session.rea.close().await; });
+            session.replies.lock().unwrap().closing = true;
+            closing.spawn(async move {
+                session.finish().await;
+            });
         }
         while closing.join_next().await.is_some() {}
         let tasks = std::mem::take(&mut *self.tasks.lock().unwrap());
-        for task in tasks { let _ = task.await; }
+        for task in tasks {
+            let _ = task.await;
+        }
     }
 
     fn open(self: &Arc<Self>, cwd: Option<String>) -> io::Result<(String, Arc<Session>)> {
@@ -287,15 +371,30 @@ impl Inner {
         let (closed, mut exited) = mpsc::unbounded_channel();
         let (end, mut ended) = watch::channel(false);
         let session = Arc::new(Session {
-            rea: rea::Rea::new(self.config.rea.clone(), cwd, Arc::clone(&self.cache), events, closed),
-            events: Mutex::new(Events { held: VecDeque::new(), stream: None, generation: 0 }),
+            rea: rea::Rea::new(
+                self.config.rea.clone(),
+                cwd,
+                Arc::clone(&self.cache),
+                events,
+                closed,
+            ),
+            events: Mutex::new(Events {
+                held: VecDeque::new(),
+                stream: None,
+                generation: 0,
+            }),
             end,
+            replies: Mutex::new(Replies::default()),
+            drained: tokio::sync::Notify::new(),
         });
-        self.sessions.lock().unwrap().insert(id.clone(), Arc::clone(&session));
+        self.sessions
+            .lock()
+            .unwrap()
+            .insert(id.clone(), Arc::clone(&session));
         let own = Arc::downgrade(self);
         let target = Arc::clone(&session);
         let task_id = id.clone();
-        self.tasks.lock().unwrap().push(tokio::spawn(async move {
+        self.track(tokio::spawn(async move {
             loop {
                 tokio::select! {
                     biased;
@@ -318,55 +417,125 @@ impl Inner {
     }
 
     async fn request(self: Arc<Self>, request: Request<Incoming>) -> Response<Out> {
-        let given = request.headers().get("authorization").map_or(&[][..], |value| value.as_bytes());
-        if !bool::from(given.ct_eq(self.auth.as_bytes())) { return response(401, Out::empty()); }
+        let given = request
+            .headers()
+            .get("authorization")
+            .map_or(&[][..], |value| value.as_bytes());
+        if !bool::from(given.ct_eq(self.auth.as_bytes())) {
+            return response(401, Out::empty());
+        }
         let (parts, body) = request.into_parts();
         let path = parts.uri.path();
-        if path != "/rea" && path != "/memory" { return response(404, Out::empty()); }
-        if path == "/memory" && parts.method != Method::POST { return response(405, Out::empty()); }
-        let session_id = parts.headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok()).map(str::to_owned);
+        if path != "/rea" && path != "/memory" {
+            return response(404, Out::empty());
+        }
+        if path == "/memory" && parts.method != Method::POST {
+            return response(405, Out::empty());
+        }
+        let session_id = parts
+            .headers
+            .get(SESSION_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
         if path == "/rea" {
             if parts.method == Method::DELETE {
-                if let Some(id) = &session_id { self.close(id); }
+                if let Some(id) = &session_id {
+                    self.close(id);
+                }
                 return response(200, Out::empty());
             }
             if parts.method == Method::GET {
-                let Some(id) = session_id else { return response(404, Out::empty()); };
-                let Some(session) = self.sessions.lock().unwrap().get(&id).cloned() else { return response(404, Out::empty()); };
+                let Some(id) = session_id else {
+                    return response(404, Out::empty());
+                };
+                let sessions = self.sessions.lock().unwrap();
+                let Some(session) = sessions.get(&id) else {
+                    return response(404, Out::empty());
+                };
                 let (tx, rx) = mpsc::unbounded_channel();
                 let generation = {
                     let mut state = session.events.lock().unwrap();
                     state.generation += 1;
                     let generation = state.generation;
                     let _ = tx.send(Bytes::from_static(b": open\n\n"));
-                    for frame in state.held.drain(..) { let _ = tx.send(frame); }
+                    for frame in state.held.drain(..) {
+                        let _ = tx.send(frame);
+                    }
                     state.stream = Some((generation, tx));
                     generation
                 };
-                let mut answer = response(200, Out::stream(rx, StreamLease { inner: Arc::downgrade(&self), id: id.clone(), generation }));
-                answer.headers_mut().insert("content-type", hyper::header::HeaderValue::from_static("text/event-stream"));
-                answer.headers_mut().insert("cache-control", hyper::header::HeaderValue::from_static("no-cache"));
+                drop(sessions);
+                let mut answer = response(
+                    200,
+                    Out::stream(
+                        rx,
+                        StreamLease {
+                            inner: Arc::downgrade(&self),
+                            id: id.clone(),
+                            generation,
+                        },
+                    ),
+                );
+                answer.headers_mut().insert(
+                    "content-type",
+                    hyper::header::HeaderValue::from_static("text/event-stream"),
+                );
+                answer.headers_mut().insert(
+                    "cache-control",
+                    hyper::header::HeaderValue::from_static("no-cache"),
+                );
                 set_session(&mut answer, &id);
                 return answer;
             }
         }
-        if parts.method != Method::POST { return response(405, Out::empty()); }
-        let bytes = match body.collect().await { Ok(body) => body.to_bytes(), Err(_) => return response(400, Out::empty()) };
+        if parts.method != Method::POST {
+            return response(405, Out::empty());
+        }
+        let bytes = match body.collect().await {
+            Ok(body) => body.to_bytes(),
+            Err(_) => return response(400, Out::empty()),
+        };
         let message: Value = match serde_json::from_slice(&bytes) {
             Ok(message) => message,
-            Err(_) => return rpc_response(400, json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}})),
+            Err(_) => {
+                return rpc_response(
+                    400,
+                    json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}),
+                );
+            }
         };
-        if path == "/memory" { return memory::post(message, &bytes, self.config.memory_state_file.as_deref()).await; }
+        if path == "/memory" {
+            return memory::post(message, &bytes, self.config.memory_state_file.as_deref()).await;
+        }
         let (id, session) = if let Some(id) = session_id {
             let session = self.sessions.lock().unwrap().get(&id).cloned();
-            let Some(session) = session else { return response(404, Out::empty()); };
+            let Some(session) = session else {
+                return response(404, Out::empty());
+            };
             (id, session)
         } else {
             if message.get("method").and_then(Value::as_str) != Some("initialize") {
-                return rpc_response(400, json!({"jsonrpc":"2.0","id":message.get("id").unwrap_or(&Value::Null),"error":{"code":-32600,"message":"Initialize a session first"}}));
+                return rpc_response(
+                    400,
+                    json!({"jsonrpc":"2.0","id":message.get("id").unwrap_or(&Value::Null),"error":{"code":-32600,"message":"Initialize a session first"}}),
+                );
             }
-            let cwd = parts.uri.query().and_then(|query| url::form_urlencoded::parse(query.as_bytes()).find(|(name, _)| name == "cwd").map(|(_, value)| value.into_owned())).filter(|value| !value.is_empty());
-            match self.open(cwd) { Ok(session) => session, Err(_) => return response(500, Out::empty()) }
+            let cwd = parts
+                .uri
+                .query()
+                .and_then(|query| {
+                    url::form_urlencoded::parse(query.as_bytes())
+                        .find(|(name, _)| name == "cwd")
+                        .map(|(_, value)| value.into_owned())
+                })
+                .filter(|value| !value.is_empty());
+            match self.open(cwd) {
+                Ok(session) => session,
+                Err(_) => return response(500, Out::empty()),
+            }
+        };
+        let Some(reply_lease) = ReplyLease::acquire(&session) else {
+            return response(404, Out::empty());
         };
         let mut answer = match session.rea.receive(message) {
             Some(reply) => match reply.await {
@@ -375,29 +544,50 @@ impl Inner {
             },
             None => response(202, Out::empty()),
         };
+        answer.body_mut()._reply = Some(reply_lease);
         set_session(&mut answer, &id);
         answer
     }
 }
 
 fn set_session(response: &mut Response<Out>, id: &str) {
-    if let Ok(value) = id.parse() { response.headers_mut().insert(SESSION_HEADER, value); }
+    if let Ok(value) = id.parse() {
+        response.headers_mut().insert(SESSION_HEADER, value);
+    }
 }
 
-struct StreamLease { inner: Weak<Inner>, id: String, generation: u64 }
+struct StreamLease {
+    inner: Weak<Inner>,
+    id: String,
+    generation: u64,
+}
 impl Drop for StreamLease {
     fn drop(&mut self) {
-        let Some(inner) = self.inner.upgrade() else { return; };
-        let session = inner.sessions.lock().unwrap().get(&self.id).cloned();
-        if let Some(session) = session {
-            let current = {
-                let mut state = session.events.lock().unwrap();
-                if state.stream.as_ref().is_some_and(|(generation, _)| *generation == self.generation) {
-                    state.stream = None;
-                    true
-                } else { false }
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+        let retired = {
+            let mut sessions = inner.sessions.lock().unwrap();
+            let Some(session) = sessions.get(&self.id).cloned() else {
+                return;
             };
-            if current && session.rea.running() { inner.close(&self.id); }
+            let mut state = session.events.lock().unwrap();
+            if !state
+                .stream
+                .as_ref()
+                .is_some_and(|(generation, _)| *generation == self.generation)
+            {
+                return;
+            }
+            state.stream = None;
+            if session.rea.running() {
+                sessions.remove(&self.id)
+            } else {
+                None
+            }
+        };
+        if let Some(session) = retired {
+            inner.retire(session);
         }
     }
 }
@@ -406,30 +596,69 @@ pub(super) struct Out {
     bytes: Option<Bytes>,
     stream: Option<mpsc::UnboundedReceiver<Bytes>>,
     _lease: Option<StreamLease>,
+    _reply: Option<ReplyLease>,
 }
 impl Out {
-    fn empty() -> Self { Self::bytes(Bytes::new()) }
-    fn bytes(bytes: Bytes) -> Self { Self { bytes: Some(bytes), stream: None, _lease: None } }
-    fn stream(stream: mpsc::UnboundedReceiver<Bytes>, lease: StreamLease) -> Self { Self { bytes: None, stream: Some(stream), _lease: Some(lease) } }
+    fn empty() -> Self {
+        Self::bytes(Bytes::new())
+    }
+    fn bytes(bytes: Bytes) -> Self {
+        Self {
+            bytes: Some(bytes),
+            stream: None,
+            _lease: None,
+            _reply: None,
+        }
+    }
+    fn stream(stream: mpsc::UnboundedReceiver<Bytes>, lease: StreamLease) -> Self {
+        Self {
+            bytes: None,
+            stream: Some(stream),
+            _lease: Some(lease),
+            _reply: None,
+        }
+    }
 }
 impl Body for Out {
     type Data = Bytes;
     type Error = Infallible;
-    fn poll_frame(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
-        if let Some(stream) = &mut self.stream { return stream.poll_recv(cx).map(|data| data.map(|data| Ok(Frame::data(data)))); }
-        Poll::Ready(self.bytes.take().filter(|bytes| !bytes.is_empty()).map(|bytes| Ok(Frame::data(bytes))))
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
+        if let Some(stream) = &mut self.stream {
+            return stream
+                .poll_recv(cx)
+                .map(|data| data.map(|data| Ok(Frame::data(data))));
+        }
+        Poll::Ready(
+            self.bytes
+                .take()
+                .filter(|bytes| !bytes.is_empty())
+                .map(|bytes| Ok(Frame::data(bytes))),
+        )
     }
-    fn is_end_stream(&self) -> bool { self.stream.is_none() && self.bytes.as_ref().is_none_or(Bytes::is_empty) }
-    fn size_hint(&self) -> SizeHint { self.bytes.as_ref().map_or_else(SizeHint::default, |bytes| SizeHint::with_exact(bytes.len() as u64)) }
+    fn is_end_stream(&self) -> bool {
+        self.stream.is_none() && self.bytes.as_ref().is_none_or(Bytes::is_empty)
+    }
+    fn size_hint(&self) -> SizeHint {
+        self.bytes.as_ref().map_or_else(SizeHint::default, |bytes| {
+            SizeHint::with_exact(bytes.len() as u64)
+        })
+    }
 }
 pub(super) fn response(status: u16, body: Out) -> Response<Out> {
     let mut response = Response::new(body);
-    *response.status_mut() = hyper::StatusCode::from_u16(status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
+    *response.status_mut() =
+        hyper::StatusCode::from_u16(status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
     response
 }
 pub(super) fn rpc_response(status: u16, message: Value) -> Response<Out> {
     let mut answer = response(status, Out::bytes(Bytes::from(message.to_string())));
-    answer.headers_mut().insert("content-type", hyper::header::HeaderValue::from_static("application/json"));
+    answer.headers_mut().insert(
+        "content-type",
+        hyper::header::HeaderValue::from_static("application/json"),
+    );
     answer
 }
 
