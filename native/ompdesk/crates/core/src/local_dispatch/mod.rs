@@ -146,31 +146,38 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Commands<S> {
     }
 
     pub fn command_for_generation(&self, generation: u64, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
-        let spawn = self.captured(generation);
-        Box::pin(self.execute(command, spawn))
+        let cwd = Arc::from(self.source.facts()["cwd"].as_str().unwrap_or_default());
+        self.command_with_captured_cwd(generation, cwd, command)
     }
 
-    async fn execute(&self, mut command: RpcCommand, spawn: Arc<Spawn<S>>) -> Result<Value, Fault> {
+    /// The caller supplies only the native selected cwd, never a page's command field or a late facts lookup.
+    pub fn command_with_captured_cwd(&self, generation: u64, cwd: Arc<str>, command: RpcCommand) -> crate::pool::application::EffectFuture<'_, Result<Value, Fault>> {
+        let spawn = self.captured(generation);
+        let session = spawn.session.clone().with_captured_cwd(cwd);
+        Box::pin(self.execute(command, spawn, session))
+    }
+
+    async fn execute(&self, mut command: RpcCommand, spawn: Arc<Spawn<S>>, session: Session<S>) -> Result<Value, Fault> {
         let sequence = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         command.id = Some(format!("gui-{sequence}"));
         let Some(area) = self.table.0.get(command.kind.as_str()) else {
             let command = serde_json::to_value(command).map_err(|error| Fault::new("invalid_params", error.to_string()))?;
-            return spawn.session.raw_stock(command).await;
+            return session.raw_stock(command).await;
         };
         // A hit is consumed regardless of its result. In particular a bridge or local error must never cause this
         // command to be sent to stock, which may interpret an unknown slash command as a model prompt.
         let result = match area {
-            Area::Composer => composer::handle(&command, &spawn.session).await,
-            Area::Queue => spawn.queue.handle(&command, &spawn.session).await,
-            Area::Modes => modes::handle(&command, &spawn.session).await,
-            Area::Settings => settings::handle(&command, &spawn.session).await,
-            Area::Transcript => spawn.transcript.handle(&command, &spawn.session).await,
+            Area::Composer => composer::handle(&command, &session).await,
+            Area::Queue => spawn.queue.handle(&command, &session).await,
+            Area::Modes => modes::handle(&command, &session).await,
+            Area::Settings => settings::handle(&command, &session).await,
+            Area::Transcript => spawn.transcript.handle(&command, &session).await,
             Area::Metadata => METADATA.handle(&command).await,
-            Area::Extensions => extensions::handle(&command, &spawn.session).await,
-            Area::Authoring => authoring::handle(&command, &spawn.session, &self.config.templates).await,
-            Area::Live => live::handle(&command, &spawn.session).await,
+            Area::Extensions => extensions::handle(&command, &session).await,
+            Area::Authoring => authoring::handle(&command, &session, &self.config.templates).await,
+            Area::Live => live::handle(&command, &session).await,
             Area::Stock => stock_commands::handle(&command, &self.config.stock).await,
-            Area::Archive => ARCHIVES.handle(&command, &spawn.session).await,
+            Area::Archive => ARCHIVES.handle(&command, &session).await,
         };
         self.source.before_response();
         serde_json::to_value(RpcResponse::local(&command, result)).map_err(|error| Fault::new("internal", error.to_string()))

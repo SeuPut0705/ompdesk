@@ -14,12 +14,13 @@ pub struct Session<S: Sidecar<Error = Fault> + ?Sized> {
     pub source: Arc<S>,
     pub version: Arc<str>,
     generation: u64,
+    cwd: Arc<str>,
     slash: Arc<Mutex<Option<HashSet<String>>>>,
 }
 
 impl<S: Sidecar<Error = Fault> + ?Sized> Clone for Session<S> {
     fn clone(&self) -> Self {
-        Self { source: Arc::clone(&self.source), version: Arc::clone(&self.version), generation: self.generation, slash: Arc::clone(&self.slash) }
+        Self { source: Arc::clone(&self.source), version: Arc::clone(&self.version), generation: self.generation, cwd: Arc::clone(&self.cwd), slash: Arc::clone(&self.slash) }
     }
 }
 
@@ -31,7 +32,14 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Session<S> {
 
     /// Only a host-selected native source generation may supply this value; never deserialize it from RPC data.
     pub fn from_captured(source: Arc<S>, version: Arc<str>, generation: u64) -> Self {
-        Self { source, version, generation, slash: Arc::default() }
+        let cwd = Arc::from(source.facts()["cwd"].as_str().unwrap_or_default());
+        Self { source, version, generation, cwd, slash: Arc::default() }
+    }
+
+    /// Override with the cwd selected alongside owner/source/generation before any admission await.
+    pub fn with_captured_cwd(mut self, cwd: impl Into<Arc<str>>) -> Self {
+        self.cwd = cwd.into();
+        self
     }
 
     pub async fn raw_stock(&self, command: Value) -> Result<Value, Fault> {
@@ -39,7 +47,7 @@ impl<S: Sidecar<Error = Fault> + ?Sized + 'static> Session<S> {
     }
 
     pub fn cwd(&self) -> String {
-        self.source.facts()["cwd"].as_str().unwrap_or_default().to_owned()
+        self.cwd.to_string()
     }
 
     pub fn bridge_connected(&self) -> bool {
