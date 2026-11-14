@@ -11,7 +11,7 @@
 //! `{index, names}` with the settled entries relative to the root, `names: null` when anything may have changed.
 
 mod rules;
-mod source;
+pub(crate) mod source;
 mod watch;
 
 use std::collections::HashMap;

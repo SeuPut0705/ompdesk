@@ -112,7 +112,7 @@ fn extra_roots(file: Option<OsString>) -> Vec<CertificateDer<'static>> {
 static MACHINE_TLS: LazyLock<Result<Arc<ClientConfig>, String>> =
     LazyLock::new(|| client_config(extra_roots(std::env::var_os("NODE_EXTRA_CA_CERTS"))));
 
-fn machine_tls() -> Result<Arc<ClientConfig>, Failure> {
+pub(crate) fn machine_tls() -> Result<Arc<ClientConfig>, Failure> {
     MACHINE_TLS.clone().map_err(Failure::Tls)
 }
 
