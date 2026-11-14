@@ -356,6 +356,7 @@ fn command(call: Call) -> Answer {
         &params.tab,
         params.seq,
         Command::Stock {
+            generation: None,
             seq: params.seq,
             command: params.command,
             timeout: params.timeout_ms.map(Duration::from_millis),
@@ -411,6 +412,7 @@ fn bridge_request(call: Call) -> Answer {
         &params.tab,
         params.seq,
         Command::Bridge {
+            generation: None,
             method: params.method,
             params: params.params,
             timeout: params.timeout_ms.map(Duration::from_millis),
