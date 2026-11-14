@@ -186,6 +186,7 @@ fn conflicting_identity_refuses_the_entire_new_batch_without_overwriting_origina
         .unwrap();
     let mut changed = original.clone();
     changed.entry.intent = InboxIntent::FollowUp;
+    changed.logical.intent = InboxIntent::FollowUp;
     assert!(
         ledger
             .keep(
