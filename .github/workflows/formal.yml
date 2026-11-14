@@ -17,7 +17,7 @@
 # With `stamp`, the updated formal/manifest.json is committed back to the dispatched branch as
 # `chore(formal): stamp <ids> on <sha7>`. A stamp never lands on main directly: dispatch on a branch.
 name: formal
-run-name: ${{ format('formal {0} {1}{2}', inputs.only || 'all', inputs.tier, inputs.stamp && ' stamp' || '') }}
+run-name: ${{ format('formal {0} {1}{2}{3}', inputs.only || 'all', inputs.tier, inputs.stamp && ' stamp' || '', inputs.inspect_unit != '' && format(' inspect {0}', inputs.inspect_unit) || '') }}
 
 on:
   workflow_dispatch:
@@ -39,13 +39,17 @@ on:
         description: "Skip the mutation runs"
         type: boolean
         default: false
+      inspect_unit:
+        description: "Inspect one exact matrix-row unit (not a model verification or stamp)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: formal-${{ github.ref }}-${{ inputs.only || 'all' }}
-  cancel-in-progress: true
+  group: ${{ inputs.inspect_unit != '' && 'formal-inspect' || 'formal' }}-${{ github.ref }}-${{ inputs.only || 'all' }}${{ inputs.inspect_unit != '' && format('-{0}', inputs.inspect_unit) || '' }}
+  cancel-in-progress: ${{ inputs.inspect_unit == '' }}
 
 env:
   SKILL: resources/omp-builtin/formal/skills/ompdesk-formal-verify
@@ -58,6 +62,17 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       jobs: ${{ steps.plan.outputs.jobs }}
     steps:
+      - name: Guard inspection scope
+        if: inputs.inspect_unit != ''
+        env:
+          ONLY: ${{ inputs.only }}
+          STAMP: ${{ inputs.stamp }}
+          SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
+        run: |
+          if [ -z "$ONLY" ] || [ "$STAMP" = "true" ] || [ "$SKIP_MUTATIONS" != "true" ]; then
+            echo "::error::inspect_unit requires only, stamp=false and skip_mutations=true."
+            exit 1
+          fi
       - name: Refuse a stamp on main
         if: inputs.stamp && github.ref == 'refs/heads/main'
         run: |
@@ -83,10 +98,12 @@ jobs:
           ONLY: ${{ inputs.only }}
           TIER: ${{ inputs.tier }}
           SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
+          INSPECT_UNIT: ${{ inputs.inspect_unit }}
         run: |
           args=(formal --tier "$TIER")
           [ -n "$ONLY" ] && args+=(--only "$ONLY")
           [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
+          [ -n "$INSPECT_UNIT" ] && args+=(--inspect-unit "$INSPECT_UNIT")
           bun "$SKILL/scripts/shard.ts" plan "${args[@]}" --github-output
 
   run:
@@ -114,6 +131,7 @@ jobs:
           key: formal-tools-${{ runner.os }}-${{ hashFiles('resources/omp-builtin/formal/skills/ompdesk-formal-verify/assets/toolchain.json') }}
       # The key is the digest of this job's checks; a hit holds their verdicts, a miss is saved when the job ends.
       - name: Verdict cache
+        if: inputs.inspect_unit == ''
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .formal-verdict-cache
@@ -124,21 +142,51 @@ jobs:
           TIER: ${{ inputs.tier }}
           SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
           UNITS: ${{ matrix.units }}
+          INSPECT_UNIT: ${{ inputs.inspect_unit }}
         run: |
           args=(formal --tier "$TIER")
           [ -n "$ONLY" ] && args+=(--only "$ONLY")
           [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
-          bun "$SKILL/scripts/shard.ts" run "${args[@]}" --units "$UNITS" --out verdicts --cache .formal-verdict-cache
+          cache=(--cache .formal-verdict-cache)
+          out=verdicts
+          if [ -n "$INSPECT_UNIT" ]; then
+            args+=(--inspect-unit "$INSPECT_UNIT")
+            cache=()
+            out=runner-scratch/negative-verdicts
+          fi
+          bun "$SKILL/scripts/shard.ts" run "${args[@]}" --units "$UNITS" --out "$out" "${cache[@]}"
+          if [ -n "$INSPECT_UNIT" ]; then
+            test -s "$out/inspection/verdict.json"
+            test -s "$out/inspection/summary.json"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.inspect_unit == ''
         with:
           name: formal-verdict-${{ matrix.id }}
           path: verdicts
           if-no-files-found: error
           retention-days: 3
+      - name: Inspection summary
+        if: ${{ always() && inputs.inspect_unit != '' }}
+        run: |
+          echo "Single-unit inspection only. This is not a model verification pass or stamp." >> "$GITHUB_STEP_SUMMARY"
+          if [ -s runner-scratch/negative-verdicts/inspection/summary.json ]; then
+            { echo '```json'; cat runner-scratch/negative-verdicts/inspection/summary.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "INCONCLUSIVE: no inspection summary was recorded." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload single-unit inspection
+        if: ${{ always() && inputs.inspect_unit != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: formal-unit-inspection
+          path: runner-scratch/negative-verdicts/inspection/
+          if-no-files-found: error
+          retention-days: 3
 
   collect:
     needs: [plan, run]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ inputs.inspect_unit == '' && !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -193,7 +241,7 @@ jobs:
   # stamp is written onto the branch's head as it is now, and only for a model whose covered code is the same there
   # as at the verified commit; a lost push race re-reads the head and checks again, it never rebases the old commit.
   publish:
-    if: inputs.stamp
+    if: inputs.stamp && inputs.inspect_unit == ''
     needs: collect
     runs-on: ubuntu-latest
     timeout-minutes: 15
