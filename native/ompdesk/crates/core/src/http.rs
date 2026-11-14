@@ -290,9 +290,13 @@ pub async fn open(request: Request<'_>) -> Result<hyper::Response<Incoming>, Fai
 /// answer here and is not followed: Web Push's one attempt takes a push service's 3xx as a refusal, as `https.request`
 /// did (the redirect rules above are `fetch`'s).
 pub async fn status_once(request: Request<'_>) -> Result<u16, Failure> {
+    Ok(open_once(request).await?.status().as_u16())
+}
+
+/// One validated exchange without following redirects; the caller bounds and consumes the returned body.
+pub(crate) async fn open_once(request: Request<'_>) -> Result<hyper::Response<Incoming>, Failure> {
     let url = Url::parse(request.url).map_err(|_| Failure::Request)?;
-    let response = exchange_once(&url, request.headers, request.body, machine_tls).await?;
-    Ok(response.status().as_u16())
+    exchange_once(&url, request.headers, request.body, machine_tls).await
 }
 
 #[cfg(test)]
