@@ -6,12 +6,12 @@ use serde::Deserialize;
 
 use super::{Runtime, check_mail_target, fault_of, runtime_of};
 use crate::agentctl::inbox::{
-    InboxBlock, InboxContent, InboxPayload, InboxReceiver, NativeInboxAcceptance,
+    InboxBlock, InboxContent, InboxPayload, InboxReceiver, InboxRoute, NativeInboxAcceptance,
     NativeInboxRequest, NativeInboxTransfer,
 };
 use crate::agentctl::journal::Persistence;
 use crate::agentctl::journal::attachments::with_attached;
-use crate::agentctl::service::types::ControlTab;
+use crate::agentctl::service::host::HostState;
 use crate::server::{Call, Fault, Registry, Reply};
 
 #[derive(Deserialize)]
@@ -26,6 +26,9 @@ struct AcceptParams {
     expected_producer_device_id: String,
     /// Host execution identity. This is distinct from the bridge AgentSession's receiver.instance.
     expected_runtime_instance: String,
+    /// Original private peer route capture. Absent only for this execution host's local admission.
+    #[serde(default)]
+    expected_route: Option<InboxRoute>,
 }
 
 impl Runtime {
@@ -113,12 +116,11 @@ impl Runtime {
     }
 
     fn inbox_target(
-        &self,
+        state: &HostState,
         tab_id: &str,
         receiver: &InboxReceiver,
         expected_runtime_instance: &str,
-    ) -> Result<ControlTab, Fault> {
-        let state = self.host().state();
+    ) -> Result<(), Fault> {
         let target = state
             .tabs
             .iter()
@@ -130,7 +132,7 @@ impl Runtime {
                     "The receiving tab is no longer open",
                 )
             })?;
-        check_mail_target(&state, target).map_err(|error| fault_of(&error))?;
+        check_mail_target(state, target).map_err(|error| fault_of(&error))?;
         if receiver.device.is_some()
             || target.device.is_some()
             || target.session_path.as_deref() != Some(receiver.session_path.as_str())
@@ -142,7 +144,58 @@ impl Runtime {
                 "The receiving native runtime, path or device changed",
             ));
         }
-        Ok(target.clone())
+        Ok(())
+    }
+
+    fn inbox_admission(&self, params: &AcceptParams) -> Result<(), Fault> {
+        let state = self.host().state();
+        let receiver = &params.transfer.receiver;
+        Self::inbox_target(
+            &state,
+            &params.tab_id,
+            receiver,
+            &params.expected_runtime_instance,
+        )?;
+        if state.device_id.is_empty() || params.expected_producer_device_id.is_empty() {
+            return Err(Fault::new(
+                "inbox_producer",
+                "Authenticated persistent host identities are required",
+            ));
+        }
+        let authorized = match &params.expected_route {
+            Some(route) => {
+                !route.connection_incarnation.is_empty()
+                    && !route.rtab.is_empty()
+                    && route.peer_device_id == params.expected_producer_device_id
+                    && route.peer_device_id == params.upload_device_id
+                    && route.tab_id == params.tab_id
+                    && route.session_path == receiver.session_path
+                    && route.runtime_instance == params.expected_runtime_instance
+                    && state.inbox_routes.iter().any(|current| current == route)
+            }
+            None => {
+                params.expected_producer_device_id == state.device_id
+                    && params.upload_device_id == crate::web::uploads::LOCAL_DEVICE
+            }
+        };
+        if !authorized {
+            return Err(Fault::new(
+                "inbox_route_changed",
+                "The original authenticated receiving route is no longer current",
+            ));
+        }
+        for entry in &params.transfer.entries {
+            if entry.logical.producer.device_id != params.expected_producer_device_id
+                || entry.logical.target.device_id != state.device_id
+                || entry.logical.target.session_path != receiver.session_path
+            {
+                return Err(Fault::new(
+                    "inbox_producer",
+                    "The native source or recipient differs from its authenticated host",
+                ));
+            }
+        }
+        Ok(())
     }
 
     async fn check_inbox_instance(
@@ -155,7 +208,12 @@ impl Runtime {
             .fresh()
             .await
             .map_err(|error| fault_of(&error))?;
-        self.inbox_target(tab_id, receiver, expected_runtime_instance)?;
+        Self::inbox_target(
+            &self.host().state(),
+            tab_id,
+            receiver,
+            expected_runtime_instance,
+        )?;
         let status = self
             .host()
             .inbox_status(tab_id, &receiver.session_path, None)
@@ -165,7 +223,12 @@ impl Runtime {
             .fresh()
             .await
             .map_err(|error| fault_of(&error))?;
-        self.inbox_target(tab_id, receiver, expected_runtime_instance)?;
+        Self::inbox_target(
+            &self.host().state(),
+            tab_id,
+            receiver,
+            expected_runtime_instance,
+        )?;
         if status.receiver != *receiver {
             return Err(Fault::new(
                 "inbox_instance_changed",
@@ -195,37 +258,18 @@ impl Runtime {
         let _lane = inbox.lane(receiver).await;
         self.check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
             .await?;
-        let host_device_id = self.host().state().device_id.clone();
-        if host_device_id.is_empty() || params.expected_producer_device_id.is_empty() {
-            return Err(Fault::new(
-                "inbox_producer",
-                "Authenticated persistent host identities are required",
-            ));
-        }
+        self.inbox_admission(&params)?;
         for entry in &params.transfer.entries {
             entry
                 .logical
                 .validate(&entry.entry)
                 .map_err(|error| Fault::new("inbox_logical", error))?;
-            if entry.logical.producer.device_id != params.expected_producer_device_id
-                || entry.logical.target.device_id != host_device_id
-                || entry.logical.target.session_path != receiver.session_path
-            {
-                return Err(Fault::new(
-                    "inbox_producer",
-                    "The native source or recipient differs from its authenticated host",
-                ));
-            }
         }
         let owned = inbox
             .ledger
             .known(receiver, &params.transfer.entries)
             .map_err(|error| Fault::new("inbox_conflict", error))?;
-        let fence = || {
-            self.inbox_target(&params.tab_id, receiver, &params.expected_runtime_instance)
-                .map(|_| ())
-                .map_err(|error| error.message)
-        };
+        let fence = || self.inbox_admission(&params).map_err(|error| error.message);
         let imported = super::inbox_attachments::import(
             params.transfer.clone(),
             &owned,
@@ -239,6 +283,7 @@ impl Runtime {
         .map_err(|error| Fault::new("inbox_attachment", error))?;
         self.check_inbox_instance(&params.tab_id, receiver, &params.expected_runtime_instance)
             .await?;
+        self.inbox_admission(&params)?;
         let accepted = inbox.ledger.keep(receiver, &imported.transfer.entries);
         // Promote even failed in-memory keeps before releasing the import pin. write_kept owns disk-full retries.
         let retained = inbox.refresh_retention();
@@ -247,7 +292,12 @@ impl Runtime {
         if imported.persistence == Some(Persistence::Memory) {
             accepted.persistence = Persistence::Memory;
         }
-        self.inbox_target(&params.tab_id, receiver, &params.expected_runtime_instance)?;
+        Self::inbox_target(
+            &self.host().state(),
+            &params.tab_id,
+            receiver,
+            &params.expected_runtime_instance,
+        )?;
         drop(imported.pin);
         if accepted.persistence == Persistence::Disk {
             let runtime = self.clone();
@@ -298,7 +348,12 @@ impl Runtime {
         }
         let mut entries = Vec::with_capacity(pending.len());
         for mut item in pending {
-            self.inbox_target(tab_id, receiver, expected_runtime_instance)?;
+            Self::inbox_target(
+                &self.host().state(),
+                tab_id,
+                receiver,
+                expected_runtime_instance,
+            )?;
             if let Some(set) = &mut item.attachments {
                 for file in &mut set.files {
                     let bytes = inbox.store.get(&file.file.sha256).await.ok_or_else(|| {
@@ -307,7 +362,12 @@ impl Runtime {
                             "Receiving attachment bytes are unavailable",
                         )
                     })?;
-                    self.inbox_target(tab_id, receiver, expected_runtime_instance)?;
+                    Self::inbox_target(
+                        &self.host().state(),
+                        tab_id,
+                        receiver,
+                        expected_runtime_instance,
+                    )?;
                     if bytes.len() as u64 != file.file.size {
                         return Err(Fault::new(
                             "inbox_attachment",
@@ -332,7 +392,12 @@ impl Runtime {
                     .stored_images_p(Some(set))
                     .await
                     .map_err(|error| Fault::new("inbox_attachment", error.0))?;
-                self.inbox_target(tab_id, receiver, expected_runtime_instance)?;
+                Self::inbox_target(
+                    &self.host().state(),
+                    tab_id,
+                    receiver,
+                    expected_runtime_instance,
+                )?;
                 inbox
                     .ledger
                     .materialized(receiver, &item.entry.key(), set)
@@ -388,7 +453,12 @@ impl Runtime {
             .fresh()
             .await
             .map_err(|error| fault_of(&error))?;
-        self.inbox_target(tab_id, receiver, expected_runtime_instance)?;
+        Self::inbox_target(
+            &self.host().state(),
+            tab_id,
+            receiver,
+            expected_runtime_instance,
+        )?;
         inbox
             .ledger
             .reconcile(receiver, &reply)

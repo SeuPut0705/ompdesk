@@ -50,7 +50,7 @@ fn captured_params(
     transfer: NativeInboxTransfer,
     captured: &InboxRoute,
 ) -> AcceptParams {
-    // The old AcceptParams ignores expectedRoute. The RED uses the agreed private wire shape, not a fake guard.
+    // The private receiving route supplies the original connection capture, not the transferred message body.
     serde_json::from_value(json!({
         "port":port,
         "tabId":captured.tab_id,

@@ -32,11 +32,22 @@ fn receiver() -> InboxReceiver {
     }
 }
 
+fn hosted_route() -> InboxRoute {
+    InboxRoute {
+        peer_device_id: "source-host".into(),
+        connection_incarnation: "authenticated-source-connection".into(),
+        rtab: "source-peer-view".into(),
+        tab_id: "hosted-only".into(),
+        session_path: receiver().session_path,
+        runtime_instance: "actual-rpc-client".into(),
+    }
+}
+
 fn snapshot(blocked: bool) -> Value {
     json!({"deviceId":"receiver-host", "enabled":true, "tabs":[], "mailTargets":[{
         "tabId":"hosted-only", "runtimeInstance":"actual-rpc-client", "title":"hosted", "cwd":"/sample", "status":"ready",
         "busy":true, "asks":[], "hidden":false, "sessionPath":receiver().session_path
-    }], "mailBlocked":if blocked { vec!["hosted-only"] } else { vec![] }})
+    }], "inboxRoutes":[hosted_route()], "mailBlocked":if blocked { vec!["hosted-only"] } else { vec![] }})
 }
 
 fn transfer(path: String, bytes: &[u8]) -> NativeInboxTransfer {
@@ -98,9 +109,10 @@ fn params(port: u64, transfer: NativeInboxTransfer) -> AcceptParams {
         port,
         tab_id: "hosted-only".into(),
         transfer,
-        upload_device_id: "authenticated-source-peer".into(),
+        upload_device_id: "source-host".into(),
         expected_producer_device_id: "source-host".into(),
         expected_runtime_instance: "actual-rpc-client".into(),
+        expected_route: Some(hosted_route()),
     }
 }
 
@@ -138,7 +150,7 @@ async fn blocked_hosted_snapshot_refuses_before_import_or_keep_then_recovers_the
         .store(
             1,
             Limits::default(),
-            "authenticated-source-peer",
+            "source-host",
             "sample.txt",
             bytes.to_vec(),
         )
@@ -210,3 +222,70 @@ fn materialization_only_rewrites_renderer_owned_report_attachment_slots() {
 }
 
 mod peer_route;
+
+#[tokio::test]
+async fn missing_peer_capture_cannot_keep_and_local_admission_requires_the_local_upload_namespace()
+{
+    let dir = Dir::new();
+    let ledger_file = dir.0.join("inbox.json");
+    let (control, runtime, told) = rig(
+        7_492,
+        snapshot(false),
+        Files {
+            inbox: Some(InboxFiles {
+                ledger: ledger_file.clone(),
+                upload_user_data: dir.0.join("user-data"),
+            }),
+            attachments: Some(dir.0.join("blobs")),
+            ..Files::default()
+        },
+        |method, _| match method {
+            "state" => Ok(Value::Null),
+            "inboxStatus" => Ok(serde_json::to_value(NativeInboxReply {
+                receiver: receiver(),
+                entries: vec![],
+                receipts: vec![],
+            })
+            .unwrap()),
+            "deliverInbox" => Err("__hold__".into()),
+            other => Err(format!("unexpected {other}")),
+        },
+    );
+    let inbox = control.receiving_inbox.as_ref().unwrap();
+    let mut input = transfer(String::new(), b"");
+    input.entries[0].attachments = None;
+    input.uploads.clear();
+    let mut missing_capture = params(7_492, input.clone());
+    missing_capture.expected_route = None;
+    assert!(runtime.accept_inbox(missing_capture).await.is_err());
+    assert!(!ledger_file.exists());
+    assert!(inbox.ledger.pending(&receiver()).unwrap().1.is_empty());
+    assert!(told_of(&told, "deliverInbox").is_empty());
+
+    input.entries[0].logical.producer.device_id = "receiver-host".into();
+    input.entries[0].entry.delivery_id = input.entries[0].logical.delivery_id().unwrap();
+    let mut local = params(7_492, input);
+    local.expected_route = None;
+    local.expected_producer_device_id = "receiver-host".into();
+    // A local producer identity does not turn a peer-owned upload namespace into a local admission.
+    assert!(
+        runtime
+            .accept_inbox(AcceptParams {
+                port: local.port,
+                tab_id: local.tab_id.clone(),
+                transfer: local.transfer.clone(),
+                upload_device_id: local.upload_device_id.clone(),
+                expected_producer_device_id: local.expected_producer_device_id.clone(),
+                expected_runtime_instance: local.expected_runtime_instance.clone(),
+                expected_route: None,
+            })
+            .await
+            .is_err()
+    );
+    assert!(!ledger_file.exists());
+    local.upload_device_id = crate::web::uploads::LOCAL_DEVICE.into();
+    let accepted = runtime.accept_inbox(local).await.unwrap();
+    assert_eq!(accepted.persistence, Persistence::Disk);
+    assert_eq!(inbox.ledger.pending(&receiver()).unwrap().1.len(), 1);
+    control.host.port().close();
+}
