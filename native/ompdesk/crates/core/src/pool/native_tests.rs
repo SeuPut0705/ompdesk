@@ -3,6 +3,7 @@ use crate::pool::application::{Released, Spawn, asks::Collaborators};
 
 #[derive(Default)]
 struct TestHost {
+    callers: Option<Arc<Callers>>,
     listening: Mutex<Vec<i64>>,
     announcements: Mutex<Vec<(Value, Value, Option<u64>)>>,
     running_changes: std::sync::atomic::AtomicUsize,
@@ -140,15 +141,27 @@ impl effects::Host for TestHost {
 }
 
 impl Host for TestHost {
-    type Reservation = ();
-    fn window_for(&self, _: &Owner) -> Result<i64, Fault> {
-        unreachable!()
+    type Reservation = crate::application::callers::Reservation;
+    fn window_for(&self, owner: &Owner) -> Result<i64, Fault> {
+        match self.callers.as_ref().ok_or_else(closed)?.principal(owner)? {
+            crate::application::callers::Principal::Page(
+                ompdesk_app_contract::NativeCaller::Desktop { win_id, .. },
+            ) => i64::try_from(win_id).map_err(|_| closed()),
+            _ => Err(closed()),
+        }
     }
-    fn reserve_owner(&self, _: &Owner, _: &str) -> Result<(), Fault> {
-        unreachable!()
+    fn reserve_owner(&self, owner: &Owner, tab: &str) -> Result<Self::Reservation, Fault> {
+        self.callers.as_ref().ok_or_else(closed)?.reserve_execution(
+            owner,
+            tab,
+            self.window_for(owner)?,
+        )
     }
-    fn finish_reservation(&self, _: Self::Reservation, _: bool) {
-        unreachable!()
+    fn finish_reservation(&self, reservation: Self::Reservation, acquired: bool) {
+        self.callers
+            .as_ref()
+            .expect("reserved caller")
+            .finish_execution_reservation(reservation, acquired);
     }
     fn authorize_tab(&self, _: &Owner, _: &str) -> Result<(), Fault> {
         Ok(())
@@ -197,6 +210,8 @@ async fn native_pool_finishes_effects_before_answer_and_keeps_seeded_host_identi
             stop_session_wait_ms: 60_000,
             window_tabs_hook: false,
             now_ms: || 1234,
+            callers: Arc::new(Callers::new(1)),
+            removal_claims: RemovalClaims::new(),
         },
         Arc::new(Application::new(Arc::clone(&host))),
     )
@@ -320,6 +335,8 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
             stop_session_wait_ms: 60_000,
             window_tabs_hook: false,
             now_ms: || 1234,
+            callers: Arc::new(Callers::new(1)),
+            removal_claims: RemovalClaims::new(),
         },
         Arc::clone(&app),
     )
@@ -387,12 +404,12 @@ async fn binding_checks_the_actual_source_before_mutating_the_pool_entry() {
             .await
             .is_err()
     );
-    pool.note_name_for_session(&owner, &target, "captured title")
+    pool.note_name_for_session(&owner, &target, "captured name")
         .await
         .unwrap();
     assert_eq!(
         pool.facts("binding").await.unwrap()["title"],
-        "captured title"
+        "captured name"
     );
     app.handles().insert(
         super::super::HandleKey::Tab("binding".into()),
@@ -595,6 +612,8 @@ async fn session_close_keeps_the_detached_source_when_the_tab_is_replaced() {
             stop_session_wait_ms: 60_000,
             window_tabs_hook: false,
             now_ms: || 1234,
+            callers: Arc::new(Callers::new(1)),
+            removal_claims: RemovalClaims::new(),
         },
         Arc::clone(&app),
     )
@@ -672,6 +691,8 @@ async fn observer_failure_still_disposes_and_waits_for_the_exact_receipt() {
             stop_session_wait_ms: 60_000,
             window_tabs_hook: false,
             now_ms: || 1234,
+            callers: Arc::new(Callers::new(1)),
+            removal_claims: RemovalClaims::new(),
         },
         Arc::clone(&app),
     )
@@ -746,6 +767,8 @@ async fn window_observer_failure_after_disposal_still_waits_for_exit_result() {
             stop_session_wait_ms: 60_000,
             window_tabs_hook: true,
             now_ms: || 1234,
+            callers: Arc::new(Callers::new(1)),
+            removal_claims: RemovalClaims::new(),
         },
         Arc::clone(&app),
     )
@@ -803,4 +826,83 @@ async fn window_observer_failure_after_disposal_still_waits_for_exit_result() {
     };
     assert_eq!(error.code, "window_observer_failed");
     held.await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn removal_claims_and_real_pool_acquire_share_one_atomic_admission() {
+    let callers = Arc::new(Callers::new(91));
+    let admitted = callers
+        .admit_page(ompdesk_app_contract::NativeCaller::Desktop {
+            win_id: 17,
+            wc_id: 17,
+        })
+        .unwrap();
+    let claims = RemovalClaims::new();
+    let host = Arc::new(TestHost {
+        callers: Some(Arc::clone(&callers)),
+        ..Default::default()
+    });
+    let pool = Service::new(
+        Config {
+            id: 0x706f_6f6c_6170_7006,
+            layout_version: 1,
+            max_former_tab_ids: 8,
+            stop_session_wait_ms: 60_000,
+            window_tabs_hook: false,
+            now_ms: || 1234,
+            callers: Arc::clone(&callers),
+            removal_claims: Arc::clone(&claims),
+        },
+        Arc::new(Application::new(host)),
+    )
+    .await
+    .unwrap();
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let folder = Folder::resolve(cwd.clone()).await.unwrap();
+    let guard = pool
+        .claim_worktree(&admitted.owner, folder.clone(), Arc::clone(&claims))
+        .await
+        .unwrap();
+    assert!(claims.holds(&folder));
+    assert!(
+        pool.claim_worktree(&admitted.owner, folder.clone(), RemovalClaims::new())
+            .await
+            .is_err()
+    );
+    let result = pool
+        .acquire(
+            &admitted.owner,
+            Acquire {
+                tab: "claim-blocked".into(),
+                cwd,
+                session_path: None,
+                kind: "agent".into(),
+                worktree: None,
+                fresh: true,
+                placeholder: false,
+                defer_start: false,
+                title: None,
+                device: None,
+                task: None,
+                former_ids: None,
+            },
+        )
+        .unwrap()
+        .await
+        .unwrap();
+    assert_eq!(result, json!({"ok":false, "added":false}));
+    assert!(callers.execution_owner("claim-blocked").is_err());
+    drop(guard);
+    assert!(!claims.holds(&folder));
+    let guard = pool
+        .claim_worktree(&admitted.owner, folder.clone(), Arc::clone(&claims))
+        .await
+        .unwrap();
+    drop(guard);
+    callers.revoke(&admitted.owner);
+    assert!(pool.worktree_folders(&admitted.owner).await.is_err());
 }

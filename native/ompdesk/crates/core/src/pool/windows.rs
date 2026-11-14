@@ -335,17 +335,22 @@ impl Ctx {
         }
     }
 
-    pub(super) async fn release_entry_detail(&self, tab: &str) -> Option<(R<()>, bool)> {
-        let removed = self.with(|pool| {
+    pub(super) fn take_entry(&self, tab: &str) -> Option<u64> {
+        self.with(|pool| {
             let at = pool.index(tab)?;
             let entry = pool.entries.remove(at);
             let seq = entry.seq;
             pool.detached.push(entry);
             Some(seq)
-        });
-        let Some(seq) = removed else {
-            return None;
-        };
+        })
+    }
+
+    pub(super) async fn release_entry_detail(&self, tab: &str) -> Option<(R<()>, bool)> {
+        let seq = self.take_entry(tab)?;
+        Some(self.release_taken_detail(tab, seq).await)
+    }
+
+    pub(super) async fn release_taken_detail(&self, tab: &str, seq: u64) -> (R<()>, bool) {
         // The tab is gone for everyone now (`byTabId.delete`): main stops handing out its sidecar.
         self.push(&json!({"k": "gone", "tab": tab, "incarnation": seq}));
         let session_file = self.with(|pool| {
@@ -364,7 +369,7 @@ impl Ctx {
         };
         self.with(|pool| pool.detached.retain(|entry| entry.seq != seq));
         let disposed = disposal.is_ok();
-        Some((before.and(disposal).and(after), disposed))
+        (before.and(disposal).and(after), disposed)
     }
 
     async fn release_detached(&self, tab: &str, seq: u64) -> R<()> {
