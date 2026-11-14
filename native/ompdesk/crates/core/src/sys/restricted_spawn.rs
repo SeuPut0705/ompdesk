@@ -266,10 +266,10 @@ fn resolve(program: &OsStr) -> io::Result<std::path::PathBuf> {
                 .collect()
         })
         .unwrap_or_default();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            dirs.push(parent.to_path_buf());
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        dirs.push(parent.to_path_buf());
     }
     if let Ok(dir) = system_directory(true) {
         dirs.push(dir);
