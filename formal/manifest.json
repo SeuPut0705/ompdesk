@@ -276,7 +276,7 @@
 				"src/renderer/lib/compaction-limits.ts",
 				"src/renderer/lib/themes.ts"
 			],
-			"syncCommit": null
+			"syncCommit": "8f6c854237bed9b531f9d7ef84ea53b35b5a9c1b"
 		}
 	]
 }
