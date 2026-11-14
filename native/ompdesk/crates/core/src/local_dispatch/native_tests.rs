@@ -132,7 +132,7 @@ impl Rig {
             .map(|line| serde_json::from_str(line).unwrap()).collect()
     }
 
-    async fn command(&self, value: Value) -> Value {
+    async fn command(&mut self, value: Value) -> Value {
         let command: RpcCommand = serde_json::from_value(value).unwrap();
         self.commands.command_with_captured_cwd(
             self.source.generation(), Arc::from(self.fixture.dir.to_string_lossy().as_ref()), command, Scope::detached(),
