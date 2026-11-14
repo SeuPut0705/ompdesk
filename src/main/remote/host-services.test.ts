@@ -96,6 +96,7 @@ class FakeHostSidecar extends EventEmitter {
 	status: SidecarStatus = "asleep";
 	processAlive = false;
 	disposed = false;
+	autoExitOnDispose = false;
 	started: Array<{ resume: string | undefined }> = [];
 	reloads: Array<{ reload: boolean; reconnect: string[] }> = [];
 	sideFrames: object[] = [];
@@ -172,8 +173,13 @@ class FakeHostSidecar extends EventEmitter {
 	}
 	dispose(): void {
 		this.disposed = true;
+		if (this.autoExitOnDispose) this.exit();
 	}
 	readonly exited = Promise.withResolvers<void>();
+	exit(): void {
+		this.processAlive = false;
+		this.exited.resolve();
+	}
 	whenExited(): Promise<void> {
 		return this.exited.promise;
 	}
@@ -3426,6 +3432,7 @@ describe("LocalHostServices: a device opening a session another device's tab run
 		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
 		const sidecar = context.sidecars[0];
 		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.autoExitOnDispose = true;
 		sidecar.setStatus("ready");
 		sidecar.emit("session", { sessionId: "s1", sessionFile: SESSION, sessionName: "RNGAN" });
 		const y = new FakeConnection(peer("device-y"));
@@ -3490,6 +3497,65 @@ describe("LocalHostServices: a device opening a session another device's tab run
 			.call(y.peer, "tab.command", { rtab: "u1", command: { type: "get_state" } }, y)
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(gone)).toBe("unknown_tab");
+	});
+
+	it("waits for the last idle hosted execution to exit before acknowledging its viewer's leave", async () => {
+		const { services, sidecar, x: owner, y: viewer, deleteSession } = await held();
+		sidecar.autoExitOnDispose = false;
+		await services.call(owner.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, owner);
+		expect(sidecar.processAlive).toBe(true);
+
+		let settled = false;
+		let aliveAtReply: boolean | undefined;
+		const leaving = services.call(viewer.peer, "tab.leave", { rtab: "u1", sessionPath: SESSION }, viewer).then(
+			result => {
+				settled = true;
+				aliveAtReply = sidecar.processAlive;
+				return result;
+			},
+			error => {
+				settled = true;
+				throw error;
+			},
+		);
+		const checkpoint = Promise.withResolvers<void>();
+		setImmediate(checkpoint.resolve);
+		await checkpoint.promise;
+		const settledBeforeExit = settled;
+		expect(sidecar.disposed).toBe(true);
+		expect(sidecar.processAlive).toBe(true);
+		sidecar.exit();
+		expect(await leaving).toBeNull();
+		expect(settledBeforeExit).toBe(false);
+		expect(aliveAtReply).toBe(false);
+		expect(deleteSession).not.toHaveBeenCalled();
+	});
+
+	it("acknowledges a leave without waiting for the execution another device still views", async () => {
+		const { services, sidecar, x: owner, y: viewer } = await held();
+		sidecar.autoExitOnDispose = false;
+		let settled = false;
+		const leaving = services.call(owner.peer, "tab.leave", { rtab: "t1", sessionPath: SESSION }, owner).then(
+			result => {
+				settled = true;
+				return result;
+			},
+			error => {
+				settled = true;
+				throw error;
+			},
+		);
+		const checkpoint = Promise.withResolvers<void>();
+		setImmediate(checkpoint.resolve);
+		await checkpoint.promise;
+		const settledWhileViewed = settled;
+		expect(sidecar.disposed).toBe(false);
+		expect(sidecar.processAlive).toBe(true);
+		await services.call(viewer.peer, "tab.command", { rtab: "u1", command: { type: "get_state" } }, viewer);
+		sidecar.exit();
+		expect(await leaving).toBeNull();
+		expect(settledWhileViewed).toBe(true);
+		expect(sidecar.commands.at(-1)).toEqual({ type: "get_state" });
 	});
 
 	it("leaves the original B view without ending A execution or C's remaining view", async () => {

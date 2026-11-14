@@ -61,6 +61,7 @@ function setup(
 	options: {
 		keepOnHost?: () => boolean;
 		cwd?: string;
+		fresh?: boolean;
 		signInRelay?: RemoteSidecarOptions["signInRelay"];
 		imageBlobs?: ImageBlobCache;
 	} = {},
@@ -916,6 +917,47 @@ describe("RemoteSidecar", () => {
 		unopened.link.state = "offline";
 		unopened.sidecar.dispose();
 		expect(unopened.deferredCloses).toEqual([]);
+	});
+
+	it("leaves a restored asleep view without opening a host tab", async () => {
+		const { link, sidecar, disposed, deferredCloses } = setup({ fresh: false });
+		link.state = "offline";
+		expect(sidecar.status).toBe("asleep");
+
+		const prepared = sidecar.prepareViewLeave("/s/held.jsonl");
+		expect(prepared.target).toEqual({ device: "host-b", rtab: "tab-1", sessionPath: "/s/held.jsonl" });
+		sidecar.dispose();
+		await expect(prepared.commit()).resolves.toBeUndefined();
+		expect(disposed).toEqual([1]);
+		expect(link.methods()).toEqual([]);
+		expect(deferredCloses).toEqual([]);
+	});
+
+	it("refuses a leave for a disposed or already left view", async () => {
+		const disposed = setup({ fresh: false });
+		disposed.sidecar.dispose();
+		expect(() => disposed.sidecar.prepareViewLeave("/s/held.jsonl")).toThrow();
+
+		const left = setup();
+		left.sidecar.start();
+		await settle();
+		await left.sidecar.prepareViewLeave("/s/held.jsonl").commit();
+		expect(() => left.sidecar.prepareViewLeave("/s/held.jsonl")).toThrow();
+	});
+
+	it("does not treat an unanswered host open as a never-opened local view", async () => {
+		const { link, sidecar } = setup({ fresh: false });
+		const opening = Promise.withResolvers<unknown>();
+		link.handlers["tab.open"] = () => opening.promise;
+		sidecar.restart(undefined, "/s/held.jsonl");
+		expect(link.methods()).toEqual(["tab.open"]);
+		link.state = "offline";
+		const prepared = sidecar.prepareViewLeave("/s/held.jsonl");
+		sidecar.dispose();
+		await expect(prepared.commit()).rejects.toThrow("offline");
+		opening.resolve({ cwd: "/canonical/p", kind: "agent", attached: true });
+		await settle();
+		expect(link.methods()).not.toContain("tab.start");
 	});
 
 	it("prepares without sending, then awaits the captured leave after disposal", async () => {
