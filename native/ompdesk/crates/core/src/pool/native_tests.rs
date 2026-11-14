@@ -962,3 +962,7 @@ async fn removal_claims_and_real_pool_acquire_share_one_atomic_admission() {
     callers.revoke(&admitted.owner);
     assert!(pool.worktree_folders(&admitted.owner).await.is_err());
 }
+
+#[cfg(unix)]
+#[path = "peer_admission_tests.rs"]
+mod peer_admission;

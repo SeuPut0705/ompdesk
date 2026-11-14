@@ -22,6 +22,9 @@ use crate::worktree_lifecycle::{Folder, RemovalClaims};
 #[path = "worktree_admission.rs"]
 mod worktree_admission;
 
+#[path = "peer_admission.rs"]
+mod peer_admission;
+pub use peer_admission::ExecutionTarget;
 pub struct Config {
     /// Allocated by Base's native instance registry, not page data.
     pub id: u64,
