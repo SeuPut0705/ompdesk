@@ -32,7 +32,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cargoPath, rustcPath } from "./cargo";
+import { cargoPath, rustcPath, cargoEnv as toolchainEnv } from "./cargo";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const SHELL_DIR = path.join(REPO_ROOT, "native", "ompdesk", "crates", "shell");
@@ -312,8 +312,8 @@ async function withSubst<T>(run: (cwd: string) => Promise<T>): Promise<T> {
 	}
 }
 
-export function shellCargoEnv(_cargo: string): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...process.env };
+export function shellCargoEnv(cargo: string): NodeJS.ProcessEnv {
+	const env = toolchainEnv(cargo);
 	delete env.INCLUDE;
 	delete env.LIB;
 	delete env.LIBPATH;
