@@ -1635,7 +1635,7 @@ describe("retained execution view races", () => {
 		sessionRuntimeStore<ComposerStore>("t1", "composer")?.setState({ draft: "replacement work" });
 
 		route.resolve(true);
-		await closing;
+		expect(await closing).toBe(false);
 		await reconciling;
 		omp.tabs.list.mockResolvedValue([neighbor, initial]);
 		await useTabsStore.getState().reconcileTabs();

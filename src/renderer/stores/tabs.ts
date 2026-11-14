@@ -250,7 +250,7 @@ export function markTabClosed(tabId: string): number {
 
 export function forgetTabClose(tabId: string, serial: number | undefined): void {
 	const closed = closedTabIds.get(tabId);
-	if (!closed || closed.serial !== serial) return;
+	if (!closed?.closed || closed.serial !== serial) return;
 	if (closed.viewId) retiredViewIds.delete(closed.viewId);
 	closed.closed = false;
 }
