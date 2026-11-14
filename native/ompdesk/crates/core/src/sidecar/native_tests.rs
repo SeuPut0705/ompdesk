@@ -4,9 +4,9 @@ use super::*;
 use std::sync::atomic::AtomicUsize;
 use tokio::sync::mpsc;
 
-struct Recorder {
-    events: mpsc::UnboundedSender<LaneEvent>,
-    flushes: AtomicUsize,
+pub(crate) struct Recorder {
+    pub(crate) events: mpsc::UnboundedSender<LaneEvent>,
+    pub(crate) flushes: AtomicUsize,
 }
 
 impl Sink for Recorder {
@@ -163,9 +163,27 @@ async fn abandoning_a_native_handle_releases_its_lane_without_an_explicit_dispos
     }
 }
 
-pub(crate) async fn ready(service: &Service, recorded: &mut mpsc::UnboundedReceiver<LaneEvent>) {
+async fn ready_with(
+    recorded: &mut mpsc::UnboundedReceiver<LaneEvent>,
+    mut respond: impl FnMut(LaneEvent) -> Option<EffectFuture<'static, ()>>,
+) {
     loop {
         let event = recorded.recv().await.expect("the lane's events stay open");
+        if event.name == "sidecar.status" {
+            match event.data["payload"]["status"].as_str() {
+                Some("ready") => break,
+                Some("error") => panic!("native child failed to start: {}", event.data),
+                _ => {}
+            }
+        }
+        if let Some(pending) = respond(event) {
+            pending.await;
+        }
+    }
+}
+
+pub(crate) async fn ready(service: &Service, recorded: &mut mpsc::UnboundedReceiver<LaneEvent>) {
+    ready_with(recorded, |event| {
         let ask = Ask {
             ask: event.data["ask"].as_u64().unwrap_or(0),
             cmd: event.data["cmd"].as_u64().unwrap(),
@@ -205,11 +223,26 @@ pub(crate) async fn ready(service: &Service, recorded: &mut mpsc::UnboundedRecei
                     },
                 );
             }
-            "sidecar.status" if event.data["payload"]["status"] == "ready" => break,
-            "sidecar.status" if event.data["payload"]["status"] == "error" => {
-                panic!("native child failed to start: {}", event.data)
-            }
             _ => {}
         }
-    }
+        None
+    })
+    .await;
+}
+
+pub(crate) async fn ready_application<H: crate::sidecar::application::Host + 'static>(
+    app: Arc<crate::sidecar::application::Application<H>>,
+    recorded: &mut mpsc::UnboundedReceiver<LaneEvent>,
+) {
+    use crate::sidecar::application::Dispatch;
+    ready_with(recorded, move |event| {
+        match app
+            .dispatch(&event)
+            .expect("the original Lane emits valid native asks")
+        {
+            Dispatch::Ignored | Dispatch::Done => None,
+            Dispatch::Pending(pending) => Some(pending),
+        }
+    })
+    .await;
 }

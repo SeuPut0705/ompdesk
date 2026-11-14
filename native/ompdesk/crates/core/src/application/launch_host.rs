@@ -172,6 +172,9 @@ impl LaunchHost {
 }
 
 impl Host for LaunchHost {
+    fn lane_id(&self) -> &str {
+        self.config.source.tab()
+    }
     fn current(&self, ask: Ask) -> bool {
         self.admit(|| Ok(self.config.source.current(ask))).unwrap_or(false)
     }
