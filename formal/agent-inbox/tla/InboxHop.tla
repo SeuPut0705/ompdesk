@@ -64,7 +64,7 @@ AcceptMemory == /\ (Fence \/ StaleFence) /\ source # {}
                 /\ recvMem' = AppendMissing(recvMem, Pending)
                 /\ dispatch' = [id \in Ids |-> IF id \in source /\ (dispatch[id] = 0 \/ ReplaceDispatch)
                                                   THEN offeredDispatch ELSE dispatch[id]]
-                /\ unsafeUsed' = unsafeUsed \/ ~Fence
+                /\ unsafeUsed' = (unsafeUsed \/ ~Fence)
                 /\ UNCHANGED <<source, introduced, recvDisk, terminalMem, terminalDisk, blobs, retained,
                                queued, journal, durableInput, providerContext, output, acked, generation,
                                capturedGeneration, available, crashes, payloadVersion, legacyOwned, diskDispatch, ackDispatch, offeredDispatch>>
@@ -72,7 +72,7 @@ AcceptMemory == /\ (Fence \/ StaleFence) /\ source # {}
 \* @code native/ompdesk/crates/core/src/agentctl/runtime/inbox_delivery.rs:178-267 Recheck the current receiver after awaited imports before native save/ACK.
 SaveReceiver == /\ (Fence \/ StaleFence)
                 /\ recvDisk' = recvMem /\ terminalDisk' = terminalMem /\ diskDispatch' = dispatch
-                /\ unsafeUsed' = unsafeUsed \/ ~Fence
+                /\ unsafeUsed' = (unsafeUsed \/ ~Fence)
                 /\ UNCHANGED <<source, introduced, recvMem, terminalMem, blobs, retained, queued, journal,
                                durableInput, providerContext, output, acked, generation, capturedGeneration,
                                available, crashes, payloadVersion, legacyOwned, dispatch, ackDispatch, offeredDispatch>>
@@ -100,8 +100,8 @@ QueueBatch == /\ (Fence \/ StaleFence)
                                      /\ (DuplicateQueue \/ id \notin Elems(queued)))
                      batch == IF Reorder THEN [i \in 1..Len(eligible) |-> eligible[Len(eligible) + 1 - i]] ELSE eligible
                  IN /\ eligible # <<>> /\ queued' = queued \o batch
-              /\ unsafeUsed' = unsafeUsed \/ ~Fence
-              /\ legacyOwned' = legacyOwned \/ ClaimLegacy
+              /\ unsafeUsed' = (unsafeUsed \/ ~Fence)
+              /\ legacyOwned' = (legacyOwned \/ ClaimLegacy)
               /\ UNCHANGED <<source, introduced, recvMem, recvDisk, terminalMem, terminalDisk, blobs,
                              retained, journal, durableInput, providerContext, output, acked, generation,
                              capturedGeneration, available, crashes, payloadVersion, dispatch, diskDispatch, ackDispatch, offeredDispatch>>
@@ -123,9 +123,9 @@ ProviderOutput == /\ providerContext # {} /\ output' = output \cup providerConte
                   /\ UNCHANGED <<source, introduced, recvMem, recvDisk, terminalMem, terminalDisk, blobs,
                                  retained, queued, journal, durableInput, providerContext, acked, generation,
                                  capturedGeneration, available, crashes, payloadVersion, unsafeUsed, legacyOwned, dispatch, diskDispatch, ackDispatch, offeredDispatch>>
-\* @code native/ompdesk/crates/core/src/agentctl/journal/inbox_ledger.rs:328-377 Reconcile only actual context-ID plus provider-output proof.
+\* @code native/ompdesk/crates/core/src/agentctl/journal/inbox_ledger.rs:345-398 Reconcile only actual context-ID plus provider-output proof.
 ContextReceipt == /\ LET observed == IF ReceiptEarly THEN Elems(recvMem) ELSE output
-                     IN /\ terminalMem' = terminalMem \cup observed /\ retained' = retained \cup observed
+                     IN /\ terminalMem' = terminalMem \cup observed /\ retained' = retained \cup (observed \ terminalMem)
                   /\ UNCHANGED <<source, introduced, recvMem, recvDisk, terminalDisk, blobs, queued, journal,
                                  durableInput, providerContext, output, acked, generation, capturedGeneration,
                                  available, crashes, payloadVersion, unsafeUsed, legacyOwned, dispatch, diskDispatch, ackDispatch, offeredDispatch>>
