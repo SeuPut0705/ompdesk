@@ -5,6 +5,7 @@
 //! Unbound legacy outbox rows retain their original delivery path and cannot acquire native authority from text.
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use tokio::time::Instant;
 
 use super::fail::{Fail, R, fail, unanswered_text};
@@ -21,7 +22,7 @@ use super::text::{
 use super::types::{AnswerArgs, ControlTab, ReportArgs, SendArgs, UiRequest};
 use super::wrap::wrap_agent_message;
 use super::{AgentControl, QueuedFollowUp};
-use crate::agentctl::journal::attachments::Resolved;
+use crate::agentctl::journal::attachments::{Resolved, shas_sig};
 use crate::agentctl::journal::pending_cleanups::CleanupAction;
 use crate::agentctl::journal::send_outbox::{
     HandOver, OutboxSend, OwedDeps, SendOutbox, SentAnswer, StreamingBehavior, receiver_key,
@@ -263,13 +264,7 @@ impl AgentControl {
                 "Native inbox delivery requires the source journal and an actual saved recipient",
             );
         };
-        // One delivery to a session at a time: what is still owed to it goes first, and the sweep never sends again what
-        // this send is handing over.
-        outbox
-            .lane(
-                &receiver_key(path, target.device.as_deref()),
-                self.hand_send(caller, &target, args, Kept { outbox, path }, resolved),
-            )
+        self.hand_send(caller, &target, args, Kept { outbox, path }, resolved)
             .await
     }
 
@@ -283,12 +278,13 @@ impl AgentControl {
         resolved: Vec<Resolved>,
     ) -> R<String> {
         use crate::agentctl::inbox::{
-            InboxIntent, InboxLogicalMessage, InboxLogicalPayload, InboxLogicalSource,
+            InboxIntent, InboxKind, InboxLogicalAttachments, InboxLogicalMessage,
+            InboxLogicalPayload, InboxLogicalSource, NativeInboxKey, NativeInboxLookupEntry,
+            NativeInboxLookupResult,
         };
         use crate::agentctl::journal::Persistence;
         use crate::agentctl::runtime::inbox_source;
 
-        self.until_draft_sent(caller, target).await?;
         self.host.fresh().await?;
         let owns_target = |state: &HostState| {
             state.parent_of(&target.tab_id) == Some(caller.tab_id.as_str())
@@ -319,16 +315,87 @@ impl AgentControl {
             },
         };
         let delivery_id = logical.delivery_id().map_err(Fail::other)?;
-        // Existing attachment admission owns the source blobs. The receiving hop verifies fresh authenticated refs.
-        let carried = self
-            .carry(
-                &target.tab_id,
-                target.device.as_deref(),
-                resolved,
-                true,
-                true,
-            )
-            .await?;
+        let key = NativeInboxKey {
+            kind: InboxKind::Prompt,
+            delivery_id: delivery_id.clone(),
+        };
+        let execution = crate::agentctl::inbox::InboxSourceExecution {
+            tab_id: caller.tab_id.clone(),
+            runtime_instance: caller.runtime_instance.clone(),
+        };
+        let (images, to_land) = crate::agentctl::journal::attachments::plan(resolved, true);
+        let attachments =
+            (!images.is_empty() || !to_land.is_empty()).then(|| InboxLogicalAttachments {
+                images: images.iter().map(|item| item.file.clone()).collect(),
+                files: to_land.iter().map(|item| item.file.clone()).collect(),
+            });
+        let query = NativeInboxLookupEntry {
+            key: key.clone(),
+            logical: logical.clone(),
+            attachments,
+        };
+        let receipt_of_existing = |reply: &crate::agentctl::inbox::NativeInboxLookupReply| {
+            let (state, first_dispatch) = match reply.entries.first()? {
+                NativeInboxLookupResult::Missing { .. } => return None,
+                NativeInboxLookupResult::ExistingPending {
+                    dispatch, intent, ..
+                } => (
+                    match intent {
+                        InboxIntent::Immediate => {
+                            "accepted by its receiving native journal for immediate delivery; provider-context receipt is separate"
+                        }
+                        InboxIntent::FollowUp => {
+                            "accepted by its receiving native journal as a follow-up; provider-context receipt is separate"
+                        }
+                    },
+                    *dispatch,
+                ),
+                NativeInboxLookupResult::ExistingContextObserved { dispatch, .. } => {
+                    ("observed in its provider context", *dispatch)
+                }
+            };
+            let dispatch = first_dispatch
+                .map(|n| format!(" Dispatch d{n}."))
+                .unwrap_or_default();
+            Some(format!(
+                "Sent to {}: duplicate request, already {state}.{dispatch} No new message was queued or turn interrupted.",
+                named(target),
+            ))
+        };
+        let unchanged_relation = || {
+            let state = self.host.state();
+            if owns_target(&state) != own_child
+                || state.parent_of(&target.tab_id) != admitted_state.parent_of(&target.tab_id)
+            {
+                return fail(
+                    "The original sender/recipient relation changed before native lookup completed",
+                );
+            }
+            Ok(())
+        };
+        let (query, reply) = inbox_source::lookup(
+            self.host.port().id(),
+            &target.tab_id,
+            vec![query],
+            &execution,
+        )
+        .await?;
+        unchanged_relation()?;
+        if let Some(receipt) = receipt_of_existing(&reply) {
+            return Ok(receipt);
+        }
+        kept.outbox.lane(&receiver_key(kept.path, target.device.as_deref()), async {
+        let (query, reply) = inbox_source::lookup(
+            self.host.port().id(), &target.tab_id, query.entries, &execution,
+        ).await?;
+        unchanged_relation()?;
+        if let Some(receipt) = receipt_of_existing(&reply) {
+            return Ok(receipt);
+        }
+        self.until_draft_sent(caller, target).await?;
+        let carried = self.carry_planned(
+            &target.tab_id, target.device.as_deref(), images, to_land, true,
+        ).await?;
         self.host.fresh().await?;
         let (producer, recipient) = inbox_source::addresses(&self.host.state(), caller, target)?;
         if producer != logical.producer || recipient != logical.target {
@@ -428,6 +495,15 @@ impl AgentControl {
             .ok_or_else(|| {
                 Fail::other("The receiving disk ACK did not identify this exact source message")
             })?;
+        if accepted.existing {
+            let (_, reply) = inbox_source::lookup(
+                port, &target.tab_id, query.entries, &execution,
+            ).await?;
+            unchanged_relation()?;
+            return receipt_of_existing(&reply).ok_or_else(|| {
+                Fail::other("Existing native responsibility disappeared before duplicate reconciliation")
+            });
+        }
         if own_child
             && let Some(dispatch) = accepted
                 .dispatch
@@ -445,6 +521,7 @@ impl AgentControl {
                         n: dispatch,
                         id,
                         from: caller.tab_id.clone(),
+                        native_key: Some(key.clone()),
                     },
                 );
             }
@@ -481,6 +558,7 @@ impl AgentControl {
             receipt.push('.');
         }
         Ok(receipt)
+        }).await
     }
 
     /// `redeliverSends`: one pass over every session still owed a message.
@@ -648,7 +726,37 @@ impl AgentControl {
         };
         let id = match &args.id {
             Some(id) => id.clone(),
-            None => crate::agentctl::inbox::new_delivery_id().map_err(Fail::other)?,
+            None => {
+                let receiver = tabs
+                    .iter()
+                    .find(|tab| tab.tab_id == to)
+                    .and_then(|tab| tab.session_path.as_deref())
+                    .unwrap_or(&to);
+                let sender = caller.session_path.as_deref().unwrap_or(&caller.tab_id);
+                let mut digest = Sha256::new();
+                for (index, part) in [
+                    sender,
+                    receiver,
+                    args.kind.as_str(),
+                    args.dispatch.as_deref().unwrap_or(""),
+                    args.text.as_str(),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    if index != 0 {
+                        digest.update([0u8]);
+                    }
+                    digest.update(part.as_bytes());
+                }
+                if !resolved.is_empty() {
+                    digest.update([0u8]);
+                    digest.update(shas_sig(
+                        resolved.iter().map(|item| item.file.sha256.as_str()),
+                    ));
+                }
+                crate::hex(&digest.finalize()[..12])
+            }
         };
         let text = [
             Some(args.text.clone()),
@@ -701,6 +809,41 @@ impl AgentControl {
                 &state, caller, recipient, &mail, &args.text,
             )?);
         }
+        // Receiver-owned duplicates are resolved before stale-dispatch/coalescing policy, without a new source keep.
+        let existing = if let Some(admission) = &mail.native_source {
+            use crate::agentctl::inbox::{
+                InboxKind, InboxLogicalAttachments, NativeInboxKey, NativeInboxLookupEntry,
+                NativeInboxLookupResult,
+            };
+            let key = NativeInboxKey {
+                kind: InboxKind::Report,
+                delivery_id: admission.logical.delivery_id().map_err(Fail::other)?,
+            };
+            let query = NativeInboxLookupEntry {
+                key,
+                logical: admission.logical.clone(),
+                attachments: mail
+                    .attachments
+                    .as_ref()
+                    .map(|set| InboxLogicalAttachments {
+                        images: set.images.clone(),
+                        files: set.files.iter().map(|landed| landed.file.clone()).collect(),
+                    }),
+            };
+            let (_, reply) = crate::agentctl::runtime::inbox_source::lookup(
+                self.host.port().id(),
+                &to,
+                vec![query],
+                &admission.execution,
+            )
+            .await?;
+            !matches!(
+                reply.entries.as_slice(),
+                [NativeInboxLookupResult::Missing { .. }]
+            )
+        } else {
+            false
+        };
         // The turn of the mail the mailbox keeps: taken with the post (a reader during its delivery sees the new mail
         // with it), and given back only when the mailbox refuses a replay, which leaves its state as it was; a mail it
         // took and could not deliver is its newest all the same.
@@ -709,7 +852,11 @@ impl AgentControl {
             .mem()
             .mailed_in
             .insert(turn_key.clone(), caller.busy_since);
-        let outcome = self.mailbox.post(mail.clone()).await;
+        let outcome = if existing {
+            Ok(Posted::Duplicate)
+        } else {
+            self.mailbox.post(mail.clone()).await
+        };
         if matches!(outcome, Ok(Posted::Duplicate | Posted::Stale)) {
             let mut mem = self.mem();
             match before {
@@ -735,7 +882,7 @@ impl AgentControl {
             }
             _ => String::new(),
         };
-        waiting.push_str(&self.queued_note(caller, tabs).await);
+        waiting.push_str(&self.queued_note(caller, tabs).await?);
         if let Some(gap) = custody
             .as_ref()
             .and_then(|c| c.gap.as_deref())
@@ -777,21 +924,32 @@ impl AgentControl {
     /// `#queuedNote`: stock shows a queued follow-up to nobody until the turn ends, so a session that reports and then
     /// waits in the same turn never sees the message it waits for. When one is queued for `caller` and its transcript
     /// does not hold it yet, the report's answer says so.
-    async fn queued_note(&self, caller: &ControlTab, tabs: &[ControlTab]) -> String {
+    async fn queued_note(&self, caller: &ControlTab, tabs: &[ControlTab]) -> R<String> {
         let queued = self.mem().queued_follow_up.get(&caller.tab_id).cloned();
         let Some(queued) = queued else {
-            return String::new();
+            return Ok(String::new());
         };
-        if self.journal_marks(&caller.tab_id).await.dispatch >= queued.n {
+        let consumed = match &queued.native_key {
+            Some(key) => {
+                crate::agentctl::runtime::inbox_source::context_observed(
+                    self.host.port().id(),
+                    &caller.tab_id,
+                    key,
+                )
+                .await?
+            }
+            None => self.journal_marks(&caller.tab_id).await.dispatch >= queued.n,
+        };
+        if consumed {
             self.mem().queued_follow_up.remove(&caller.tab_id);
-            return String::new();
+            return Ok(String::new());
         }
         let sender = tabs.iter().find(|tab| tab.tab_id == queued.from);
-        format!(
+        Ok(format!(
             " A message from {} (dispatch {}) waits for you, queued until this turn ends: end your turn now to read it, rather than waiting for it in this turn.",
             sender.map_or_else(|| queued.from.clone(), label),
             queued.id
-        )
+        ))
     }
 
     /// `ompdesk_session_answer` (`#answer`, `#answerPlan`).
@@ -1241,6 +1399,8 @@ impl AgentControl {
             mail.native_source = Some(crate::agentctl::runtime::inbox_source::report_source(
                 &state, child, opener, &mail, &mail.text,
             )?);
+            // The native identity was captured before this display-only child/tab correlation.
+            mail.id = format!("ask-{child_tab_id}-{request_id}");
             self.mailbox
                 .post(mail)
                 .await

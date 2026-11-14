@@ -239,7 +239,12 @@ async fn exercise(revocation: Revocation, id: u64) {
                 .accept_inbox(captured_params(id, retry, &replacement))
                 .await
                 .unwrap();
-            assert_eq!(replay, first);
+            assert_eq!(replay.persistence, Persistence::Disk);
+            assert_eq!(replay.receiver, first.receiver);
+            assert_eq!(replay.deliveries[0].key, first.deliveries[0].key);
+            assert_eq!(replay.deliveries[0].dispatch, first.deliveries[0].dispatch);
+            assert!(!first.deliveries[0].existing);
+            assert!(replay.deliveries[0].existing);
             let held = inbox.ledger.pending(&receiver()).unwrap().1;
             assert_eq!(held.len(), 1);
             assert_eq!(held[0].dispatch, Some(1));

@@ -296,8 +296,15 @@ pub fn mail_details(mail: &Mail) -> Value {
     Value::Object(map)
 }
 
+/// Receiver responsibility only; neither variant claims provider consumption.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryReceipt {
+    New,
+    Existing,
+}
+
 /// A delivery into the receiver's session: resolves when it was taken, or says why not.
-pub type DeliverFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
+pub type DeliverFuture = Pin<Box<dyn Future<Output = Result<DeliveryReceipt, String>> + Send>>;
 /// Deliver one mail into its receiver's session.
 pub type Deliver = Arc<dyn Fn(Mail) -> DeliverFuture + Send + Sync>;
 
@@ -364,6 +371,37 @@ struct Inner {
     tables: Mutex<Tables>,
 }
 
+fn same_pending_native(previous: &Mail, incoming: &Mail) -> Result<(), String> {
+    let (Some(previous_source), Some(incoming_source)) =
+        (&previous.native_source, &incoming.native_source)
+    else {
+        return Err(
+            "A pending report identity conflicts with an ambiguous source; original retained"
+                .into(),
+        );
+    };
+    let payload = |mail: &Mail, logical: &crate::agentctl::inbox::InboxLogicalMessage| {
+        crate::agentctl::inbox::logical_payload(
+            logical,
+            mail.attachments.as_ref().map(|set| {
+                (
+                    set.images.as_slice(),
+                    set.files.iter().map(|landed| &landed.file),
+                )
+            }),
+        )
+        .map_err(|error| error.to_string())
+    };
+    if payload(previous, &previous_source.logical)? != payload(incoming, &incoming_source.logical)?
+    {
+        return Err(
+            "A pending report identity conflicts with its logical payload; original retained"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 impl Inner {
     fn tables(&self) -> std::sync::MutexGuard<'_, Tables> {
         self.tables
@@ -395,7 +433,7 @@ fn arm(inner: Arc<Inner>, key: String, generation: u64, attempt: u32) {
         let delivered = (inner.deliver)(next.clone()).await;
         let mut tables = inner.tables();
         match delivered {
-            Ok(()) => {
+            Ok(_) => {
                 tables.seen.insert(next.id);
             }
             Err(_) => {
@@ -494,31 +532,10 @@ impl Mailbox {
     pub async fn post(&self, mail: Mail) -> Result<Posted, String> {
         let inner = &self.inner;
         let key = format!("{}>{}", mail.from, mail.to);
-        if let Some(source) = &mail.native_source {
-            // Even a locally seen ID reaches the native ledger for immutable-payload comparison first.
-            let identity = source.logical.delivery_id()?;
-            let mut stamped = mail.clone();
-            if let Some(current) = self.current(&mail.from) {
-                stamped.dispatch = Some(current);
-            }
-            (inner.deliver)(stamped.clone()).await?;
-            let mut tables = inner.tables();
-            if !tables.seen.insert(format!("native:{identity}")) {
-                return Ok(Posted::Duplicate);
-            }
-            tables.state.insert(
-                key,
-                MailState {
-                    last: stamped,
-                    waiting: matches!(mail.kind, Question | Blocked),
-                },
-            );
-            return Ok(Posted::Delivered);
-        }
         let stamped;
         {
             let mut tables = inner.tables();
-            if tables.seen.contains(&mail.id) {
+            if mail.native_source.is_none() && tables.seen.contains(&mail.id) {
                 return Ok(Posted::Duplicate);
             }
             let current = tables.dispatch.get(&mail.from).map(|n| format!("d{n}"));
@@ -535,6 +552,14 @@ impl Mailbox {
                 with_dispatch.dispatch = Some(current);
             }
             stamped = with_dispatch;
+            if mail.kind == Progress
+                && let Some(pending) = tables.pending.get(&key)
+                && pending.mail.id == mail.id
+                && (pending.mail.native_source.is_some() || mail.native_source.is_some())
+            {
+                same_pending_native(&pending.mail, &mail)?;
+                return Ok(Posted::Queued);
+            }
             tables.state.insert(
                 key.clone(),
                 MailState {
@@ -567,9 +592,12 @@ impl Mailbox {
             // Anything else supersedes the progress still waiting from the same sender.
             tables.pending.remove(&key);
         }
-        (inner.deliver)(stamped).await?;
+        let delivered = (inner.deliver)(stamped).await?;
         inner.tables().seen.insert(mail.id);
-        Ok(Posted::Delivered)
+        Ok(match delivered {
+            DeliveryReceipt::New => Posted::Delivered,
+            DeliveryReceipt::Existing => Posted::Duplicate,
+        })
     }
 
     /// A closed session leaves nothing behind.

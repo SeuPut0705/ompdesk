@@ -280,6 +280,7 @@ impl Runtime {
         tokio::spawn(async move {
             let _ = me.control.redeliver_sends().await;
             me.resend_native_sources().await;
+            me.redeliver_inbox();
             me.rt().resending = false;
         });
     }

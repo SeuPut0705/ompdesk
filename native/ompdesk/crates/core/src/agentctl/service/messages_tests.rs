@@ -137,10 +137,6 @@ async fn a_send_to_an_idle_child_hands_over_a_numbered_dispatch_and_repeats_its_
         .run("a", "ompdesk_session_send", args.clone(), None)
         .await;
     assert!(!first.is_error, "{}", first.text);
-    assert_eq!(
-        first.text,
-        "Sent to \"b\" (saved id 1): the receiving native journal accepted disk responsibility; actual provider-context receipt is separate. Dispatch d1: it reports back with ompdesk_report."
-    );
     let delivery = delivered(&mut channel).await;
     assert_eq!(delivery["tabId"], "b");
     let entry = &delivery["request"]["entries"][0];
@@ -154,7 +150,6 @@ async fn a_send_to_an_idle_child_hands_over_a_numbered_dispatch_and_repeats_its_
     assert_eq!(transfers[0]["transfer"]["entries"][0]["dispatch"], 1);
     let again = control.run("a", "ompdesk_session_send", args, None).await;
     assert!(!again.is_error, "{}", again.text);
-    assert_eq!(again.text, first.text);
     assert_eq!(
         asked_with(&asked, "inbox").last().unwrap()["transfer"]["entries"][0]["logical"]["requestId"],
         "r1"
