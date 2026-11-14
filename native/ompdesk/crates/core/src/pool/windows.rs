@@ -340,7 +340,7 @@ impl Ctx {
             return Ok(false);
         };
         // The tab is gone for everyone now (`byTabId.delete`): main stops handing out its sidecar.
-        self.push(&json!({"k": "gone", "tab": tab}));
+        self.push(&json!({"k": "gone", "tab": tab, "incarnation": seq}));
         let result = self.release_detached(tab, seq).await;
         self.with(|pool| pool.detached.retain(|entry| entry.seq != seq));
         result.map(|()| true)
@@ -411,7 +411,7 @@ impl Ctx {
         self.ask(
             "dispose",
             json!({
-                "tab": tab, "device": device, "hosted": hosted,
+                "tab": tab, "incarnation": seq, "device": device, "hosted": hosted,
                 "sessionFile": session_file,
                 "ownerKey": session_file.as_ref().map(|file| super::state::owner_key(device.as_deref(), file)),
             }),

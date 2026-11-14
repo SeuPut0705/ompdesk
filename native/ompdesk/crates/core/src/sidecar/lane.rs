@@ -92,6 +92,7 @@ pub enum Command {
     },
     Barrier(u64, oneshot::Sender<()>),
     WhenExited(oneshot::Sender<()>),
+    NativeWhenExited(oneshot::Sender<Result<(), Fault>>),
 }
 
 impl Command {
@@ -441,6 +442,7 @@ pub struct Lane {
     spawned_at_ms: u64,
     release_slot: Option<Slot>,
     exiting: Vec<Stopping>,
+    receipts: Vec<watch::Receiver<Option<Result<(), Fault>>>>,
     start_gate: bool,
     held: Option<Held>,
     held_counter: u64,
@@ -560,6 +562,7 @@ impl Lane {
             spawned_at_ms: 0,
             release_slot: None,
             exiting: Vec::new(),
+            receipts: Vec::new(),
             start_gate: false,
             held: None,
             held_counter: 0,
@@ -601,7 +604,7 @@ impl Lane {
         data.insert("tab".into(), json!(self.tab));
         data.insert("cmd".into(), json!(self.applied));
         let data = Value::Object(data);
-        super::tap(&self.tab, name, &data, None);
+        super::tap(&self.tab, name, &data, None, self.generation);
         self.events.send(name, &data);
     }
 
@@ -609,7 +612,13 @@ impl Lane {
     /// frames, also by a tab that is over (`quiet`): the call waits for it.
     fn answer_event(&self, seq: u64, response: Option<Vec<u8>>) {
         let data = json!({ "tab": self.tab, "cmd": self.applied, "seq": seq });
-        super::tap(&self.tab, "sidecar.answer", &data, response.as_deref());
+        super::tap(
+            &self.tab,
+            "sidecar.answer",
+            &data,
+            response.as_deref(),
+            self.generation,
+        );
         match response {
             Some(raw) => self.events.send_bin("sidecar.answer", &data, raw),
             None => self.events.send("sidecar.answer", &data),
@@ -622,7 +631,13 @@ impl Lane {
         }
         let raw = self.stream.frame(frame.raw, frame.ty.as_deref());
         let data = json!({ "tab": self.tab, "cmd": self.applied });
-        super::tap(&self.tab, "sidecar.frame", &data, Some(&raw));
+        super::tap(
+            &self.tab,
+            "sidecar.frame",
+            &data,
+            Some(&raw),
+            self.generation,
+        );
         self.events.send_bin("sidecar.frame", &data, raw);
     }
 
@@ -860,6 +875,31 @@ impl Lane {
                     let _ = reply.send(());
                 });
             }
+            Command::NativeWhenExited(reply) => {
+                let exits = self.receipts.clone();
+                tokio::spawn(async move {
+                    for mut exit in exits {
+                        let result = match exit.wait_for(Option::is_some).await {
+                            Ok(receipt) => match &*receipt {
+                                Some(result) => result.clone(),
+                                None => Err(Fault::new(
+                                    "sidecar_disconnected",
+                                    "Child exit receipt was missing",
+                                )),
+                            },
+                            Err(_) => Err(Fault::new(
+                                "sidecar_disconnected",
+                                "Child exit receipt was lost",
+                            )),
+                        };
+                        if let Err(error) = result {
+                            let _ = reply.send(Err(error));
+                            return;
+                        }
+                    }
+                    let _ = reply.send(Ok(()));
+                });
+            }
         }
     }
 
@@ -956,6 +996,13 @@ impl Lane {
             return;
         }
         self.generation += 1;
+        super::tap(
+            &self.tab,
+            "sidecar.nativeGeneration",
+            &json!({"cmd": self.applied}),
+            None,
+            self.generation,
+        );
         let generation = self.generation;
         self.prune_exiting();
         if !self.exiting.is_empty() {
@@ -1097,6 +1144,9 @@ impl Lane {
                 return;
             }
         };
+        self.receipts
+            .retain(|receipt| !matches!(&*receipt.borrow(), Some(Ok(()))));
+        self.receipts.push(started.receipt.clone());
         let proc = Arc::clone(&started.proc);
         // The pipes: stdout's lines become frames in order, stderr's chunks the tail.
         {
@@ -1979,6 +2029,13 @@ impl Lane {
         // Main drops what the lane sent before the command that tears this down: nothing after leans on it.
         self.stream.reset();
         self.generation += 1;
+        super::tap(
+            &self.tab,
+            "sidecar.nativeGeneration",
+            &json!({"cmd": self.applied}),
+            None,
+            self.generation,
+        );
         self.slow_epoch += 1;
         self.slow = false;
         if let Some(slot) = self.release_slot.take() {
