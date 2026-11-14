@@ -208,3 +208,5 @@ fn materialization_only_rewrites_renderer_owned_report_attachment_slots() {
         &InboxContent::Text("/old/authorized/upload stays literal".into())
     );
 }
+
+mod peer_route;
