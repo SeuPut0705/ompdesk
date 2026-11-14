@@ -131,3 +131,18 @@ async fn matches_jszip_normalized_last_duplicate_and_object_key_order() {
     assert_eq!(contents(path)["request.json"], "{\"token\":\"<secret>\"}");
     assert!(service.discard(path).expect("cleanup"));
 }
+
+#[tokio::test]
+async fn bom_json_escaped_secret_key_is_redacted_before_publish() {
+    let root = Root::new();
+    let original = stock(&root, &[("request.json", b"\xef\xbb\xbf{\"api\\u004bey\":\"sample-secret\"}")]);
+    let service = Archives::default();
+    let output = service.redact(original, Scope::detached()).await.expect("redacted BOM archive");
+    assert_eq!(output["redacted"], true);
+    let path = Path::new(output["path"].as_str().expect("path"));
+    let files = contents(path);
+    assert_eq!(serde_json::from_str::<Value>(files["request.json"].as_str().expect("JSON member")).expect("valid redacted JSON"), json!({"apiKey":"<secret>"}));
+    assert!(!files["request.json"].as_str().expect("JSON member").contains("sample-secret"));
+    assert!(!root.file("stock.zip").exists());
+    assert!(service.discard(path).expect("owned cleanup"));
+}
