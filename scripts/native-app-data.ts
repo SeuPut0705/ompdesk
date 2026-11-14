@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { AGENT_CONTROL_DEFINITIONS } from "../src/main/agent-control/tools";
+import { VISUALIZE_DEFINITION } from "../src/main/preview/definition";
+import { TERMINAL_READ_DEFINITION } from "../src/main/terminal/agent-tool";
 import { serializeAgentMarkdown } from "../src/shared/agent-definition";
 import { AGENT_TEMPLATES, templateDraft } from "../src/shared/agent-templates";
 import { CHROMIUM_BROWSER_IDS, CHROMIUM_BROWSER_NAMES, CHROMIUM_RELAY_PORTS } from "../src/shared/default-browser";
@@ -28,6 +31,17 @@ function outputs(): { name: string; content: string }[] {
 					name: CHROMIUM_BROWSER_NAMES[id],
 					port: CHROMIUM_RELAY_PORTS[id],
 				})),
+				null,
+				2,
+			)}\n`,
+		},
+		{
+			name: "host-tools.json",
+			content: `${JSON.stringify(
+				{
+					hostTools: [TERMINAL_READ_DEFINITION, VISUALIZE_DEFINITION],
+					controlTools: AGENT_CONTROL_DEFINITIONS,
+				},
 				null,
 				2,
 			)}\n`,
